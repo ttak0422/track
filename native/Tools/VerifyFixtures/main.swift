@@ -58,6 +58,15 @@ do {
     check(written.etag == "def456", "taskwrite: etag")
     check(written.items.count == 1 && written.items[0].state == "DOING", "taskwrite: refreshed items")
 
+    let dashboard = try JSONDecoder().decode(MetricsDashboardResponse.self, from: fixture("metrics-dashboard"))
+    check(dashboard.entities == ["api-a", "api-b"] && dashboard.panels.count == 4 && dashboard.metrics == ["latency", "requests"], "dashboard: generic targets and panels")
+    check(dashboard.panels[0].values[0].display == "120 ms" && dashboard.panels[0].values[0].threshold == 100 && dashboard.panels[0].values[0].state == "Threshold ≥ 100 ms", "dashboard: formatted value and threshold")
+    check(dashboard.panels[1].grid.x == 8 && dashboard.panels[1].grid.w == 16, "dashboard: grid placement preserved")
+    let option = try JSONSerialization.jsonObject(with: Data(dashboard.panels[1].echartsJSON!.utf8)) as! [String: Any]
+    check((option["series"] as? [[String: Any]])?.count == 1, "dashboard: ECharts object preserved")
+    check(dashboard.panels[1].values[0].value == 0 && dashboard.panels[1].values[0].state == "Baseline", "dashboard: real zero remains data")
+    check(dashboard.panels[2].error == "data file missing" && dashboard.panels[3].values.isEmpty && dashboard.panels[3].echartsJSON == nil, "dashboard: errors and empty data stay explicit")
+
     check(TrackID("1785").split().vault == "", "id: bare has no vault")
     let q = TrackID.qualify(vault: "blog", id: "1786")
     check(q.raw == "blog~1786", "id: qualify uses ~")

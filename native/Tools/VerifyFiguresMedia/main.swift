@@ -2,8 +2,69 @@ import AppKit
 import Foundation
 import PDFKit
 import SwiftUI
+import TrackAPI
 import WebKit
 @testable import TrackUI
+
+// A dashboard fence stays a native island; similarly named recent-note dashboards remain distinct.
+let dashboardSegments = GFMBody.segments(markdown: "```metrics-dashboard\n{}\n```", includes: [])
+precondition(dashboardSegments.contains { if case .figure(let figure) = $0 { return figure.kind == .metricsDashboard }; return false })
+let gridDecoder = JSONDecoder()
+let grids = try gridDecoder.decode([MetricsDashboardPanel.Grid].self, from: Data(#"[{"x":0,"y":0,"w":8,"h":4},{"x":8,"y":0,"w":16,"h":8},{"x":0,"y":8,"w":24,"h":4}]"#.utf8))
+let layout = MetricsPanelLayout(grids: grids)
+let wide = layout.frames(width: 948, heights: [100, 240, 100])
+precondition(wide[0].minX == 0 && wide[1].minX == 320 && wide[1].width == 628)
+precondition(wide[2].minY >= wide[1].maxY + 12, "grid rows must not overlap")
+let narrow = layout.frames(width: 400, heights: [100, 240, 100])
+precondition(narrow[1].minY == 112 && narrow[2].minY == 364 && narrow.allSatisfy { $0.width == 400 })
+
+final class DashboardHTTP: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        var bytes = request.httpBody ?? Data()
+        if let stream = request.httpBodyStream {
+            stream.open()
+            defer { stream.close() }
+            var buffer = [UInt8](repeating: 0, count: 1024)
+            while stream.hasBytesAvailable {
+                let count = stream.read(&buffer, maxLength: buffer.count)
+                if count <= 0 { break }
+                bytes.append(contentsOf: buffer.prefix(count))
+            }
+        }
+        let payload = try! JSONSerialization.jsonObject(with: bytes) as! [String: String]
+        precondition(request.url?.path == "/api/metrics/dashboard" && request.httpMethod == "POST")
+        precondition(URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.contains { $0.name == "vault" && $0.value == "other" } == true)
+        precondition(payload["from"] == "2026-09-01" && payload["to"] == "2026-09-19" && payload["entity"] == "api-a" && payload["metric"] == "latency")
+        let spec = payload["spec"]!
+        DispatchQueue.global().asyncAfter(deadline: .now() + (spec == "slow" ? 0.15 : 0.001)) { [self] in
+            let status = spec == "failure" ? 400 : 200
+            let response: [String: Any] = status == 400 ? ["error": "invalid range"] : ["title": spec, "entities": ["api-a", "api-b"], "metrics": ["latency", "requests"], "asof": "", "panels": []]
+            client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: try! JSONSerialization.data(withJSONObject: response))
+            client?.urlProtocolDidFinishLoading(self)
+        }
+    }
+    override func stopLoading() {}
+}
+let dashboardSessionConfig = URLSessionConfiguration.ephemeral
+dashboardSessionConfig.protocolClasses = [DashboardHTTP.self]
+let dashboardClient = TrackClient(baseURL: URL(string: "http://dashboard.invalid")!, session: URLSession(configuration: dashboardSessionConfig))
+let dashboardModel = MetricsDashboardModel()
+func loadDashboard(_ spec: String) async {
+    await dashboardModel.load(client: dashboardClient, spec: spec, vault: "other", from: "2026-09-01", to: "2026-09-19", entity: "api-a", metric: "latency")
+}
+let slowDashboard = Task { await loadDashboard("slow") }
+try await Task.sleep(for: .milliseconds(20))
+await loadDashboard("latest")
+await slowDashboard.value
+precondition(dashboardModel.response?.title == "latest", "late responses cannot overwrite selected filters")
+await loadDashboard("failure")
+precondition(dashboardModel.response == nil && dashboardModel.error == "invalid range" && !dashboardModel.isLoading, "errors must never leave stale panels visible")
+await loadDashboard("refreshed")
+precondition(dashboardModel.response?.title == "refreshed" && dashboardModel.error == nil)
+print("Metrics dashboard checks passed: fence, responsive placement, scoped filters, request races, failure and refresh")
 
 let base = URL(string: "http://127.0.0.1:7331")!
 let asset = GFMBody.assetHref("./assets/図表.echarts.json", vault: "other", baseURL: base)!

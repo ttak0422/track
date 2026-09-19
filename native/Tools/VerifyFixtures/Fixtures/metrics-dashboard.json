@@ -1,0 +1,96 @@
+{
+  "title": "Service health",
+  "entities": [
+    "api-a",
+    "api-b"
+  ],
+  "asof": "2026-09-19T09:00:00Z",
+  "panels": [
+    {
+      "id": "0",
+      "title": "Latency",
+      "type": "stat",
+      "grid": {
+        "x": 0,
+        "y": 0,
+        "w": 8,
+        "h": 4
+      },
+      "unit": "ms",
+      "values": [
+        {
+          "name": "latency",
+          "entity": "api-a",
+          "value": 120,
+          "time": "2026-09-19T09:00:00Z",
+          "display": "120 ms",
+          "threshold": 100,
+          "thresholdDisplay": "100 ms"
+        }
+      ]
+    },
+    {
+      "id": "1",
+      "title": "Requests",
+      "type": "timeseries",
+      "grid": {
+        "x": 8,
+        "y": 0,
+        "w": 16,
+        "h": 8
+      },
+      "unit": "",
+      "values": [
+        {
+          "name": "requests",
+          "entity": "api-a",
+          "value": 0,
+          "time": "2026-09-19T09:00:00Z",
+          "display": "0"
+        }
+      ],
+      "echarts": {
+        "series": [
+          {
+            "type": "line",
+            "data": [
+              0,
+              2
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "2",
+      "title": "Missing",
+      "type": "table",
+      "grid": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 5
+      },
+      "unit": "",
+      "values": [],
+      "error": "data file missing"
+    },
+    {
+      "id": "3",
+      "title": "Empty",
+      "type": "stat",
+      "grid": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 5
+      },
+      "unit": "",
+      "values": []
+    }
+  ],
+  "metrics": [
+    "latency",
+    "requests"
+  ]
+}

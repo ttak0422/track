@@ -219,6 +219,13 @@ public struct TrackClient: Sendable {
         return String(decoding: option, as: UTF8.self)
     }
 
+    /// Resolve the generic metrics dashboard against local vault data.
+    public func renderMetricsDashboard(spec: String, vault: String = "", from: String = "", to: String = "", entity: String = "", metric: String = "") async throws -> MetricsDashboardResponse {
+        try await post(path: "/api/metrics/dashboard", query: vaultQuery(vault), body: [
+            "spec": spec, "from": from, "to": to, "entity": entity, "metric": metric,
+        ])
+    }
+
     /// `POST /api/asset`: imports a picked image into the vault's assets
     /// directory and returns its "assets/<name>" reference for the cover-image
     /// field (api.ts: uploadAsset). Multipart form field "file"; the browser
