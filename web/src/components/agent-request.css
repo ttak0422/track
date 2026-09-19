@@ -1,4 +1,6 @@
-.agent-request-panel { position: fixed; z-index: 30; inset: 0 0 0 auto; width: min(430px, 100vw); padding: 24px; overflow: auto; background: var(--panel); border-left: 1px solid var(--line); box-shadow: -8px 0 24px color-mix(in srgb, var(--text) 10%, transparent); transform: translateX(102%); transition: transform 180ms ease; color: var(--text); }
+/* Floating layer (design variant 3), widened for reading a selected answer. */
+.agent-request-panel { box-sizing: border-box; position: fixed; z-index: 30; inset: 0 0 0 auto; width: min(430px, 100vw); padding: 24px; overflow: auto; background: var(--panel); border-left: 1px solid var(--line); box-shadow: -8px 0 24px color-mix(in srgb, var(--text) 10%, transparent); transform: translateX(102%); transition: transform 180ms ease; color: var(--text); }
+.agent-request-panel.has-result { width: min(760px, 100vw); }
 .agent-request-panel.open { transform: translateX(0); }
 .agent-request-heading, .agent-request-history-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .agent-request-heading h2 { margin: 8px 0 24px; font-size: 20px; }
@@ -21,11 +23,11 @@
 .agent-request-card { border-bottom: 1px solid var(--line); padding: 12px 0; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .request-card-main { flex: 1 1 220px; text-align: left; border: 0; background: none; color: var(--text); cursor: pointer; padding: 0; }
 .request-card-main strong { margin-right: 10px; }.request-card-main span { color: var(--muted); font-size: 13px; }.request-card-main p { margin: 6px 0 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.agent-request-result { border-top: 1px solid var(--line); margin-top: 18px; padding-top: 18px; white-space: pre-wrap; }
+.agent-request-result { border-top: 1px solid var(--line); margin-top: 18px; padding-top: 18px; }
 .agent-request-result-heading, .agent-request-update-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .agent-request-status, .agent-request-update-heading time { color: var(--muted); font-size: 13px; }
 .status-conflict, .status-failed { color: var(--danger, var(--mark)); }
-.agent-request-result pre { box-sizing: border-box; margin: 8px 0 0; padding: 10px; overflow: auto; background: var(--panel-soft); border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--text); font: 13px/1.6 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.agent-request-proposal > pre, .agent-request-bodies pre { box-sizing: border-box; margin: 8px 0 0; padding: 10px; overflow: auto; background: var(--panel-soft); border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--text); font: 13px/1.6 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 .agent-request-proposal { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 12px; }
 .agent-request-update-result { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 12px; }
 .agent-request-update-reason { display: grid; gap: 4px; margin: 10px 0 0; color: var(--muted); white-space: pre-wrap; }
@@ -34,9 +36,10 @@
 .agent-request-bodies > div { min-width: 0; }
 .agent-request-bodies small { display: block; margin-top: 6px; color: var(--faint); font: 11px var(--font-mono); overflow-wrap: anywhere; }
 .agent-request-no-apply { color: var(--muted); font-size: 13px; }
-.agent-request-result section { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 12px; }
-.agent-request-result ul { margin: 8px 0 0; padding-left: 20px; color: var(--muted); white-space: normal; }
-.agent-request-answer { white-space: pre-wrap; line-height: 1.75; }
+.agent-request-result > section { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 12px; }
+.agent-request-result > section > ul { margin: 8px 0 0; padding-left: 20px; color: var(--muted); white-space: normal; }
+.agent-request-result-instruction { color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+.agent-request-answer { margin-top: 18px; overflow-wrap: anywhere; }
 .agent-request-save { display: grid; gap: 9px; border-top: 1px solid var(--line); margin-top: 18px; padding-top: 16px; }
 .agent-request-save input { box-sizing: border-box; width: 100%; padding: 9px 10px; color: var(--text); background: var(--panel-soft); border: 1px solid var(--line); border-radius: var(--radius); font: inherit; }
 .agent-request-saved { border-top: 1px solid var(--line); margin-top: 18px; padding-top: 16px; color: var(--muted); }
