@@ -3,7 +3,7 @@
 ## Decision
 
 Freeze the exact UTF-8 body of an existing note with `track source save`. The existing
-note ID identifies the document; callers reuse it when fetching that document again.
+note ID identifies the working document; callers reuse it when fetching it again.
 The note stays editable and searchable. Its preserved source versions live under
 `.track/sources/<note-id>/<version>/`, separately from the working body and sidecar.
 
@@ -15,16 +15,25 @@ extraction, remote fetching, model inference, or financial timestamp policy is a
 
 Source identities use the source location, media type, body hash and optional original
 hash. Derived identities use pinned input references, method/model, exact settings
-identifier, media type and an optional explicit regeneration key. Deduplication is
-scoped to the owning note ID. Retrying preserves the first recorded time and output;
-changing a recipe or regeneration key keeps a separate result. Callers must reuse the
-same note ID instead of creating a note for every retry.
+identifier, media type and an optional explicit regeneration key. Deduplication spans
+all note IDs in the vault. Retrying preserves the saved owner, recorded time and output;
+changing a recipe or regeneration key keeps a separate result. The returned record
+contains the canonical note ID and version: use both for citations and derived inputs.
+A duplicate working note is neither changed nor deleted and owns no new version.
+Inputs remain exact references; track does not guess a different owner for an input.
 
-Write and verify a temporary directory before publishing it with one rename. Readers
-ignore unfinished stages and verify hashes on every read. Concurrent identical writes
+A process file lock serializes source saves while scanning existing version directories
+and publishing a new record. Write and verify a temporary directory before publishing
+it with one rename. Readers ignore unfinished stages and verify hashes on every read.
+Concurrent identical writes
 converge on one version. A crash can leave an ignored temporary directory, but cannot
 publish a record pointing at an original file that has not been written. Existing
-corrupt versions are reported instead of being silently overwritten.
+corrupt versions are reported instead of being silently overwritten. Legacy duplicates
+keep their existing paths and citation references; saves choose the smallest owner ID
+among matching records after validating every match. A missing owner or missing/corrupt
+record or original in any matching directory fails the save, even if another copy is
+healthy. No automatic retargeting or repair occurs. A completely removed version
+directory cannot be detected by this scan; old citations still fail explicitly.
 
 ## Why the existing features are insufficient
 

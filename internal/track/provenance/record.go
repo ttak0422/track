@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 	"unicode/utf8"
 
@@ -200,13 +201,49 @@ func Save(cfg *config.Config, id int64, opts Options) (Record, bool, error) {
 		}
 	}
 	r.Version = identity(r)
-	dir, _ := recordDir(cfg, r.Reference)
-	if _, err := os.Stat(dir); err == nil {
-		existing, err := Read(cfg, r.Reference)
-		return existing, false, err
-	} else if !os.IsNotExist(err) {
+	root := filepath.Join(cfg.TrackDir(), "sources")
+	if err := os.MkdirAll(root, 0o755); err != nil {
 		return Record{}, false, err
 	}
+	lock, err := os.OpenFile(filepath.Join(root, ".save.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return Record{}, false, err
+	}
+	defer lock.Close() // Closing also releases the process lock after failures or a crash.
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		return Record{}, false, fmt.Errorf("lock source saves: %w", err)
+	}
+	// ponytail: one vault lock and O(n) owner scan; index identities if source volume demands it.
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return Record{}, false, err
+	}
+	var existing Record
+	for _, entry := range entries {
+		owner, err := strconv.ParseInt(entry.Name(), 10, 64)
+		if !entry.IsDir() || err != nil || owner <= 0 || strconv.FormatInt(owner, 10) != entry.Name() {
+			continue
+		}
+		ref := Reference{NoteID: owner, Version: r.Version}
+		dir, _ := recordDir(cfg, ref)
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			continue
+		} else if err != nil {
+			return Record{}, false, err
+		}
+		candidate, err := Read(cfg, ref)
+		if err != nil {
+			return Record{}, false, fmt.Errorf("existing source %d:%s: %w", owner, r.Version, err)
+		}
+		// Validate every matching legacy copy; do not hide a broken owner behind a healthy one.
+		if existing.NoteID == 0 || owner < existing.NoteID {
+			existing = candidate
+		}
+	}
+	if existing.NoteID != 0 {
+		return existing, false, nil
+	}
+	dir, _ := recordDir(cfg, r.Reference)
 	parent := filepath.Dir(dir)
 	if err := os.MkdirAll(parent, 0o755); err != nil {
 		return Record{}, false, err
@@ -229,10 +266,6 @@ func Save(cfg *config.Config, id int64, opts Options) (Record, bool, error) {
 		return Record{}, false, err
 	}
 	if err := os.Rename(stage, dir); err != nil {
-		// Another writer may have published the same immutable version first.
-		if existing, readErr := Read(cfg, r.Reference); readErr == nil {
-			return existing, false, nil
-		}
 		return Record{}, false, fmt.Errorf("publish source version: %w", err)
 	}
 	return r, true, nil

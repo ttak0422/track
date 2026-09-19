@@ -260,7 +260,7 @@ Point the schedule at the right vault with `TRACK_VAULT` (or a `TRACK_CONFIG` fi
 
 ## Preserve source evidence
 
-Use the same existing note ID for each document or derived artifact. Fetch/extract
+Prefer the same existing note ID for each document or derived artifact. Fetch/extract
 content outside track, write its body with the ordinary note commands, then freeze it:
 
 ```sh
@@ -273,7 +273,14 @@ track source save --id 200 --input 100:SOURCE_VERSION \
 ```
 
 `save` returns `{"record":{...},"created":true|false}`; `list` returns
-`{"versions":[...]}`. Records contain `schema`, `note_id`, `version`, `kind`, `title`,
+`{"versions":[...]}`. Identical identities reuse the saved record across note IDs.
+Always use the returned `record.note_id` and `record.version` for citations and inputs,
+including when `created:false`; the requested working note is not rewritten or removed.
+`list` lists only versions owned by the requested note, so a duplicate note may have none.
+Legacy duplicate paths keep working; saves validate all matching copies and choose the
+smallest owner ID. A deleted owner or missing/corrupt record or original in a matching
+directory fails instead of retargeting evidence. Entirely removed version directories
+cannot be detected. Records contain `schema`, `note_id`, `version`, `kind`, `title`,
 `body`, `content_hash`, `format`, `recorded_at`, and either `source` or
 `inputs`/`method`/`settings`/optional `run`. Original-file records also carry
 `original_name` and `original_hash`; the preserved file is
@@ -284,8 +291,9 @@ never an inferred publication or availability time.
 `--input NOTE_ID:VERSION` is repeatable and exclusive with `--source`/`--original`.
 All inputs must exist and pass integrity checks. `--method` and `--settings` are
 required for derived artifacts; include the model, prompt and relevant settings in
-these identifiers. The same input/recipe on the same note returns the first output,
-even if the working body now differs. Use a new `--run KEY` to explicitly preserve a
+these identifiers. Inputs must use exact saved references; duplicate working-note IDs
+are not aliases for returned canonical IDs. The same input/recipe across notes returns
+the saved output, even if the working body now differs. Use a new `--run KEY` to explicitly preserve a
 nondeterministic regeneration, and reuse that key when retrying it. Settings are exact
 identifiers, not semantically normalized JSON. No notes are created by `source save`.
 
