@@ -318,10 +318,13 @@ Duplicate headings/blocks are errors. Body bytes, block markers and line endings
 preserved. Empty selections return line range `0..0`.
 
 Pages require explicit form-feed (`\f`) boundaries already present in the saved text.
-No PDF parsing occurs: the acquisition tool must preserve physical page boundaries.
+`track cite` does not parse PDF binaries. `track-fetch-pdf` extracts local PDFs
+with explicit physical page terminators, including empty pages.
 Printed labels such as `ix` or `1` are not selectors. The form-feed separators are
 excluded from the selected page; pages can share a newline-based line number.
-Documents without boundaries reject `--page`, including page 1. Use a line or block
+A final form feed ends the last page; an optional newline appended by the note
+writer does not create another page. Documents without boundaries reject `--page`,
+including page 1. Use a line or block
 selector when physical pagination has not been captured.
 
 Missing/deleted notes, missing/corrupt saved versions, ambiguous or invalid positions
@@ -329,3 +332,29 @@ produce the standard JSON error with exit code 1. There is no fallback to anothe
 version, the live URL, or a search snippet. ID references are vault-local: use the
 same vault (or `--vault NAME`) for save/list/cite. Renaming is supported; moving the
 note into a different vault does not migrate its source versions.
+
+### Extract a PDF before preserving it
+
+`track-fetch-pdf` requires Poppler (`pdftotext`); its Nix package supplies it, and
+`nix develop` puts it on PATH for development. It only accepts local files. Save the
+original first, then check extraction succeeded before writing a note:
+
+```sh
+track-fetch-pdf --file /tmp/document.pdf --note --out /tmp/document.txt
+# Continue only after successful extraction; the input PDF must remain unchanged.
+track new --title 'Document' < /tmp/document.txt
+# Use the returned note ID; reuse it with `track update` for later versions.
+track source save --id 100 --source 'https://example.org/document.pdf' \
+  --format application/pdf --at '2026-09-19T10:30:00+09:00' --original /tmp/document.pdf
+track cite --id 100 --version SOURCE_VERSION --page 1
+```
+
+The default output is event JSONL with `text`, `page_count`, `empty_pages`, body and
+original hashes, and `time_basis:"retrieved"`. `--at` supplies retrieval time;
+otherwise it records now, never a guessed publication time. `--note` emits only the
+extracted text and page terminators, with no generated heading or provenance prefix
+inside the evidence. `--out` writes either representation and returns a JSON summary.
+Blank/non-text pages retain their physical positions and are reported on stderr and
+in metadata. Entirely textless PDFs fail with an OCR hint; this tool does not run OCR.
+Corrupt/encrypted PDFs, extractor warnings, missing Poppler and timeouts fail without
+emitting a successful record. Printed page labels have no effect on physical indexes.

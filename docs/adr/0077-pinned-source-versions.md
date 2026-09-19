@@ -10,8 +10,8 @@ The note stays editable and searchable. Its preserved source versions live under
 A record contains the original location, media type, SHA-256 body hash, explicitly
 supplied retrieval/generation timestamp, and exact body. An explicitly supplied
 original file is copied byte for byte into that same version directory and hashed.
-Other linked assets and remote resources are not recursively captured. No PDF
-extraction, remote fetching, model inference, or financial timestamp policy is added.
+Other linked assets and remote resources are not recursively captured. PDF extraction belongs to the separate `track-fetch-pdf` converter; the track CLI
+does not fetch remotely, invoke models, or infer financial timestamps.
 
 Source identities use the source location, media type, body hash and optional original
 hash. Derived identities use pinned input references, method/model, exact settings
@@ -50,5 +50,8 @@ corrupt or ambiguous references fail; a missing version never falls back to the
 working text. Heading and block selection reuse the existing Markdown parser.
 Ranges are 1-based inclusive lines. Physical pages require form-feed boundaries
 already present in the saved text; printed page labels are never used as offsets.
+`track-fetch-pdf` preserves one form-feed terminator per physical page, including
+empty pages. A terminal form feed (optionally followed by the note writer's newline)
+ends the final page rather than inventing another page.
 No new wikilink syntax is introduced. Persist the returned note ID, version and
 position in citation metadata; title links alone still refer to the working note.

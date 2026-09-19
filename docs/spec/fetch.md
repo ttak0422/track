@@ -158,3 +158,29 @@ track-fetch-kindle "My Clippings.txt" --out ~/track/data/books.jsonl
 track-fetch-kindle --note --book "The Pragmatic Programmer" "My Clippings.txt" \
   | track new --title "The Pragmatic Programmer — highlights"
 ```
+
+## PDF text extraction
+
+`track-fetch-pdf --file document.pdf` converts a local PDF into one `event` record.
+It invokes Poppler's `pdftotext -enc UTF-8 -eol unix -layout`, retaining one form feed
+per physical page, including blank pages and the final page. It accepts no remote
+fetch operation; `--source URI` records the original location and defaults to a file
+URL. `--title` defaults to the filename. `--at RFC3339` records retrieval time,
+defaulting to now, with `time_basis: retrieved` to distinguish it from publication.
+
+Extra fields are `text`, `page_count`, `empty_pages` (1-based), `format`,
+`original_hash`, and `content_hash`. Hashes are SHA-256 over the original PDF and
+exact extracted UTF-8 bytes. Conversion uses a private copy of the input so the hash
+and text refer to the same bytes. `--timeout` bounds extraction (default 30s).
+
+`--note` emits the exact extracted text without a prefix, suitable for note creation
+and `track source save --original document.pdf`. `--out FILE` writes JSONL or note
+text and returns a JSON summary. The input PDF cannot be the output (including
+hardlink/symlink aliases). Check success before passing the result to note creation;
+do not create an empty note after an extraction failure.
+
+Blank pages remain in place and are reported, since absence of extractable text can
+mean either a blank page or an image requiring OCR. An entirely textless PDF fails.
+Extractor diagnostics, invalid PDFs, missing Poppler and timeouts are errors; OCR,
+layout reconstruction into Markdown and inference of printed page labels are outside
+this converter. The packaged binary includes Poppler on its runtime PATH.

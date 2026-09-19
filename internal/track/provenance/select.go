@@ -51,6 +51,12 @@ func Select(body string, position Position) (Selection, error) {
 			return Selection{}, fmt.Errorf("page selection requires explicit form-feed boundaries")
 		}
 		pages := strings.Split(body, "\f")
+		// Poppler terminates every page, including the last. track new may append one
+		// newline after that terminator; neither creates an extra physical page.
+		tail := pages[len(pages)-1]
+		if tail == "" || tail == "\n" || tail == "\r\n" {
+			pages = pages[:len(pages)-1]
+		}
 		if position.Page > len(pages) {
 			return Selection{}, fmt.Errorf("page %d is out of range (document has %d pages)", position.Page, len(pages))
 		}

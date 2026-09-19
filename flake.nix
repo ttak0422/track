@@ -37,6 +37,7 @@
             # Builtin templates are embedded (builtin/*.template.md via go:embed), so the non-.go assets
             # must be part of the build source too.
             ./builtin
+            ./internal/fetch/pdf/testdata
           ];
 
           # The React frontend source, excluding generated/installed directories.
@@ -106,6 +107,25 @@
             };
             vendorHash = "sha256-8One/9Oy0oekuH2tC+ADvVf1KMkXacoXgTDHiz5hzVs=";
             subPackages = [ "cmd/track-fetch-web" ];
+          };
+
+          track-fetch-pdf = pkgs.buildGoModule {
+            pname = "track-fetch-pdf";
+            version = "0.1.0";
+            src = fileset.toSource {
+              root = ./.;
+              fileset = goFiles;
+            };
+            vendorHash = "sha256-8One/9Oy0oekuH2tC+ADvVf1KMkXacoXgTDHiz5hzVs=";
+            subPackages = [ "cmd/track-fetch-pdf" ];
+            nativeBuildInputs = [
+              pkgs.makeWrapper
+              pkgs.poppler-utils
+            ];
+            postInstall = ''
+              wrapProgram $out/bin/track-fetch-pdf \
+                --prefix PATH : ${lib.makeBinPath [ pkgs.poppler-utils ]}
+            '';
           };
 
           track-fetch-elem = pkgs.buildGoModule {
@@ -184,6 +204,7 @@
               track-cli
               track-fetch-rss
               track-fetch-web
+              track-fetch-pdf
               track-fetch-elem
               track-fetch-jquants
               track-fetch-kindle
@@ -195,6 +216,7 @@
             packages = [
               pkgs.go
               pkgs.nodejs_22
+              pkgs.poppler-utils
             ];
           };
         };
