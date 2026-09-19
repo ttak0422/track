@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderMetricsDashboard } from "../../api";
 import type { MetricsDashboardResponse } from "../../types";
-import { MetricsDashboard } from "./MetricsDashboard";
+import { MetricsDashboard, MetricsDashboardSnapshot } from "./MetricsDashboard";
 import { NoteVaultContext } from "./context";
 
 vi.mock("../../api", async (importOriginal) => ({
@@ -85,5 +85,25 @@ describe("MetricsDashboard", () => {
     expect(screen.queryByRole("region", { name: "CPU" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Copy code" })).toBeInTheDocument();
     expect(mockRender).toHaveBeenCalledTimes(3);
+  });
+});
+
+
+describe("MetricsDashboardSnapshot", () => {
+  it("renders published panels without a query provider, live requests or controls", () => {
+    render(<MetricsDashboardSnapshot text={JSON.stringify(dashboard)} />);
+    expect(within(screen.getByRole("region", { name: "CPU" })).getByText("82%")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Resolved chart" })).toBeInTheDocument();
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.getByText(/Published snapshot/)).toBeInTheDocument();
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Refresh" })).not.toBeInTheDocument();
+    expect(mockRender).not.toHaveBeenCalled();
+  });
+
+  it.each(["null", "{", '{"title":"Bad","asof":"","panels":[{}]}'])("shows invalid snapshot source without crashing: %s", (text) => {
+    render(<MetricsDashboardSnapshot text={text} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("Invalid metrics dashboard snapshot");
+    expect(mockRender).not.toHaveBeenCalled();
   });
 });

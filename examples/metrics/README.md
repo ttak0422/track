@@ -29,5 +29,7 @@ selected period, not a sum across services. Threshold bands are presentation, in
 For finance, derive `metric` JSONL with track-finance and replace the datasource filename and
 metric queries. There are no ticker, exchange, trading-calendar or RSI rules in this dashboard.
 
-Static exports preserve the fence as source with a live-workspace notice. Standalone `track render`
+Static exports render a build-time snapshot of the same panels, including chart tooltips and legends.
+Shared filters and refresh require the live readers; publish again to update the snapshot. Source
+JSONL files are not copied, but the displayed series data is included. Standalone `track render`
 continues to accept viewspec/article files, not Grafana dashboard JSON.

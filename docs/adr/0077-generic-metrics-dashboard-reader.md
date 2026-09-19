@@ -36,5 +36,8 @@ Markdown from ADR 0076; already-created viewspec notes still work. See the speci
 
 The first version uses JSON-authored placement rather than a drag editor. It does not implement
 PromQL, Grafana variables, transformations, arbitrary reductions, or static-site interactivity.
-Static readers show an explicit live-workspace notice and source. Those capabilities can be added
-when required without replacing the metric data model or existing chart engine.
+Static exports resolve dashboards with the same Go resolver and emit `metrics-dashboard-snapshot`
+blocks containing panel values and ECharts options. The Web reader reuses its panel renderer without
+live queries or shared filter controls. Chart tooltips and legends remain available. Source JSONL
+files are not copied; the visible series values are included in the published output. Updating them
+requires rebuilding the site. This also lets the help site show actual dashboard examples.

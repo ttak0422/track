@@ -1,7 +1,7 @@
 import { useContext, useState } from "react";
 import { useMetricsDashboardQuery } from "../../queries";
 import { STATIC_MODE } from "../../runtime";
-import type { MetricsDashboardFilters, MetricsDashboardPanel, MetricsDashboardValue } from "../../types";
+import type { MetricsDashboardFilters, MetricsDashboardPanel, MetricsDashboardResponse, MetricsDashboardValue } from "../../types";
 import { CodeBlock } from "./CodeBlock";
 import { NoteVaultContext } from "./context";
 import { EChartsBlock } from "./EChartsBlock";
@@ -47,21 +47,49 @@ export function MetricsDashboard({ text }: { text: string }) {
       {query.isError ? <div role="alert">
         <p>Dashboard error: {query.error.message}</p>
         <CodeBlock lang="json" text={text} />
-      </div> : data && !query.isPlaceholderData ? <>
-        <p className="metrics-dashboard-asof">Latest sample: {data.asof ? <time dateTime={data.asof}>{data.asof}</time> : "No data"}</p>
-        {data.panels.length === 0 && <p>No panels configured.</p>}
-        <div className="metrics-dashboard-grid">
-          {[...data.panels].sort((a, b) => a.grid.y - b.grid.y || a.grid.x - b.grid.x).map((panel) => (
-            <section className="metrics-dashboard-panel" key={panel.id} aria-label={panel.title}
-              style={{ gridColumn: `${panel.grid.x + 1} / span ${panel.grid.w}`, gridRow: `${panel.grid.y + 1} / span ${panel.grid.h}` }}>
-              <h3>{panel.title}</h3>
-              <PanelContent panel={panel} />
-            </section>
-          ))}
-        </div>
-      </> : null}
+      </div> : data && !query.isPlaceholderData ? <DashboardPanels data={data} /> : null}
     </section>
   );
+}
+
+// Build-time snapshots share the panel renderer and never start a live query.
+export function MetricsDashboardSnapshot({ text }: { text: string }) {
+  let data: MetricsDashboardResponse;
+  try {
+    data = JSON.parse(text);
+    if (!data || typeof data.title !== "string" || typeof data.asof !== "string" || !Array.isArray(data.panels) || data.panels.length > 100 || !data.panels.every((p) =>
+      p && typeof p.id === "string" && typeof p.title === "string" && ["stat", "table", "timeseries"].includes(p.type) &&
+      p.grid && [p.grid.x, p.grid.y, p.grid.w, p.grid.h].every(Number.isSafeInteger) &&
+      p.grid.x >= 0 && p.grid.y >= 0 && p.grid.y <= 10000 && p.grid.w > 0 && p.grid.x + p.grid.w <= 24 && p.grid.h > 0 && p.grid.h <= 100 &&
+      (p.error === undefined || typeof p.error === "string") &&
+      (p.echarts === undefined || (p.echarts !== null && typeof p.echarts === "object" && !Array.isArray(p.echarts))) &&
+      Array.isArray(p.values) && p.values.every((v) => v && [v.name, v.entity, v.time, v.display].every((s) => typeof s === "string") &&
+        (v.threshold === undefined || Number.isFinite(v.threshold)) && (v.thresholdDisplay === undefined || typeof v.thresholdDisplay === "string"))
+    )) throw new Error("Invalid dashboard snapshot");
+  } catch {
+    return <div role="alert"><p>Invalid metrics dashboard snapshot.</p><CodeBlock lang="json" text={text} /></div>;
+  }
+  return <section className="metrics-dashboard" aria-label={data.title || "Metrics dashboard"}>
+    <h2>{data.title || "Metrics dashboard"}</h2>
+    <p>Published snapshot. Filters and refresh are available in the live workspace.</p>
+    <DashboardPanels data={data} />
+  </section>;
+}
+
+function DashboardPanels({ data }: { data: MetricsDashboardResponse }) {
+  return <>
+    <p className="metrics-dashboard-asof">Latest sample: {data.asof ? <time dateTime={data.asof}>{data.asof}</time> : "No data"}</p>
+    {data.panels.length === 0 && <p>No panels configured.</p>}
+    <div className="metrics-dashboard-grid">
+      {[...data.panels].sort((a, b) => a.grid.y - b.grid.y || a.grid.x - b.grid.x).map((panel) => (
+        <section className="metrics-dashboard-panel" key={panel.id} aria-label={panel.title}
+          style={{ gridColumn: `${panel.grid.x + 1} / span ${panel.grid.w}`, gridRow: `${panel.grid.y + 1} / span ${panel.grid.h}` }}>
+          <h3>{panel.title}</h3>
+          <PanelContent panel={panel} />
+        </section>
+      ))}
+    </div>
+  </>;
 }
 
 function thresholdState(value: MetricsDashboardValue): string {

@@ -164,6 +164,8 @@ track metrics alert --rules rules.yaml --capture "Monitor#Signals"
 `metrics dashboard` now emits one `metrics-dashboard` fence for the live Web/Native readers,
 retaining stat/table panels and grid placement. Copy its Markdown into a note. Common period,
 entity and metric controls operate on local metric JSONL; refresh does not fetch external data.
+Static export resolves the panels at build time into a published snapshot, without shared filters
+or live refresh. Rebuild the site to publish updated metric values.
 See `visualization.md` for the supported Grafana subset and `examples/metrics/` for a generic sample.
 
 ## Generations and Deletion

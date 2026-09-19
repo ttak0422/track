@@ -771,8 +771,14 @@ events invalidate dashboards too. External fetching and derived metrics remain w
 
 Unsupported panel types, template variables, transformations, percentage thresholds, and reductions
 other than latest are errors. Extra Grafana presentation fields outside this list have no effect;
-this is not general Grafana compatibility. Static exports show a live-workspace notice and the
-source fence; they do not resolve an interactive dashboard. Standalone `track render` still takes
+this is not general Grafana compatibility. Static exports resolve published dashboard fences with
+the same engine and emit `metrics-dashboard-snapshot` blocks containing the response JSON. The
+Web reader renders the same panel grid, values, thresholds and charts without API calls. Shared
+filters and refresh are omitted; chart tooltips and legends remain available. Snapshots include all
+matching series and dates at build time, and update only when rebuilt. Source JSONL files are not
+copied, but resolved series data is published. Invalid specs show an error with their source; data
+errors remain local to panels. Unresolved fences (for example in a transclusion) retain a live-reader
+notice and source. Standalone `track render` still takes
 viewspec/article JSON, not a Grafana dashboard.
 
 A complete non-financial fixture is in `examples/metrics/`.
