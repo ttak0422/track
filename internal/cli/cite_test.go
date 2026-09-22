@@ -48,3 +48,32 @@ func TestCitePinnedEvidence(t *testing.T) {
 		t.Fatalf("resolved deleted reference: %v", out)
 	}
 }
+
+func TestCitePageTerminatorsSurviveSaveAndUpdate(t *testing.T) {
+	vault := t.TempDir()
+	run := func(args ...string) map[string]any {
+		t.Helper()
+		out, code := runIn(t, vault, args...)
+		if code != 0 {
+			t.Fatalf("%v: %v", args, out)
+		}
+		return out
+	}
+	run("new", "--id", "100", "--title", "Pages", "--body", "one\f\f")
+	saved := run("source", "save", "--id", "100", "--source", "https://example.test/pages", "--format", "text/plain", "--at", "2026-09-22T00:00:00Z")
+	version := saved["record"].(map[string]any)["version"].(string)
+
+	if got := run("cite", "--id", "100", "--version", version, "--page", "2"); got["body"] != "" || got["page"] != float64(2) {
+		t.Fatalf("saved blank page = %#v", got)
+	}
+	run("update", "--id", "100", "--body", "updated\f")
+	if got := run("cite", "--id", "100", "--page", "1"); got["body"] != "updated" {
+		t.Fatalf("updated page = %#v", got)
+	}
+	if out, code := runIn(t, vault, "cite", "--id", "100", "--page", "2"); code != 1 || out["error"] == nil {
+		t.Fatalf("note-save newline created a page: %#v", out)
+	}
+	if got := run("cite", "--id", "100", "--version", version, "--page", "1"); got["body"] != "one" {
+		t.Fatalf("old version changed after update: %#v", got)
+	}
+}
