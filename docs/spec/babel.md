@@ -26,7 +26,7 @@ print(1)
 Block-level Babel options should be carried in the fence info string after the language, preserving a valid Markdown fenced code block:
 
 ````markdown
-```lua :name hello :results output verbatim :session repl
+```lua :name hello :results output verbatim :session none
 print(1)
 ```
 ````
@@ -50,20 +50,22 @@ int main(void) {
 
 The block above still executes with the full C source. The Neovim frontend only conceals body lines not listed by `:visible-lines`; fence lines remain visible, and the cursor row is revealed for editing. Supported range syntax is a comma-separated list such as `4`, `4-5`, or `4-5,8`.
 
-## Proposed Metadata Shape
+## Stored Metadata Shape
 
-The current metadata schema is version 1. Babel support should require a future metadata version because result storage adds new durable fields.
+Babel result storage was introduced in sidecar v2. New runs carrying input and execution hashes use v12; older results remain readable as metadata but must be rerun before restoration or reuse.
 
 ```yaml
-version: 2
+version: 12
 title: Example
 blocks:
   hello:
     language: lua
     header_args:
       results: [output, verbatim, replace]
-      session: repl
+      session: none
     body_hash: sha256:...
+    input_hash: sha256:...
+    execution_key: sha256:...
     last_run:
       started_at: "2026-05-30T12:00:00Z"
       finished_at: "2026-05-30T12:00:00Z"
@@ -87,11 +89,11 @@ When a source block omits a Babel header argument, track uses these defaults:
 | `:name` | none | Unnamed blocks get a generated result id from note id, ordinal, language, and body hash. |
 | `:eval` | `yes` | A user-invoked execution command may run the block. `:eval query` requires confirmation and `:eval no` refuses execution. |
 | `:results` | `output replace` | `:results` accepts multiple tokens. The current default captures stdout, stderr, and exit status, then stores only the latest result for the block in the sidecar metadata. |
-| `:cache` | `no` | Execution runs when requested; stored results are restored only when the body hash and metadata still match. |
+| `:cache` | `no` | `yes` reuses only a successful result with matching document inputs, executor configuration, and resolved working directory. |
 | `:var` | none | No input variables are supplied. Declared variables reach the block as process environment entries; a value naming another block in the note resolves to that block's stored result. |
 | `:session` | `none` | Run without a long-lived interpreter session; effectively one process per block. |
 | `:dir` | note directory | Execute relative to the note file's directory unless `:dir` is set. |
-| `:exports` | `code` for future export semantics | Parsed as metadata only; track has no exporter yet. |
+| `:exports` | `code` | Markdown export includes code/results/both/none without execution. Web/static currently preserve source and do not apply this setting. |
 | `:noweb` | `no` | Do not expand `<<name>>` references. |
 | `:tangle` | `no` | Do not write source blocks to output files. |
 | `:visible-lines` | none | Track-specific Neovim display hint. Execution and stored block bodies still use the full source. |
@@ -102,12 +104,12 @@ These defaults are intentionally close to Org Babel where practical, but track s
 
 ## Support Matrix
 
-| Org Babel syntax or feature | Markdown-compatible syntax | Initial support | Notes |
+| Org Babel syntax or feature | Markdown-compatible syntax | Current support | Notes |
 | --- | --- | --- | --- |
 | Source block language | <code>```lua</code> | Yes | Treat the first info-string token as the language. |
-| Language activation | Track execution adapter configuration | Yes later | Org supports many language identifiers, but evaluation requires per-language support. track should make language executors explicit. |
+| Language activation | `TRACK_BABEL_<LANG>` environment configuration | Yes | Execution requires an explicitly configured command; tangling and preview need no executor. |
 | Source block header arguments | <code>```lua :results output</code> | Yes | Parse `:<key> <value>` pairs after the language. Boolean flags in `:results` are handled as tokens. |
-| Source block switches | Same info string if needed | No initially | Org switches are mostly export/line-number behavior; defer until track has export/render support. |
+| Source block switches | Same info string if needed | No initially | Org switches are mostly export/line-number behavior; switch syntax and rendering remain deferred. |
 | `#+NAME: <name>` | `:name <name>` in fence info string | Yes | Needed for stable result lookup, calls, and noweb. |
 | `#+HEADER:` multi-line headers | None initially | No | Markdown has no common multi-line fence metadata. Prefer single-line fence args. |
 | Inline source `src_lang{body}` | Markdown inline code with an optional future extension | No | Inline evaluation complicates parsing and display. Defer. |
@@ -120,8 +122,8 @@ These defaults are intentionally close to Org Babel where practical, but track s
 | `:eval yes` | `:eval yes` | Yes | Allows execution subject to track security policy. |
 | `:eval no` / `never` | `:eval no` | Yes | Block is never executed. |
 | `:eval query` | `:eval query` | Yes | Frontend asks before execution. CLI should require an explicit confirmation flag. |
-| `:eval no-export` / `never-export` | Parsed, no effect initially | Later | Export is not currently a track feature. |
-| `:eval query-export` | Parsed, no effect initially | Later | Export is not currently a track feature. |
+| `:eval no-export` / `never-export` | Parsed, no effect initially | Later | Export never executes blocks; these values have no extra effect during explicit execution. |
+| `:eval query-export` | Parsed, no effect initially | Later | Export never executes blocks; these values have no extra effect during explicit execution. |
 | `:results value` | `:results value` | Later | Requires language-specific value capture. Start with stdout-oriented `output`. |
 | `:results output` | `:results output` | Yes | Capture stdout/stderr/exit status in metadata. |
 | `:results table` / `vector` | `:results table` | Later | Requires table serialization and type conversion. |
@@ -139,7 +141,7 @@ These defaults are intentionally close to Org Babel where practical, but track s
 | `:results none` | `:results none` | Yes | Execute without storing or displaying result. |
 | `:results discard` | `:results discard` | Yes | Execute and ignore result completely. |
 | `:results append` / `prepend` | Same tokens | Later | Metadata can keep result history, but initial support should store only the latest result. |
-| `:cache yes/no` | `:cache yes` | Yes | Use body hash plus normalized header args and variable refs. |
+| `:cache yes/no` | `:cache yes` | Yes | Match normalized headers, expanded source, resolved variables, executor command/args, and resolved working directory. Only successful runs are reused, after checking `:eval`. |
 | `:var name=value` literals | `:var x=1` | Yes | Injected into the block's process environment as `x=1`; every value is a string (numbers arrive as decimal text). Keys must be valid environment names, and fence-info values cannot contain whitespace — use `--var` for those. |
 | `:var name=table` Org table refs | Same token | No initially | track Markdown does not define named tables yet. |
 | `:var name=block(args)` | `:var x=<block-name>` (no arguments) | Partial | A value naming another named block feeds that block's stored result (value, else stdout). The dependency is never executed automatically; a missing stored result is an error naming the block to `exec` first. |
@@ -152,11 +154,11 @@ These defaults are intentionally close to Org Babel where practical, but track s
 | `:mkdirp yes/no` | Same token | Later | Tangle always creates missing parent directories inside the vault, so a toggle is not needed yet; `:dir` and file results may still want it. |
 | `:prologue` / `:epilogue` | Same token | Later | Requires careful quoting in fence info strings. |
 | `:post block(...)` | Same token | Later | Requires named block calls and result piping. |
-| `:exports code/results/both/none` | Same token | Parsed only | track has no exporter yet; keep for future compatibility. |
+| `:exports code/results/both/none` | Same token | Partial | Implemented by Markdown export. Web/static preserve source without filtering or stored results. |
 | `:noweb no` | `:noweb no` | Yes | Default: do not expand `<<...>>`. |
 | `:noweb yes` | `:noweb yes` | Yes | Expands `<<name>>` recursively against the note's named blocks before execution and before tangling. A whole-line reference keeps its indentation; unresolved references and cycles are errors naming the chain. |
 | `:noweb tangle` / `eval` | Same tokens | Yes | Expand only in that phase (tangling or evaluation). |
-| `:noweb` export variants | Same tokens | Later | Export-phase expansion waits on export semantics for babel blocks. |
+| `:noweb` export variants | Same tokens | Later | Export-phase noweb variants remain unimplemented; Markdown export currently preserves the source body. |
 | `:noweb-ref <name>` | Same token | Later | Allows multiple blocks to share one noweb reference. |
 | `:tangle no` | `:tangle no` | Yes | Default: no file output. |
 | `:tangle yes` | `:tangle yes` | No | Rejected with an error: track has no derived output naming, so a tangled block must name its file. |
@@ -169,14 +171,14 @@ These defaults are intentionally close to Org Babel where practical, but track s
 | `:file`, `:output-dir`, `:file-ext`, `:file-desc`, `:file-mode`, `:sep` | Same tokens | Later | File artifact handling should be designed as a separate storage policy. |
 | Track source display | `:visible-lines 4-5,8` | Yes | Track-specific editor display hint. Org Babel has no generic header for showing only selected source lines; Obsidian has similar behavior through plugins such as Codeblock Customizer rather than a Markdown standard. |
 
-## Initial Implementation Set
+## Implemented Block Workflow
 
-Start with execution of ordinary fenced code blocks:
+Ordinary fenced code blocks support:
 
 - Parse fenced code blocks in Markdown notes.
 - Read language from the first info-string token.
 - Read block args from Org-style `:<key> <value>` tokens in the rest of the info string.
-- Support `:name`, `:results output`, `:results verbatim`, `:results replace`, `:results silent`, `:results none`, `:results discard`, `:eval yes/no/query`, `:cache yes/no`, `:var` literal values, `:session none`, `:dir`, `:exports` as parsed metadata, `:noweb no`, `:tangle no`, and `:visible-lines` as an editor-only display hint.
+- Support `:name`, `:results output`, `:results verbatim`, `:results replace`, `:results silent`, `:results none`, `:results discard`, `:eval yes/no/query`, `:cache yes/no`, `:var` literal values, `:session none`, `:dir`, `:exports` in Markdown export, noweb expansion, explicit-file tangling, and `:visible-lines` as an editor-only display hint.
 - Complete configured languages, supported header keys, and fixed header values in fence info strings through LSP completion; `:` starts header-key completion, and accepted header keys insert one trailing space before value completion.
 - Store execution result metadata outside the Markdown body.
 - Keep stdout, stderr, exit code, wall-clock timestamps, status, body hash, and normalized header args.
@@ -198,9 +200,43 @@ Beyond per-block execution, the CLI supports the noweb/tangle/call trio:
   identity: the sidecar keeps the body hash of the block as written, so `babel restore` still matches
   the file on disk.
 
+## Result Validity and Preview
+
+`exec` and `run` accept `--dry-run` to return the expanded body, resolved variables, working directory,
+and evaluation policy without running a process or storing a result. Preview works for `:eval no`
+and `:eval query` without confirmation and without a configured language executor. References still
+need valid stored results. `restore --body-stdin` validates and locates results against an editor's
+current buffer, including unsaved changes.
+
+Every stored run has an `input_hash` covering its language, all parsed headers, noweb-expanded body,
+and resolved string variables. Restore, Markdown export, and variable references share this check;
+changed dependencies, header edits, and CLI overrides that differ from the written defaults prevent
+stale results from being presented as current. Failed runs may be displayed, but cannot supply a
+variable reference or a cache hit. Legacy records without hashes require a rerun.
+
+An `execution_key` additionally covers the configured executor command/arguments and resolved working
+directory. `:cache yes` reuses only successful matching runs. Cache is opt-in: ambient environment,
+external files, and interpreter binary contents are not tracked, so blocks depending on them should
+keep `:cache no`. The note body and raw block identity are unchanged by expansion.
+
+Tangle validates every destination before any output is written. Paths stay inside the resolved vault,
+including through symlinks; `.track/` and files directly managed under `note/`, `journal/`, and
+`template/` are protected. Different path spellings resolving to the same output are rejected instead
+of overwriting one another. Equal literal targets still concatenate in document order. Validation is
+not a multi-file filesystem transaction: an I/O failure during writing can leave earlier outputs updated.
+
+For a complete note-to-files and note-to-website example, see
+[`examples/literate-dotfiles`](../../examples/literate-dotfiles/README.md). Babel remains generic:
+package realization, home-directory deployment, and Nix activation belong to a separate integration.
+
 ## Deferred Work
 
-Defer features that require a richer document model or file artifact policy:
+Rows marked Later/No/Metadata only are not execution capabilities. The parser retains unknown headers, but the runner does not implement them; do not rely on named sessions, value capture, or append/prepend being honored. Remaining design groups are:
+
+- Global/language/note defaults and quoted header values, including prologue/epilogue.
+- Tangle controls: noweb-ref, padline, shebang, tangle-mode, comments, no-expand, and export variants.
+- Result history and format-specific rendering.
+- Richer document/result models and artifact policy:
 
 - Inline source and inline calls.
 - Automatic dependency-graph execution (a `:var` block reference reads the stored result and never
@@ -208,7 +244,7 @@ Defer features that require a richer document model or file artifact policy:
 - Table/list typed variables and result coercion (variables are environment strings).
 - Sessions.
 - File/graphics results.
-- Export behavior.
+- Web/static `:exports` and stored-result integration; export-phase noweb expansion.
 - Org property drawer compatibility.
 
 ## Source References

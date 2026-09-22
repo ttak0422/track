@@ -9,7 +9,7 @@ import (
 
 // BlockMeta is the stored, post-parse view of a source block: its language, normalized header
 // arguments, the body hash it was last seen with, and the most recent run. It lives in the note
-// sidecar metadata (schema version 2). Keeping it here, beside the parser, lets the note package
+// sidecar metadata (results in v2, input/execution hashes in v12). Keeping it here, beside the parser, lets the note package
 // embed it without the parser depending on note.
 type BlockMeta struct {
 	Language     string              `yaml:"language"`

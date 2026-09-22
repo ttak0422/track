@@ -110,10 +110,14 @@ func cmdBabelExec(args []string) int {
 		return fail("%v", err)
 	}
 	if *dryRun {
+		eval := firstHeader(block, "eval")
+		if eval == "" {
+			eval = "yes"
+		}
 		return emit(map[string]any{
 			"dry_run": true, "id": block.ID(n.ID), "language": block.Language,
 			"body": runBlock.Body, "vars": vars, "dir": workDir,
-			"eval": firstHeader(block, "eval"),
+			"eval": eval,
 		})
 	}
 	inputHash := babel.InputHash(block, runBlock.Body, vars)
