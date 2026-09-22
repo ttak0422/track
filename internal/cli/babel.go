@@ -50,6 +50,7 @@ func cmdBabelExec(args []string) int {
 	ordinal := fs.Int("ordinal", -1, "0-based block index to run (alternative to --name)")
 	line := fs.Int("line", -1, "0-based line inside the block to run (e.g. the editor cursor row)")
 	bodyStdin := fs.Bool("body-stdin", false, "read note body from stdin instead of disk")
+	dryRun := fs.Bool("dry-run", false, "preview expanded source and resolved variables without executing or storing")
 	yes := fs.Bool("yes", false, "confirm execution for blocks with :eval query")
 	timeout := fs.Duration("timeout", 30*time.Second, "max run time per block (0 = no limit)")
 	var cliVars varsFlag
@@ -107,6 +108,13 @@ func cmdBabelExec(args []string) int {
 		return fail("%v", err)
 	}
 
+	if *dryRun {
+		return emit(map[string]any{
+			"dry_run": true, "id": block.ID(n.ID), "language": block.Language,
+			"body": runBlock.Body, "vars": vars, "dir": workDir,
+			"eval": firstHeader(block, "eval"),
+		})
+	}
 	res, err := babel.NewRunner(cfg.BabelLanguages).Run(runBlock, babel.RunOptions{
 		Dir:       workDir,
 		Confirmed: *yes,
