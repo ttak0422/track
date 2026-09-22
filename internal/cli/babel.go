@@ -236,24 +236,35 @@ func cmdBabelTangle(args []string) int {
 
 	noteDir := filepath.Dir(n.Path)
 	targets := make([]map[string]any, 0, len(plan))
-	for _, t := range plan {
+	paths := make([]string, len(plan))
+	seen := make(map[string]string)
+	for i, t := range plan {
 		abs, err := babel.ResolveTanglePath(noteDir, cfg.VaultDir, t.Path)
 		if err != nil {
 			return fail("%v", err)
 		}
-		if !*dryRun {
-			if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-				return fail("tangle %s: %v", t.Path, err)
-			}
-			if err := os.WriteFile(abs, []byte(t.Content), 0o644); err != nil {
-				return fail("tangle %s: %v", t.Path, err)
-			}
+		if previous, ok := seen[abs]; ok {
+			return fail("tangle %q and %q resolve to the same output file", previous, t.Path)
 		}
+		seen[abs] = t.Path
+		paths[i] = abs
 		targets = append(targets, map[string]any{
 			"path":   abs,
 			"blocks": t.Blocks,
 			"bytes":  len(t.Content),
 		})
+	}
+
+	// Validate the entire plan before creating directories or truncating any output.
+	if !*dryRun {
+		for i, t := range plan {
+			if err := os.MkdirAll(filepath.Dir(paths[i]), 0o755); err != nil {
+				return fail("tangle %s: %v", t.Path, err)
+			}
+			if err := os.WriteFile(paths[i], []byte(t.Content), 0o644); err != nil {
+				return fail("tangle %s: %v", t.Path, err)
+			}
+		}
 	}
 
 	return emit(map[string]any{"targets": targets, "dry_run": *dryRun})
@@ -367,17 +378,37 @@ func selectBlock(blocks []babel.Block, name string, ordinal, line int) (babel.Bl
 
 // resolveDir resolves a block's :dir relative to the note directory and refuses paths outside the vault.
 func resolveDir(noteDir, vaultDir, dirArg string) (string, error) {
-	if dirArg == "" {
-		return noteDir, nil
+	noteDir, err := filepath.Abs(noteDir)
+	if err != nil {
+		return "", fmt.Errorf(":dir %q: %w", dirArg, err)
+	}
+	vaultClean, err := filepath.Abs(vaultDir)
+	if err != nil {
+		return "", fmt.Errorf(":dir %q: %w", dirArg, err)
 	}
 	candidate := dirArg
+	if candidate == "" {
+		candidate = noteDir
+	}
 	if !filepath.IsAbs(candidate) {
 		candidate = filepath.Join(noteDir, candidate)
 	}
 	candidate = filepath.Clean(candidate)
-	vaultClean := filepath.Clean(vaultDir)
-	if candidate != vaultClean && !strings.HasPrefix(candidate, vaultClean+string(filepath.Separator)) {
+	rel, err := filepath.Rel(vaultClean, candidate)
+	if err != nil || !filepath.IsLocal(rel) {
 		return "", fmt.Errorf(":dir %q resolves outside the vault", dirArg)
+	}
+	resolvedVault, err := filepath.EvalSymlinks(vaultClean)
+	if err != nil {
+		return "", fmt.Errorf(":dir %q: %w", dirArg, err)
+	}
+	candidate, err = filepath.EvalSymlinks(candidate)
+	if err != nil {
+		return "", fmt.Errorf(":dir %q: %w", dirArg, err)
+	}
+	rel, err = filepath.Rel(resolvedVault, candidate)
+	if err != nil || !filepath.IsLocal(rel) {
+		return "", fmt.Errorf(":dir %q escapes the vault through a symlink", dirArg)
 	}
 	info, err := os.Stat(candidate)
 	if err != nil {
