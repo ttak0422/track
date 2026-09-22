@@ -93,6 +93,11 @@ func TestExportBabelResultsFromMetadata(t *testing.T) {
 			},
 		},
 	}
+	b := babel.ParseBlocks(n.Body)[0]
+	meta := b.Meta()
+	meta.InputHash = babel.InputHash(b, b.Body, nil)
+	meta.LastRun = n.Meta.Blocks["hi"].LastRun
+	n.Meta.Blocks["hi"] = meta
 	got := exportMarkdown(t, n, Options{}).Markdown
 	want := "```\n1\n```\n"
 	if got != want {
@@ -111,6 +116,11 @@ func TestExportBabelBothEmitsSourceAndResults(t *testing.T) {
 			},
 		},
 	}
+	b := babel.ParseBlocks(n.Body)[0]
+	meta := b.Meta()
+	meta.InputHash = babel.InputHash(b, b.Body, nil)
+	meta.LastRun = n.Meta.Blocks["hi"].LastRun
+	n.Meta.Blocks["hi"] = meta
 	got := exportMarkdown(t, n, Options{}).Markdown
 	want := "```lua\nprint(1)\n```\n\n```\n1\n```\n"
 	if got != want {
@@ -170,5 +180,21 @@ func TestExportFrontmatterEnabled(t *testing.T) {
 	}
 	if !strings.Contains(got, "# Title") {
 		t.Fatalf("body should follow frontmatter, got %q", got)
+	}
+}
+
+func TestExportBabelRejectsStaleAndLegacyResults(t *testing.T) {
+	n := &note.Note{ID: 1, Body: "```sh :name hi :exports results\necho current\n```\n"}
+	b := babel.ParseBlocks(n.Body)[0]
+	meta := b.Meta()
+	meta.LastRun = &babel.RunResult{Stdout: "obsolete"}
+	n.Meta.Blocks = map[string]babel.BlockMeta{"hi": meta}
+	for _, hash := range []string{"", "obsolete-input-hash"} {
+		meta.InputHash = hash
+		n.Meta.Blocks["hi"] = meta
+		got := exportMarkdown(t, n, Options{})
+		if strings.Contains(got.Markdown, "obsolete") || len(got.Warnings) != 1 {
+			t.Fatalf("stale result exported: %+v", got)
+		}
 	}
 }

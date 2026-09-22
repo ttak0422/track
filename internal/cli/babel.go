@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
@@ -92,22 +91,24 @@ func cmdBabelExec(args []string) int {
 		return fail("%v", err)
 	}
 
-	// The runnable copy may differ from the parsed block (noweb expansion); identity, stored header
-	// args, and the body hash always come from the block as written, so restore keeps matching the file.
-	runBlock := block
-	if babel.NowebExpands(block, "eval") {
-		expanded, err := babel.ExpandNoweb(block.Body, blocks)
-		if err != nil {
-			return fail("%v", err)
+	if !*dryRun {
+		if err := babel.CheckEval(block, *yes); err != nil {
+			if errors.Is(err, babel.ErrConfirmRequired) {
+				return fail("block has :eval query; pass --yes to run it")
+			}
+			return fail("block has :eval no; not executed")
 		}
-		runBlock.Body = expanded
 	}
 
-	vars, err := resolveVars(block, cliVars, blocks, n)
+	runBlock := block
+	runBlock.Body, err = babel.EvaluationBody(block, blocks)
 	if err != nil {
 		return fail("%v", err)
 	}
-
+	vars, err := babel.ResolveVars(block, cliVars, blocks, n.ID, n.Meta.Blocks)
+	if err != nil {
+		return fail("%v", err)
+	}
 	if *dryRun {
 		return emit(map[string]any{
 			"dry_run": true, "id": block.ID(n.ID), "language": block.Language,
@@ -115,6 +116,19 @@ func cmdBabelExec(args []string) int {
 			"eval": firstHeader(block, "eval"),
 		})
 	}
+	inputHash := babel.InputHash(block, runBlock.Body, vars)
+	cacheDir, err := filepath.EvalSymlinks(workDir)
+	if err != nil {
+		return fail("resolve execution directory: %v", err)
+	}
+	executionKey := babel.ExecutionKey(inputHash, cacheDir, cfg.BabelLanguages[block.Language])
+	blockID := block.ID(n.ID)
+	stored := shouldStore(block.HeaderArgs["results"])
+	meta := n.Meta.Blocks[blockID]
+	if firstHeader(block, "cache") == "yes" && stored && meta.LastRun != nil && meta.LastRun.Status == "success" && meta.ExecutionKey == executionKey {
+		return emit(blockRunPayload(blockID, block, *meta.LastRun, map[string]any{"stored": true, "cached": true}))
+	}
+
 	res, err := babel.NewRunner(cfg.BabelLanguages).Run(runBlock, babel.RunOptions{
 		Dir:       workDir,
 		Confirmed: *yes,
@@ -134,11 +148,11 @@ func cmdBabelExec(args []string) int {
 		}
 	}
 
-	blockID := block.ID(n.ID)
-	stored := shouldStore(block.HeaderArgs["results"])
 	if stored {
 		bm := block.Meta()
 		bm.LastRun = &res
+		bm.InputHash = inputHash
+		bm.ExecutionKey = executionKey
 		if n.Meta.Blocks == nil {
 			n.Meta.Blocks = map[string]babel.BlockMeta{}
 		}
@@ -150,6 +164,7 @@ func cmdBabelExec(args []string) int {
 
 	return emit(blockRunPayload(blockID, block, res, map[string]any{
 		"stored": stored,
+		"cached": false,
 	}))
 }
 
@@ -188,14 +203,12 @@ func cmdBabelRestore(args []string) int {
 	restored := []map[string]any{}
 	for _, block := range blocks {
 		blockID := block.ID(n.ID)
-		meta, ok := n.Meta.Blocks[blockID]
-		if !ok || meta.LastRun == nil {
+		result := babel.StoredResult(block, blocks, n.ID, n.Meta.Blocks)
+		if result == nil {
 			continue
 		}
-		if meta.Language != block.Language || meta.BodyHash != block.BodyHash {
-			continue
-		}
-		restored = append(restored, blockRunPayload(blockID, block, *meta.LastRun, map[string]any{
+
+		restored = append(restored, blockRunPayload(blockID, block, *result, map[string]any{
 			"stored":   true,
 			"restored": true,
 		}))
@@ -282,63 +295,17 @@ func loadNoteArg(cfg *config.Config, s *store.Store, path string, id int64) (*no
 			return nil, err
 		}
 	}
+	// Config canonicalizes the vault; explicit note paths must use the same spelling
+	// (for example /var versus /private/var on macOS) before containment checks.
+	path, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return nil, fmt.Errorf("resolve note path: %w", err)
+	}
 	n, err := note.ParseFile(path, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("read note: %v", err)
 	}
 	return n, nil
-}
-
-// envName is what a variable key must look like, since variables reach the block as environment entries.
-var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
-
-// resolveVars merges a block's :var headers with CLI --var overrides into the environment map the
-// runner injects (CLI wins on the same key). A value that names another named block resolves to that
-// block's stored result; any other value is a literal, with one pair of surrounding double quotes
-// stripped so ':var greeting="hello world"' keeps its spaces without inventing a quoting language.
-func resolveVars(block babel.Block, cliVars []string, blocks []babel.Block, n *note.Note) (map[string]string, error) {
-	specs := append(append([]string{}, block.HeaderArgs["var"]...), cliVars...)
-	if len(specs) == 0 {
-		return nil, nil
-	}
-	named := make(map[string]bool)
-	for _, b := range blocks {
-		if b.Name != "" {
-			named[b.Name] = true
-		}
-	}
-	vars := make(map[string]string, len(specs))
-	for _, spec := range specs {
-		k, v, ok := strings.Cut(spec, "=")
-		if !ok || k == "" {
-			return nil, fmt.Errorf("var %q: want key=value", spec)
-		}
-		if !envName.MatchString(k) {
-			return nil, fmt.Errorf("var %q: key must be a valid environment variable name", spec)
-		}
-		if named[v] && v != block.Name {
-			meta, ok := n.Meta.Blocks[v]
-			if !ok || meta.LastRun == nil {
-				return nil, fmt.Errorf("var %s references block %q, which has no stored result; run 'track babel exec --name %s' first", k, v, v)
-			}
-			vars[k] = storedResultText(meta.LastRun)
-			continue
-		}
-		if len(v) >= 2 && v[0] == '"' && v[len(v)-1] == '"' {
-			v = v[1 : len(v)-1]
-		}
-		vars[k] = v
-	}
-	return vars, nil
-}
-
-// storedResultText is the text a stored run feeds into a variable: the captured value when the run
-// has one, otherwise stdout, without the trailing newline.
-func storedResultText(r *babel.RunResult) string {
-	if r.Value != "" {
-		return strings.TrimRight(r.Value, "\n")
-	}
-	return strings.TrimRight(r.Stdout, "\n")
 }
 
 // selectBlock picks the block to run: by :name, by ordinal, by a line inside it, or the sole block.
