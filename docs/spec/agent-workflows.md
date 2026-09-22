@@ -327,6 +327,9 @@ preserved. Empty selections return line range `0..0`.
 
 Pages require explicit form-feed (`\f`) boundaries already present in the saved text.
 No PDF parsing occurs: the acquisition tool must preserve physical page boundaries.
+Text may use form feeds between pages or terminate every page with one. A final form
+feed ends the last page, and a trailing newline added when saving the note does not
+create another page. Thus `one\f` has one page and `one\f\f` has a blank second page.
 Printed labels such as `ix` or `1` are not selectors. The form-feed separators are
 excluded from the selected page; pages can share a newline-based line number.
 Documents without boundaries reject `--page`, including page 1. Use a line or block

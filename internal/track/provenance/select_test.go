@@ -27,6 +27,9 @@ func TestSelect(t *testing.T) {
 		{"page within line", "first\fsecond\fthird", Position{Page: 2}, Selection{Body: "second", StartLine: 1, EndLine: 1, Page: 2}},
 		{"first page", "first\fsecond", Position{Page: 1}, Selection{Body: "first", StartLine: 1, EndLine: 1, Page: 1}},
 		{"empty page", "first\f\fthird", Position{Page: 2}, Selection{Page: 2}},
+		{"page terminator", "one\f", Position{Page: 1}, Selection{Body: "one", StartLine: 1, EndLine: 1, Page: 1}},
+		{"page terminator before saved newline", "one\f\n", Position{Page: 1}, Selection{Body: "one", StartLine: 1, EndLine: 1, Page: 1}},
+		{"terminated blank page", "one\f\f\n", Position{Page: 2}, Selection{Page: 2}},
 		{"full keeps page breaks", "one\f\ntwo\f", Position{}, Selection{Body: "one\f\ntwo\f", StartLine: 1, EndLine: 2}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -60,6 +63,8 @@ func TestSelectRejectsInvalidPosition(t *testing.T) {
 		{"negative page", "one\ftwo", Position{Page: -1}},
 		{"unpaginated page one", "text", Position{Page: 1}},
 		{"missing page", "one\ftwo", Position{Page: 3}},
+		{"terminator is not another page", "one\f\n", Position{Page: 2}},
+		{"only one trailing empty page", "one\f\f\n", Position{Page: 3}},
 		{"printed labels not boundaries", "Page 1\ntext\nPage 2\ntext", Position{Page: 2}},
 		{"empty body line", "", Position{StartLine: 1, EndLine: 1}},
 		{"no phantom trailing line", "one\n", Position{StartLine: 2, EndLine: 2}},
