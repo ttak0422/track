@@ -315,11 +315,27 @@ func cmdBabelTangle(args []string) int {
 	} else if err != nil && !os.IsNotExist(err) {
 		return fail("output directory: %v", err)
 	}
-	if resolved, err := filepath.EvalSymlinks(root); err == nil {
-		root = resolved
-	}
+	existing := make(map[string]os.FileInfo)
 	plan, err := babel.PlanTangle(sources, func(_, target string) (string, error) {
-		return babel.ResolveTangleOutputPath(root, target)
+		path, err := babel.ResolveTangleOutputPath(root, target)
+		if err != nil {
+			return "", err
+		}
+		info, err := os.Stat(path)
+		if os.IsNotExist(err) {
+			return path, nil
+		}
+		if err != nil {
+			return "", err
+		}
+		// ponytail: quadratic existing-file checks; index inode identities if large plans need it.
+		for previous, other := range existing {
+			if os.SameFile(info, other) {
+				return previous, nil
+			}
+		}
+		existing[path] = info
+		return path, nil
 	})
 	if err != nil {
 		return fail("%v", err)

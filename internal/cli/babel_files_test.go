@@ -89,11 +89,14 @@ func TestBabelFileTangleMultiSourcePreflight(t *testing.T) {
 	if err := os.Symlink("same", filepath.Join(root, "alias")); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Link(existing, filepath.Join(root, "hardlink")); err != nil {
+		t.Fatal(err)
+	}
 	a, b := filepath.Join(dir, "a.md"), filepath.Join(dir, "b.md")
 	if err := os.WriteFile(a, []byte("```text :tangle same\nfirst\n```\n```text :tangle created/new\nnew\n```"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	for _, target := range []string{"same", "./same", "sub/../same", "alias"} {
+	for _, target := range []string{"same", "./same", "sub/../same", "alias", "hardlink"} {
 		if err := os.WriteFile(b, []byte("```text :tangle "+target+"\nlast\n```"), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -131,6 +134,19 @@ func TestBabelFileTangleMultiSourcePreflight(t *testing.T) {
 	if out, code := tangleFiles(t, "--file", a, "--file", b, "--out-dir", root); code != 0 || len(out["targets"].([]any)) != 3 {
 		t.Fatalf("multi-file: %v", out)
 	}
+	if err := os.WriteFile(a, []byte("```text :tangle same\nfirst\n```\n```text :tangle hardlink\nlast\n```"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, code := tangleFiles(t, "--file", a, "--out-dir", root)
+	if code != 0 || len(out["targets"].([]any)) != 1 {
+		t.Fatalf("same-source hardlink: %v", out)
+	}
+	for _, path := range []string{"same", "hardlink"} {
+		if got, err := os.ReadFile(filepath.Join(root, path)); err != nil || string(got) != "last\n" {
+			t.Fatalf("hardlink %s: %q, %v", path, got, err)
+		}
+	}
+
 }
 
 func TestBabelFileTangleProtectsInputsAndCleansFailures(t *testing.T) {
@@ -182,5 +198,30 @@ func TestBabelFileTangleProtectsInputsAndCleansFailures(t *testing.T) {
 	leftovers, err := filepath.Glob(filepath.Join(dir, "track-tangle-*"))
 	if err != nil || len(leftovers) != 0 {
 		t.Fatalf("temporary output leaked: %v %v", leftovers, err)
+	}
+}
+
+func TestBabelFileTangleProtectsSymlinkedManagedOutputRoot(t *testing.T) {
+	vault := t.TempDir()
+	external := t.TempDir()
+	if err := os.Mkdir(filepath.Join(vault, ".track"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(external, filepath.Join(vault, "note")); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(external, "123.md")
+	if err := os.WriteFile(output, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(t.TempDir(), "source.md")
+	if err := os.WriteFile(source, []byte("```text :tangle 123.md\nreplace\n```"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, code := tangleFiles(t, "--file", source, "--out-dir", filepath.Join(vault, "note")); code != 1 {
+		t.Fatalf("managed output via symlinked root accepted: %v", out)
+	}
+	if got, _ := os.ReadFile(output); string(got) != "keep" {
+		t.Fatal("managed file changed")
 	}
 }

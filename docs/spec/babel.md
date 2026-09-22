@@ -236,7 +236,8 @@ root. Paths cannot escape through `..` or symlinks. When output is inside an exi
 Omitted `:tangle` and `:tangle no` still produce no files, even when an output root is supplied.
 Tangling never evaluates blocks, resolves `:var` inputs, or reads stored results; opt-in noweb
 expansion composes source text only. Same-target blocks within one source use the last block,
-including alternate path spellings and symlink aliases; the entire content is replaced. The plan reports the winning `source` and `overridden`
+including alternate path spellings, symlink aliases, and existing hard links; the entire content is
+replaced. Outputs cannot overwrite an input, including through hard links. The plan reports the winning `source` and `overridden`
 locations (source path, 1-based opening-fence line, 0-based block ordinal, optional name). `blocks` counts
 all blocks targeting that file, including overridden ones. The engine rejects targets shared by
 different source files and file-versus-directory output conflicts before writing. Validation is
