@@ -32,3 +32,13 @@ func (b Block) Meta() BlockMeta {
 		BodyHash:   b.BodyHash,
 	}
 }
+
+// DisplayResult distinguishes transient output (silent) from suppressed output (none/discard).
+func DisplayResult(tokens []string) bool {
+	for _, token := range tokens {
+		if token == "none" || token == "discard" {
+			return false
+		}
+	}
+	return true
+}

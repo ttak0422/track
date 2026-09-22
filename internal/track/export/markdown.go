@@ -78,14 +78,18 @@ func renderSource(b babel.Block) string {
 }
 
 func renderResults(b babel.Block, result *babel.RunResult) string {
-	if result == nil {
+	if result == nil || !babel.DisplayResult(b.HeaderArgs["results"]) {
 		return ""
 	}
 	content := resultContent(b, result)
 	if content == "" {
 		return ""
 	}
-	return "```\n" + content + "\n```"
+	fence := "```"
+	for strings.Contains(content, fence) {
+		fence += "`"
+	}
+	return fence + "\n" + content + "\n" + fence
 }
 
 // resultContent picks the text to show for a stored run based on the block's :results tokens.

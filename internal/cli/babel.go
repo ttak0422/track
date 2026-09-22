@@ -149,6 +149,7 @@ func cmdBabelRestore(args []string) int {
 	fs := flag.NewFlagSet("babel restore", flag.ContinueOnError)
 	path := fs.String("path", "", "note path")
 	id := fs.Int64("id", 0, "note id (alternative to --path)")
+	bodyStdin := fs.Bool("body-stdin", false, "read note body from stdin instead of disk")
 	if code, ok := parseArgs(fs, args); !ok {
 		return code
 	}
@@ -164,6 +165,13 @@ func cmdBabelRestore(args []string) int {
 		return fail("%v", err)
 	}
 
+	if *bodyStdin {
+		body, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return fail("read stdin body: %v", err)
+		}
+		n.Body = string(body)
+	}
 	blocks := babel.ParseBlocks(n.Body)
 	if err := babel.Validate(blocks); err != nil {
 		return fail("%v", err)
@@ -401,6 +409,7 @@ func blockRunPayload(blockID string, block babel.Block, res babel.RunResult, ext
 		"stderr":      res.Stderr,
 		"value":       res.Value,
 		"files":       res.Files,
+		"display":     babel.DisplayResult(block.HeaderArgs["results"]),
 		"started_at":  res.StartedAt,
 		"finished_at": res.FinishedAt,
 		"start_line":  block.StartLine,
