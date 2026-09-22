@@ -26,15 +26,17 @@ set -eu
 
 New repositories use `main` as their initial branch.
 
-```gitconfig :name git-init :tangle generated/.gitconfig :eval no
+```gitconfig :name git-init :tangle no :eval no
 [init]
     defaultBranch = main
 ```
 
-Git uses `vi` when it needs an editor. Blocks targeting the same file are concatenated in note order,
-with a blank line between them.
+Git uses `vi` when it needs an editor. Compose the initial branch preference explicitly through
+noweb. If several blocks target the same file, the last block replaces its entire content.
 
-```gitconfig :name git-editor :tangle generated/.gitconfig :eval no
+```gitconfig :name git-editor :tangle generated/.gitconfig :noweb tangle :eval no
+<<git-init>>
+
 [core]
     editor = vi
 ```

@@ -1122,14 +1122,14 @@ func TestBabelTangleWritesPlansAndRefusesEscapes(t *testing.T) {
 	}
 	target := targets[0].(map[string]any)
 	if int(target["blocks"].(float64)) != 2 {
-		t.Fatalf("expected 2 contributing blocks, got %v", target)
+		t.Fatalf("expected 2 blocks including the overridden block, got %v", target)
 	}
 	outFile := filepath.Join(vault, "note", "scripts", "build.sh")
 	if _, err := os.Stat(outFile); !os.IsNotExist(err) {
 		t.Fatalf("dry-run must not write files: %v", err)
 	}
 
-	// Real run writes the concatenated file inside the vault.
+	// Real run writes only the last block inside the vault.
 	if out, code = runIn(t, vault, "babel", "tangle", "--id", "512"); code != 0 {
 		t.Fatalf("tangle: %v", out)
 	}
@@ -1137,7 +1137,7 @@ func TestBabelTangleWritesPlansAndRefusesEscapes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(content) != "echo one\n\necho two\n" {
+	if string(content) != "echo two\n" {
 		t.Fatalf("tangled content: %q", content)
 	}
 

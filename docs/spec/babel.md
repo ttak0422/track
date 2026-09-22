@@ -162,7 +162,7 @@ These defaults are intentionally close to Org Babel where practical, but track s
 | `:noweb-ref <name>` | Same token | Later | Allows multiple blocks to share one noweb reference. |
 | `:tangle no` | `:tangle no` | Yes | Default: no file output. |
 | `:tangle yes` | `:tangle yes` | No | Rejected with an error: track has no derived output naming, so a tangled block must name its file. |
-| `:tangle <filename>` | Same token | Yes | `track babel tangle` resolves the target against the note's directory, refuses paths outside the vault, creates missing parent directories, and concatenates same-target blocks in note order separated by a blank line. `--dry-run` prints the plan without writing. |
+| `:tangle <filename>` | Same token | Yes | `track babel tangle` resolves the target against the note's directory, refuses paths outside the vault, creates missing parent directories, and uses the last block for each resolved output path within the note. `--dry-run` prints the plan without writing. |
 | `:comments no/link/org/both/noweb` | Same token | Later | Only meaningful with tangling. |
 | `:padline yes/no` | Same token | Later | Only meaningful with tangling. |
 | `:shebang <string>` | Same token | Later | Only meaningful with tangling. |
@@ -193,7 +193,7 @@ Beyond per-block execution, the CLI supports the noweb/tangle/call trio:
   parameters. `run` and `exec` are one command under two names; `--var` overrides a block `:var` of
   the same key. Resolved variables are appended to the process environment in sorted key order.
 - `track babel tangle (--id N | --path P) [--dry-run]` writes every block carrying `:tangle <file>`
-  out to disk and prints the plan as JSON (`targets` with `path`, `blocks`, `bytes`). Dry-run plans
+  out to disk and prints the plan as JSON (`targets` with `path`, `blocks`, `bytes`, `source`, `overridden`). Dry-run plans
   without writing.
 - Noweb expansion happens inside the engine (`babel.ExpandNoweb`) and is applied before execution and
   before tangling according to each block's `:noweb` header. Expansion never changes a block's stored
@@ -221,8 +221,11 @@ keep `:cache no`. The note body and raw block identity are unchanged by expansio
 
 Tangle validates every destination before any output is written. Paths stay inside the resolved vault,
 including through symlinks; `.track/` and files directly managed under `note/`, `journal/`, and
-`template/` are protected. Different path spellings resolving to the same output are rejected instead
-of overwriting one another. Equal literal targets still concatenate in document order. Validation is
+`template/` are protected. Same-target blocks within one source use the last block, including alternate path spellings and
+symlink aliases; the entire content is replaced. The plan reports the winning `source` and `overridden`
+locations (source path, 1-based opening-fence line, 0-based block ordinal, optional name). `blocks` counts
+all blocks targeting that file, including overridden ones. The engine rejects targets shared by
+different source files and file-versus-directory output conflicts before writing. Validation is
 not a multi-file filesystem transaction: an I/O failure during writing can leave earlier outputs updated.
 
 For a complete note-to-files and note-to-website example, see
