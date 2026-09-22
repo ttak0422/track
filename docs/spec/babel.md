@@ -129,7 +129,7 @@ These defaults are intentionally close to Org Babel where practical, but track s
 | `:results table` / `vector` | `:results table` | Later | Requires table serialization and type conversion. |
 | `:results list` | `:results list` | Later | Requires list serialization. |
 | `:results scalar` / `verbatim` | `:results verbatim` | Yes | Store raw text; display can choose not to coerce. |
-| `:results file` | `:results file :file out.png` | Later | Needs safe artifact path policy under `.track/` or vault attachments. |
+| `:results file` | `:results file :file out.png` | Later | Requires a separate evaluated-result artifact policy; source tangling already has an explicit or temporary output root. |
 | `:results raw` | `:results raw` | Metadata only | Store raw result, but do not inject into Markdown body. |
 | `:results code` | `:results code` | Metadata only | Store result plus desired render format. |
 | `:results drawer` | `:results drawer` | Not applicable | Org drawer insertion is replaced by sidecar metadata. |
@@ -151,7 +151,7 @@ These defaults are intentionally close to Org Babel where practical, but track s
 | `:session none` | `:session none` | Yes | Default: one process per block. |
 | `:session <name>` | `:session repl` | Later | Requires long-lived interpreter lifecycle per language/session. |
 | `:dir <path>` | `:dir ./scripts` | Yes with restrictions | Resolve relative to note directory or vault; deny paths outside allowed roots unless explicitly configured. |
-| `:mkdirp yes/no` | Same token | Later | Tangle always creates missing parent directories inside the vault, so a toggle is not needed yet; `:dir` and file results may still want it. |
+| `:mkdirp yes/no` | Same token | Later | Tangle always creates missing parent directories inside its output root, so a toggle is not needed yet; `:dir` and file results may still want it. |
 | `:prologue` / `:epilogue` | Same token | Later | Requires careful quoting in fence info strings. |
 | `:post block(...)` | Same token | Later | Requires named block calls and result piping. |
 | `:exports code/results/both/none` | Same token | Partial | Implemented by Markdown export. Web/static preserve source without filtering or stored results. |
@@ -162,7 +162,7 @@ These defaults are intentionally close to Org Babel where practical, but track s
 | `:noweb-ref <name>` | Same token | Later | Allows multiple blocks to share one noweb reference. |
 | `:tangle no` | `:tangle no` | Yes | Default: no file output. |
 | `:tangle yes` | `:tangle yes` | No | Rejected with an error: track has no derived output naming, so a tangled block must name its file. |
-| `:tangle <filename>` | Same token | Yes | `track babel tangle` resolves the target against the note's directory, refuses paths outside the vault, creates missing parent directories, and uses the last block for each resolved output path within the note. `--dry-run` prints the plan without writing. |
+| `:tangle <filename>` | Same token | Yes | `track babel tangle` resolves the target inside `--out-dir` or a new temporary directory, creates missing parent directories, and uses the last block for each resolved output path within one source file. Different source files sharing a target fail before writing. `--dry-run` prints the plan without writing output files. |
 | `:comments no/link/org/both/noweb` | Same token | Later | Only meaningful with tangling. |
 | `:padline yes/no` | Same token | Later | Only meaningful with tangling. |
 | `:shebang <string>` | Same token | Later | Only meaningful with tangling. |
@@ -192,9 +192,19 @@ Beyond per-block execution, the CLI supports the noweb/tangle/call trio:
 - `track babel run --name <n> (--id N | --path P) [--var k=v ...]` calls a named block with
   parameters. `run` and `exec` are one command under two names; `--var` overrides a block `:var` of
   the same key. Resolved variables are appended to the process environment in sorted key order.
-- `track babel tangle (--id N | --path P) [--dry-run]` writes every block carrying `:tangle <file>`
-  out to disk and prints the plan as JSON (`targets` with `path`, `blocks`, `bytes`, `source`, `overridden`). Dry-run plans
-  without writing.
+- `track babel tangle (--file P [--file P ...] | --path P | --id N) [--out-dir DIR] [--dry-run]`
+  extracts blocks carrying `:tangle <file>`. Selectors are mutually exclusive: repeatable `--file`
+  and single-file `--path` read Markdown directly without configuration, a vault, a database, or
+  `HOME`; `--id` selects a note from the configured vault. Input paths are canonicalized and duplicate
+  inputs, including symlink aliases, are ignored. Noweb names remain scoped to each source file.
+  JSON contains `output_dir`, `temporary`, `dry_run`, and `targets`; each target contains `path`,
+  `blocks`, `bytes`, `source`, and `overridden`.
+- `--out-dir DIR` chooses the output root, relative to the invocation's working directory when not
+  absolute. If omitted, track creates a unique `track-tangle-*` directory in the system temporary
+  directory and returns its absolute path with `temporary: true`. A successful real run retains
+  that directory for the caller to consume and clean up. Failure and dry-run remove the temporary
+  directory, so a dry-run's returned temporary path no longer exists. Dry-run writes no output files.
+  An explicit output directory has `temporary: false` and is not removed on failure.
 - Noweb expansion happens inside the engine (`babel.ExpandNoweb`) and is applied before execution and
   before tangling according to each block's `:noweb` header. Expansion never changes a block's stored
   identity: the sidecar keeps the body hash of the block as written, so `babel restore` still matches
@@ -219,10 +229,15 @@ directory. `:cache yes` reuses only successful matching runs. Cache is opt-in: a
 external files, and interpreter binary contents are not tracked, so blocks depending on them should
 keep `:cache no`. The note body and raw block identity are unchanged by expansion.
 
-Tangle validates every destination before any output is written. Paths stay inside the resolved vault,
-including through symlinks; `.track/` and files directly managed under `note/`, `journal/`, and
-`template/` are protected. Same-target blocks within one source use the last block, including alternate path spellings and
-symlink aliases; the entire content is replaced. The plan reports the winning `source` and `overridden`
+Tangle validates every destination before any output is written. Relative `:tangle` paths resolve
+against the output root, not the source directory; absolute targets are accepted only inside that
+root. Paths cannot escape through `..` or symlinks. When output is inside an existing vault, its
+`.track/` and files directly managed under `note/`, `journal/`, and `template/` remain protected.
+Omitted `:tangle` and `:tangle no` still produce no files, even when an output root is supplied.
+Tangling never evaluates blocks, resolves `:var` inputs, or reads stored results; opt-in noweb
+expansion composes source text only. Same-target blocks within one source use the last block,
+including alternate path spellings, symlink aliases, and existing hard links; the entire content is
+replaced. Outputs cannot overwrite an input, including through hard links. The plan reports the winning `source` and `overridden`
 locations (source path, 1-based opening-fence line, 0-based block ordinal, optional name). `blocks` counts
 all blocks targeting that file, including overridden ones. The engine rejects targets shared by
 different source files and file-versus-directory output conflicts before writing. Validation is
@@ -234,16 +249,16 @@ package realization, home-directory deployment, and Nix activation belong to a s
 
 ## Deferred Work
 
-Rows marked Later/No/Metadata only are not execution capabilities. The parser retains unknown headers, but the runner does not implement them; do not rely on named sessions, value capture, or append/prepend being honored. Remaining design groups are:
+Rows marked Later/No/Metadata only are not execution capabilities. The parser retains unknown headers, but the runner does not implement them; do not rely on named sessions, value capture, or append/prepend being honored. The source-tangling workflow above is complete without these optional compatibility extensions:
 
-- Global/language/note defaults and quoted header values, including prologue/epilogue.
+- Quoted header values, including prologue/epilogue. No new global/language/note default hierarchy is planned for source tangling.
 - Tangle controls: noweb-ref, padline, shebang, tangle-mode, comments, no-expand, and export variants.
 - Result history and format-specific rendering.
 - Richer document/result models and artifact policy:
 
 - Inline source and inline calls.
-- Automatic dependency-graph execution (a `:var` block reference reads the stored result and never
-  runs the dependency).
+- Explicit cross-note calls and dependency inspection. Automatic dependency execution is excluded:
+  a `:var` block reference reads the stored result and never runs the dependency.
 - Table/list typed variables and result coercion (variables are environment strings).
 - Sessions.
 - File/graphics results.

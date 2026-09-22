@@ -33,7 +33,7 @@ func TestBabelTangleValidatesWholePlanBeforeWriting(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, dryRun := range []bool{false, true} {
-				args := []string{"babel", "tangle", "--id", "512"}
+				args := []string{"babel", "tangle", "--id", "512", "--out-dir", filepath.Join(vault, "note")}
 				if dryRun {
 					args = append(args, "--dry-run")
 				}

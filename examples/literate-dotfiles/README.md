@@ -5,15 +5,52 @@ and Git configuration with the ordinary `track babel tangle` command. No Nix or 
 engine is required. Org Babel supplies the model; track currently authors these blocks in Markdown,
 not `.org` files.
 
-## Create an isolated vault and tangle
+## Extract files without a vault
 
-Run from the track repository root with Go installed. The example uses an explicit numeric note ID
-(`100`) in a new temporary vault, so the commands never select a note in your usual vault.
+Run from the track repository root with Go installed. File-based tangling needs no track
+configuration, database, vault initialization, or `HOME`.
 
 ```sh
 demo_dir=$(mktemp -d)
 go build -o "$demo_dir/track" ./cmd/track
 export PATH="$demo_dir:$PATH"
+
+# Print output paths, winning/overridden source locations, block counts, and byte counts.
+track babel tangle --file examples/literate-dotfiles/dotfiles.md \
+  --out-dir "$demo_dir/output" --dry-run
+
+# Generate the files; repeating this command replaces their contents.
+track babel tangle --file examples/literate-dotfiles/dotfiles.md \
+  --out-dir "$demo_dir/output"
+
+sh -n "$demo_dir/output/generated/bin/hello"
+sh "$demo_dir/output/generated/bin/hello"
+# Hello from literate dotfiles.
+cat "$demo_dir/output/generated/.gitconfig"
+```
+
+Targets are relative to `--out-dir`, so `generated/` here means `$demo_dir/output/generated/`.
+Tangle creates missing parent directories. Without `--out-dir`, it creates a unique system temporary
+directory and returns `output_dir` with `temporary: true`; a successful real run retains it for the
+caller to consume and clean up. Failure and dry-run remove a temporary root. Use an explicit output
+root when another tool, such as a Nix build, owns the directory layout.
+
+For several inputs, repeat `--file` in one invocation so the complete plan is validated before
+writing. A shared target across different files is an error regardless of input order. Within one
+file, the last block targeting a path replaces the entire content. Repeated input aliases are
+processed only once; noweb names stay local to each file.
+
+A named fragment expands through `:noweb tangle`, and the Git output explicitly includes its named
+fragment. The shebang is part of the source body; the generated command is run with `sh` because it
+is not marked executable. `:eval no` prevents Babel execution without preventing extraction.
+No files are copied into `$HOME`.
+
+## Share the same note
+
+Publishing uses the existing vault export workflow. Create a separate temporary vault with an
+explicit note ID (`100`), so these commands never select a note in your usual vault:
+
+```sh
 export TRACK_VAULT="$demo_dir/vault"
 export TRACK_CACHE_DIR="$demo_dir/cache"
 export TRACK_CONFIG="$demo_dir/machine.yml"
@@ -22,32 +59,11 @@ track init
 track new --title 'Literate dotfiles' --id 100 \
   < examples/literate-dotfiles/dotfiles.md
 
-# Print paths, block counts, and byte counts; create no output files.
-track babel tangle --id 100 --dry-run
-
-# Generate the files; repeating this command replaces their contents.
-track babel tangle --id 100
-
-sh -n "$TRACK_VAULT/note/generated/bin/hello"
-sh "$TRACK_VAULT/note/generated/bin/hello"
-# Hello from literate dotfiles.
-cat "$TRACK_VAULT/note/generated/.gitconfig"
-```
-
-Targets are relative to the note's directory, so `generated/` here means
-`$TRACK_VAULT/note/generated/`. Tangle creates the parent directories inside the vault. A named fragment
-expands through `:noweb tangle`, and the Git output explicitly includes its named fragment. The shebang is part
-of the source body; the generated command is run with `sh` because it is not marked executable.
-`:eval no` prevents Babel execution without preventing extraction. No files are copied into `$HOME`.
-
-## Share the same note
-
-For portable Markdown, export the original note. This removes Babel header arguments from fences;
-the `:noweb tangle` reference remains source text because this is not the tangle phase.
-
-```sh
 track export --id 100 --out "$demo_dir/dotfiles.md"
 ```
+
+The portable Markdown export removes Babel header arguments from fences; the `:noweb tangle`
+reference remains source text because this is not the tangle phase.
 
 For a browsable static site, install Node.js/npm and Python 3 as well, then run these commands from
 the repository root in the same shell. The config below belongs only to the new demonstration vault.

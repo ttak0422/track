@@ -22,7 +22,25 @@ blocks in the plan so the effective output is reviewable with dry-run.
 Tangling extracts source, never executes dependencies or reads evaluation results. No global,
 language, or note-level precedence settings are needed for output collision handling.
 
+Tangling accepts repeatable `--file` inputs or a single `--path` without loading configuration,
+opening a database, or requiring `HOME`. `--id` remains available for selecting a configured vault
+note. Canonical input aliases are processed once. Selectors cannot be mixed, and noweb references
+remain local to each source document.
+
+The caller selects an output root with `--out-dir`; a relative root is resolved against the working
+directory. All `:tangle` paths resolve within this root, including absolute targets. Without
+`--out-dir`, create a unique system temporary directory and return its path. Retain it after a
+successful real run; remove it after failure or dry-run. Explicit roots are never removed by this
+cleanup. Omitted `:tangle` and `:tangle no` still disable output. Preserve managed-path protection
+when output falls inside an existing vault.
+
+This lets a Nix-side caller own the destination directory without introducing Nix configuration or
+home-directory deployment into Babel. The JSON plan includes the absolute `output_dir` and whether
+it was temporary. A dry-run with a temporary root returns a preview path that is removed before exit.
+
 ## Consequences
+
+Existing callers relying on paths beside the note must pass their intended `--out-dir` explicitly.
 
 Existing notes that concatenate several blocks into one file must explicitly compose those fragments
 with noweb or put the complete content in one block. Same-document overrides are allowed even during

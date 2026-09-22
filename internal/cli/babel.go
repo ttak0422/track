@@ -223,30 +223,138 @@ func cmdBabelRestore(args []string) int {
 
 func cmdBabelTangle(args []string) int {
 	fs := flag.NewFlagSet("babel tangle", flag.ContinueOnError)
-	path := fs.String("path", "", "note path")
-	id := fs.Int64("id", 0, "note id (alternative to --path)")
+	path := fs.String("path", "", "source file path (alternative to --file)")
+	id := fs.Int64("id", 0, "note id in the configured vault")
+	outDir := fs.String("out-dir", "", "output root; defaults to a new temporary directory")
 	dryRun := fs.Bool("dry-run", false, "print the tangle plan without writing files")
+	var files []string
+	fs.Func("file", "source file path (repeatable; no vault or config required)", func(s string) error {
+		if s == "" {
+			return fmt.Errorf("--file needs a path")
+		}
+		files = append(files, s)
+		return nil
+	})
 	if code, ok := parseArgs(fs, args); !ok {
 		return code
 	}
+	selectors := 0
+	for _, selected := range []bool{len(files) > 0, *path != "", *id != 0} {
+		if selected {
+			selectors++
+		}
+	}
+	if selectors != 1 {
+		return fail("select exactly one of --file (repeatable), --path, or --id")
+	}
+	if *path != "" {
+		files = append(files, *path)
+	}
+	if *id != 0 {
+		cfg, s, err := open()
+		if err != nil {
+			return fail("%v", err)
+		}
+		defer s.Close()
+		n, err := loadNoteArg(cfg, s, "", *id)
+		if err != nil {
+			return fail("%v", err)
+		}
+		files = append(files, n.Path)
+	}
 
-	cfg, s, err := open()
+	sources := make([]babel.TangleSource, 0, len(files))
+	seen := make(map[string]bool)
+	for _, file := range files {
+		abs, err := filepath.Abs(file)
+		if err != nil {
+			return fail("%v", err)
+		}
+		abs, err = filepath.EvalSymlinks(abs)
+		if err != nil {
+			return fail("source %s: %v", file, err)
+		}
+		if seen[abs] {
+			continue
+		}
+		seen[abs] = true
+		info, err := os.Stat(abs)
+		if err != nil {
+			return fail("source %s: %v", file, err)
+		}
+		if !info.Mode().IsRegular() {
+			return fail("source %s is not a regular file", file)
+		}
+		body, err := os.ReadFile(abs)
+		if err != nil {
+			return fail("source %s: %v", file, err)
+		}
+		sources = append(sources, babel.TangleSource{Path: abs, Blocks: babel.ParseBlocks(string(body))})
+	}
+
+	temporary := *outDir == ""
+	keep := false
+	if temporary {
+		dir, err := os.MkdirTemp("", "track-tangle-*")
+		if err != nil {
+			return fail("temporary output directory: %v", err)
+		}
+		*outDir = dir
+		defer func() {
+			if !keep {
+				os.RemoveAll(dir)
+			}
+		}()
+	}
+	root, err := filepath.Abs(*outDir)
+	if err != nil {
+		return fail("output directory: %v", err)
+	}
+	if info, err := os.Stat(root); err == nil && !info.IsDir() {
+		return fail("output directory %s is not a directory", root)
+	} else if err != nil && !os.IsNotExist(err) {
+		return fail("output directory: %v", err)
+	}
+	existing := make(map[string]os.FileInfo)
+	plan, err := babel.PlanTangle(sources, func(_, target string) (string, error) {
+		path, err := babel.ResolveTangleOutputPath(root, target)
+		if err != nil {
+			return "", err
+		}
+		info, err := os.Stat(path)
+		if os.IsNotExist(err) {
+			return path, nil
+		}
+		if err != nil {
+			return "", err
+		}
+		// ponytail: quadratic existing-file checks; index inode identities if large plans need it.
+		for previous, other := range existing {
+			if os.SameFile(info, other) {
+				return previous, nil
+			}
+		}
+		existing[path] = info
+		return path, nil
+	})
 	if err != nil {
 		return fail("%v", err)
 	}
-	defer s.Close()
-
-	n, err := loadNoteArg(cfg, s, *path, *id)
-	if err != nil {
-		return fail("%v", err)
-	}
-
-	plan, err := babel.PlanTangle([]babel.TangleSource{{Path: n.Path, Blocks: babel.ParseBlocks(n.Body)}},
-		func(source, target string) (string, error) {
-			return babel.ResolveTanglePath(filepath.Dir(source), cfg.VaultDir, target)
-		})
-	if err != nil {
-		return fail("%v", err)
+	// Inputs remain intact, including when an existing output is a hard link to an input.
+	for _, target := range plan {
+		outputInfo, err := os.Stat(target.Path)
+		if err != nil && !os.IsNotExist(err) {
+			return fail("%v", err)
+		}
+		for _, source := range sources {
+			inputInfo, err := os.Stat(source.Path)
+			if err != nil {
+				return fail("%v", err)
+			}
+			if target.Path == source.Path || (outputInfo != nil && os.SameFile(outputInfo, inputInfo)) {
+				return fail("tangle %s overwrites input %s", target.Path, source.Path)
+			}
+		}
 	}
 
 	targets := make([]map[string]any, 0, len(plan))
@@ -256,8 +364,7 @@ func cmdBabelTangle(args []string) int {
 			"source": t.Source, "overridden": t.Overridden,
 		})
 	}
-
-	// Validate the entire plan before creating directories or truncating any output.
+	// Validate the entire plan before creating output directories or truncating any file.
 	if !*dryRun {
 		for _, t := range plan {
 			if err := os.MkdirAll(filepath.Dir(t.Path), 0o755); err != nil {
@@ -267,9 +374,9 @@ func cmdBabelTangle(args []string) int {
 				return fail("tangle %s: %v", t.Path, err)
 			}
 		}
+		keep = true
 	}
-
-	return emit(map[string]any{"targets": targets, "dry_run": *dryRun})
+	return emit(map[string]any{"targets": targets, "dry_run": *dryRun, "output_dir": root, "temporary": temporary})
 }
 
 // loadNoteArg resolves the shared --path / --id note selection of the babel subcommands.
