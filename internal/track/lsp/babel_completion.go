@@ -33,14 +33,14 @@ var babelHeaderValues = map[string][]string{
 }
 
 var babelHeaderDocs = map[string]string{
-	":name":          "Names the source block for stable result lookup, future calls, and noweb references. Names should be unique within a note.",
+	":name":          "Names the source block for stable result lookup, named calls, and noweb references. Names should be unique within a note.",
 	":results":       "Controls how execution results are captured and stored in sidecar metadata instead of mutating the Markdown body.",
 	":eval":          "Controls whether the block may execute: `yes` allows execution, `no` prevents execution, and `query` asks before running.",
 	":cache":         "Controls result reuse with a cache key based on the block body, normalized header arguments, and variable references.",
 	":var":           "Defines input variables such as `x=1`, injected into the block's process environment; a value naming another named block feeds that block's stored result.",
 	":session":       "Controls interpreter session behavior. `none` runs without a long-lived session; named sessions are reserved for later support.",
 	":dir":           "Sets the execution working directory. Relative paths resolve from the note directory or vault and are restricted to allowed roots.",
-	":exports":       "Records export intent for future compatibility. Track does not currently provide an exporter.",
+	":exports":       "Selects code, stored results, both, or neither in Markdown export. Export never executes blocks.",
 	":noweb":         "Controls expansion of `<<name>>` references: `yes` expands before execution and tangling, `eval`/`tangle` only in that phase, `no` never.",
 	":tangle":        "Names the file `track babel tangle` writes this block to, resolved against the note directory and confined to the vault; `no` disables output.",
 	":visible-lines": "Controls editor-only source display. Use 1-based block-body lines such as `4-5` or `4-5,8`; execution still uses the full source block.",
@@ -70,10 +70,10 @@ var babelHeaderValueDocs = map[string]map[string]string{
 		"none": "Run without a long-lived interpreter session; effectively one process per block.",
 	},
 	"exports": {
-		"code":    "Record that code should be exported when exporter support exists.",
-		"results": "Record that results should be exported when exporter support exists.",
-		"both":    "Record that both code and results should be exported when exporter support exists.",
-		"none":    "Record that neither code nor results should be exported when exporter support exists.",
+		"code":    "Export the source code.",
+		"results": "Export matching stored results without executing the block.",
+		"both":    "Export source code and matching stored results.",
+		"none":    "Omit both source code and stored results.",
 	},
 	"noweb": {
 		"no":     "Do not expand `<<name>>` references.",

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/ttak0422/track/internal/track/babel"
 	"github.com/ttak0422/track/internal/track/link"
 	protocol "typefox.dev/lsp"
 )
@@ -25,6 +26,22 @@ func (s *Server) diagnostics(uri string) ([]diagnostic, error) {
 	links, err := s.unresolvedLinkDiagnostics(text)
 	if err != nil {
 		return nil, err
+	}
+	blocks := babel.ParseBlocks(text)
+	counts := make(map[string]int)
+	for _, b := range blocks {
+		counts[b.Name]++
+	}
+	for _, b := range blocks {
+		if b.Name != "" && counts[b.Name] > 1 {
+			links = append(links, diagnostic{
+				Range:    newRange(b.StartLine, 0, b.StartLine, b.Fence),
+				Severity: protocol.SeverityError,
+				Source:   diagnosticSource,
+				Code:     "duplicate-babel-name",
+				Message:  fmt.Sprintf("Duplicate Babel block name %q; names must be unique within a note", b.Name),
+			})
+		}
 	}
 	return links, nil
 }
