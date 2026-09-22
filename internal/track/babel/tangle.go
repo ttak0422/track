@@ -103,6 +103,57 @@ func tangleLocationLabel(location TangleLocation) string {
 		blockLabel(Block{Name: location.Name, Ordinal: location.Block}))
 }
 
+// ResolveTangleOutputPath confines an output to the caller's root, independent of a vault.
+// Existing vaults remain protected if the caller deliberately selects a root inside one.
+func ResolveTangleOutputPath(root, target string) (string, error) {
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	candidate := target
+	if !filepath.IsAbs(candidate) {
+		candidate = filepath.Join(root, candidate)
+	}
+	candidate = filepath.Clean(candidate)
+	within := func(base, path string) bool {
+		rel, err := filepath.Rel(base, path)
+		return err == nil && rel != "." && filepath.IsLocal(rel)
+	}
+	if !within(root, candidate) {
+		return "", fmt.Errorf(":tangle %q resolves outside the output directory", target)
+	}
+	resolvedRoot, err := resolveOutputPath(root)
+	if err != nil {
+		return "", err
+	}
+	resolved, err := resolveOutputPath(candidate)
+	if err != nil {
+		return "", err
+	}
+	if !within(resolvedRoot, resolved) {
+		return "", fmt.Errorf(":tangle %q resolves outside the output directory", target)
+	}
+	if info, err := os.Stat(resolved); err == nil && !info.Mode().IsRegular() {
+		return "", fmt.Errorf(":tangle %q is not a regular file", target)
+	} else if err != nil && !os.IsNotExist(err) {
+		return "", err
+	}
+	// Check both spellings: a managed directory can itself point outside its vault.
+	for _, path := range []string{candidate, resolved} {
+		for dir := filepath.Dir(path); ; dir = filepath.Dir(dir) {
+			if info, err := os.Stat(filepath.Join(dir, ".track")); err == nil && info.IsDir() {
+				if _, err := ResolveTanglePath(filepath.Dir(path), dir, path); err != nil {
+					return "", err
+				}
+			}
+			if filepath.Dir(dir) == dir {
+				break
+			}
+		}
+	}
+	return resolved, nil
+}
+
 // ResolveTanglePath returns a canonical output path. Both the written path and its resolved
 // destination must stay in the vault and outside track's metadata and directly managed files.
 func ResolveTanglePath(noteDir, vaultDir, target string) (string, error) {

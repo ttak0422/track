@@ -24,14 +24,14 @@ func TestLiterateDotfilesExample(t *testing.T) {
 		t.Fatalf("new: %v", out)
 	}
 	generated := filepath.Join(vault, "note", "generated")
-	plan, code := runIn(t, vault, "babel", "tangle", "--id", "100", "--dry-run")
+	plan, code := runIn(t, vault, "babel", "tangle", "--id", "100", "--out-dir", filepath.Join(vault, "note"), "--dry-run")
 	if code != 0 || plan["dry_run"] != true || len(plan["targets"].([]any)) != 2 {
 		t.Fatalf("dry-run: %v", plan)
 	}
 	if _, err := os.Stat(generated); !os.IsNotExist(err) {
 		t.Fatalf("dry-run created output directory: %v", err)
 	}
-	if out, code := runIn(t, vault, "babel", "tangle", "--id", "100"); code != 0 {
+	if out, code := runIn(t, vault, "babel", "tangle", "--id", "100", "--out-dir", filepath.Join(vault, "note")); code != 0 {
 		t.Fatalf("tangle: %v", out)
 	}
 	for path, want := range map[string]string{

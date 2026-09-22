@@ -1112,7 +1112,7 @@ func TestBabelTangleWritesPlansAndRefusesEscapes(t *testing.T) {
 	}
 
 	// Dry run: plan only, nothing on disk.
-	out, code := runIn(t, vault, "babel", "tangle", "--id", "512", "--dry-run")
+	out, code := runIn(t, vault, "babel", "tangle", "--id", "512", "--out-dir", filepath.Join(vault, "note"), "--dry-run")
 	if code != 0 || out["dry_run"] != true {
 		t.Fatalf("tangle dry-run: %v", out)
 	}
@@ -1130,7 +1130,7 @@ func TestBabelTangleWritesPlansAndRefusesEscapes(t *testing.T) {
 	}
 
 	// Real run writes only the last block inside the vault.
-	if out, code = runIn(t, vault, "babel", "tangle", "--id", "512"); code != 0 {
+	if out, code = runIn(t, vault, "babel", "tangle", "--id", "512", "--out-dir", filepath.Join(vault, "note")); code != 0 {
 		t.Fatalf("tangle: %v", out)
 	}
 	content, err := os.ReadFile(outFile)
@@ -1146,8 +1146,8 @@ func TestBabelTangleWritesPlansAndRefusesEscapes(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(vault, "note", "512.md"), []byte(escape), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	out, code = runIn(t, vault, "babel", "tangle", "--id", "512")
-	if code != 1 || !strings.Contains(out["error"].(string), "outside the vault") {
+	out, code = runIn(t, vault, "babel", "tangle", "--id", "512", "--out-dir", filepath.Join(vault, "note"))
+	if code != 1 || !strings.Contains(out["error"].(string), "outside the output directory") {
 		t.Fatalf("expected escape refusal, got code=%d out=%v", code, out)
 	}
 }

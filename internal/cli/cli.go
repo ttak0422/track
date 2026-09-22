@@ -20,7 +20,10 @@ func Run(args []string) int {
 	if !ok {
 		return 1
 	}
-	applyPathVault(args)
+	// File-based tangle does not consult machine or vault configuration.
+	if len(args) < 2 || args[0] != "babel" || args[1] != "tangle" {
+		applyPathVault(args)
+	}
 	if len(args) == 0 {
 		usage()
 		return 1
