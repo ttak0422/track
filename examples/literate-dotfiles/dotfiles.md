@@ -2,7 +2,7 @@
 
 This note is both a readable explanation of a tiny configuration and the source of its files.
 It uses track's Markdown fences with Org Babel-style headers; it is not an Org-format document.
-Tangling writes into `generated/` beside the note, leaving the machine's installed configuration alone.
+Tangling writes into `generated/` beneath the caller's output directory, leaving the machine's installed configuration alone.
 
 ## A shell command
 

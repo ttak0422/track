@@ -42,7 +42,7 @@ var babelHeaderDocs = map[string]string{
 	":dir":           "Sets the execution working directory. Relative paths resolve from the note directory or vault and are restricted to allowed roots.",
 	":exports":       "Selects code, stored results, both, or neither in Markdown export. Export never executes blocks.",
 	":noweb":         "Controls expansion of `<<name>>` references: `yes` expands before execution and tangling, `eval`/`tangle` only in that phase, `no` never.",
-	":tangle":        "Names the file `track babel tangle` writes this block to, resolved against the note directory and confined to the vault; `no` disables output.",
+	":tangle":        "Names the file `track babel tangle` writes this block to, relative to `--out-dir` or a new temporary directory; paths must stay inside that output root. `no` disables output.",
 	":visible-lines": "Controls editor-only source display. Use 1-based block-body lines such as `4-5` or `4-5,8`; execution still uses the full source block.",
 }
 
