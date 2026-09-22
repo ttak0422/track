@@ -143,7 +143,7 @@ For each item, answer:
 | Babel | Named block calls and dependency graph | Partial | `run --name` with environment variables and validated stored-result references is implemented; automatic dependency execution and cross-note lookup remain deferred. |
 | Babel | Sessions | TBD | Requires long-lived interpreter lifecycle and cleanup policy. |
 | Babel | Noweb expansion | Partial | Note-local recursive expansion for eval/tangle, cycle detection, and execution preview are implemented; noweb-ref groups and export variants remain deferred. |
-| Babel | Tangling | Partial | Explicit targets, dry-run, concatenation, resolved-path protection, and a literate dotfiles example are implemented. Optional formatting/mode headers remain deferred. |
+| Babel | Tangling | Partial | Explicit targets, dry-run with provenance, same-document last-wins planning, resolved-path protection, and a literate dotfiles example are implemented. Optional formatting/mode headers remain deferred. |
 | Babel | Typed table/list/value results | TBD | Requires result coercion and rendering model. |
 | Babel | File/graphics results | TBD | Depends on attachment/artifact storage policy. |
 | Babel | Export integration | Partial | `:exports code/results/both/none` honored by the Markdown exporter; results pulled from input-validated `last_run` (`spec/export.md`). Web/static `:exports` and saved-result display remain unimplemented. Richer result types depend on the result model rows above. |

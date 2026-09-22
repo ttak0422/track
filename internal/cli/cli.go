@@ -298,7 +298,7 @@ Usage:
                                         call a named block with parameters (same as exec)
   track babel tangle (--id N | --path P) [--dry-run]
                                         write blocks carrying :tangle <file> out to files inside the
-                                        vault; same-target blocks concatenate in note order (JSON)
+                                        vault; same-target blocks use the last block in note order (JSON)
   track babel restore (--id N | --path P) [--body-stdin]
                                         list stored source block results (JSON)
   track export (--id N | --title S | --path P) [--out F] [--frontmatter] [--exports-default M]

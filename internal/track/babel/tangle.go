@@ -7,63 +7,100 @@ import (
 	"strings"
 )
 
-// Tangling (docs/spec/babel.md) writes source blocks out to files: every block carrying
-// ":tangle <path>" contributes to that file, and blocks naming the same path concatenate in note
-// order, separated by one blank line. This file is the pure planning layer; the CLI resolves paths
-// against the note and vault and performs the writes.
-
-// TangleTarget is one output file of a tangle plan.
-type TangleTarget struct {
-	Path    string // the :tangle value as written in the note
-	Content string // concatenated (noweb-expanded) block bodies, ending in a newline
-	Blocks  int    // number of contributing blocks
+// TangleSource is one input document. Path identifies the source and must be canonical.
+type TangleSource struct {
+	Path   string
+	Blocks []Block
 }
 
-// TanglePlan assembles the tangle targets of a note's blocks, in first-seen order.
-// Blocks without :tangle (or with :tangle no) are skipped. ":tangle yes" is rejected: track has no
-// derived output naming, so a tangled block must name its file. <<name>> references expand per each
-// block's :noweb policy before concatenation.
+// TangleLocation identifies a source block: Line is 1-based, Block is its 0-based ordinal.
+type TangleLocation struct {
+	Path  string `json:"path"`
+	Line  int    `json:"line"`
+	Block int    `json:"block"`
+	Name  string `json:"name,omitempty"`
+}
+
+// TangleTarget is one output file, with the winning block and any earlier overwritten blocks.
+type TangleTarget struct {
+	Path       string // resolved output path
+	Content    string // winning (noweb-expanded) body, ending in a newline
+	Blocks     int    // number of blocks targeting this output, including overwritten blocks
+	Source     TangleLocation
+	Overridden []TangleLocation
+}
+
+// TanglePlan plans one document, normalizing target paths without accessing the filesystem.
 func TanglePlan(blocks []Block) ([]TangleTarget, error) {
-	byName := make(map[string]Block)
-	for _, b := range blocks {
-		if b.Name != "" {
-			byName[b.Name] = b
+	return PlanTangle([]TangleSource{{Blocks: blocks}}, func(_, target string) (string, error) {
+		return filepath.Clean(target), nil
+	})
+}
+
+// PlanTangle resolves and validates every output before returning a write plan in first-seen order.
+// The last block wins within a source; collisions across sources and file/descendant conflicts fail.
+// Blocks without :tangle (or with :tangle no) are skipped. Noweb expands source text only.
+func PlanTangle(sources []TangleSource, resolve func(source, target string) (string, error)) ([]TangleTarget, error) {
+	targets := make([]TangleTarget, 0)
+	byPath := make(map[string]int)
+	for _, source := range sources {
+		if err := Validate(source.Blocks); err != nil {
+			return nil, fmt.Errorf("%s: %w", source.Path, err)
+		}
+		for _, b := range source.Blocks {
+			target := firstValue(b.HeaderArgs, "tangle")
+			location := TangleLocation{Path: source.Path, Line: b.StartLine + 1, Block: b.Ordinal, Name: b.Name}
+			switch target {
+			case "", "no":
+				continue
+			case "yes":
+				return nil, fmt.Errorf("%s: :tangle yes needs an explicit file name", tangleLocationLabel(location))
+			}
+			path, err := resolve(source.Path, target)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", tangleLocationLabel(location), err)
+			}
+			index, exists := byPath[path]
+			if exists && targets[index].Source.Path != source.Path {
+				return nil, fmt.Errorf("duplicate tangle target %q: %s and %s", path,
+					tangleLocationLabel(targets[index].Source), tangleLocationLabel(location))
+			}
+			body := b.Body
+			if NowebExpands(b, "tangle") {
+				body, err = ExpandNoweb(body, source.Blocks)
+				if err != nil {
+					return nil, fmt.Errorf("%s: %w", tangleLocationLabel(location), err)
+				}
+			}
+			if !exists {
+				index = len(targets)
+				byPath[path] = index
+				targets = append(targets, TangleTarget{Path: path})
+			} else {
+				targets[index].Overridden = append(targets[index].Overridden, targets[index].Source)
+			}
+			targets[index].Content = strings.TrimRight(body, "\n") + "\n"
+			targets[index].Blocks++
+			targets[index].Source = location
 		}
 	}
-
-	var order []string
-	bodies := make(map[string][]string)
-	for _, b := range blocks {
-		target := firstValue(b.HeaderArgs, "tangle")
-		switch target {
-		case "", "no":
-			continue
-		case "yes":
-			return nil, fmt.Errorf("block %s: :tangle yes needs an explicit file name", blockLabel(b))
-		}
-		body := b.Body
-		if NowebExpands(b, "tangle") {
-			var err error
-			body, err = expandNoweb(b.Body, byName, nil)
-			if err != nil {
-				return nil, fmt.Errorf("block %s: %w", blockLabel(b), err)
+	for _, target := range targets {
+		for parent := filepath.Dir(target.Path); ; parent = filepath.Dir(parent) {
+			if index, exists := byPath[parent]; exists {
+				return nil, fmt.Errorf("tangle target %q (%s) is a parent of %q (%s)", parent,
+					tangleLocationLabel(targets[index].Source), target.Path, tangleLocationLabel(target.Source))
+			}
+			if filepath.Dir(parent) == parent {
+				break
 			}
 		}
-		if _, ok := bodies[target]; !ok {
-			order = append(order, target)
-		}
-		bodies[target] = append(bodies[target], strings.TrimRight(body, "\n"))
-	}
-
-	targets := make([]TangleTarget, 0, len(order))
-	for _, p := range order {
-		targets = append(targets, TangleTarget{
-			Path:    p,
-			Content: strings.Join(bodies[p], "\n\n") + "\n",
-			Blocks:  len(bodies[p]),
-		})
 	}
 	return targets, nil
+}
+
+func tangleLocationLabel(location TangleLocation) string {
+	return fmt.Sprintf("%s:%d (block %s)", location.Path, location.Line,
+		blockLabel(Block{Name: location.Name, Ordinal: location.Block}))
 }
 
 // ResolveTanglePath returns a canonical output path. Both the written path and its resolved

@@ -241,44 +241,29 @@ func cmdBabelTangle(args []string) int {
 		return fail("%v", err)
 	}
 
-	blocks := babel.ParseBlocks(n.Body)
-	if err := babel.Validate(blocks); err != nil {
-		return fail("%v", err)
-	}
-
-	plan, err := babel.TanglePlan(blocks)
+	plan, err := babel.PlanTangle([]babel.TangleSource{{Path: n.Path, Blocks: babel.ParseBlocks(n.Body)}},
+		func(source, target string) (string, error) {
+			return babel.ResolveTanglePath(filepath.Dir(source), cfg.VaultDir, target)
+		})
 	if err != nil {
 		return fail("%v", err)
 	}
 
-	noteDir := filepath.Dir(n.Path)
 	targets := make([]map[string]any, 0, len(plan))
-	paths := make([]string, len(plan))
-	seen := make(map[string]string)
-	for i, t := range plan {
-		abs, err := babel.ResolveTanglePath(noteDir, cfg.VaultDir, t.Path)
-		if err != nil {
-			return fail("%v", err)
-		}
-		if previous, ok := seen[abs]; ok {
-			return fail("tangle %q and %q resolve to the same output file", previous, t.Path)
-		}
-		seen[abs] = t.Path
-		paths[i] = abs
+	for _, t := range plan {
 		targets = append(targets, map[string]any{
-			"path":   abs,
-			"blocks": t.Blocks,
-			"bytes":  len(t.Content),
+			"path": t.Path, "blocks": t.Blocks, "bytes": len(t.Content),
+			"source": t.Source, "overridden": t.Overridden,
 		})
 	}
 
 	// Validate the entire plan before creating directories or truncating any output.
 	if !*dryRun {
-		for i, t := range plan {
-			if err := os.MkdirAll(filepath.Dir(paths[i]), 0o755); err != nil {
+		for _, t := range plan {
+			if err := os.MkdirAll(filepath.Dir(t.Path), 0o755); err != nil {
 				return fail("tangle %s: %v", t.Path, err)
 			}
-			if err := os.WriteFile(paths[i], []byte(t.Content), 0o644); err != nil {
+			if err := os.WriteFile(t.Path, []byte(t.Content), 0o644); err != nil {
 				return fail("tangle %s: %v", t.Path, err)
 			}
 		}

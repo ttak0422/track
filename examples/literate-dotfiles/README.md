@@ -36,7 +36,7 @@ cat "$TRACK_VAULT/note/generated/.gitconfig"
 
 Targets are relative to the note's directory, so `generated/` here means
 `$TRACK_VAULT/note/generated/`. Tangle creates the parent directories inside the vault. A named fragment
-expands through `:noweb tangle`, and the two Git blocks concatenate into one file. The shebang is part
+expands through `:noweb tangle`, and the Git output explicitly includes its named fragment. The shebang is part
 of the source body; the generated command is run with `sh` because it is not marked executable.
 `:eval no` prevents Babel execution without preventing extraction. No files are copied into `$HOME`.
 

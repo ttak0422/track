@@ -7,7 +7,7 @@ import (
 )
 
 func TestBabelTangleValidatesWholePlanBeforeWriting(t *testing.T) {
-	for _, lastTarget := range []string{"../../outside.sh", "../alias/config.yml", "./scripts/out.sh", "scripts/alias.sh"} {
+	for _, lastTarget := range []string{"../../outside.sh", "../alias/config.yml", "new-dir/new.sh/child"} {
 		t.Run(lastTarget, func(t *testing.T) {
 			vault := t.TempDir()
 			if out, code := runIn(t, vault, "new", "--title", "Tangle", "--id", "512"); code != 0 {
