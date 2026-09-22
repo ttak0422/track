@@ -56,5 +56,41 @@ rows = hidden_rows(buf)
 assert_true(not rows[2], "cursor row should be revealed")
 assert_true(rows[3] and rows[4] and rows[7], "non-cursor hidden rows should remain hidden")
 
-print("track-e2e: PASS babel visible-lines")
+vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
+   "````markdown :visible-lines 1",
+   "shown",
+   "```sh",
+   "echo hidden",
+   "```",
+   "hidden after inner fence",
+   "````",
+})
+vim.api.nvim_win_set_cursor(0, { 1, 0 })
+babel.apply_visibility(buf)
+rows = hidden_rows(buf)
+assert_true(not rows[1] and rows[2] and rows[3] and rows[4] and rows[5], "long fence must contain shorter fences")
+
+-- Exercise the frontend contract without executing user code or touching a vault.
+vim.api.nvim_buf_set_name(buf, vim.fn.tempname() .. ".md")
+local client = require("track.client")
+local original_run = client.run_json
+local display = true
+client.run_json = function(args, body)
+   assert_true(body:find("hidden after inner fence", 1, true) ~= nil, "current buffer must reach CLI")
+   assert_true(vim.tbl_contains(args, "--body-stdin"), "restore and exec must use stdin body")
+   if args[2] == "restore" then
+      return { blocks = {} }
+   end
+   return { end_line = 6, status = "success", exit_code = 0, stdout = "result", display = display }
+end
+babel.exec()
+local result_ns = vim.api.nvim_get_namespaces().track_babel_results
+assert_true(#vim.api.nvim_buf_get_extmarks(buf, result_ns, 0, -1, {}) == 1, "output should render")
+display = false
+babel.exec()
+assert_true(#vim.api.nvim_buf_get_extmarks(buf, result_ns, 0, -1, {}) == 0, "none/discard must clear previous result")
+babel.restore()
+client.run_json = original_run
+
+print("track-e2e: PASS babel visibility and results")
 vim.cmd("qa!")

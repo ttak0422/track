@@ -64,9 +64,9 @@ A language-tagged fenced block is emitted according to its `:exports` header arg
 | `both` | source then results |
 | `none` | nothing |
 
-- Results come from sidecar v2 `last_run` for the block (see `docs/spec/babel.md`). The `:results` token set decides the shape: `output` emits captured stdout/stderr, `verbatim`/`scalar` emits the raw value.
+- Results come from validated sidecar `last_run` for the block (see `docs/spec/babel.md`). The `:results` token set decides the shape: `output` emits captured stdout/stderr, `verbatim`/`scalar` emits the raw value.
 - If `results` (or `both`) is requested but no stored result exists, the results portion is skipped and a warning is written to stderr; the source portion (for `both`) is still emitted.
-- `:results silent` blocks have no stored result and therefore emit no results.
+- `:results none` / `discard` suppress results. `silent` leaves previous storage unchanged; only a result matching the current document inputs can be exported.
 - `:visible-lines` is an editor-only display hint; export emits the full block body regardless.
 - Plain fenced blocks (no language tag) are not Babel blocks and pass through unchanged.
 

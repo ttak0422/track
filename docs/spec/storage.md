@@ -148,7 +148,7 @@ days:
 
 Fields:
 
-- `version`: metadata schema version. Required for new writes. The version is the newest schema any present field needs: a sidecar carrying Babel block results is at least v2, one carrying `days` is at least v3, and one carrying `flags` is at least v10.
+- `version`: metadata schema version. Required for new writes. The version is the newest schema any present field needs: a sidecar carrying Babel block results is at least v2, one carrying `days` is at least v3, one carrying `flags` is at least v10, `exec_log` needs v11, and Babel `input_hash`/`execution_key` need v12.
 - `title`: note title and the link keyword. This sidecar field is authoritative.
 - `tags`: note tags.
 - `created`: creation date string. The current format is `YYYY-MM-DD`.

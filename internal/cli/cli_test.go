@@ -914,9 +914,8 @@ func TestBabelExecRunsAndStores(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The note also carries an activity day from creation, so its sidecar is at version 3 while still
-	// storing the babel block result.
-	if !strings.Contains(string(metaContent), "version: 3") || !strings.Contains(string(metaContent), "hi:") {
+	// Fresh Babel results carry validated input hashes and execution keys (sidecar version 12).
+	if !strings.Contains(string(metaContent), "version: 12") || !strings.Contains(string(metaContent), "hi:") {
 		t.Fatalf("sidecar should store the block result: %q", metaContent)
 	}
 

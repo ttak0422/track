@@ -66,71 +66,95 @@ func TanglePlan(blocks []Block) ([]TangleTarget, error) {
 	return targets, nil
 }
 
-// ResolveTanglePath resolves a :tangle target against the note's directory and refuses any path that
-// lands outside the vault, so a note can never tangle over files beyond the working tree it lives in.
-// Inside the vault, track's own files are off limits too: anything under .track/ (index, config,
-// sidecars), and the files sitting directly in note/, journal/, and template/ — those directories are
-// flat, so a direct child is a note track manages, while a subdirectory (note/scripts/…) is user
-// territory. A symlinked ancestor could point back out of the vault, so before anything writes the
-// deepest existing ancestor is resolved and containment re-checked against the resolved vault root.
+// ResolveTanglePath returns a canonical output path. Both the written path and its resolved
+// destination must stay in the vault and outside track's metadata and directly managed files.
 func ResolveTanglePath(noteDir, vaultDir, target string) (string, error) {
 	candidate := target
 	if !filepath.IsAbs(candidate) {
 		candidate = filepath.Join(noteDir, candidate)
 	}
 	candidate = filepath.Clean(candidate)
-	vaultClean := filepath.Clean(vaultDir)
-	if !strings.HasPrefix(candidate, vaultClean+string(filepath.Separator)) {
-		return "", fmt.Errorf(":tangle %q resolves outside the vault", target)
+	vaultDir = filepath.Clean(vaultDir)
+	if err := validateTanglePath(candidate, vaultDir, target); err != nil {
+		return "", err
 	}
-	rel, err := filepath.Rel(vaultClean, candidate)
+	resolved, err := resolveOutputPath(candidate)
 	if err != nil {
-		return "", fmt.Errorf(":tangle %q: %v", target, err)
+		return "", fmt.Errorf(":tangle %q: %w", target, err)
+	}
+	resolvedVault, err := resolveOutputPath(vaultDir)
+	if err != nil {
+		return "", fmt.Errorf(":tangle %q: %w", target, err)
+	}
+	if err := validateTanglePath(resolved, resolvedVault, target); err != nil {
+		return "", err
+	}
+	// Managed roots can themselves be symlinks, so protect their destinations too.
+	for _, name := range []string{".track", "note", "journal", "template"} {
+		root, err := resolveOutputPath(filepath.Join(vaultDir, name))
+		if err != nil {
+			return "", fmt.Errorf(":tangle %q: %w", target, err)
+		}
+		rel, err := filepath.Rel(root, resolved)
+		if err != nil {
+			return "", fmt.Errorf(":tangle %q: %w", target, err)
+		}
+		if filepath.IsLocal(rel) && (name == ".track" || filepath.Dir(rel) == ".") {
+			return "", fmt.Errorf(":tangle %q overwrites a path track manages in %s/", target, name)
+		}
+	}
+	if info, err := os.Stat(resolved); err == nil && info.IsDir() {
+		return "", fmt.Errorf(":tangle %q is a directory", target)
+	} else if err != nil && !os.IsNotExist(err) {
+		return "", fmt.Errorf(":tangle %q: %w", target, err)
+	}
+	return resolved, nil
+}
+
+func validateTanglePath(candidate, vaultDir, target string) error {
+	rel, err := filepath.Rel(vaultDir, candidate)
+	if err != nil || rel == "." || !filepath.IsLocal(rel) {
+		return fmt.Errorf(":tangle %q resolves outside the vault", target)
 	}
 	segments := strings.Split(filepath.ToSlash(rel), "/")
 	switch segments[0] {
 	case ".track":
-		return "", fmt.Errorf(":tangle %q writes into the vault's .track/ directory", target)
-	case "note", "journal", "template": // config.KindNote/KindJournal/KindTemplate; config imports babel, so no import back
-
-		if len(segments) == 2 {
-			return "", fmt.Errorf(":tangle %q overwrites a file track manages in %s/", target, segments[0])
+		return fmt.Errorf(":tangle %q writes into the vault's .track/ directory", target)
+	case "note", "journal", "template":
+		if len(segments) <= 2 {
+			return fmt.Errorf(":tangle %q overwrites a path track manages in %s/", target, segments[0])
 		}
 	}
-	if err := verifyResolvedInsideVault(candidate, vaultClean, target); err != nil {
-		return "", err
-	}
-	return candidate, nil
+	return nil
 }
 
-// verifyResolvedInsideVault resolves the deepest existing ancestor of candidate (or candidate itself,
-// catching a symlinked target file) and requires it to still sit inside the resolved vault root. A
-// vault that does not exist on disk has nothing to escape from, so it is left to the write to fail.
-func verifyResolvedInsideVault(candidate, vaultDir, target string) error {
-	resolvedVault, err := filepath.EvalSymlinks(vaultDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf(":tangle %q: %v", target, err)
-	}
-	dir := candidate
+// resolveOutputPath resolves the deepest existing ancestor and appends the missing suffix.
+// Lstat distinguishes a missing output from a dangling symlink, which must fail closed.
+func resolveOutputPath(candidate string) (string, error) {
+	ancestor, suffix := candidate, ""
 	for {
-		resolved, err := filepath.EvalSymlinks(dir)
+		_, err := os.Lstat(ancestor)
 		if err == nil {
-			if resolved != resolvedVault && !strings.HasPrefix(resolved, resolvedVault+string(filepath.Separator)) {
-				return fmt.Errorf(":tangle %q escapes the vault through a symlink", target)
+			resolved, err := filepath.EvalSymlinks(ancestor)
+			if err != nil {
+				return "", err
 			}
-			return nil
+			if suffix != "" {
+				info, err := os.Stat(resolved)
+				if err != nil {
+					return "", err
+				}
+				if !info.IsDir() {
+					return "", fmt.Errorf("%s is not a directory", ancestor)
+				}
+			}
+			return filepath.Join(resolved, suffix), nil
 		}
-		if !os.IsNotExist(err) {
-			return fmt.Errorf(":tangle %q: %v", target, err)
+		if !os.IsNotExist(err) || filepath.Dir(ancestor) == ancestor {
+			return "", err
 		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return nil
-		}
-		dir = parent
+		suffix = filepath.Join(filepath.Base(ancestor), suffix)
+		ancestor = filepath.Dir(ancestor)
 	}
 }
 

@@ -37,6 +37,8 @@
             # Builtin templates are embedded (builtin/*.template.md via go:embed), so the non-.go assets
             # must be part of the build source too.
             ./builtin
+            # The Babel integration test exercises the shipped literate source.
+            ./examples/literate-dotfiles/dotfiles.md
           ];
 
           # The React frontend source, excluding generated/installed directories.

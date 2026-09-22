@@ -36,6 +36,9 @@ local function render(buf, end_line, data)
       return
    end
    clear_at(buf, end_line)
+   if data.display == false then
+      return
+   end
    local vlines = {
       { { ("=> %s (exit %d)"):format(data.status or "?", data.exit_code or 0), config.options.babel_hl_header } },
    }
@@ -58,8 +61,14 @@ local function render_all(buf, blocks)
    end
 end
 
-local function is_fence(line)
-   return vim.trim(line):sub(1, 3) == "```"
+local function open_fence(line)
+   local fence, info = line:match("^ *(```+)(.*)$")
+   return fence, info
+end
+
+local function close_fence(line, opening)
+   local fence = line:match("^%s*(`+)%s*$")
+   return fence and #fence >= #opening
 end
 
 local function first_header_value(info, key)
@@ -132,12 +141,12 @@ function M.apply_visibility(buf)
    local any_hidden = false
    local i = 1
    while i <= #lines do
-      if is_fence(lines[i]) then
-         local info = vim.trim(lines[i]):sub(4)
+      local fence, info = open_fence(lines[i])
+      if fence then
          local lang = vim.split(vim.trim(info), "%s+")[1] or ""
          local start_line = i
          local j = i + 1
-         while j <= #lines and not is_fence(lines[j]) do
+         while j <= #lines and not close_fence(lines[j], fence) do
             j = j + 1
          end
          if j <= #lines and lang ~= "" then
@@ -226,7 +235,7 @@ function M.restore(opts)
       end
       return
    end
-   local data, err = client.run_json({ "babel", "restore", "--path", path })
+   local data, err = client.run_json({ "babel", "restore", "--path", path, "--body-stdin" }, current_body(buf))
    if not data then
       if not opts.silent then
          vim.notify("track: " .. tostring(err), vim.log.levels.ERROR)

@@ -156,3 +156,65 @@ func TestResolveTanglePathSymlinkEscape(t *testing.T) {
 		t.Fatalf("plain vault target: %v", err)
 	}
 }
+
+func TestResolveTanglePathProtectsResolvedManagedPaths(t *testing.T) {
+	vault := t.TempDir()
+	for _, dir := range []string{".track/notes", "note/scripts", "journal", "template", "state"} {
+		if err := os.MkdirAll(filepath.Join(vault, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, name := range []string{".track", "note", "journal", "template"} {
+		if err := os.Symlink(filepath.Join(vault, name), filepath.Join(vault, "alias-"+name)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ResolveTanglePath(vault, vault, "alias-"+name+"/new.md"); err == nil {
+			t.Fatalf("alias to %s must not permit writing managed files", name)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(vault, "note", "1.md"), []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(vault, "note", "1.md"), filepath.Join(vault, "alias.md")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ResolveTanglePath(vault, vault, "alias.md"); err == nil {
+		t.Fatal("file symlink to a managed note must be refused")
+	}
+	// A managed directory may itself be a symlink. Its real path is also protected.
+	if err := os.RemoveAll(filepath.Join(vault, ".track")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(vault, "state"), filepath.Join(vault, ".track")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ResolveTanglePath(vault, vault, "state/deep/config.yml"); err == nil {
+		t.Fatal("resolved metadata root must be protected")
+	}
+	got, err := ResolveTanglePath(vault, vault, "alias-note/scripts/new.sh")
+	want, resolveErr := filepath.EvalSymlinks(filepath.Join(vault, "note", "scripts"))
+	if resolveErr != nil {
+		t.Fatal(resolveErr)
+	}
+	if err != nil || got != filepath.Join(want, "new.sh") {
+		t.Fatalf("safe alias: got %q, %v", got, err)
+	}
+}
+
+func TestResolveTanglePathRejectsDanglingLinksAndNonFileTargets(t *testing.T) {
+	vault := t.TempDir()
+	if err := os.Symlink(filepath.Join(t.TempDir(), "missing"), filepath.Join(vault, "dangling")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(vault, "directory"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(vault, "file"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range []string{"dangling", "dangling/new.sh", "directory", "file/new.sh"} {
+		if _, err := ResolveTanglePath(vault, vault, target); err == nil {
+			t.Fatalf("unsafe output %q must be refused", target)
+		}
+	}
+}
