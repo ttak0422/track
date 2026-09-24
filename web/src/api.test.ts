@@ -297,3 +297,18 @@ describe("vault-scoped activity and new-notes requests", () => {
     expect(fetched).toEqual([]);
   });
 });
+
+
+describe("renderMetricsDashboard", () => {
+  it("posts the source and shared filters to the note's vault", async () => {
+    const request = vi.fn().mockResolvedValue(new Response(JSON.stringify({ title: "Health", entities: [], asof: "", panels: [] })));
+    vi.stubGlobal("fetch", request);
+    vi.stubEnv("VITE_TRACK_STATIC", "");
+    const { renderMetricsDashboard } = await import("./api");
+    const filters = { from: "2026-09-01", to: "2026-09-19", entity: "worker-a", metric: "cpu" };
+    await renderMetricsDashboard('{"panels":[]}', filters, "ops team");
+    expect(request).toHaveBeenCalledWith("/api/metrics/dashboard?vault=ops%20team", expect.objectContaining({
+      method: "POST", body: JSON.stringify({ spec: '{"panels":[]}', ...filters }),
+    }));
+  });
+});

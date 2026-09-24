@@ -1,0 +1,4 @@
+{"version":1,"name":"cpu_usage","entity":"web-a","time":"2026-09-18T12:00:00Z","value":40}
+{"version":1,"name":"cpu_usage","entity":"web-b","time":"2026-09-18T12:00:00Z","value":65}
+{"version":1,"name":"cpu_usage","entity":"web-a","time":"2026-09-19T12:00:00Z","value":55}
+{"version":1,"name":"cpu_usage","entity":"web-b","time":"2026-09-19T12:00:00Z","value":85}

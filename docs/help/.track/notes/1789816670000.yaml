@@ -1,0 +1,11 @@
+version: 6
+title: Metrics dashboards
+tags:
+    - help/visualization/metrics
+created: "2026-09-19"
+days:
+    - "2026-09-19"
+description: Create a metrics dashboard with shared filters, numeric cards, charts, and tables in the live Web and Native readers.
+props:
+    up: '[[Visualization]]'
+icon: "\U0001F4CA"

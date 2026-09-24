@@ -15,6 +15,7 @@ import (
 	"github.com/ttak0422/track/internal/track/export"
 	"github.com/ttak0422/track/internal/track/index"
 	"github.com/ttak0422/track/internal/track/link"
+	"github.com/ttak0422/track/internal/track/metrics"
 	"github.com/ttak0422/track/internal/track/note"
 	"github.com/ttak0422/track/internal/track/query"
 	"github.com/ttak0422/track/internal/track/rename"
@@ -711,4 +712,27 @@ func ensureTrailingNewline(body string) string {
 		return body
 	}
 	return body + "\n"
+}
+
+// handleMetricsDashboard resolves one dashboard against the selected vault. Both readers use
+// this endpoint so latest-value selection, thresholds and charts have exactly the same meaning.
+func (s *Server) handleMetricsDashboard(v *vaultView, w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, fmt.Errorf("method %s not allowed", r.Method), http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Spec string `json:"spec"`
+		metrics.DashboardSelection
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, err, http.StatusBadRequest)
+		return
+	}
+	result, err := metrics.ResolveDashboardView([]byte(req.Spec), v.cfg.DataDir(), req.DashboardSelection)
+	if err != nil {
+		writeError(w, err, http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, result)
 }

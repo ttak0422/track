@@ -393,6 +393,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 		body = dashboard.Resolve(body, dashData)
 		// Then resolve ```viewspec fences to ready-to-draw ```echarts option blocks, and
 		// ```track-query fences to their Markdown result tables, at build time.
+		body = resolveMetricsDashboardBlocks(body, d.dataDir)
 		body = resolveViewSpecBlocks(body, d.dataDir, noteSlug)
 		body = query.ExpandBlocks(body, saved, queryRows, func(id int64) (string, string) { return queryCovers[id], queryIcons[id] })
 		resp := jsonNoteResponse{

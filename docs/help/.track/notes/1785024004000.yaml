@@ -1,7 +1,9 @@
 version: 8
 title: Home dashboard
-created: '2026-07-26'
+created: "2026-07-26"
+days:
+    - "2026-09-19"
 props:
-  up: '[[Web workspace]]'
-icon: 🏠
+    up: '[[Web workspace]]'
+icon: "\U0001F3E0"
 slug: 6Xgzgy44LKYysmaRlzVScf

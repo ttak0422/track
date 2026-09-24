@@ -9,10 +9,9 @@ import (
 	"time"
 
 	"github.com/ttak0422/track/internal/track/dataset"
-	"github.com/ttak0422/track/internal/track/viewspec"
 )
 
-var fenceJSON = regexp.MustCompile("(?s)```viewspec\n(.*?)```")
+var fenceJSON = regexp.MustCompile("(?s)```metrics-dashboard\n(.*?)```")
 
 func TestParseQuery(t *testing.T) {
 	q, err := ParseQuery(`http_requests{method="GET", code="200"}`)
@@ -139,14 +138,13 @@ func TestDashboardAndAlert(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n != 2 || !strings.Contains(md, "```viewspec") || !strings.Contains(md, `"y": 30`) {
+	if n != 2 || !strings.Contains(md, "```metrics-dashboard") || !strings.Contains(md, `"value": 30`) {
 		t.Fatalf("bad dashboard output:\n%s", md)
 	}
-	// Every emitted fence must pass the renderer's own validation, including the
-	// color-split panel (y[1+] carry explicit marks, y[0] must not).
 	for _, m := range fenceJSON.FindAllStringSubmatch(md, -1) {
-		if _, err := viewspec.Load(strings.NewReader(m[1])); err != nil {
-			t.Fatalf("emitted spec invalid: %v\n%s", err, m[1])
+		resolved, err := ResolveDashboardView([]byte(m[1]), dir, DashboardSelection{})
+		if err != nil || len(resolved.Panels) != 2 || len(resolved.Panels[0].ECharts) == 0 || len(resolved.Panels[1].ECharts) != 0 {
+			t.Fatalf("dashboard fence invalid: %v %+v", err, resolved)
 		}
 	}
 	bad := `{"title":"M","panels":[{"type":"heatmap","title":"H","targets":[{"expr":"rsi14"}]}]}`

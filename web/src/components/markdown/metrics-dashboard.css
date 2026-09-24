@@ -1,0 +1,137 @@
+.metrics-dashboard {
+  container-type: inline-size;
+  margin-block: 24px;
+}
+
+.metrics-dashboard-controls {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: calc(13px * var(--font-scale, 1));
+}
+
+.metrics-dashboard-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--muted);
+}
+
+/* Underline input (variant 5); target select follows the same editable field recipe. */
+.metrics-dashboard-controls input,
+.metrics-dashboard-controls select {
+  max-width: 100%;
+  min-height: 32px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  color: var(--text);
+  font: inherit;
+}
+
+.metrics-dashboard-controls input:focus-visible,
+.metrics-dashboard-controls select:focus-visible {
+  outline: none;
+  border-bottom-color: var(--mark);
+}
+
+/* Text controls (variant 1): labels need their own width, not the icon control's 34px. */
+.metrics-dashboard-controls .graph-reset {
+  width: auto;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font: inherit;
+}
+
+.metrics-dashboard-controls button:disabled {
+  color: var(--faint);
+  cursor: wait;
+}
+
+.metrics-dashboard-asof,
+.metrics-dashboard-stats dt,
+.metrics-dashboard-stats span,
+.metrics-dashboard-stats time {
+  color: var(--muted);
+  font-size: calc(13px * var(--font-scale, 1));
+  overflow-wrap: anywhere;
+}
+
+.metrics-dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(24, minmax(0, 1fr));
+  grid-auto-rows: 40px;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.metrics-dashboard-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.markdown-view .metrics-dashboard-panel > h3 {
+  margin: 0 0 8px;
+  padding: 0;
+}
+
+.markdown-view .metrics-dashboard-panel > h3::before {
+  content: none;
+}
+
+.metrics-dashboard-panel > .viewspec-chart-wrap {
+  flex: 1;
+  min-height: 220px;
+  margin: 0;
+  display: flex;
+}
+
+.metrics-dashboard-panel .viewspec-chart {
+  flex: 1;
+  height: auto;
+  min-height: 220px;
+  margin: 0;
+}
+
+.metrics-dashboard-table {
+  overflow: auto;
+}
+
+.metrics-dashboard-stats {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.metrics-dashboard-stats dd {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.metrics-dashboard-stats strong {
+  font-size: calc(26px * var(--font-scale, 1));
+  font-weight: 500;
+}
+
+@container (max-width: 640px) {
+  .metrics-dashboard-grid {
+    display: flex;
+    flex-direction: column;
+  }
+  .metrics-dashboard-panel {
+    overflow: visible;
+  }
+  .metrics-dashboard-panel > .viewspec-chart-wrap {
+    flex: none;
+    height: 300px;
+  }
+}

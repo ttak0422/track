@@ -62,15 +62,16 @@ describe("useLiveEvents", () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["tasks"] });
   });
 
-  it("invalidates only viewspec queries on a data event, debouncing bursts", () => {
+  it("invalidates chart and dashboard queries on a data event, debouncing bursts", () => {
     const { invalidate, source, unmount } = renderLiveEvents();
     // A burst of writes under data/ coalesces into a single chart refresh.
     source.emit("data");
     source.emit("data");
     expect(invalidate).not.toHaveBeenCalled();
     vi.advanceTimersByTime(150);
-    expect(invalidate).toHaveBeenCalledTimes(1);
+    expect(invalidate).toHaveBeenCalledTimes(2);
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["viewspec"] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["metrics-dashboard"] });
 
     unmount();
     expect(source.closed).toBe(true);

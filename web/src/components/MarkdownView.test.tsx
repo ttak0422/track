@@ -722,6 +722,11 @@ describe("MarkdownView", () => {
     }
   });
 
+  it("renders metrics-dashboard fences through the dashboard component", () => {
+    const { container } = renderWithQuery(<MarkdownView markdown={'```metrics-dashboard\n{"panels":[]}\n```'} />);
+    expect(container.querySelector(".metrics-dashboard")).toBeInTheDocument();
+  });
+
   it("renders viewspec fences through the chart component", () => {
     const { container } = renderWithQuery(<MarkdownView markdown={'```viewspec\n{"version":2}\n```'} />);
     expect(container.querySelector(".viewspec-chart")).toBeInTheDocument();

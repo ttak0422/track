@@ -42,7 +42,7 @@ func metricsUsage() string {
   track metrics scrape --from <file|-> --out <file> [--entity-labels a,b] [--asof DATE]
                                         parse OpenMetrics/Prometheus exposition text into metric-kind JSONL
   track metrics dashboard --dashboard <grafana.json> --out <note.md> [--data-dir DIR]
-                                        resolve a Grafana-subset dashboard into note Markdown with viewspec fences
+                                        resolve a Grafana-subset dashboard into a metrics-dashboard fence for the live readers
   track metrics alert --rules <rules.yaml> [--data-dir DIR] [--capture "Note#Heading"]
                                         evaluate Prometheus-subset threshold rules; --capture records firing alerts
 `

@@ -215,6 +215,7 @@ public struct GFMBody: View {
             case math(display: Bool)
             case echarts
             case viewspec
+            case metricsDashboard
             case dot
             case d2
             case drawio
@@ -234,6 +235,7 @@ public struct GFMBody: View {
         "mermaid": .mermaid,
         "echarts": .echarts,
         "viewspec": .viewspec,
+        "metrics-dashboard": .metricsDashboard,
         "dot": .dot,
         "graphviz": .dot,
         "d2": .d2,
@@ -957,6 +959,8 @@ private struct FigureSegmentView: View {
             host(.echarts(optionJSON: figure.source))
         case .viewspec:
             viewspecBody
+        case .metricsDashboard:
+            MetricsDashboardView(spec: figure.source, vault: vault, client: client)
         case .dot:
             host(.dot(figure.source))
         case .d2:

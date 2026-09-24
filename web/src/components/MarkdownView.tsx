@@ -51,6 +51,7 @@ import {
 import { tocEntries } from "./markdown/toc";
 import { EChartsFence } from "./markdown/EChartsBlock";
 import { QueryView } from "./markdown/QueryView";
+import { MetricsDashboard, MetricsDashboardSnapshot } from "./markdown/MetricsDashboard";
 import { ViewSpecChart } from "./markdown/ViewSpecChart";
 import { WikiLink } from "./preview/WikiLink";
 import { TitleCopyButton } from "./TitleCopyButton";
@@ -482,6 +483,12 @@ const markdownComponents = {
       }
       if (normalized === "mindmap") {
         return <MindmapDiagram text={text} />;
+      }
+      if (normalized === "metrics-dashboard-snapshot") {
+        return <MetricsDashboardSnapshot text={text} />;
+      }
+      if (normalized === "metrics-dashboard") {
+        return <MetricsDashboard text={text} />;
       }
       if (normalized === "viewspec") {
         return <ViewSpecChart text={text} />;

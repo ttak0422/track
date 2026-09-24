@@ -86,3 +86,23 @@ func TestMetricsAlertCapturesToNote(t *testing.T) {
 		t.Fatalf("signal not captured:\n%s", body)
 	}
 }
+
+func TestMetricsDashboardKeepsInteractivePanels(t *testing.T) {
+	dir := t.TempDir()
+	writeTemp(t, dir, "cpu.jsonl", `{"name":"cpu","entity":"web1","time":"2026-09-19","value":42}`+"\n")
+	dashboard := writeTemp(t, dir, "dashboard.json", `{"title":"Services","panels":[{"type":"stat","title":"CPU","gridPos":{"x":0,"y":0,"w":8,"h":4},"datasource":{"type":"track","uid":"cpu.jsonl"},"targets":[{"expr":"cpu"}]}]}`)
+	out := filepath.Join(dir, "note.md")
+	raw, code := capture(t, func() int {
+		return Run([]string{"metrics", "dashboard", "--dashboard", dashboard, "--data-dir", dir, "--out", out})
+	})
+	if code != 0 {
+		t.Fatalf("dashboard failed: %s", raw)
+	}
+	body, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "```metrics-dashboard") || !strings.Contains(string(body), `"type": "stat"`) || !strings.Contains(string(body), `"gridPos"`) || strings.Contains(string(body), "```viewspec") {
+		t.Fatalf("lost interactive dashboard: %s", body)
+	}
+}

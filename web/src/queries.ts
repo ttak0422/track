@@ -19,6 +19,7 @@ import {
   listVaults,
   renderMarkdown,
   renderViewSpec,
+  renderMetricsDashboard,
   resolveTerm,
   saveNote,
   saveNoteMeta,
@@ -41,6 +42,7 @@ import type {
   AgentRequest,
   DateField,
   NoteID,
+  MetricsDashboardFilters,
   NoteMetaResponse,
   NoteResponse,
   SaveNoteMetaRequest,
@@ -71,6 +73,8 @@ export const queryKeys = {
   ogp: (url: string) => ["ogp", url] as const,
   render: (body: string, vault = "") => ["render", vault, body] as const,
   assetText: (href: string) => ["assetText", href] as const,
+  metricsDashboard: (spec: string, filters: MetricsDashboardFilters, vault = "") =>
+    ["metrics-dashboard", vault, spec, filters] as const,
   viewspec: (spec: string, vault = "") => ["viewspec", vault, spec] as const,
   agents: () => ["agents"] as const,
   requests: (vault = "") => ["requests", vault] as const,
@@ -479,5 +483,16 @@ export function useSaveNoteMetaMutation(noteID: NoteID) {
 export function useUploadAssetMutation(vault = "") {
   return useMutation({
     mutationFn: (file: File) => uploadAsset(file, vault),
+  });
+}
+
+export function useMetricsDashboardQuery(spec: string, filters: MetricsDashboardFilters, vault = "") {
+  return useQuery({
+    queryKey: queryKeys.metricsDashboard(spec, filters, vault),
+    queryFn: () => renderMetricsDashboard(spec, filters, vault),
+    enabled: !STATIC_MODE,
+    retry: false,
+    // Retain target choices during filter changes; the component hides placeholder panel values.
+    placeholderData: keepPreviousData,
   });
 }
