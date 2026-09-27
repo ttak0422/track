@@ -8,6 +8,7 @@
 // Usage:
 //
 //	track-fetch-web [--url] <page URL or file path> [--out <file>] [--note] [--timeout <dur>]
+//	track-fetch-web --snapshot-dir <dir> <page URL> [--timeout <dur>]
 //
 // With --note the tool prints a ready-to-pipe Markdown note body instead of JSONL, so a page clips
 // straight into a note:
@@ -16,6 +17,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -25,6 +27,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -38,17 +41,30 @@ func main() {
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
+	return runWithHTTPClient(args, stdout, stderr, nil)
+}
+
+// runWithHTTPClient keeps the CLI testable with an in-memory HTTP transport. Production calls run,
+// which always constructs the SSRF-guarded client for URL acquisition.
+func runWithHTTPClient(args []string, stdout, stderr io.Writer, client *http.Client) int {
 	fs := flag.NewFlagSet("track-fetch-web", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	urlFlag := fs.String("url", "", "page URL (http/https), or a local file path for testing; a bare argument works too")
 	out := fs.String("out", "", "write JSONL to this file instead of stdout (prints a JSON summary)")
 	note := fs.Bool("note", false, "print a ready-to-pipe Markdown note body instead of JSONL")
+	snapshotDir := fs.String("snapshot-dir", "", "save response HTML and extracted Markdown under this directory; print a provenance manifest")
 	timeout := fs.Duration("timeout", 30*time.Second, "HTTP fetch timeout")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	source := strings.TrimSpace(*urlFlag)
-	if source == "" && fs.NArg() == 1 {
+	source := ""
+	if *urlFlag != "" {
+		if fs.NArg() != 0 {
+			fmt.Fprintln(stderr, "track-fetch-web: use either --url or one positional source, not both")
+			return 2
+		}
+		source = strings.TrimSpace(*urlFlag)
+	} else if fs.NArg() == 1 {
 		source = strings.TrimSpace(fs.Arg(0))
 	}
 	if source == "" || fs.NArg() > 1 {
@@ -56,32 +72,67 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fs.Usage()
 		return 2
 	}
+	if *note && *out != "" {
+		fmt.Fprintln(stderr, "track-fetch-web: --note cannot be combined with --out")
+		return 2
+	}
+	if *snapshotDir != "" && (*note || *out != "") {
+		fmt.Fprintln(stderr, "track-fetch-web: --snapshot-dir cannot be combined with --note or --out")
+		return 2
+	}
+	if *snapshotDir != "" && !isHTTPSource(source) {
+		fmt.Fprintln(stderr, "track-fetch-web: --snapshot-dir requires an http(s) URL")
+		return 2
+	}
 
-	body, pageURL, err := open(source, *timeout)
+	original, pageURL, finalURL, lastModified, retrievedAt, err := acquire(source, *timeout, client)
 	if err != nil {
 		return fail(stderr, err)
 	}
-	defer body.Close()
 
-	page, err := web.Extract(body, pageURL)
+	page, err := web.Extract(bytes.NewReader(original), pageURL)
 	if err != nil {
 		return fail(stderr, err)
 	}
+	page = web.ApplyLastModified(page, lastModified)
 	if page.Markdown == "" {
-		fmt.Fprintln(stderr, "track-fetch-web: no readable content found; emitting metadata only")
+		fmt.Fprintln(stderr, "track-fetch-web: no readable content found; extracted text is empty")
 	}
 	sourceURL := ""
-	if pageURL != nil {
+	if isHTTPSource(source) {
 		sourceURL = source
 	}
-	now := time.Now()
 
-	if *note {
-		fmt.Fprint(stdout, web.NoteBody(page, sourceURL, now))
+	if *snapshotDir != "" {
+		manifest, err := web.SaveSnapshot(*snapshotDir, sourceURL, finalURL, retrievedAt, original, page)
+		if err != nil {
+			return fail(stderr, err)
+		}
+		encoded, err := json.Marshal(manifest)
+		if err != nil {
+			return fail(stderr, err)
+		}
+		line := append(encoded, '\n')
+		n, writeErr := stdout.Write(line)
+		if writeErr == nil && n != len(line) {
+			writeErr = io.ErrShortWrite
+		}
+		if writeErr != nil {
+			cleanupErr := os.RemoveAll(filepath.Dir(manifest.OriginalPath))
+			if cleanupErr != nil {
+				writeErr = errors.Join(writeErr, fmt.Errorf("remove incomplete snapshot: %w", cleanupErr))
+			}
+			return fail(stderr, writeErr)
+		}
 		return 0
 	}
 
-	rec, err := web.Record(page, sourceURL, now)
+	if *note {
+		fmt.Fprint(stdout, web.NoteBody(page, sourceURL, retrievedAt))
+		return 0
+	}
+
+	rec, err := web.Record(page, sourceURL, retrievedAt)
 	if err != nil {
 		return fail(stderr, err)
 	}
@@ -105,41 +156,71 @@ func run(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// open returns the page body and its URL: an HTTP response for a URL (with the base for resolving
-// relative links), a file otherwise (which keeps the tool testable and lets saved pages be
-// replayed; file input has no base, so relative references are dropped).
-func open(source string, timeout time.Duration) (io.ReadCloser, *url.URL, error) {
-	if !strings.HasPrefix(source, "http://") && !strings.HasPrefix(source, "https://") {
+const maxResponseBytes = 20 << 20
+
+func isHTTPSource(source string) bool {
+	parsed, err := url.Parse(source)
+	return err == nil && parsed.Host != "" && (strings.EqualFold(parsed.Scheme, "http") || strings.EqualFold(parsed.Scheme, "https"))
+}
+
+// acquire returns one complete response body, its final URL, and the instant the body was fully
+// received, plus the HTTP modification label. Local files remain useful for replay and tests but
+// have no base URL, final URL, or response headers.
+func acquire(source string, timeout time.Duration, client *http.Client) ([]byte, *url.URL, string, string, time.Time, error) {
+	if !isHTTPSource(source) {
 		f, err := os.Open(source)
-		return f, nil, err
+		if err != nil {
+			return nil, nil, "", "", time.Time{}, err
+		}
+		body, readErr := io.ReadAll(io.LimitReader(f, maxResponseBytes+1))
+		closeErr := f.Close()
+		if readErr != nil || closeErr != nil {
+			return nil, nil, "", "", time.Time{}, errors.Join(readErr, closeErr)
+		}
+		if len(body) > maxResponseBytes {
+			return nil, nil, "", "", time.Time{}, fmt.Errorf("read %s: file exceeds %d bytes", source, maxResponseBytes)
+		}
+		return body, nil, "", "", time.Now().UTC(), nil
 	}
 	req, err := http.NewRequest(http.MethodGet, source, nil)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, "", "", time.Time{}, err
 	}
 	// A realistic UA and HTML Accept header keep sites from serving an empty or bot page.
 	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; track/0.1; +https://github.com/ttak0422/track)")
 	req.Header.Set("Accept", "text/html,application/xhtml+xml")
-	resp, err := newGuardedClient(timeout).Do(req)
+	if client == nil {
+		client = newGuardedClient(timeout)
+	}
+	resp, err := client.Do(req)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, "", "", time.Time{}, err
 	}
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
-		return nil, nil, fmt.Errorf("fetch %s: HTTP %s", source, resp.Status)
+		return nil, nil, "", "", time.Time{}, fmt.Errorf("fetch %s: HTTP %s", source, resp.Status)
 	}
 	if ct := resp.Header.Get("Content-Type"); ct != "" && !strings.Contains(strings.ToLower(ct), "html") {
 		resp.Body.Close()
-		return nil, nil, fmt.Errorf("fetch %s: unsupported content type %q (expected HTML)", source, ct)
+		return nil, nil, "", "", time.Time{}, fmt.Errorf("fetch %s: unsupported content type %q (expected HTML)", source, ct)
+	}
+	lastModified := resp.Header.Get("Last-Modified")
+	// Reading into one bounded body lets snapshot mode save exactly the bytes that Extract parses.
+	// Read one byte past the cap so oversize responses fail instead of becoming plausible truncations.
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
+	closeErr := resp.Body.Close()
+	if readErr != nil || closeErr != nil {
+		return nil, nil, "", "", time.Time{}, errors.Join(readErr, closeErr)
+	}
+	if len(body) > maxResponseBytes {
+		return nil, nil, "", "", time.Time{}, fmt.Errorf("fetch %s: response exceeds %d bytes", source, maxResponseBytes)
+	}
+	final := req.URL
+	if resp.Request != nil && resp.Request.URL != nil {
+		final = resp.Request.URL
 	}
 	// resp.Request.URL is the final URL after redirects; relative links resolve against it.
-	// The cap keeps a hostile or misconfigured endpoint from streaming without bound; 20MB is far
-	// beyond any real article page.
-	limited := struct {
-		io.Reader
-		io.Closer
-	}{io.LimitReader(resp.Body, 20<<20), resp.Body}
-	return limited, resp.Request.URL, nil
+	return body, final, final.String(), lastModified, time.Now().UTC(), nil
 }
 
 // cgnat is the carrier-grade NAT range (RFC 6598), which net.IP.IsPrivate does not cover but is

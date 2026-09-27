@@ -141,9 +141,13 @@ func (r *mdRenderer) list(n *html.Node, depth int) []string {
 	return lines
 }
 
-// table renders a pipe table: the first row becomes the header. Cell text is single-line with pipes
-// escaped.
+// table renders a simple pipe table. Tables whose caption, header rows, spans, or cell counts carry
+// associations a pipe table cannot represent are kept as fenced HTML rather than flattened into
+// guessed column mappings.
 func (r *mdRenderer) table(n *html.Node) string {
+	if requiresHTMLTable(n) {
+		return preservedHTMLTable(n)
+	}
 	var rows [][]string
 	walk(n, func(c *html.Node) bool {
 		if c.Type == html.ElementNode && c.DataAtom == atom.Tr {
@@ -178,6 +182,87 @@ func (r *mdRenderer) table(n *html.Node) string {
 		writeRow(row)
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func requiresHTMLTable(table *html.Node) bool {
+	caption := false
+	headerRows := 0
+	firstWidth := -1
+	ragged := false
+	spans := false
+	semanticHeaders := false
+	nestedTable := false
+	walk(table, func(n *html.Node) bool {
+		if n != table && n.Type == html.ElementNode && n.DataAtom == atom.Table {
+			nestedTable = true
+			return false // nested tables are not flattened into their parent's rows
+		}
+		if n.Type != html.ElementNode {
+			return true
+		}
+		if n.DataAtom == atom.Caption {
+			caption = true
+		}
+		if n.DataAtom == atom.Tr {
+			width, headers := 0, 0
+			for cell := n.FirstChild; cell != nil; cell = cell.NextSibling {
+				if cell.Type != html.ElementNode || (cell.DataAtom != atom.Td && cell.DataAtom != atom.Th) {
+					continue
+				}
+				width++
+				if cell.DataAtom == atom.Th {
+					headers++
+				}
+				for _, attr := range cell.Attr {
+					switch strings.ToLower(attr.Key) {
+					case "rowspan", "colspan":
+						spans = true
+					case "scope", "headers", "abbr":
+						semanticHeaders = true
+					}
+				}
+			}
+			if width > 0 {
+				if firstWidth < 0 {
+					firstWidth = width
+				} else if width != firstWidth {
+					ragged = true
+				}
+				if headers > 0 {
+					headerRows++
+				}
+			}
+		}
+		return true
+	})
+	return caption || headerRows > 1 || ragged || spans || semanticHeaders || nestedTable
+}
+
+func preservedHTMLTable(table *html.Node) string {
+	var source strings.Builder
+	_ = html.Render(&source, table)
+	markup := source.String()
+	fence := strings.Repeat("`", maxBacktickRun(markup)+1)
+	if len(fence) < 3 {
+		fence = "```"
+	}
+	return "[Complex table retained as HTML because its caption, header associations, or row/column spans cannot be represented safely in a Markdown pipe table.]\n\n" +
+		fence + "html\n" + markup + "\n" + fence
+}
+
+func maxBacktickRun(text string) int {
+	maxRun, run := 0, 0
+	for _, r := range text {
+		if r == '`' {
+			run++
+			if run > maxRun {
+				maxRun = run
+			}
+		} else {
+			run = 0
+		}
+	}
+	return maxRun
 }
 
 // fencedCode renders a <pre> block, keeping its text verbatim and picking up a language from the

@@ -63,17 +63,75 @@ carry the date-only `time` described above.
 
 ## Web clipper
 
-`track-fetch-web <url>` clips one web page into a single `event` record: `time` from the page's
-declared publication time (fetch time otherwise), `title`, `url`, plus the extra fields the
+`track-fetch-web <url>` clips one web page into a single `event` record: `time` uses the page's
+publication metadata only when it is an explicit zoned instant; otherwise it uses the retrieval
+instant. A modified timestamp is never treated as publication time. Date-only and timezone-less
+publication values are not instants. The record also carries `title`, `url`, and the extra fields the
 contract allows — `markdown` (the readable main content, extracted with a compact readability
-heuristic and converted to Markdown; see ADR 0040) and `image` (the lead image URL). The fetch is
+heuristic and converted to Markdown; see ADR 0040), `image` (the lead image URL), `published` and
+`modified` (each with `raw`, `precision`, and nullable `timestamp`), and `retrieved_at` (the RFC 3339
+fetch instant). `modified` uses document metadata first and the HTTP `Last-Modified` header only as a
+fallback. The fetch is
 SSRF-guarded: private, loopback, and link-local addresses are refused, mirroring the engine's
 web-workspace link-preview fetcher; a local file path replaces the URL for testing and for pages
 saved from the local network.
 
 Because a clip is note-shaped as much as chart-shaped, the tool also has a convenience output mode
-outside the JSONL contract: `--note` prints a ready-to-pipe Markdown note body (provenance line,
-lead image, content) for `track new --title`.
+outside the JSONL contract: `--note` prints a ready-to-pipe Markdown note body (retrieval-dated
+provenance line, any declared publication/modification labels, lead image, content) for
+`track new --title`.
+
+The note provenance line's `retrieved YYYY-MM-DD` date comes from retrieval time, not the page's
+publication or modification date. It is intentionally a date-only note label; use `--snapshot-dir`
+when the exact retrieval instant and source bytes must be retained.
+
+### Reproducible web snapshot
+
+`--snapshot-dir DIR <url>` is an explicit URL-acquisition mode, mutually exclusive with `--note` and
+`--out`. It accepts HTTP(S) only, fetches once through the same SSRF-guarded client, and rejects a
+response body larger than 20 MiB rather than saving a truncation. It writes the body bytes exposed by
+`net/http` (after any transparent content decompression) as `original.html`, plus the extracted
+Markdown as `text.md`. `text.md` is only the extracted content: it has no source header, summary, or
+retrieval banner. `DIR` is the snapshot container (created if absent); each run creates a unique
+`snapshot-*` child and absolute paths to its fixed `original.html` and `text.md` files. The child and
+files are created exclusively (child mode `0700`, file mode `0600`), so existing snapshots are never
+overwritten. If a write fails, the command removes the partial snapshot when possible and reports any
+remaining path to stderr.
+
+On success stdout contains exactly one compact JSON manifest line (no JSONL record or summary). The
+hash fields below are illustrative placeholders; actual SHA-256 values contain 64 lowercase hex characters:
+
+```json
+{"schema_version":1,"source_url":"https://example.com/article","final_url":"https://example.com/article","retrieved_at":"2026-09-27T12:34:56.123456789Z","original_path":"/snapshots/article/snapshot-abc123/original.html","text_path":"/snapshots/article/snapshot-abc123/text.md","original_sha256":"0000000000000000000000000000000000000000000000000000000000000000","text_sha256":"0000000000000000000000000000000000000000000000000000000000000000000000","extraction_method":"readability-v1","published":{"raw":"2026-09-26T10:00:00-04:00","precision":"instant","timestamp":"2026-09-26T10:00:00-04:00"},"modified":{"raw":"","precision":"absent","timestamp":null}}
+```
+
+Manifest v1 fields are fixed: `schema_version` is `1`; `source_url` is the requested URL;
+`final_url` is the response URL after redirects; `retrieved_at` is the RFC 3339 instant recorded
+after the response body has been received; the absolute `*_path` values name the secured files; and
+each `*_sha256` hashes that file's bytes. `published` and `modified` each contain the
+selected metadata `raw` value as returned by the HTML parser or response header (empty when absent),
+`precision`, and `timestamp`
+(an RFC 3339 instant for a known instant, otherwise JSON `null`). Precision is `instant` for an
+explicitly zoned instant, `date` for a date-only value, `local_datetime` for a timezone-less
+date-time, `unknown` for an unrecognized non-empty value, and `absent` when no value was declared.
+`local_datetime` therefore retains its wall-clock precision without inventing an instant. The
+`published.raw` value comes from document publication metadata. `modified.raw` comes from document
+update metadata, falling back to the HTTP `Last-Modified` header only when the document declares no
+update value. A header with an explicit `GMT`/`UTC` zone is an instant; offsetless values are never
+assigned UTC. The
+`extraction_method` value `readability-v1` identifies the Markdown conversion. The manifest is
+stdout-only; it is not written into the snapshot directory.
+
+The HTML-to-Markdown converter handles simple pipe tables. Tables with captions, multiple header
+rows, row/column spans, semantic header associations, or ragged rows are emitted as fenced HTML with
+a notice rather than flattened into guessed columns. Row/column spans are not expanded into Markdown
+grid positions.
+
+Example:
+
+```sh
+track-fetch-web --snapshot-dir ./article-snapshot https://example.com/article
+```
 
 ## Web element clip
 
