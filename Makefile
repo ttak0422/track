@@ -9,6 +9,10 @@ SITE_OUT   ?= _site
 # build points TRACK_VAULT at it; the landing note comes from its own .track/config.yml (web.home),
 # not from a flag here. TRACK_CACHE_DIR keeps its index out of the developer's own cache.
 SITE_VAULT ?= docs/help
+# Apps are opt-in for other vaults. This comma-separated allowlist can be overridden, including with
+# SITE_APPS= to publish no apps.
+SITE_APPS ?= $(if $(filter docs/help,$(SITE_VAULT)),counter)
+SITE_APP_FLAGS = $(if $(strip $(SITE_APPS)),--app $(SITE_APPS))
 SITE_CACHE ?= .site-cache
 SITE_PORT  ?= 8000
 WEB_ADDR   ?= 127.0.0.1:8765
@@ -40,7 +44,7 @@ site: web/node_modules ## Build + prerender the static help site into $(SITE_OUT
 	cd web && VITE_TRACK_STATIC=1 SITE_BASE=$(SITE_BASE) npx vite build --outDir dist-static
 	cd web && VITE_TRACK_STATIC=1 SITE_BASE=$(SITE_BASE) npx vite build --ssr src/entry-server.tsx --outDir dist-server
 	go build -o $(TRACK_BIN) ./cmd/track
-	TRACK_VAULT=$(SITE_VAULT) TRACK_CACHE_DIR=$(SITE_CACHE) ./$(TRACK_BIN) export-site --all --frontend $(WEB_DIST) --out $(SITE_OUT) --base-url "$(SITE_ORIGIN)" --share=$(SITE_SHARE)
+	TRACK_VAULT=$(SITE_VAULT) TRACK_CACHE_DIR=$(SITE_CACHE) ./$(TRACK_BIN) export-site --all $(SITE_APP_FLAGS) --frontend $(WEB_DIST) --out $(SITE_OUT) --base-url "$(SITE_ORIGIN)" --share=$(SITE_SHARE)
 	node web/scripts/prerender.mjs $(SITE_OUT) web/dist-server/entry-server.js
 	@echo "Built + prerendered $(SITE_OUT)/ — run 'make site-serve' to preview"
 
@@ -54,17 +58,17 @@ lighthouse: site ## Run Lighthouse on the built site and print the scores (needs
 design-shots: ## Screenshot design candidates × light/dark into _design-shots/index.html
 	node scripts/design-shots.mjs
 
-# site-data regenerates only the exported JSON bundle ($(SITE_OUT)/data) — the part that changes when a
-# note changes. It needs a frontend dir to satisfy export-site, so it hands it a throwaway stub. Fast:
-# no Vite build, no prerender. Re-run it after editing docs/help while `make site-dev` is running.
+# site-data refreshes the exported vault content and its explicitly allowlisted apps in $(SITE_OUT). It
+# needs a frontend dir to satisfy export-site, so it hands it a throwaway stub. Fast: no Vite build, no
+# prerender. Re-run it after editing docs/help while `make site-dev` is running.
 site-data:
 	go build -o $(TRACK_BIN) ./cmd/track
 	mkdir -p .site-stub && printf '<!doctype html><script>window.__trackLock = "__TRACK_LOCK_KEY__";window.__trackData = "__TRACK_DATA_GEN__"</script><div id="root"></div>' > .site-stub/index.html
-	TRACK_VAULT=$(SITE_VAULT) TRACK_CACHE_DIR=$(SITE_CACHE) ./$(TRACK_BIN) export-site --all --frontend .site-stub --out $(SITE_OUT) --base-url "$(SITE_ORIGIN)" --share=$(SITE_SHARE)
+	TRACK_VAULT=$(SITE_VAULT) TRACK_CACHE_DIR=$(SITE_CACHE) ./$(TRACK_BIN) export-site --all $(SITE_APP_FLAGS) --frontend .site-stub --out $(SITE_OUT) --base-url "$(SITE_ORIGIN)" --share=$(SITE_SHARE)
 
 site-dev: web/node_modules site-data ## Dev preview: Vite dev server (HMR) over the exported data — fast iteration
-	@echo "Vite dev server (static mode, HMR). Edit web/src for instant reload; re-run 'make site-data' after help vault edits."
-	cd web && VITE_TRACK_STATIC=1 npx vite
+	@echo "Vite dev server (static mode, HMR). Edit web/src for instant reload; re-run 'make site-data' after help note or app edits."
+	cd web && SITE_OUT=$(abspath $(SITE_OUT)) SITE_BASE=$(SITE_BASE) VITE_TRACK_STATIC=1 npx vite
 
 site-serve: site ## Serve at http://localhost:$(SITE_PORT), open a browser, and rebuild on change
 	@echo "Serving $(SITE_OUT) at http://localhost:$(SITE_PORT)/ (Ctrl-C to stop)"
@@ -74,14 +78,14 @@ site-serve: site ## Serve at http://localhost:$(SITE_PORT), open a browser, and 
 	trap 'kill $$server 2>/dev/null; exit 0' INT TERM; \
 	sleep 1; \
 	[ -n "$(OPEN)" ] && $(OPEN) "http://localhost:$(SITE_PORT)/" >/dev/null 2>&1 || true; \
-	echo "Watching $(SITE_VAULT), web/src, and the engine — edit and save to rebuild"; \
+	echo "Watching $(SITE_VAULT) (notes and apps), web/src, and the engine — edit and save to rebuild"; \
 	while true; do \
 		if [ -n "$$(find web/src cmd internal go.mod go.sum -type f -newer $(WEB_DIST)/index.html 2>/dev/null)" ]; then \
 			echo "== frontend/engine changed — full rebuild =="; \
 			$(MAKE) --no-print-directory site; \
 		elif [ -n "$$(find $(SITE_VAULT) -type f -newer $(SITE_OUT)/index.html 2>/dev/null)" ]; then \
 			echo "== docs changed — rebuilding content =="; \
-			TRACK_VAULT=$(SITE_VAULT) TRACK_CACHE_DIR=$(SITE_CACHE) ./$(TRACK_BIN) export-site --all --frontend $(WEB_DIST) --out $(SITE_OUT) --base-url "$(SITE_ORIGIN)" --share=$(SITE_SHARE); \
+			TRACK_VAULT=$(SITE_VAULT) TRACK_CACHE_DIR=$(SITE_CACHE) ./$(TRACK_BIN) export-site --all $(SITE_APP_FLAGS) --frontend $(WEB_DIST) --out $(SITE_OUT) --base-url "$(SITE_ORIGIN)" --share=$(SITE_SHARE); \
 		fi; \
 		sleep 1; \
 	done

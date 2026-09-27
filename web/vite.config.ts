@@ -2,13 +2,37 @@
 import { type Connect, defineConfig, type PluginOption } from "vite";
 import react from "@vitejs/plugin-react";
 
-// Node builtins used only by the dev-server data middleware. Imported without @types/node (which would
-// leak Node globals into the app's type surface); the Node runtime that runs Vite provides them.
+// Node builtins used only by dev-server middleware. Imported without @types/node (which would leak Node
+// globals into the app's type surface); the Node runtime that runs Vite provides them.
 declare const process: { env: Record<string, string | undefined> };
 // @ts-expect-error node builtin — no @types/node installed on purpose
-import { cpSync, existsSync, readFileSync } from "node:fs";
+import { cpSync, existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 // @ts-expect-error node builtin — no @types/node installed on purpose
-import { join } from "node:path";
+import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
+
+const staticBuild = process.env.VITE_TRACK_STATIC === "1";
+const siteBase = staticBuild ? (process.env.SITE_BASE || "/").replace(/\/*$/, "/") : "/";
+const siteBasePath = siteBase === "/" ? "" : siteBase.slice(0, -1);
+
+// Make passes SITE_OUT as an absolute path; direct `cd web && npm run dev` keeps the historical _site
+// default at the repository root.
+function exportedSiteDir(): string {
+  return resolve("..", process.env.SITE_OUT || "_site");
+}
+
+function isPathWithin(root: string, candidate: string): boolean {
+  const pathFromRoot = relative(root, candidate);
+  return (
+    pathFromRoot === "" ||
+    (pathFromRoot !== ".." && !pathFromRoot.startsWith(`..${sep}`) && !isAbsolute(pathFromRoot))
+  );
+}
+
+function notFound(res: Parameters<Connect.NextHandleFunction>[1]): void {
+  res.statusCode = 404;
+  res.setHeader("content-type", "text/plain; charset=utf-8");
+  res.end("Not Found");
+}
 
 // serveExportedData lets `make site-dev` preview the help site with the Vite dev server (HMR): the
 // static-mode app fetches its data from /data/*, which this middleware serves from the exported bundle
@@ -21,11 +45,135 @@ function serveExportedData(): PluginOption {
     configureServer(server) {
       const handler: Connect.NextHandleFunction = (req, res, next) => {
         const url = (req as { url?: string }).url ?? "";
-        if (!url.startsWith("/data/")) return next();
-        const file = join("..", "_site", url); // url already begins with /data/
-        if (!existsSync(file)) return next();
+        const pathname = url.split("?", 1)[0] ?? "";
+        const dataPrefix = `${siteBasePath}/data/`;
+        if (!pathname.startsWith(dataPrefix)) return next();
+        let relativeFile: string;
+        try {
+          relativeFile = decodeURIComponent(pathname.slice(dataPrefix.length));
+        } catch {
+          return next();
+        }
+        const dataRoot = resolve(exportedSiteDir(), "data");
+        const file = resolve(dataRoot, relativeFile);
+        if (!isPathWithin(dataRoot, file) || !existsSync(file) || !statSync(file).isFile()) return next();
         res.setHeader("content-type", "application/octet-stream");
         res.end(readFileSync(file));
+      };
+      server.middlewares.use(handler);
+    },
+  };
+}
+
+const appContentTypes: Record<string, string> = {
+  ".avif": "image/avif",
+  ".css": "text/css; charset=utf-8",
+  ".csv": "text/csv; charset=utf-8",
+  ".gif": "image/gif",
+  ".html": "text/html; charset=utf-8",
+  ".ico": "image/x-icon",
+  ".jpeg": "image/jpeg",
+  ".jpg": "image/jpeg",
+  ".js": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
+  ".md": "text/markdown; charset=utf-8",
+  ".mp3": "audio/mpeg",
+  ".mp4": "video/mp4",
+  ".ogg": "audio/ogg",
+  ".pdf": "application/pdf",
+  ".png": "image/png",
+  ".svg": "image/svg+xml",
+  ".txt": "text/plain; charset=utf-8",
+  ".wasm": "application/wasm",
+  ".wav": "audio/wav",
+  ".webm": "video/webm",
+  ".webp": "image/webp",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".xml": "application/xml; charset=utf-8",
+  ".yaml": "text/yaml; charset=utf-8",
+  ".yml": "text/yaml; charset=utf-8",
+};
+
+// In static mode /apps belongs to the exported allowlist, not the live workspace proxy. There is no
+// directory listing or SPA fallback: only regular files under one exported app directory are returned.
+function serveExportedApps(): PluginOption {
+  return {
+    name: "track-serve-exported-apps",
+    apply: "serve",
+    configureServer(server) {
+      const handler: Connect.NextHandleFunction = (req, res, next) => {
+        const url = (req as { url?: string }).url ?? "/";
+        const method = (req as { method?: string }).method ?? "GET";
+        const pathname = url.split("?", 1)[0] ?? "/";
+        const appsPath = `${siteBasePath}/apps`;
+        const appsPrefix = `${appsPath}/`;
+        if (pathname === appsPath || pathname === appsPrefix) return notFound(res);
+        if (!pathname.startsWith(appsPrefix)) return next();
+
+        if (method !== "GET" && method !== "HEAD") {
+          res.statusCode = 405;
+          res.setHeader("allow", "GET, HEAD");
+          return res.end("Method Not Allowed");
+        }
+
+        const rawSegments = pathname.slice(appsPrefix.length).split("/");
+        const trailingSlash = rawSegments.at(-1) === "";
+        if (trailingSlash) rawSegments.pop();
+        if (rawSegments.length === 0 || rawSegments.some((segment) => segment === "")) return notFound(res);
+
+        let segments: string[];
+        try {
+          segments = rawSegments.map((segment) => decodeURIComponent(segment));
+        } catch {
+          return notFound(res);
+        }
+        if (
+          segments.some(
+            (segment) =>
+              segment === "." ||
+              segment === ".." ||
+              segment === "" ||
+              segment.includes("/") ||
+              segment.includes("\\") ||
+              segment.includes("\0"),
+          ) ||
+          !/^[a-z0-9][a-z0-9-]{0,62}$/.test(segments[0])
+        ) {
+          return notFound(res);
+        }
+
+        if (segments.length === 1 && !trailingSlash) {
+          const query = url.includes("?") ? url.slice(url.indexOf("?")) : "";
+          res.statusCode = 308;
+          res.setHeader("location", `${pathname}/${query}`);
+          return res.end();
+        }
+        if (segments.length > 1 && trailingSlash) return notFound(res);
+
+        try {
+          const outputRoot = realpathSync(exportedSiteDir());
+          const appsRoot = realpathSync(resolve(outputRoot, "apps"));
+          const appRoot = realpathSync(resolve(appsRoot, segments[0]));
+          if (!isPathWithin(outputRoot, appsRoot) || !isPathWithin(appsRoot, appRoot)) return notFound(res);
+
+          const relativeFile = segments.length === 1 ? ["index.html"] : segments.slice(1);
+          const file = resolve(appRoot, ...relativeFile);
+          if (!isPathWithin(appRoot, file)) return notFound(res);
+          const realFile = realpathSync(file);
+          if (!isPathWithin(appRoot, realFile) || !statSync(realFile).isFile()) return notFound(res);
+
+          const body = readFileSync(realFile);
+          res.statusCode = 200;
+          res.setHeader("content-type", appContentTypes[extname(realFile).toLowerCase()] ?? "application/octet-stream");
+          res.setHeader("content-length", String(body.length));
+          res.setHeader("cache-control", "no-cache");
+          res.setHeader("x-content-type-options", "nosniff");
+          res.end(method === "HEAD" ? undefined : body);
+        } catch {
+          notFound(res);
+        }
       };
       server.middlewares.use(handler);
     },
@@ -52,7 +200,7 @@ function stripServerPlaceholders(): PluginOption {
 }
 
 function exportedPageValue(name: string): string {
-  const page = join("..", "_site", "index.html");
+  const page = join(exportedSiteDir(), "index.html");
   if (!existsSync(page)) return "";
   return new RegExp(`${name}\\s*=\\s*"([^"]*)"`).exec(readFileSync(page, "utf8"))?.[1] ?? "";
 }
@@ -62,8 +210,6 @@ function exportedPageValue(name: string): string {
 // the router basepath and asset URLs, keeping the prerender and the hydrating client in agreement. Set
 // SITE_BASE=/repo/ when deploying under a GitHub Pages project subpath. The live server build serves from
 // root.
-const staticBuild = process.env.VITE_TRACK_STATIC === "1";
-
 // bundlePdfjsAssets copies pdf.js' render-time asset directories — cmaps (CID-keyed fonts, i.e. most
 // CJK PDFs) and standard_fonts (the standard 14 fonts PDFs may reference without embedding) — into
 // the live build under pdfjs/, so `track web` renders such PDFs offline (ADR 0029: app surfaces
@@ -90,8 +236,12 @@ function bundlePdfjsAssets(): PluginOption {
 export default defineConfig({
   // Normalize to a trailing slash: GitHub's configure-pages emits base_path as "/repo" (no slash), and
   // BASE_URL consumers concatenate paths onto it ("/repo" + "data/…" would yield "/repodata/…").
-  base: staticBuild ? (process.env.SITE_BASE || "/").replace(/\/*$/, "/") : "/",
-  plugins: [react(), stripServerPlaceholders(), ...(staticBuild ? [serveExportedData()] : [bundlePdfjsAssets()])],
+  base: siteBase,
+  plugins: [
+    react(),
+    stripServerPlaceholders(),
+    ...(staticBuild ? [serveExportedData(), serveExportedApps()] : [bundlePdfjsAssets()]),
+  ],
   // A literal boolean the bundler folds at build time, so code gated on `!__TRACK_STATIC__` (e.g. the
   // BudouX word-break model) is dead-code-eliminated from the static build rather than merely unused.
   define: {
@@ -128,14 +278,25 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      // The track server guards against DNS rebinding (a foreign Host) and CSRF (a foreign Origin on a
-      // write), so a proxied request has to arrive wearing the server's own address rather than the dev
-      // server's — otherwise every POST, /api/render included, comes back 403 and notes render blank.
+      // The track server guards Host and Origin on API requests, so a proxied request has to arrive
+      // wearing the server's own address rather than the dev server's. Rewriting Origin is limited to
+      // this trusted local proxy; direct browser requests from the static app origin remain refused.
       "/api": {
         target: "http://127.0.0.1:8765",
         changeOrigin: true,
         headers: { origin: "http://127.0.0.1:8765" },
       },
+      // Static app launches are workspace routes too. Keep the request on the Go workspace so a missing
+      // slash can redirect through Vite and the following absolute Location can reach the adjacent port.
+      ...(!staticBuild
+        ? {
+            "/apps": {
+              target: "http://127.0.0.1:8765",
+              changeOrigin: true,
+              headers: { origin: "http://127.0.0.1:8765" },
+            },
+          }
+        : {}),
     },
   },
   test: {

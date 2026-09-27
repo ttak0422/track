@@ -18,17 +18,20 @@ import (
 	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/export"
 	"github.com/ttak0422/track/internal/track/note"
+	"github.com/ttak0422/track/internal/track/staticapp"
 	"github.com/ttak0422/track/internal/track/store"
 	"github.com/ttak0422/track/internal/track/task"
 )
 
 // Options selects which notes go into the static site and which one is the entry page.
 type Options struct {
-	Root     int64   // entry note id, the site's landing page
-	IDs      []int64 // additional note ids to publish; Root is always included
-	Calendar bool    // include the calendar view (and per-day pages) in the published site
-	BaseURL  string  // absolute site origin for og:image / og:url in the prerender ("" omits them)
-	Share    bool    // include static note sharing actions (requires BaseURL for absolute links)
+	Root        int64    // entry note id, the site's landing page
+	IDs         []int64  // additional note ids to publish; Root is always included
+	Calendar    bool     // include the calendar view (and per-day pages) in the published site
+	BaseURL     string   // absolute site origin for og:image / og:url in the prerender ("" omits them)
+	Share       bool     // include static note sharing actions (requires BaseURL for absolute links)
+	Apps        []string // explicitly allowlisted vault apps to copy into the site
+	AppsBaseURL string   // optional absolute prefix for externally hosted /apps/<name>/ links
 }
 
 // Result reports what a build produced.
@@ -36,6 +39,7 @@ type Result struct {
 	OutDir  string   `json:"out"`
 	Notes   []int64  `json:"notes"`            // published note ids
 	Assets  []string `json:"assets,omitempty"` // asset paths copied under <out>/assets
+	Apps    []string `json:"apps,omitempty"`   // explicitly published app names
 	Missing []string `json:"missing_assets,omitempty"`
 }
 
@@ -47,6 +51,17 @@ func Build(cfg *config.Config, st *store.Store, opts Options, frontendDir, outDi
 	}
 	baseURL, err := normalizeBaseURL(opts.BaseURL)
 	if err != nil {
+		return Result{}, err
+	}
+	appsBaseURL, err := normalizeAppsBaseURL(opts.AppsBaseURL)
+	if err != nil {
+		return Result{}, err
+	}
+	apps, err := validateApps(cfg.VaultDir, opts.Apps)
+	if err != nil {
+		return Result{}, err
+	}
+	if err := rejectAppsOutputOverlap(cfg.VaultDir, outDir); err != nil {
 		return Result{}, err
 	}
 	ids := dedupIDs(append([]int64{opts.Root}, opts.IDs...))
@@ -134,7 +149,54 @@ func Build(cfg *config.Config, st *store.Store, opts Options, frontendDir, outDi
 			return Result{}, fmt.Errorf("web.icon: %s: not found", cfg.WebIcon)
 		}
 	}
-	return writeBundle(docs, edges, opts.Root, opts.Calendar, opts.Share, baseURL, iconSrc, cfg.Queries, frontendDir, outDir)
+	return writeBundle(docs, edges, opts.Root, opts.Calendar, opts.Share, baseURL, appsBaseURL, cfg.VaultDir, apps, iconSrc, cfg.Queries, frontendDir, outDir)
+}
+
+func validateApps(vaultDir string, names []string) ([]string, error) {
+	seen := make(map[string]bool, len(names))
+	var apps []string
+	for _, name := range names {
+		if !staticapp.ValidName(name) {
+			return nil, fmt.Errorf("invalid app name %q", name)
+		}
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		root, err := staticapp.Open(vaultDir, name)
+		if err != nil {
+			return nil, fmt.Errorf("app %q: %w", name, err)
+		}
+		err = staticapp.CheckIndex(root)
+		root.Close()
+		if err != nil {
+			return nil, fmt.Errorf("app %q: %w", name, err)
+		}
+		apps = append(apps, name)
+	}
+	sort.Strings(apps)
+	return apps, nil
+}
+
+func rejectAppsOutputOverlap(vaultDir, outDir string) error {
+	appsDir := filepath.Join(vaultDir, staticapp.DirName)
+	appsCanonical, err := config.CanonicalPath(appsDir)
+	if err != nil {
+		return fmt.Errorf("resolve apps directory: %w", err)
+	}
+	outCanonical, err := config.CanonicalPath(outDir)
+	if err != nil {
+		return fmt.Errorf("resolve output directory: %w", err)
+	}
+	if pathContains(appsCanonical, outCanonical) || pathContains(outCanonical, appsCanonical) {
+		return fmt.Errorf("output directory %q overlaps the vault apps directory %q", outDir, appsDir)
+	}
+	return nil
+}
+
+func pathContains(parent, child string) bool {
+	rel, err := filepath.Rel(parent, child)
+	return err == nil && (rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))))
 }
 
 // normalizeBaseURL keeps the origin used by canonical metadata, sharing, and the sitemap in one
@@ -151,6 +213,23 @@ func normalizeBaseURL(raw string) (string, error) {
 	}
 	if u.RawQuery != "" || u.Fragment != "" {
 		return "", fmt.Errorf("base-url must not contain a query or fragment (got %q)", raw)
+	}
+	return strings.TrimRight(raw, "/"), nil
+}
+
+// normalizeAppsBaseURL validates an optional origin/path prefix used before the stable /apps/<name>/
+// route. Unlike BaseURL it does not describe the site or participate in the data lock key.
+func normalizeAppsBaseURL(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil || !u.IsAbs() || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return "", fmt.Errorf("apps-base-url must be an absolute http(s) URL (got %q)", raw)
+	}
+	if u.RawQuery != "" || u.Fragment != "" {
+		return "", fmt.Errorf("apps-base-url must not contain a query or fragment (got %q)", raw)
 	}
 	return strings.TrimRight(raw, "/"), nil
 }

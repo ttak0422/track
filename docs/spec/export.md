@@ -112,7 +112,8 @@ The input is a vault (`--frontend <dir>`, the static-mode frontend build, and `-
 
 ```
 track export-site (--all | --id <id> ...) [--root <id>] [--calendar] [--share]
-                  [--base-url <url>] --frontend <dist> --out <dir>
+                  [--base-url <url>] [--app <name> ...] [--apps-base-url <url>]
+                  --frontend <dist> --out <dir>
 ```
 
 `--all` publishes every note in the vault; `--id` selects instead. Journals are excluded from `--all`: they are day hubs indexing creates as a side effect, and the set of them records which days their author worked, so publishing them stays something a caller asks for by id. `--root` is the landing note's id and defaults to the vault config's `web.home` — the same landing note the workspace opens, so the front door travels with the content instead of sitting in a build config. A full reindex runs first so the published graph is complete.
@@ -139,6 +140,24 @@ Two things the directory mode did that a vault does not. It resolved `[[links]]`
 `--calendar` opts the published site into the calendar view and its per-day pages (see the web spec's
 "Calendar view"): off suits reference sites like help docs, on suits activity-shaped ones like a blog
 over a vault.
+
+Static apps under `apps/<name>/` are opt-in and separate from note selection: repeat `--app <name>` (or
+give comma-separated names) to allowlist apps. The default allowlist is empty. Selected app files are
+copied byte-for-byte to `<out>/apps/<name>/` with their directory layout and stable names, so relative
+scripts, stylesheets, and assets work without a build or manifest. An app must have a regular
+`index.html`; invalid names, missing apps, and symlinks that leave an app fail the build. Rebuilding an
+output replaces its `apps/` tree, so an app not selected on this build is not left published from an
+earlier one.
+
+Markdown links written `/apps/<name>/` or `apps/<name>/` resolve to the app route in the static site.
+The site base path is included automatically, including GitHub Pages subpaths. `--apps-base-url` may
+instead give an absolute HTTP(S) origin/path prefix for apps hosted separately; the stable
+`/apps/<name>/` route is appended to that prefix. It is independent of `--base-url`, which still
+describes this note site for canonical/social URLs and the sitemap. App links keep their own query and
+fragment. As in the live workspace, these are trusted static pages, not an untrusted-code sandbox or a
+Track API integration. Apps deployed under the site origin share origin-scoped browser storage with one
+another and the site regardless of path; `--apps-base-url` uses whatever storage scope that external
+origin provides. Namespace persistent keys by app and an app-owned stable vault identifier.
 
 **OGP.** The prerender writes per-page `og:` tags into each page's head: `og:title` (the note title,
 also the page `<title>`), `og:description` (the note's sidecar description — `track meta

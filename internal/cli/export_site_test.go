@@ -128,6 +128,40 @@ func TestExportSiteShareOption(t *testing.T) {
 	}
 }
 
+func TestExportSiteAppFlags(t *testing.T) {
+	vault := t.TempDir()
+	if _, code := runIn(t, vault, "new", "--title", "Home", "--id", "100", "--body", "# Home\n"); code != 0 {
+		t.Fatal("new Home failed")
+	}
+	for name := range map[string]string{"alpha": "<h1>alpha</h1>", "beta": "<h1>beta</h1>"} {
+		dir := filepath.Join(vault, "apps", name)
+		if err := os.MkdirAll(filepath.Join(dir, "scripts"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("<h1>"+name+"</h1>"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "scripts", "app.js"), []byte(name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out := filepath.Join(t.TempDir(), "site")
+	res, code := runIn(t, vault,
+		"export-site", "--root", "100", "--app", "alpha,beta", "--app", "alpha",
+		"--apps-base-url", "https://tools.example/base/", "--frontend", fakeFrontend(t), "--out", out,
+	)
+	if code != 0 {
+		t.Fatalf("export-site with apps failed: %v", res)
+	}
+	apps, ok := res["apps"].([]any)
+	if !ok || len(apps) != 2 || apps[0] != "alpha" || apps[1] != "beta" {
+		t.Fatalf("repeatable/comma-separated --app result = %v", res["apps"])
+	}
+	if got, err := os.ReadFile(filepath.Join(out, "apps", "alpha", "scripts", "app.js")); err != nil || string(got) != "alpha" {
+		t.Fatalf("app dependency bytes = %q, err=%v", got, err)
+	}
+}
+
 func TestExportSiteRequiresRoot(t *testing.T) {
 	vault := t.TempDir()
 	out, code := runIn(t, vault, "export-site", "--frontend", fakeFrontend(t), "--out", filepath.Join(vault, "site"))
