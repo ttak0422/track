@@ -8,16 +8,14 @@ beforeAll(() => {
   Element.prototype.releasePointerCapture = () => {};
 });
 
-const compile = vi.fn(
-  async (input: { fs: Record<string, string>; options: { themeID: number } }) => {
-    if (input.fs.index.includes("bad")) throw new Error("d2 syntax error");
-    return { diagram: { name: "" }, renderOptions: { themeID: input.options.themeID, pad: 16 } };
-  },
-);
-const renderSvg = vi.fn(
-  async (_diagram: unknown, _options: Record<string, unknown>) =>
-    '<svg viewBox="0 0 128 66"><text>Diagram</text></svg>',
-);
+const defaultCompile = async (input: { fs: Record<string, string>; options: { themeID: number } }) => {
+  if (input.fs.index.includes("bad")) throw new Error("d2 syntax error");
+  return { diagram: { name: "" }, renderOptions: { themeID: input.options.themeID, pad: 16 } };
+};
+const defaultRender = async (_diagram: unknown, _options: Record<string, unknown>) =>
+  '<svg viewBox="0 0 128 66"><text>Diagram</text></svg>';
+const compile = vi.fn(defaultCompile);
+const renderSvg = vi.fn(defaultRender);
 
 vi.mock("@terrastruct/d2", () => ({
   D2: class {
@@ -29,6 +27,8 @@ vi.mock("@terrastruct/d2", () => ({
 describe("D2Diagram", () => {
   afterEach(() => {
     vi.clearAllMocks();
+    compile.mockImplementation(defaultCompile);
+    renderSvg.mockImplementation(defaultRender);
   });
 
   it("renders the generated SVG inside the shared diagram frame", async () => {
@@ -45,6 +45,43 @@ describe("D2Diagram", () => {
     const options = renderSvg.mock.calls[0][1];
     expect(options.noXMLTag).toBe(true);
     expect(options.salt).toEqual(expect.any(String));
+  });
+
+  it("serializes compile-render pairs on the shared D2 worker", async () => {
+    let compileCount = 0;
+    let workerResolve: ((value: unknown) => void) | undefined;
+    const workerResponse = <T,>(value: T, delay: number) =>
+      new Promise<T>((resolve) => {
+        // The D2 worker API has one currentResolve slot, so overlapping requests can deliver one
+        // request's response to another request's promise.
+        workerResolve = resolve as (value: unknown) => void;
+        setTimeout(() => workerResolve?.(value), delay);
+      });
+
+    compile.mockImplementation((input) => {
+      const request = ++compileCount;
+      return workerResponse(
+        {
+          diagram: { name: `diagram-${request}` },
+          renderOptions: { themeID: input.options.themeID, pad: 16 },
+        },
+        request === 1 ? 0 : 10,
+      );
+    });
+    renderSvg.mockImplementation((_diagram, _options) =>
+      workerResponse('<svg viewBox="0 0 128 66"><text>Diagram</text></svg>', 20),
+    );
+
+    const { container } = render(
+      <>
+        <D2Diagram text="first" />
+        <D2Diagram text="second" />
+      </>,
+    );
+
+    await waitFor(() => expect(container.querySelectorAll(".mermaid-pan svg")).toHaveLength(2));
+    expect(container.querySelectorAll(".mermaid-diagram-loading")).toHaveLength(0);
+    expect(container).not.toHaveTextContent("[object Object]");
   });
 
   it("falls back to the message and source on a compile error", async () => {
