@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Counter demo</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: system-ui, sans-serif;
+    }
+
+    body {
+      max-width: 40rem;
+      margin: 2rem auto;
+      padding: 0 1rem;
+      background: Canvas;
+      color: CanvasText;
+      line-height: 1.5;
+    }
+
+    .count {
+      font-size: 2rem;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+
+    /* Text control — design.md variant 1. */
+    button {
+      min-height: 44px;
+      padding: 0.5rem 0;
+      border: 0;
+      background: transparent;
+      color: color-mix(in srgb, CanvasText 70%, Canvas);
+      font: inherit;
+      cursor: pointer;
+    }
+
+    button:hover,
+    button:focus-visible {
+      color: CanvasText;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Counter demo</h1>
+    <p>Use Increment to add one, or Reset to return to zero.</p>
+    <p>Count: <output class="count" id="count" aria-live="polite" aria-atomic="true">0</output></p>
+    <div class="controls">
+      <button id="increment" type="button">Increment</button>
+      <button id="reset" type="button">Reset</button>
+    </div>
+    <p>The count lives only in this page. Reload to start again at zero.</p>
+  </main>
+  <script>
+    let count = 0;
+    const output = document.querySelector("#count");
+
+    document.querySelector("#increment").addEventListener("click", () => {
+      count += 1;
+      output.textContent = String(count);
+    });
+
+    document.querySelector("#reset").addEventListener("click", () => {
+      count = 0;
+      output.textContent = "0";
+    });
+  </script>
+</body>
+</html>
