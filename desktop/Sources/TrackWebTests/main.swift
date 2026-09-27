@@ -23,9 +23,9 @@ struct TrackWebTestRunner {
         await run("startup cancellation") { try await testStartupCancellation() }
 
         if failures == 0 {
-            print("All 13 Track Web logic regression tests passed.")
+            print("All 13 Track logic regression tests passed.")
         } else {
-            fputs("\(failures) Track Web logic regression test(s) failed.\n", stderr)
+            fputs("\(failures) Track logic regression test(s) failed.\n", stderr)
             exit(EXIT_FAILURE)
         }
     }

@@ -397,7 +397,7 @@ final class WebViewCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         completionHandler: @escaping @MainActor @Sendable () -> Void
     ) {
         let alert = NSAlert()
-        alert.messageText = "Track Web"
+        alert.messageText = "Track"
         alert.informativeText = message
         alert.addButton(withTitle: "OK")
         present(alert) { _ in completionHandler() }
@@ -410,7 +410,7 @@ final class WebViewCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         completionHandler: @escaping @MainActor @Sendable (Bool) -> Void
     ) {
         let alert = NSAlert()
-        alert.messageText = "Track Web"
+        alert.messageText = "Track"
         alert.informativeText = message
         alert.addButton(withTitle: "Continue")
         alert.addButton(withTitle: "Cancel")
@@ -425,7 +425,7 @@ final class WebViewCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         completionHandler: @escaping @MainActor @Sendable (String?) -> Void
     ) {
         let alert = NSAlert()
-        alert.messageText = "Track Web"
+        alert.messageText = "Track"
         alert.informativeText = prompt
         alert.addButton(withTitle: "OK")
         alert.addButton(withTitle: "Cancel")

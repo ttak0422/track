@@ -132,20 +132,20 @@ native-verify: ## Build the SwiftPM app target and fixture verifier with the sys
 
 .PHONY: desktop-app desktop-verify desktop-smoke desktop-recovery-smoke desktop-termination-test
 
-DESKTOP_APP ?= build/Track Web.app
+DESKTOP_APP ?= build/desktop/Track.app
 
-desktop-app: ## Build the independent unsigned Track Web.app bundle
+desktop-app: ## Build the independent unsigned Track.app bundle
 	DESKTOP_APP="$(DESKTOP_APP)" sh scripts/desktop-build.sh
 
-desktop-verify: desktop-app ## Build Track Web and run Swift + Go regression tests
+desktop-verify: desktop-app ## Build Track and run Swift + Go regression tests
 	sh scripts/desktop-verify.sh
-	python3 scripts/desktop-shutdown-test.py "$(DESKTOP_APP)/Contents/MacOS/TrackWeb"
+	python3 scripts/desktop-shutdown-test.py "$(DESKTOP_APP)/Contents/MacOS/Track"
 
 desktop-smoke: desktop-app ## Exercise the bundled app in WKWebView with an isolated temporary vault
 	DESKTOP_APP="$(DESKTOP_APP)" sh scripts/desktop-smoke.sh
 
 desktop-recovery-smoke: desktop-app ## Verify an unsaved WKWebView draft survives stopping and retrying Go
-	python3 scripts/desktop-smoke.py "$(DESKTOP_APP)/Contents/MacOS/TrackWeb" --recovery-test
+	python3 scripts/desktop-smoke.py "$(DESKTOP_APP)/Contents/MacOS/Track" --recovery-test
 
 desktop-termination-test: desktop-app ## SIGSTOP the isolated Go child and verify deferred app termination reaps it
-	python3 scripts/desktop-shutdown-test.py "$(DESKTOP_APP)/Contents/MacOS/TrackWeb"
+	python3 scripts/desktop-shutdown-test.py "$(DESKTOP_APP)/Contents/MacOS/Track"

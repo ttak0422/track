@@ -4,14 +4,16 @@
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>Track</string>
 	<key>CFBundleExecutable</key>
-	<string>TrackWeb</string>
+	<string>Track</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.ttak0422.track.web</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>Track Web</string>
+	<string>Track</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

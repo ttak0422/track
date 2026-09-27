@@ -76,7 +76,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         if terminationApproved { return .terminateNow }
         if terminationPending { return .terminateLater }
         if shutdownTestMode { terminationWasConfirmed = true }
-        guard terminationWasConfirmed || confirmPotentialDataLoss(reason: "quitting Track Web") else {
+        guard terminationWasConfirmed || confirmPotentialDataLoss(reason: "quitting Track") else {
             return .terminateCancel
         }
         terminationWasConfirmed = false
@@ -112,7 +112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         if terminationApproved { return true }
         if terminationPending { return false }
-        guard confirmPotentialDataLoss(reason: "closing the Track Web window") else { return false }
+        guard confirmPotentialDataLoss(reason: "closing the Track window") else { return false }
         // Keep the last window and its editor DOM alive until the deferred app termination has
         // confirmed that the supervised server process really exited.
         terminationWasConfirmed = true
@@ -254,7 +254,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             backing: .buffered,
             defer: false
         )
-        window.title = "Track Web"
+        window.title = "Track"
         window.minSize = NSSize(width: 680, height: 480)
         window.isReleasedWhenClosed = false
         window.contentView = root
@@ -278,7 +278,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         spinner.controlSize = .regular
         spinner.isDisplayedWhenStopped = false
 
-        let title = NSTextField(labelWithString: "Starting Track Web…")
+        let title = NSTextField(labelWithString: "Starting Track…")
         title.font = .systemFont(ofSize: 18, weight: .semibold)
         title.alignment = .center
 
@@ -316,14 +316,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         guard isViewLoaded else { return }
         switch state {
         case .stopped:
-            statusTitle?.stringValue = "Track Web is stopped"
+            statusTitle?.stringValue = "Track is stopped"
             statusDetail?.stringValue = "Start the local server to open the workspace."
             progressIndicator?.stopAnimation(nil)
             progressIndicator?.isHidden = true
             retryButton?.isHidden = false
             showStatus()
         case .starting:
-            statusTitle?.stringValue = "Starting Track Web…"
+            statusTitle?.stringValue = "Starting Track…"
             statusDetail?.stringValue = "Starting the bundled Go server on 127.0.0.1:18765 and waiting for its live API."
             progressIndicator?.isHidden = false
             progressIndicator?.startAnimation(nil)
@@ -348,14 +348,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 waitForShutdownTestTrigger()
             }
         case .stopping:
-            statusTitle?.stringValue = "Stopping Track Web…"
+            statusTitle?.stringValue = "Stopping Track…"
             statusDetail?.stringValue = "The app is shutting down only the Go process it started."
             progressIndicator?.isHidden = false
             progressIndicator?.startAnimation(nil)
             retryButton?.isHidden = true
             showStatus()
         case .failed(let message):
-            statusTitle?.stringValue = "Track Web is unavailable"
+            statusTitle?.stringValue = "Track is unavailable"
             statusDetail?.stringValue = message
             progressIndicator?.stopAnimation(nil)
             progressIndicator?.isHidden = true
@@ -381,7 +381,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "Unsaved edits may be lost"
-        alert.informativeText = "Track Web cannot reliably detect unsaved input in every editor, embedded page, or static app. Continue with \(reason)?"
+        alert.informativeText = "Track cannot reliably detect unsaved input in every editor, embedded page, or static app. Continue with \(reason)?"
         alert.addButton(withTitle: "Continue")
         alert.addButton(withTitle: "Cancel")
         return alert.runModal() == .alertFirstButtonReturn
@@ -398,7 +398,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "Unsaved edits may be lost"
-        alert.informativeText = "Track Web cannot reliably detect unsaved input in every editor, embedded page, or static app. Continue with \(reason)?"
+        alert.informativeText = "Track cannot reliably detect unsaved input in every editor, embedded page, or static app. Continue with \(reason)?"
         alert.addButton(withTitle: "Continue")
         alert.addButton(withTitle: "Cancel")
         alert.beginSheetModal(for: window) { response in
@@ -418,7 +418,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             let data = try JSONSerialization.data(withJSONObject: report, options: [.sortedKeys])
             try data.write(to: smokeResultURL, options: .atomic)
         } catch {
-            fputs("Track Web smoke result: \(error.localizedDescription)\n", stderr)
+            fputs("Track smoke result: \(error.localizedDescription)\n", stderr)
         }
         terminationWasConfirmed = true
         application.terminate(nil)
@@ -546,7 +546,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             let data = try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys])
             try data.write(to: shutdownTestResultURL, options: .atomic)
         } catch {
-            fputs("Track Web shutdown test result: \(error.localizedDescription)\n", stderr)
+            fputs("Track shutdown test result: \(error.localizedDescription)\n", stderr)
         }
     }
 
@@ -555,13 +555,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(NSMenuItem(title: "About Track Web", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""))
+        appMenu.addItem(NSMenuItem(title: "About Track", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""))
         appMenu.addItem(.separator())
-        appMenu.addItem(NSMenuItem(title: "Hide Track Web", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"))
+        appMenu.addItem(NSMenuItem(title: "Hide Track", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"))
         appMenu.addItem(NSMenuItem(title: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h").also { $0.keyEquivalentModifierMask = [.command, .option] })
         appMenu.addItem(NSMenuItem(title: "Show All", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: ""))
         appMenu.addItem(.separator())
-        appMenu.addItem(NSMenuItem(title: "Quit Track Web", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        appMenu.addItem(NSMenuItem(title: "Quit Track", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         appItem.submenu = appMenu
         menu.addItem(appItem)
 

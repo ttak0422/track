@@ -99,7 +99,7 @@ def main() -> None:
                             pass
                 time.sleep(0.05)
             if child_pid is None:
-                raise RuntimeError("isolated Track Web server did not become ready")
+                raise RuntimeError("isolated Track server did not become ready")
 
             ready_deadline = time.monotonic() + 10
             while time.monotonic() < ready_deadline:
@@ -148,7 +148,7 @@ def main() -> None:
             if report.get("ok") is not True or int(report.get("stopDurationMs", 0)) < 2_500:
                 raise RuntimeError(f"termination was not deferred through the forced child exit: {report}; stdout={stdout!r}; stderr={stderr!r}")
             if not ports_are_closed():
-                raise RuntimeError("a Track Web listener survived app termination")
+                raise RuntimeError("a Track listener survived app termination")
 
             print(
                 "SIGSTOP shutdown test passed: AppKit waited for the owned Go child to be force-killed "

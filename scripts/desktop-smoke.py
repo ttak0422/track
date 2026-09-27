@@ -14,7 +14,7 @@ from pathlib import Path
 
 def main() -> None:
     if len(sys.argv) not in (2, 3) or (len(sys.argv) == 3 and sys.argv[2] != "--recovery-test"):
-        raise SystemExit("usage: desktop-smoke.py TRACK_WEB_EXECUTABLE [--recovery-test]")
+        raise SystemExit("usage: desktop-smoke.py TRACK_EXECUTABLE [--recovery-test]")
     executable = Path(sys.argv[1]).resolve()
     recovery_test = len(sys.argv) == 3
 
@@ -59,9 +59,9 @@ def main() -> None:
         if completed.stderr:
             print(completed.stderr, end="", file=sys.stderr)
         if completed.returncode != 0:
-            raise SystemExit(f"Track Web smoke app exited with status {completed.returncode}")
+            raise SystemExit(f"Track smoke app exited with status {completed.returncode}")
         if not result_file.is_file():
-            raise SystemExit("Track Web exited without writing the WKWebView smoke result")
+            raise SystemExit("Track exited without writing the WKWebView smoke result")
 
         report = json.loads(result_file.read_text(encoding="utf-8"))
         if report.get("ok") is not True:

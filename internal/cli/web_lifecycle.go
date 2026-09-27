@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// These process-scoped variables are private coordination between Track Web.app and its own Go child.
+// These process-scoped variables are private coordination between Track.app and its own Go child.
 // They do not change the track CLI's documented flags or web protocol.
 const (
 	desktopParentPIDEnv  = "TRACK_WEB_DESKTOP_PARENT_PID"

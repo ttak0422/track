@@ -1,6 +1,6 @@
-# Track Web for macOS
+# Track for macOS
 
-`Track Web.app` is an independent, non-sandboxed AppKit shell around the existing live Go/web
+`Track.app` is an independent, non-sandboxed AppKit shell around the existing live Go/web
 workspace. It does not build screens in Swift and does not read or depend on the existing `native/`
 implementation. Go remains the source of truth for vault behavior and the Vite production bundle is
 the UI.
@@ -11,13 +11,16 @@ From the repository root on macOS:
 
 ```sh
 make desktop-app
-open "build/Track Web.app"
+open "build/desktop/Track.app"
 ```
 
-The release bundle is `build/Track Web.app`, with bundle identifier
-`com.ttak0422.track.web`. It can coexist with `build/Track.app`. The app is unsigned and not
-notarized; the first launch may require the user to approve it in macOS privacy/security settings.
-It is intentionally not App Sandbox constrained. File uploads use the standard macOS file picker.
+The release bundle is `build/desktop/Track.app`, with bundle identifier `com.ttak0422.track.web`.
+It shares the display name `Track` with the existing native app, but its output path is separate from
+`build/Track.app` and its bundle identifier differs (`com.ttak0422.track` for the native app). This
+keeps `make desktop-app` from overwriting the native bundle while allowing both apps to coexist. The
+app is unsigned and not notarized; the first launch may require the user to approve it in macOS
+privacy/security settings. It is intentionally not App Sandbox constrained. File uploads use the
+standard macOS file picker.
 
 The normal launch honors the same configuration sources as `track web`:
 
@@ -25,8 +28,8 @@ The normal launch honors the same configuration sources as `track web`:
 - `TRACK_VAULT` selects a vault path; the configured `default_vault`/`vault_dir` and `$HOME/track`
   fallback continue to work when it is unset.
 - `TRACK_CACHE_DIR` selects the derived-data cache directory.
-- `open -a "build/Track Web.app" --args --vault work` selects a registered vault by name.
-- `open -a "build/Track Web.app" --args --vault-path /absolute/path/to/vault` selects an explicit
+- `open -a "build/desktop/Track.app" --args --vault work` selects a registered vault by name.
+- `open -a "build/desktop/Track.app" --args --vault-path /absolute/path/to/vault` selects an explicit
   absolute path. `--vault` and `--vault-path` are mutually exclusive.
 
 Environment variables must be present in the app's launch environment. When launching through
@@ -36,7 +39,7 @@ LaunchServices does not inherit a shell environment, run the executable directly
 TRACK_CONFIG="$HOME/.config/track/config.yml" \
 TRACK_VAULT="$HOME/notes/work" \
 TRACK_CACHE_DIR="$HOME/Library/Caches/track" \
-"build/Track Web.app/Contents/MacOS/TrackWeb"
+"build/desktop/Track.app/Contents/MacOS/Track"
 ```
 
 ## Verification
@@ -70,10 +73,10 @@ and any existing ignored build assets in that source directory are not rewritten
 
 ## Runtime boundaries and limitations
 
-- Track Web starts its bundled Go server at `127.0.0.1:18765`; the Go static-app listener uses its
+- Track starts its bundled Go server at `127.0.0.1:18765`; the Go static-app listener uses its
   existing adjacent-port rule at `127.0.0.1:18766`. Both ports and the `127.0.0.1` origin are fixed
   so WKWebView's persistent settings and tabs survive restart. A collision is shown with a Retry
-  action; Track Web does not choose a new origin or adopt a server that happens to answer on the
+  action; Track does not choose a new origin or adopt a server that happens to answer on the
   port. The Go Host/Origin guard remains unchanged.
 - Only the child process this app launched is signalled. Shutdown is asynchronous, sends a graceful
   termination first, then force-terminates that same child after a deadline, and waits for Foundation
@@ -91,7 +94,7 @@ and any existing ignored build assets in that source directory are not rewritten
   `javascript:`, `mailto:`, and arbitrary schemes are not handed to the OS. Script-created external
   popups fail closed when WebKit cannot establish a direct user gesture.
 - macOS Edit actions (Undo/Cut/Copy/Paste/Select All), Quit, Back, Forward, and Reload are provided.
-  Track Web cannot reliably inspect dirty state across the React editor, embedded HTML, and static
+  Track cannot reliably inspect dirty state across the React editor, embedded HTML, and static
   apps, so it conservatively asks before top-level page navigation, Back/Forward, Reload, window
   close, and Quit. The dialog states this limitation rather than claiming exact dirty detection.
 - Native audio bridging is not implemented in this stage. Browser/WebKit audio behavior is whatever

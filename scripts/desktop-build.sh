@@ -32,7 +32,7 @@ if [ ! -x web/node_modules/.bin/vite ] || [ ! -x web/node_modules/.bin/tsc ]; th
 	npm ci --prefix web
 fi
 
-APP_BUNDLE=${DESKTOP_APP:-"build/Track Web.app"}
+APP_BUNDLE=${DESKTOP_APP:-"build/desktop/Track.app"}
 case "$APP_BUNDLE" in
 	/*) ;;
 	*) APP_BUNDLE="$ROOT/$APP_BUNDLE" ;;
@@ -63,12 +63,12 @@ env DEVELOPER_DIR="$DEVELOPER_DIR" SDKROOT="$SDKROOT" CLANG_MODULE_CACHE_PATH="$
 
 rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources"
-cp "$ROOT/desktop/.build/release/TrackWeb" "$APP_BUNDLE/Contents/MacOS/TrackWeb"
+cp "$ROOT/desktop/.build/release/TrackWeb" "$APP_BUNDLE/Contents/MacOS/Track"
 go build -trimpath -overlay="$OVERLAY" \
 	-o "$APP_BUNDLE/Contents/Resources/track" ./cmd/track
 cp "$ROOT/desktop/Resources/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
 cp "$ROOT/desktop/Resources/PkgInfo" "$APP_BUNDLE/Contents/PkgInfo"
-chmod 755 "$APP_BUNDLE/Contents/MacOS/TrackWeb" "$APP_BUNDLE/Contents/Resources/track"
+chmod 755 "$APP_BUNDLE/Contents/MacOS/Track" "$APP_BUNDLE/Contents/Resources/track"
 
 if command -v plutil >/dev/null 2>&1; then
 	plutil -lint "$APP_BUNDLE/Contents/Info.plist"
