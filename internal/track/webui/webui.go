@@ -302,6 +302,14 @@ func (s *Server) guard(next http.Handler) http.Handler {
 }
 
 func Serve(cfg *config.Config, st *store.Store, addr string) error {
+	return ServeWithLifecycle(context.Background(), cfg, st, addr, nil)
+}
+
+// ServeWithLifecycle serves the workspace until its context is cancelled. onReady runs after both
+// fixed-port listeners have been acquired and configured, but before they accept requests. The
+// desktop shell uses that point to distinguish its own child from any server that might already
+// answer on the same loopback port; ordinary CLI callers use Serve above and keep its contract.
+func ServeWithLifecycle(ctx context.Context, cfg *config.Config, st *store.Store, addr string, onReady func()) error {
 	srv := New(cfg, st)
 	defer srv.closeViews()
 	mainListener, err := net.Listen("tcp", addr)
@@ -322,20 +330,61 @@ func Serve(cfg *config.Config, st *store.Store, addr string) error {
 	srv.appsBindHost = appHost
 	srv.appsPort = appPort
 	srv.startWatch()
-	return serveListeners(mainListener, appListener, srv)
+	if ctx.Err() != nil {
+		_ = mainListener.Close()
+		_ = appListener.Close()
+		return nil
+	}
+	if onReady != nil {
+		onReady()
+	}
+	return serveListenersContext(ctx, mainListener, appListener, srv)
 }
 
 func serveListeners(mainListener, appListener net.Listener, srv *Server) error {
+	return serveListenersContext(context.Background(), mainListener, appListener, srv)
+}
+
+func serveListenersContext(ctx context.Context, mainListener, appListener net.Listener, srv *Server) error {
 	mainServer := &http.Server{Handler: srv.Handler()}
 	appsServer := &http.Server{Handler: srv.staticAppsHandler()}
 	errs := make(chan error, 2)
 	go func() { errs <- mainServer.Serve(mainListener) }()
 	go func() { errs <- appsServer.Serve(appListener) }()
 
-	first := <-errs
-	_ = mainServer.Close()
-	_ = appsServer.Close()
-	second := <-errs
+	select {
+	case first := <-errs:
+		_ = mainServer.Close()
+		_ = appsServer.Close()
+		second := <-errs
+		return serveError(first, second)
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		mainErr := mainServer.Shutdown(shutdownCtx)
+		appsErr := appsServer.Shutdown(shutdownCtx)
+		if mainErr != nil {
+			_ = mainServer.Close()
+		}
+		if appsErr != nil {
+			_ = appsServer.Close()
+		}
+		first := <-errs
+		second := <-errs
+		if err := serveError(first, second); err != nil {
+			return err
+		}
+		if mainErr != nil {
+			return fmt.Errorf("shut down workspace listener: %w", mainErr)
+		}
+		if appsErr != nil {
+			return fmt.Errorf("shut down static-app listener: %w", appsErr)
+		}
+		return nil
+	}
+}
+
+func serveError(first, second error) error {
 	if first != nil && first != http.ErrServerClosed {
 		return first
 	}

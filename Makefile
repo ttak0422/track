@@ -129,3 +129,23 @@ native-app: native-verify ## Build the unsigned, non-sandboxed macOS app bundle
 native-verify: ## Build the SwiftPM app target and fixture verifier with the system macOS toolchain
 	env DEVELOPER_DIR="$(NATIVE_DEVELOPER_DIR)" SDKROOT="$(NATIVE_SDKROOT)" CLANG_MODULE_CACHE_PATH="$(NATIVE_MODULE_CACHE)" swift build --package-path native -c release --product $(NATIVE_SWIFT_PRODUCT)
 	env DEVELOPER_DIR="$(NATIVE_DEVELOPER_DIR)" SDKROOT="$(NATIVE_SDKROOT)" CLANG_MODULE_CACHE_PATH="$(NATIVE_MODULE_CACHE)" swift run --package-path native VerifyFixtures
+
+.PHONY: desktop-app desktop-verify desktop-smoke desktop-recovery-smoke desktop-termination-test
+
+DESKTOP_APP ?= build/Track Web.app
+
+desktop-app: ## Build the independent unsigned Track Web.app bundle
+	DESKTOP_APP="$(DESKTOP_APP)" sh scripts/desktop-build.sh
+
+desktop-verify: desktop-app ## Build Track Web and run Swift + Go regression tests
+	sh scripts/desktop-verify.sh
+	python3 scripts/desktop-shutdown-test.py "$(DESKTOP_APP)/Contents/MacOS/TrackWeb"
+
+desktop-smoke: desktop-app ## Exercise the bundled app in WKWebView with an isolated temporary vault
+	DESKTOP_APP="$(DESKTOP_APP)" sh scripts/desktop-smoke.sh
+
+desktop-recovery-smoke: desktop-app ## Verify an unsaved WKWebView draft survives stopping and retrying Go
+	python3 scripts/desktop-smoke.py "$(DESKTOP_APP)/Contents/MacOS/TrackWeb" --recovery-test
+
+desktop-termination-test: desktop-app ## SIGSTOP the isolated Go child and verify deferred app termination reaps it
+	python3 scripts/desktop-shutdown-test.py "$(DESKTOP_APP)/Contents/MacOS/TrackWeb"
