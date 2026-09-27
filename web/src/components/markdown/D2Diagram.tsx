@@ -23,6 +23,18 @@ function loadEngine() {
   return enginePromise;
 }
 
+// The D2 worker protocol has no request IDs; the wrapper keeps one current resolver. Keep each
+// compile→render pair together so simultaneous diagrams cannot resolve one another's promises.
+let workerQueue: Promise<void> = Promise.resolve();
+function withD2Worker<T>(operation: () => Promise<T>): Promise<T> {
+  const result = workerQueue.then(operation, operation);
+  workerQueue = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
 // Salts D2's element ids so several diagrams on one page stay valid HTML (same job as Mermaid's
 // renderSequence).
 let renderSalt = 0;
@@ -47,16 +59,18 @@ export function D2Diagram({ text }: D2DiagramProps) {
         const d2 = await loadEngine();
         const bg = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
         const themeID = isDarkColor(bg) ? darkThemeID : lightThemeID;
-        // The full-request form, not compile(text, options): the package's shorthand declaration
-        // disagrees with its implementation about where the options ride, this shape both agree on.
-        const { diagram, renderOptions } = await d2.compile({
-          fs: { index: text },
-          options: { themeID, pad: padPx },
-        });
-        const svg = await d2.render(diagram, {
-          ...renderOptions,
-          noXMLTag: true,
-          salt: String(++renderSalt),
+        const svg = await withD2Worker(async () => {
+          // The full-request form, not compile(text, options): the package's shorthand declaration
+          // disagrees with its implementation about where the options ride, this shape both agree on.
+          const { diagram, renderOptions } = await d2.compile({
+            fs: { index: text },
+            options: { themeID, pad: padPx },
+          });
+          return d2.render(diagram, {
+            ...renderOptions,
+            noXMLTag: true,
+            salt: String(++renderSalt),
+          });
         });
         if (!cancelled) setState({ status: "ready", svg });
       } catch (error) {
