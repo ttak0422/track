@@ -14,13 +14,31 @@ chart-shaped, and readability extraction is usually delegated to a heavyweight l
 ## Decision
 
 **`track-fetch-web` is an ordinary fetch tool emitting one `event` record, with the clip riding in
-the extra fields the contract already allows.** The record's canonical fields are `time` (the
-page's declared publication time, else fetch time), `title`, and `url`; `markdown` (readable
-content as Markdown) and `image` (lead image URL) are extra fields. No new record kind: a clip is
-an event with content attached, and the same record can feed a chart (a reading log) or a note.
+the extra fields the contract already allows.** The record's canonical fields are `time`, `title`,
+and `url`; `markdown` (readable content as Markdown) and `image` (lead image URL) are extra fields.
+No new record kind: a clip is an event with content attached, and the same record can feed a chart (a
+reading log) or a note.
 Note creation stays a shell pipeline — `track-fetch-web --note <url> | track new --title <t>` —
 rather than a new track subcommand, keeping track unaware of the network (`--note` is a
 convenience rendering of the same extraction, outside the JSONL contract).
+
+### Provenance follow-up
+
+The event's `time` is the page's publication time only when its timezone is explicit and the value
+parses as an instant; otherwise it is the retrieval time. A modified time never substitutes for a
+publication time. The extra `published` and `modified` values retain their raw label, precision, and
+nullable timestamp, and `retrieved_at` records the separate retrieval instant. `--note` labels the
+date as `retrieved` and displays available publication/modification labels separately.
+
+The opt-in `--snapshot-dir DIR <url>` mode saves the one bounded HTTP body and its extracted Markdown
+to a new, exclusive directory and prints a versioned JSON manifest. It uses this tool's existing
+SSRF-guarded fetch; it does not write a vault source record or replace `track source save` / `track
+cite`. The extracted Markdown is a separate file without generated provenance text.
+
+Simple tables remain Markdown pipe tables. When captions, multi-row or semantic headers, spans, or
+ragged rows cannot be represented safely, the converter retains the source table as fenced HTML and
+warns rather than guessing column associations. Row and column spans are not expanded into a
+Markdown grid.
 
 **Content extraction is a compact in-repo readability heuristic on the parsed DOM**
 (`internal/fetch/web`, on `golang.org/x/net/html` — the module's only new dependency): prune known

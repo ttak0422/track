@@ -11,6 +11,7 @@ package web
 import (
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
@@ -23,10 +24,28 @@ import (
 
 // Page is one clipped web page: the metadata a note needs plus the main content as Markdown.
 type Page struct {
-	Title     string    // og:title, <title>, or the first heading
-	Published time.Time // the page's declared publication time; zero when it declares none
-	Image     string    // lead image URL (og:image or the first content image), absolute
-	Markdown  string    // readable main content converted to Markdown
+	Title     string       // og:title, <title>, or the first heading
+	Published DateMetadata // declared publication metadata; only an explicit instant has Timestamp
+	Modified  DateMetadata // declared update metadata; never used as the publication time
+	Image     string       // lead image URL (og:image or the first content image), absolute
+	Markdown  string       // readable main content converted to Markdown
+}
+
+// DateMetadata keeps the source value and its declared precision separately from a normalized
+// instant. Date-only and timezone-less values are retained as raw metadata but are not instants.
+type DateMetadata struct {
+	Raw       string  `json:"raw"`
+	Precision string  `json:"precision"`
+	Timestamp *string `json:"timestamp"`
+}
+
+// ApplyLastModified uses the HTTP header only when the document does not declare a modified time.
+// The header is never treated as a publication date.
+func ApplyLastModified(p Page, raw string) Page {
+	if p.Modified.Raw == "" && strings.TrimSpace(raw) != "" {
+		p.Modified = parseDateMetadata(raw)
+	}
+	return p
 }
 
 // Extract parses an HTML page and returns its readable content. pageURL, when non-nil, is the base
@@ -44,6 +63,7 @@ func Extract(r io.Reader, pageURL *url.URL) (Page, error) {
 	p := Page{
 		Title:     firstNonEmpty(meta.props["og:title"], meta.props["twitter:title"], meta.title),
 		Published: meta.published,
+		Modified:  meta.modified,
 		Image:     resolveURL(pageURL, firstNonEmpty(meta.props["og:image"], meta.props["og:image:url"], meta.props["twitter:image"])),
 		Markdown:  renderMarkdown(content, pageURL),
 	}
@@ -58,22 +78,26 @@ func Extract(r io.Reader, pageURL *url.URL) (Page, error) {
 }
 
 // Record maps a clipped page onto one canonical event record (docs/spec/fetch.md): time is the
-// published time when the page declares one, the fetch time otherwise, and the Markdown content and
-// lead image ride along as extra fields. The record is validated against the event kind so the tool
-// can never emit a non-conformant line.
-func Record(p Page, sourceURL string, fetched time.Time) (dataset.Record, error) {
-	t := p.Published
-	if t.IsZero() {
-		t = fetched
+// explicitly zoned publication instant when available, otherwise the retrieval time. Raw
+// publication/modification labels and retrieval time remain separate extra fields.
+func Record(p Page, sourceURL string, retrieved time.Time) (dataset.Record, error) {
+	t := retrieved
+	if p.Published.Timestamp != nil {
+		if published, err := time.Parse(time.RFC3339Nano, *p.Published.Timestamp); err == nil {
+			t = published
+		}
 	}
 	title := p.Title
 	if title == "" {
 		title = sourceURL
 	}
 	rec := dataset.Record{
-		"version": dataset.SchemaVersion,
-		"time":    t.Format(time.RFC3339),
-		"title":   title,
+		"version":      dataset.SchemaVersion,
+		"time":         t.Format(time.RFC3339),
+		"title":        title,
+		"published":    withDatePrecision(p.Published),
+		"modified":     withDatePrecision(p.Modified),
+		"retrieved_at": retrieved.UTC().Format(time.RFC3339Nano),
 	}
 	if sourceURL != "" {
 		rec["url"] = sourceURL
@@ -91,14 +115,21 @@ func Record(p Page, sourceURL string, fetched time.Time) (dataset.Record, error)
 }
 
 // NoteBody renders the clip as a ready-to-pipe note body for `track new --title`: a provenance
-// line, the lead image, then the content.
-func NoteBody(p Page, sourceURL string, fetched time.Time) string {
+// line dated by retrieval time (not publication time), source-declared dates, the lead image, then
+// the content.
+func NoteBody(p Page, sourceURL string, retrieved time.Time) string {
 	var blocks []string
-	provenance := fmt.Sprintf("Clipped %s", fetched.Format("2006-01-02"))
+	provenance := fmt.Sprintf("Retrieved %s", retrieved.Format("2006-01-02"))
 	if sourceURL != "" {
-		provenance = fmt.Sprintf("[Source](%s) — clipped %s", sourceURL, fetched.Format("2006-01-02"))
+		provenance = fmt.Sprintf("[Source](%s) — retrieved %s", sourceURL, retrieved.Format("2006-01-02"))
 	}
 	blocks = append(blocks, provenance)
+	if p.Published.Raw != "" {
+		blocks = append(blocks, "Published: "+p.Published.Raw)
+	}
+	if p.Modified.Raw != "" {
+		blocks = append(blocks, "Modified: "+p.Modified.Raw)
+	}
 	if p.Image != "" {
 		blocks = append(blocks, fmt.Sprintf("![](%s)", p.Image))
 	}
@@ -112,32 +143,23 @@ func NoteBody(p Page, sourceURL string, fetched time.Time) string {
 type pageMeta struct {
 	props     map[string]string
 	title     string
-	published time.Time
-}
-
-// publishedTimeFormats are the timestamp layouts pages put in published-time metadata.
-var publishedTimeFormats = []string{
-	time.RFC3339,
-	"2006-01-02T15:04:05Z0700",
-	"2006-01-02T15:04:05",
-	"2006-01-02",
-	time.RFC1123Z,
-	time.RFC1123,
+	published DateMetadata
+	modified  DateMetadata
 }
 
 // collectMeta walks the document for <meta property/name>, <title>, and <time datetime> before any
 // pruning, so metadata survives even when it sits inside a container the heuristic would drop.
 func collectMeta(doc *html.Node) pageMeta {
 	m := pageMeta{props: map[string]string{}}
-	var timeAttr string
+	var genericTime, publishedTime, modifiedTime string
 	walk(doc, func(n *html.Node) bool {
 		if n.Type != html.ElementNode {
 			return true
 		}
 		switch n.DataAtom {
 		case atom.Meta:
-			key := strings.ToLower(firstNonEmpty(attr(n, "property"), attr(n, "name")))
-			if content := strings.TrimSpace(attr(n, "content")); key != "" && content != "" {
+			key := strings.ToLower(firstNonEmpty(attr(n, "property"), attr(n, "name"), attr(n, "itemprop")))
+			if content := attr(n, "content"); key != "" && strings.TrimSpace(content) != "" {
 				if _, seen := m.props[key]; !seen {
 					m.props[key] = content
 				}
@@ -147,35 +169,100 @@ func collectMeta(doc *html.Node) pageMeta {
 				m.title = collapseSpace(innerText(n))
 			}
 		case atom.Time:
-			if timeAttr == "" {
-				timeAttr = attr(n, "datetime")
+			if value := strings.TrimSpace(attr(n, "datetime")); value != "" {
+				switch strings.ToLower(attr(n, "itemprop")) {
+				case "datepublished":
+					if publishedTime == "" {
+						publishedTime = value
+					}
+				case "datemodified":
+					if modifiedTime == "" {
+						modifiedTime = value
+					}
+				default:
+					if genericTime == "" {
+						genericTime = value
+					}
+				}
 			}
 		}
 		return true
 	})
-	for _, raw := range []string{
+	m.published = parseDateMetadata(firstRaw(
 		m.props["article:published_time"], m.props["og:article:published_time"],
-		m.props["date"], m.props["article:modified_time"], timeAttr,
-	} {
-		if t, err := parsePublished(raw); err == nil {
-			m.published = t
-			break
-		}
-	}
+		m.props["datepublished"], m.props["date_published"], m.props["pubdate"],
+		m.props["date"], m.props["dc.date.issued"], publishedTime, genericTime,
+	))
+	m.modified = parseDateMetadata(firstRaw(
+		m.props["article:modified_time"], m.props["og:updated_time"],
+		m.props["og:article:modified_time"], m.props["datemodified"], m.props["date_modified"],
+		m.props["last-modified"], m.props["lastmodified"], m.props["dc.date.modified"], modifiedTime,
+	))
 	return m
 }
 
-func parsePublished(s string) (time.Time, error) {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return time.Time{}, fmt.Errorf("empty date")
-	}
-	for _, layout := range publishedTimeFormats {
-		if t, err := time.Parse(layout, s); err == nil {
-			return t, nil
+func firstRaw(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
 		}
 	}
-	return time.Time{}, fmt.Errorf("unrecognized date %q", s)
+	return ""
+}
+
+func parseDateMetadata(raw string) DateMetadata {
+	metadata := DateMetadata{Raw: raw, Precision: "absent"}
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return metadata
+	}
+	metadata.Precision = "unknown"
+	// RFC 3339 -00:00 (and mail-date -0000) denotes an unknown local offset,
+	// not evidence of UTC. Preserve the label without inventing an instant.
+	if strings.HasSuffix(value, "-00:00") || strings.HasSuffix(value, "-0000") {
+		return metadata
+	}
+	if _, err := time.Parse(time.DateOnly, value); err == nil {
+		metadata.Precision = "date"
+		return metadata
+	}
+	for _, layout := range []string{
+		time.RFC3339Nano,
+		"2006-01-02T15:04:05Z0700",
+		"2006-01-02T15:04Z07:00",
+		"2006-01-02T15:04Z0700",
+		"2006-01-02 15:04:05Z07:00",
+		"2006-01-02 15:04:05Z0700",
+		"2006-01-02 15:04Z07:00",
+		"2006-01-02 15:04Z0700",
+		time.RFC1123Z,
+	} {
+		if instant, err := time.Parse(layout, value); err == nil {
+			timestamp := instant.Format(time.RFC3339Nano)
+			metadata.Precision = "instant"
+			metadata.Timestamp = &timestamp
+			return metadata
+		}
+	}
+	for _, layout := range []string{
+		"2006-01-02T15:04:05.999999999", "2006-01-02T15:04:05", "2006-01-02T15:04",
+		"2006-01-02 15:04:05.999999999", "2006-01-02 15:04:05", "2006-01-02 15:04",
+	} {
+		if _, err := time.Parse(layout, value); err == nil {
+			metadata.Precision = "local_datetime"
+			return metadata // Preserve a timezone-less label without inventing an instant.
+		}
+	}
+	// HTTP dates are accepted only with an explicit zone token. The legacy asctime form has no zone
+	// and must not be promoted to UTC merely because net/http can parse it.
+	if strings.HasSuffix(value, " GMT") || strings.HasSuffix(value, " UTC") {
+		if instant, err := http.ParseTime(value); err == nil {
+			timestamp := instant.Format(time.RFC3339Nano)
+			metadata.Precision = "instant"
+			metadata.Timestamp = &timestamp
+		}
+	}
+	return metadata
 }
 
 // noiseTags never carry article content and are removed wholesale.
