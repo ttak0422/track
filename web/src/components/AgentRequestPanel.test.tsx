@@ -25,6 +25,7 @@ vi.mock("../runtime", () => ({ STATIC_MODE: false }));
 vi.mock("../queries", () => ({
   useRenderQuery: renderQuery,
   useResolveQuery: resolveQuery,
+  useSiteQuery: () => ({ data: undefined }),
   useAgentsQuery: () => ({
     data: {
       agents: [

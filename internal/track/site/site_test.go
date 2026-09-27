@@ -193,6 +193,97 @@ func TestBuildLocksTheDataBundle(t *testing.T) {
 	}
 }
 
+func TestBuildStaticAppsUsesExplicitAllowlistAndStablePaths(t *testing.T) {
+	cfg, s := vaultStore(t)
+	writeVaultNote(t, cfg, 100, "Home", "# Home\n")
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	alpha := []byte("<!doctype html>\x00alpha\n")
+	for name, body := range map[string][]byte{"alpha": alpha, "beta": []byte("beta app")} {
+		dir := filepath.Join(cfg.VaultDir, "apps", name)
+		if err := os.MkdirAll(filepath.Join(dir, "scripts"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "index.html"), body, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "scripts", "app.js"), []byte("import './style.css';"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "scripts", "style.css"), []byte("body { color: red; }"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	out := t.TempDir()
+	res, err := Build(cfg, s, Options{
+		Root: 100, Apps: []string{"alpha"}, AppsBaseURL: "https://tools.example/base/",
+	}, fakeFrontend(t), out)
+	if err != nil {
+		t.Fatalf("build selected app: %v", err)
+	}
+	if len(res.Apps) != 1 || res.Apps[0] != "alpha" {
+		t.Fatalf("result app allowlist = %v", res.Apps)
+	}
+	got, err := os.ReadFile(filepath.Join(out, "apps", "alpha", "index.html"))
+	if err != nil || string(got) != string(alpha) {
+		t.Fatalf("selected app bytes = %q, err=%v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "apps", "alpha", "scripts", "style.css")); err != nil {
+		t.Fatalf("relative app dependency not copied: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "apps", "beta")); !os.IsNotExist(err) {
+		t.Fatalf("unselected app was published: err=%v", err)
+	}
+	siteInfo := readJSON[struct {
+		AppsBaseURL string `json:"apps_base_url"`
+	}](t, filepath.Join(out, "data", "site.json"))
+	if siteInfo.AppsBaseURL != "https://tools.example/base" {
+		t.Fatalf("external apps base URL = %q", siteInfo.AppsBaseURL)
+	}
+
+	// Rebuilding the same output without an allowlist removes apps selected by the prior build.
+	res, err = Build(cfg, s, Options{Root: 100}, fakeFrontend(t), out)
+	if err != nil {
+		t.Fatalf("build with default empty allowlist: %v", err)
+	}
+	if len(res.Apps) != 0 {
+		t.Fatalf("default app list should be empty, got %v", res.Apps)
+	}
+	if _, err := os.Stat(filepath.Join(out, "apps", "alpha")); !os.IsNotExist(err) {
+		t.Fatalf("previous app remained after empty allowlist: err=%v", err)
+	}
+}
+
+func TestBuildStaticAppsRejectsInvalidNamesAndEscapingSymlinks(t *testing.T) {
+	cfg, s := vaultStore(t)
+	writeVaultNote(t, cfg, 100, "Home", "# Home\n")
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	appDir := filepath.Join(cfg.VaultDir, "apps", "demo")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(appDir, "index.html"), []byte("<h1>demo</h1>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	secret := filepath.Join(cfg.VaultDir, "secret.txt")
+	if err := os.WriteFile(secret, []byte("not an app"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secret, filepath.Join(appDir, "leak.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Build(cfg, s, Options{Root: 100, Apps: []string{"../secret.txt"}}, fakeFrontend(t), t.TempDir()); err == nil {
+		t.Fatal("invalid app name should fail")
+	}
+	if _, err := Build(cfg, s, Options{Root: 100, Apps: []string{"demo"}}, fakeFrontend(t), t.TempDir()); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("escaping app symlink should fail, got %v", err)
+	}
+}
+
 // TestDataGenerationTracksContent covers the other half of the CDN cache window (ADR 0070): the bundle's
 // path is a fingerprint of what it holds, so an edit publishes to a new path — a page from the new deploy
 // can never be served a cached copy of the old data — while an unchanged vault republishes to the same

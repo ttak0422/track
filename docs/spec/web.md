@@ -143,12 +143,55 @@ back to `index.html` for client-side routes. The Go server therefore serves the 
 workspace in a released build, while a plain source-tree build carries the committed
 placeholder `dist` until the frontend is built and copied there.
 
+### Static apps
+
+A trusted, self-authored browser app may live at `apps/<name>/index.html` in a vault, with ordinary
+relative JavaScript, CSS, and other files beside it. App names are stable lowercase URL segments:
+`[a-z0-9][a-z0-9-]{0,62}`. No build step, manifest, or track API integration is required.
+
+Markdown links to `/apps/<name>/` or the vault-relative spelling `apps/<name>/` launch the app as a
+real top-level HTML document, not an iframe. `track web` owns the stable `/apps/<name>/` route: a
+missing final slash redirects to it, and the route redirects to a second listener in the same process
+on the workspace port plus one. If `--addr` requests port `0`, the app port is one above the actual
+workspace port the OS chose. Startup fails clearly if that adjacent port is unavailable or the
+workspace is on port `65535`; it never falls back to a random port.
+
+The app listener uses the workspace's explicit bind host, except a wildcard workspace bind uses
+`127.0.0.1` for the app listener. Redirects use that canonical host rather than the hostname alias in
+the incoming request: a `localhost` bind redirects to `localhost`, a numeric loopback bind keeps that
+numeric address, and an explicit non-loopback host stays unchanged. A fixed workspace address therefore
+keeps the app origin stable across restarts, which preserves browser storage; port `0` does not.
+
+The listener is one origin shared by every app and vault served by the workspace. Its private path prefix
+selects the vault, so a link from a note in a registered vault opens that vault's app without adding a
+Track parameter to the app's query string. On the workspace launch URL, `__track_vault` is reserved for
+the selected registry name and is stripped before app code receives the original query parameters. App
+links preserve their query and fragment; direct links default to the launch vault. The internal `launch`
+path selector is an alias for whichever vault `track web` was started in; it is not a stable vault ID
+when the active vault changes.
+
+The app listener serves only files beneath `apps/<name>/`: it has no `/api`, vault-file route,
+directory listing, or SPA fallback. The launch and file routes reject traversal, including symlinks
+that leave an app. Missing files stay 404s. Host checks apply to both listeners. Workspace API requests
+with an app-origin `Origin` (including GET reads, writes, and websocket upgrades) are refused;
+non-`same-origin` Fetch Metadata and a foreign `Referer` are also refused for API requests that omit
+`Origin`.
+
+This is not a sandbox for arbitrary or untrusted code. Apps are trusted self-authored code, can reach
+the network like any page, and can communicate with other apps on their shared app origin. Different
+ports do **not** isolate cookies: cookies are not scoped by port. `localStorage` is scoped to the shared
+origin, not to an app path, so every app and vault shares the same storage area. Namespace persistent
+keys by app and by an app-owned stable vault identifier; do not use the internal `launch` path selector
+as that identifier. These are not security boundaries for hostile content. Apps are static pages only
+and have no supported Track API integration.
+
 For frontend development:
 
 - keep the existing `/api/*` contract stable;
 - run `npm install` and `npm run build` from `web/` for frontend changes;
 - run `track web --addr 127.0.0.1:8765` and `npm run dev` from `web/` to use the
-  Vite dev server against the local Go API;
+  Vite dev server against the local Go API and `/apps/` launch routes; Vite proxies both to Go, and
+  app documents then load from the adjacent static listener;
 
 ### Markdown embeds
 

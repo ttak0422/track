@@ -128,10 +128,17 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      // The track server guards against DNS rebinding (a foreign Host) and CSRF (a foreign Origin on a
-      // write), so a proxied request has to arrive wearing the server's own address rather than the dev
-      // server's — otherwise every POST, /api/render included, comes back 403 and notes render blank.
+      // The track server guards Host and Origin on API requests, so a proxied request has to arrive
+      // wearing the server's own address rather than the dev server's. Rewriting Origin is limited to
+      // this trusted local proxy; direct browser requests from the static app origin remain refused.
       "/api": {
+        target: "http://127.0.0.1:8765",
+        changeOrigin: true,
+        headers: { origin: "http://127.0.0.1:8765" },
+      },
+      // Static app launches are workspace routes too. Keep the request on the Go workspace so a missing
+      // slash can redirect through Vite and the following absolute Location can reach the adjacent port.
+      "/apps": {
         target: "http://127.0.0.1:8765",
         changeOrigin: true,
         headers: { origin: "http://127.0.0.1:8765" },
