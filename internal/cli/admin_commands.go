@@ -298,6 +298,12 @@ func cmdWeb(args []string) int {
 	}
 	defer s.Close()
 
+	ctx, cancel, err := webServerContext()
+	if err != nil {
+		return fail("web: %v", err)
+	}
+	defer cancel()
+
 	// Claim the PID file before binding: a live server on the same addr is refused here with a clear
 	// message rather than surfacing as a bind error after the server is half up. The release removes
 	// the file on normal exit.
@@ -308,7 +314,13 @@ func cmdWeb(args []string) int {
 	defer release()
 
 	fmt.Fprintf(os.Stderr, "track web: http://%s\n", *addr)
-	if err := webui.Serve(cfg, s, *addr); err != nil {
+	readyToken := os.Getenv(desktopReadyTokenEnv)
+	onReady := func() {
+		if readyToken != "" {
+			fmt.Fprintf(os.Stderr, "TRACK_DESKTOP_READY:%s\n", readyToken)
+		}
+	}
+	if err := webui.ServeWithLifecycle(ctx, cfg, s, *addr, onReady); err != nil {
 		return fail("web: %v", err)
 	}
 	return 0
