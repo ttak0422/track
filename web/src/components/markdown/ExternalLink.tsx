@@ -1,9 +1,10 @@
 import { Link } from "@tanstack/react-router";
 import { type ReactNode, useContext, useEffect, useRef, useState } from "react";
-import { useResolveQuery } from "../../queries";
+import { useResolveQuery, useSiteQuery } from "../../queries";
 import { pointerCanHover, previewOpenDelay } from "../preview/stack";
 import { NoteKindContext, NoteVaultContext } from "./context";
-import { assetHref, noteCandidateFromHref, webHref } from "./urls";
+import { STATIC_MODE } from "../../runtime";
+import { appHref, assetHref, noteCandidateFromHref, webHref } from "./urls";
 
 interface ExternalLinkProps {
   href: string;
@@ -16,9 +17,17 @@ interface ExternalLinkProps {
 export function ExternalLink({ href, children }: ExternalLinkProps) {
   const kind = useContext(NoteKindContext);
   const vault = useContext(NoteVaultContext);
-  const asset = assetHref(href, kind, vault);
-  const noteCandidate = asset ? "" : noteCandidateFromHref(href);
+  const site = useSiteQuery();
+  const app = appHref(href, { vault, staticMode: STATIC_MODE, appsBaseURL: site.data?.apps_base_url });
+  const asset = app ? null : assetHref(href, kind, vault);
+  const noteCandidate = asset || app ? "" : noteCandidateFromHref(href);
   const resolved = useResolveQuery(noteCandidate, vault);
+
+  // Static apps are full top-level documents on their own listener/origin, not Markdown embeds or
+  // track notes. A normal anchor preserves the app's query/hash and lets the browser load its HTML.
+  if (app) {
+    return <a className="md-link" href={app}>{children}</a>;
+  }
 
   // A link into the vault's assets/ goes straight to the server endpoint that serves the file, rather
   // than being resolved against the current /notes/<id> route.

@@ -188,8 +188,7 @@ private struct TaskRowView: View {
 
 /// The reader handles this same URL scheme for wikilinks.
 private func noteURL(for row: TaskRow) -> URL {
-    let target = row.noteID.raw.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? row.noteID.raw
-    return URL(string: "trackwiki://\(target)")!
+    MarkdownAnchors.wikiURL(row.noteID.raw)
 }
 
 private struct TaskDateEditor: View {

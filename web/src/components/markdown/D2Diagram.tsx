@@ -71,9 +71,7 @@ export function D2Diagram({ text }: D2DiagramProps) {
   }, [text, themeVersion, visible]);
 
   return (
-    <div ref={ref}>
-      <DiagramFrame state={state} source={text} sourceLang="d2" label="D2 diagram" />
-    </div>
+    <DiagramFrame visibilityRef={ref} state={state} source={text} sourceLang="d2" label="D2 diagram" />
   );
 }
 

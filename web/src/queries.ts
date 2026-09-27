@@ -26,12 +26,26 @@ import {
   setTaskDate,
   setTaskState,
   uploadAsset,
+  listAgents,
+  listAgentRequests,
+  createAgentRequest,
+  cancelAgentRequest,
+  retryAgentRequest,
+  saveAgentRequest,
 } from "./api";
 import { useNotifications } from "./notifications";
 import { STATIC_MODE } from "./runtime";
 import { useDebouncedValue } from "./hooks/useDebouncedValue";
 import { markSelfWrite } from "./vaultActivity";
-import type { DateField, NoteID, NoteMetaResponse, NoteResponse, SaveNoteMetaRequest, SaveNoteRequest } from "./types";
+import type {
+  AgentRequest,
+  DateField,
+  NoteID,
+  NoteMetaResponse,
+  NoteResponse,
+  SaveNoteMetaRequest,
+  SaveNoteRequest,
+} from "./types";
 
 export const queryKeys = {
   site: () => ["site"] as const,
@@ -58,7 +72,62 @@ export const queryKeys = {
   render: (body: string, vault = "") => ["render", vault, body] as const,
   assetText: (href: string) => ["assetText", href] as const,
   viewspec: (spec: string, vault = "") => ["viewspec", vault, spec] as const,
+  agents: () => ["agents"] as const,
+  requests: (vault = "") => ["requests", vault] as const,
 };
+
+export function useAgentsQuery(enabled = !STATIC_MODE) {
+  return useQuery({ queryKey: queryKeys.agents(), queryFn: listAgents, enabled, staleTime: 30_000 });
+}
+export function useAgentRequestsQuery(vault = "", enabled = !STATIC_MODE) {
+  return useQuery({
+    queryKey: queryKeys.requests(vault),
+    queryFn: () => listAgentRequests(vault),
+    enabled,
+    refetchInterval: 2000,
+  });
+}
+export function useCreateAgentRequestMutation(vault = "") {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: unknown) => createAgentRequest(body, vault),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: queryKeys.requests(vault) }),
+  });
+}
+export function useCancelAgentRequestMutation(vault = "") {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => cancelAgentRequest(id, vault),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: queryKeys.requests(vault) }),
+  });
+}
+export function useRetryAgentRequestMutation(vault = "") {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => retryAgentRequest(id, vault),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: queryKeys.requests(vault) }),
+  });
+}
+export function useSaveAgentRequestMutation(vault = "") {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      clientRequestID,
+      title,
+      targetVault,
+    }: {
+      id: string;
+      clientRequestID: string;
+      title: string;
+      targetVault?: string;
+    }) => saveAgentRequest(id, { client_request_id: clientRequestID, title, vault: targetVault }, vault),
+    onSuccess: (request) => {
+      qc.setQueryData<AgentRequest>(["request", request.id], request);
+      void qc.invalidateQueries({ queryKey: queryKeys.requests(vault) });
+    },
+  });
+}
 
 // useActivityQuery reads one vault's per-day note activity for the heatmap. The vault ("" for the
 // launch vault) is part of the key, so switching the working scope refetches the right days.

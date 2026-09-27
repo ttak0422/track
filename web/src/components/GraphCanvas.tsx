@@ -24,6 +24,9 @@ export interface GraphCanvasProps {
   resetToken: number;
   // Background decoration: draw nodes/edges only, no labels or interaction.
   decorative?: boolean;
+  // Whether note titles should be drawn beside nodes. The enlarged local graph can turn labels off
+  // when the canvas is being used for its shape rather than its names.
+  showTitles?: boolean;
   // When set, only these nodes are drawn at full strength (accent); the rest dim in place. null draws
   // every node normally. Used by the home search to highlight matches without dropping the others.
   highlightIds?: ReadonlySet<NoteID> | null;
@@ -101,6 +104,7 @@ export function GraphCanvas({
   onHover,
   resetToken,
   decorative = false,
+  showTitles = true,
   highlightIds = null,
   focusNodeID,
 }: GraphCanvasProps) {
@@ -129,12 +133,14 @@ export function GraphCanvas({
   const onSelectRef = useRef(onSelect);
   const onHoverRef = useRef(onHover);
   const highlightRef = useRef<ReadonlySet<NoteID> | null>(highlightIds);
+  const showTitlesRef = useRef(showTitles);
   const [size, setSize] = useState({ width: 1, height: 1 });
   const themeVersion = useThemeVersion();
 
   onSelectRef.current = onSelect;
   onHoverRef.current = onHover;
   highlightRef.current = highlightIds;
+  showTitlesRef.current = showTitles;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -177,7 +183,7 @@ export function GraphCanvas({
   // Recolor in place when the highlight set changes (a settled graph is not otherwise redrawing).
   useEffect(() => {
     drawGraph(size);
-  }, [highlightIds]);
+  }, [highlightIds, showTitles]);
 
   function initializeGraph(nextGraph: Graph) {
     const graphNodes = nextGraph.nodes || [];
@@ -477,7 +483,7 @@ export function GraphCanvas({
     // named; the rest are dots to hover — and in the aside the backlinks and children lists right
     // above the graph already name the neighbourhood in text, so the graph is there for its shape.
     const roomy = roomyCanvas(nextSize);
-    const showLabels = roomy && view.scale >= 0.26;
+    const showLabels = showTitlesRef.current && roomy && view.scale >= 0.26;
     // Labels are drawn in CSS pixels under a devicePixelRatio-only transform, not through the zoom
     // transform above. Under the zoom CTM the rasterizer is handed a fractional, non-1:1 scale (and
     // zoomed in, a font set smaller than the pixels it lands on), so the glyphs lose their pixel grid
@@ -489,7 +495,7 @@ export function GraphCanvas({
       css("--font-sans") || '"IBM Plex Sans JP", Inter, system-ui, sans-serif'
     }`;
     nodesRef.current.forEach((node) => {
-      if (decorative) return;
+      if (decorative || !showTitlesRef.current) return;
       const center = node.center || node.note_id === graph.center_id;
       const active = nodeIsActive(node.note_id);
       const hovered = node.note_id === hoverRef.current;

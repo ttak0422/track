@@ -71,86 +71,166 @@ private struct RootView: View {
     }
 }
 
-// MARK: - Tab shell
+// MARK: - Workspace shell
 
-/// The seven surfaces of the native workspace: Notes (search + reader), the
-/// activity Calendar, the link Graph, the vault Browse panes, Tasks, Voice
-/// dictation, and Settings. Every tab is built from the ready client handed
-/// over by TrackProcess; each owns its view model in @State so tab switches
-/// and the appearance re-renders above keep their loaded data.
+/// A compact navigation dock beside one reading sheet. Visited workspaces
+/// retain their state while the dock changes the visible surface.
 private struct MainTabView: View {
     let client: TrackClient
+    @State private var vaultScope: VaultScope
     @State private var tasks: TasksModel
-    @State private var poller: LiveEventPoller?
-    @State private var selectedTab = MainTab.notes
-    @State private var openedNote: String?
-    @State private var reader: NoteReaderModel
+    @State private var liveEvents: LiveEventPoller
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var navigation: WorkspaceNavigation
+    @State private var requestTarget: AgentRequestTarget?
     /// A day handed from the Browse activity heatmap to the Calendar tab, so a
     /// heatmap tap lands on the same day the calendar would select by hand.
     @State private var calendarDay: String?
 
     init(client: TrackClient) {
         self.client = client
+        _vaultScope = State(initialValue: VaultScope(client: client))
         _tasks = State(initialValue: TasksModel(client: client))
-        _reader = State(initialValue: NoteReaderModel(client: client))
+        _liveEvents = State(initialValue: LiveEventPoller(baseURL: client.baseURL) {
+            NotificationCenter.default.post(name: .trackVaultChanged, object: nil)
+        })
+        _navigation = State(initialValue: WorkspaceNavigation(reader: NoteReaderModel(client: client)))
     }
 
     var body: some View {
-        TabView(selection: $selectedTab) {
-            SearchReaderView(client: client)
-                .tag(MainTab.notes)
-                .tabItem { Label("Notes", systemImage: "doc.text") }
-            CalendarView(client: client, initialDay: calendarDay)
-                .tag(MainTab.calendar)
-                .tabItem { Label("Calendar", systemImage: "calendar") }
-            GraphTabView(client: client)
-                .tag(MainTab.graph)
-                .tabItem { Label("Graph", systemImage: "network") }
-            BrowseTabView(
-                client: client,
-                openNote: { raw in
-                    selectedTab = .notes
-                    openedNote = raw
-                },
-                openCalendar: { day in
-                    calendarDay = day
-                    selectedTab = .calendar
+        HStack(alignment: .top, spacing: 0) {
+            navigationDock
+                .padding(.horizontal, 8)
+                .padding(.top, 44)
+            ZStack {
+                // Keep visited surfaces alive so navigation preserves drafts,
+                // search, and scroll position without loading every view at launch.
+                ForEach(MainTab.allCases.filter { navigation.visited.contains($0) }, id: \.self) { tab in
+                    visibleWorkspace(tab)
                 }
-            )
-                .tag(MainTab.browse)
-                .tabItem { Label("Browse", systemImage: "folder") }
-            TasksView(model: tasks)
-                .tag(MainTab.tasks)
-                .tabItem { Label("Tasks", systemImage: "checklist") }
-            VoiceView(client: client)
-                .tag(MainTab.voice)
-                .tabItem { Label("Voice", systemImage: "mic") }
-            SettingsTabView()
-                .tag(MainTab.settings)
-                .tabItem { Label("Settings", systemImage: "gearshape") }
-        }
-        .task {
-            // Live vault updates (web useLiveEvents): the poller posts
-            // .trackVaultChanged and the data views reload themselves.
-            let poller = LiveEventPoller(baseURL: client.baseURL) {
-                NotificationCenter.default.post(name: .trackVaultChanged, object: nil)
             }
-            self.poller = poller
-            poller.start()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(palette.panel)
         }
-        .onDisappear { poller?.stop() }
-        .sheet(isPresented: Binding(get: { openedNote != nil }, set: { if !$0 { openedNote = nil } })) {
-            NoteReaderView(model: reader, baseURL: client.baseURL)
-                .task { if let openedNote { await reader.open(TrackID(openedNote)) } }
+        .foregroundStyle(palette.text)
+        .background(palette.bg)
+        .tint(palette.mark)
+        .environment(liveEvents)
+        .environment(vaultScope)
+        .environment(\.openURL, wikiURLAction)
+        .toolbar {
+            ToolbarItem {
+                Button("Back", systemImage: "chevron.left") { Task { await navigation.back() } }
+                    .disabled(!navigation.canGoBack)
+                    .keyboardShortcut("[", modifiers: .command)
+            }
+            ToolbarItem { VaultSwitcher(model: vaultScope) }
+        }
+        .task { await vaultScope.reload() }
+        .onChange(of: navigation.reader.currentID) { _, id in navigation.readerDidOpen(id) }
+        .task { liveEvents.start() }
+        .onDisappear { liveEvents.stop() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await liveEvents.refresh() }
+        }
+        .sheet(item: $requestTarget) { target in
+            AgentRequestsView(client: client, target: target, onOpenNote: { id in
+                Task { if await navigation.open(id) { requestTarget = nil } }
+            })
         }
     }
+
+    private func visibleWorkspace(_ tab: MainTab) -> some View {
+        let active = navigation.selected == tab
+        return workspace(tab)
+            .environment(\.trackWorkspaceActive, active)
+            .opacity(active ? 1 : 0)
+            .allowsHitTesting(active)
+            .disabled(!active)
+            .accessibilityHidden(!active)
+    }
+
+    private var wikiURLAction: OpenURLAction {
+        OpenURLAction { url in
+            guard let target = MarkdownAnchors.wikiTarget(url) else { return .systemAction }
+            Task {
+                if let id = WorkspaceNavigation.directNoteID(target) { await navigation.open(id) }
+                else if await navigation.reader.openWikilink(target: target) {
+                    navigation.readerDidOpen(navigation.reader.currentID)
+                }
+            }
+            return .handled
+        }
+    }
+
+    private var palette: TrackTheme { TrackTheme.palette(for: colorScheme) }
+
+    private var navigationDock: some View {
+        VStack(spacing: 6) {
+            Rectangle().fill(palette.mark).frame(width: 18, height: 18)
+                .padding(9)
+                .accessibilityHidden(true)
+            ForEach(MainTab.allCases.filter { $0 != .settings }, id: \.self) { tab in
+                dockButton(tab)
+            }
+            Divider().overlay(palette.line)
+            dockButton(.settings)
+        }
+        .padding(4)
+        .frame(width: 44)
+        .background(palette.panel, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(palette.line, lineWidth: 1))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Workspace navigation")
+    }
+
+    private func dockButton(_ tab: MainTab) -> some View {
+        Button { navigation.select(tab) } label: {
+            Image(systemName: tab.symbol)
+                .font(.system(size: 18, weight: .regular))
+                .frame(width: 36, height: 36)
+                .foregroundStyle(navigation.selected == tab ? palette.text : palette.muted)
+                .background(navigation.selected == tab ? palette.panelSoft : .clear,
+                            in: RoundedRectangle(cornerRadius: 6))
+                .overlay(alignment: .leading) {
+                    if navigation.selected == tab { Rectangle().fill(palette.mark).frame(width: 2, height: 18) }
+                }
+        }
+        .buttonStyle(.plain)
+        .help(tab.title)
+        .accessibilityLabel(tab.title)
+        .accessibilityAddTraits(navigation.selected == tab ? .isSelected : [])
+    }
+
+    @ViewBuilder
+    private func workspace(_ tab: MainTab) -> some View {
+        switch tab {
+        case .notes:
+            SearchReaderView(client: client, reader: navigation.reader, onOpenCalendar: { day in
+                calendarDay = day
+                navigation.select(.calendar)
+            }, onRequestAgent: { requestTarget = $0 })
+        case .calendar:
+            CalendarView(client: client, initialDay: calendarDay, onOpenNote: openNote)
+        case .graph: GraphTabView(client: client, onOpenNote: openNote)
+        case .browse:
+            BrowseTabView(client: client, openNote: { openNote(TrackID($0)) }, openCalendar: { day in
+                calendarDay = day
+                navigation.select(.calendar)
+            })
+        case .tasks: TasksView(model: tasks)
+        case .voice: VoiceView(client: client, onOpenNote: openNote)
+        case .requests: AgentRequestsView(client: client, onClose: { navigation.select(.notes) }, onOpenNote: openNote)
+        case .settings: SettingsTabView()
+        }
+    }
+
+    private func openNote(_ id: TrackID) { Task { await navigation.open(id) } }
 }
 
 // MARK: - Browse tab
 
-private enum MainTab: Hashable {
-    case notes, calendar, graph, browse, tasks, voice, settings
-}
+private typealias MainTab = WorkspaceSurface
 
 private enum BrowsePane: String, CaseIterable, Identifiable {
     case hierarchy, tags, activity, history
@@ -247,9 +327,11 @@ private struct GraphTabView: View {
     @State private var model: GraphModel
     @State private var centerID: TrackID?
     @State private var centerText = ""
+    let onOpenNote: (TrackID) -> Void
 
-    init(client: TrackClient) {
+    init(client: TrackClient, onOpenNote: @escaping (TrackID) -> Void) {
         self.client = client
+        self.onOpenNote = onOpenNote
         _model = State(initialValue: GraphModel(client: client))
     }
 
@@ -272,9 +354,9 @@ private struct GraphTabView: View {
             .padding(.vertical, 8)
             Divider()
             if let centerID {
-                LocalGraphView(model: model, centerID: centerID) { raw in setCenter(raw) }
+                LocalGraphView(model: model, centerID: centerID) { raw in onOpenNote(TrackID(raw)) }
             } else {
-                GraphFullView(model: model) { raw in setCenter(raw) }
+                GraphFullView(model: model) { raw in onOpenNote(TrackID(raw)) }
             }
         }
     }
@@ -318,7 +400,7 @@ private struct SettingsTabView: View {
                 }
                 .pickerStyle(.radioGroup)
             } footer: {
-                Text("Color tokens follow docs/spec/design.md. System follows the macOS appearance.")
+                Text("System follows the macOS appearance.")
             }
             Section {
                 Picker("Content width", selection: contentWidthBinding) {

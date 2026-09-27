@@ -75,17 +75,15 @@ func Export(n *note.Note, r Renderer, opts Options) (Result, error) {
 	body := strings.TrimRight(n.Body, "\n")
 	lines := strings.Split(body, "\n")
 	blocksByStart := make(map[int]babel.Block)
-	for _, blk := range babel.ParseBlocks(body) {
+	blocks := babel.ParseBlocks(body)
+	for _, blk := range blocks {
 		blocksByStart[blk.StartLine] = blk
 	}
 
 	for i := 0; i < len(lines); {
 		if blk, ok := blocksByStart[i]; ok {
 			exports := firstHeader(blk, "exports", defaultExports)
-			var result *babel.RunResult
-			if meta, ok := n.Meta.Blocks[blk.ID(n.ID)]; ok {
-				result = meta.LastRun
-			}
+			result := babel.StoredResult(blk, blocks, n.ID, n.Meta.Blocks)
 			if result == nil && (exports == "results" || exports == "both") {
 				res.Warnings = append(res.Warnings,
 					fmt.Sprintf("block %q: :exports %s requested but no stored result", blk.ID(n.ID), exports))

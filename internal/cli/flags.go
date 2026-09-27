@@ -81,6 +81,20 @@ func (f *idsFlag) Set(v string) error {
 	return nil
 }
 
+// appsFlag collects repeatable --app values; each value may itself be comma-separated app names.
+type appsFlag []string
+
+func (f *appsFlag) String() string { return strings.Join(*f, ",") }
+
+func (f *appsFlag) Set(v string) error {
+	for _, part := range strings.Split(v, ",") {
+		if name := strings.TrimSpace(part); name != "" {
+			*f = append(*f, name)
+		}
+	}
+	return nil
+}
+
 // kvFlag collects repeatable key=value pairs (e.g. --set status=draft). The value may contain "=".
 type kvFlag []struct{ Key, Value string }
 

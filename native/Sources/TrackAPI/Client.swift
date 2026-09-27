@@ -34,13 +34,17 @@ public struct TrackClient: Sendable {
         self.session = session
     }
 
+    public func listVaults() async throws -> VaultsResponse {
+        try await get(path: "/api/vaults")
+    }
+
     // MARK: - Reads (api.ts: searchNotes/listDatedTasks/listOpenTasks/resolveTerm/getNote)
 
-    public func searchNotes(query: String, limit: Int = 100) async throws -> SearchResponse {
+    public func searchNotes(query: String, limit: Int = 100, vault: String = "") async throws -> SearchResponse {
         try await get(path: "/api/search", query: [
             URLQueryItem(name: "q", value: query),
             URLQueryItem(name: "limit", value: String(limit)),
-        ])
+        ] + vaultQuery(vault))
     }
 
     public func listDatedTasks() async throws -> TaskListResponse {
@@ -65,11 +69,11 @@ public struct TrackClient: Sendable {
     /// days riding along so the calendar can derive per-day lists (api.ts:
     /// listNotes/listNewNotes). `sort == "created"` asks for recently-created
     /// first (web SidebarNew), otherwise recently-updated first.
-    public func listNotes(limit: Int? = nil, sort: String? = nil) async throws -> NotesResponse {
+    public func listNotes(limit: Int? = nil, sort: String? = nil, vault: String = "") async throws -> NotesResponse {
         var items: [URLQueryItem] = []
         if let limit { items.append(URLQueryItem(name: "limit", value: String(limit))) }
         if let sort { items.append(URLQueryItem(name: "sort", value: sort)) }
-        return try await get(path: "/api/notes", query: items)
+        return try await get(path: "/api/notes", query: items + vaultQuery(vault))
     }
 
     /// `GET /api/note/meta`: the note's editable sidecar metadata as one typed
@@ -83,16 +87,16 @@ public struct TrackClient: Sendable {
     /// `/api/activity`: per-day note activity in the inclusive [since, until]
     /// window (YYYY-MM-DD). Both ends default server-side, so nil sends no query
     /// item (api.ts: getActivity).
-    public func getActivity(since: String? = nil, until: String? = nil) async throws -> ActivityResponse {
+    public func getActivity(since: String? = nil, until: String? = nil, vault: String = "") async throws -> ActivityResponse {
         var items: [URLQueryItem] = []
         if let since { items.append(URLQueryItem(name: "since", value: since)) }
         if let until { items.append(URLQueryItem(name: "until", value: until)) }
-        return try await get(path: "/api/activity", query: items)
+        return try await get(path: "/api/activity", query: items + vaultQuery(vault))
     }
 
     /// `/api/agenda?date=`: the notes active on one calendar day (api.ts: getAgenda).
-    public func getAgenda(date: String) async throws -> AgendaResponse {
-        try await get(path: "/api/agenda", query: [URLQueryItem(name: "date", value: date)])
+    public func getAgenda(date: String, vault: String = "") async throws -> AgendaResponse {
+        try await get(path: "/api/agenda", query: [URLQueryItem(name: "date", value: date)] + vaultQuery(vault))
     }
 
     /// `/api/ogp?url=`: Open Graph metadata for a link's rich card. Fields the
@@ -128,8 +132,8 @@ public struct TrackClient: Sendable {
     }
 
     /// `/api/graph`: the vault's full link graph (api.ts: getGraph).
-    public func getGraph() async throws -> GraphResponse {
-        try await get(path: "/api/graph")
+    public func getGraph(vault: String = "") async throws -> GraphResponse {
+        try await get(path: "/api/graph", query: vaultQuery(vault))
     }
 
     // MARK: - Writes (api.ts: setTaskState/setTaskDate)
@@ -161,8 +165,8 @@ public struct TrackClient: Sendable {
     /// `POST /api/note`: mints a note titled `title` with the default template.
     /// A title that already resolves is refused with 409, so callers can tell
     /// "already there" apart from a real failure (api.ts: createNote).
-    public func createNote(title: String) async throws -> CreateNoteResponse {
-        try await postEncodable(path: "/api/note", body: CreateNoteRequest(title: title))
+    public func createNote(title: String, vault: String = "") async throws -> CreateNoteResponse {
+        try await postEncodable(path: "/api/note", query: vaultQuery(vault), body: CreateNoteRequest(title: title))
     }
 
     /// `DELETE /api/note`: permanently removes the note — its file, its sidecar
@@ -181,8 +185,8 @@ public struct TrackClient: Sendable {
     /// `POST /api/journal`: opens or creates the journal for a day and returns
     /// its note id (api.ts: openJournal). The endpoint takes no request body,
     /// but every post here is a JSON API call, so an empty object is sent.
-    public func openJournal(date: String) async throws -> JournalResponse {
-        try await post(path: "/api/journal", query: [URLQueryItem(name: "date", value: date)], body: [:])
+    public func openJournal(date: String, vault: String = "") async throws -> JournalResponse {
+        try await post(path: "/api/journal", query: [URLQueryItem(name: "date", value: date)] + vaultQuery(vault), body: [:])
     }
 
     // MARK: - Render (api.ts: renderMarkdown/renderViewSpec/uploadAsset)
@@ -242,6 +246,10 @@ public struct TrackClient: Sendable {
 
     // MARK: - Transport
 
+    func vaultQuery(_ vault: String) -> [URLQueryItem] {
+        vault.isEmpty ? [] : [URLQueryItem(name: "vault", value: vault)]
+    }
+
     private func idQuery(_ id: TrackID) -> [URLQueryItem] {
         let (bare, vault) = id.split()
         var items = [URLQueryItem(name: "id", value: bare)]
@@ -249,7 +257,7 @@ public struct TrackClient: Sendable {
         return items
     }
 
-    private func get<T: Decodable>(path: String, query: [URLQueryItem] = []) async throws -> T {
+    func get<T: Decodable>(path: String, query: [URLQueryItem] = []) async throws -> T {
         var comps = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
         comps.queryItems = query.isEmpty ? nil : query
         var req = URLRequest(url: comps.url!)
@@ -289,7 +297,7 @@ public struct TrackClient: Sendable {
 
     /// POST with a JSON body, for Codable request types — the typed pair of the
     /// dictionary-bodied `post` above (api.ts: saveNoteMeta / createNote).
-    private func postEncodable<T: Decodable>(path: String, query: [URLQueryItem] = [], body: some Encodable) async throws -> T {
+    func postEncodable<T: Decodable>(path: String, query: [URLQueryItem] = [], body: some Encodable) async throws -> T {
         var comps = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
         comps.queryItems = query.isEmpty ? nil : query
         var req = URLRequest(url: comps.url!)
@@ -310,7 +318,29 @@ public struct TrackClient: Sendable {
             throw APIError(status: http.statusCode, message: msg)
         }
         let decoder = JSONDecoder()
-        return try decoder.decode(T.self, from: data)
+        // Like web normalizeIDs: child references inherit the nearest vault label.
+        // Normalize once at the transport boundary so every view/write uses the
+        // same identity, including graph edges and journal/create responses.
+        let value = try JSONSerialization.jsonObject(with: data)
+        let vault = req.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?
+            .queryItems?.first(where: { $0.name == "vault" })?.value ?? ""
+        let normalized = try JSONSerialization.data(withJSONObject: Self.normalizeIDs(value, vault: vault))
+        return try decoder.decode(T.self, from: normalized)
+    }
+
+    private static func normalizeIDs(_ value: Any, vault: String = "") -> Any {
+        if let array = value as? [Any] { return array.map { normalizeIDs($0, vault: vault) } }
+        guard let object = value as? [String: Any] else { return value }
+        let scope = object["vault"] as? String ?? vault
+        let keys: Set<String> = ["note_id", "source_id", "target_id", "center_id", "root"]
+        return object.reduce(into: [String: Any]()) { result, entry in
+            let (key, child) = entry
+            if keys.contains(key), let raw = (child as? String) ?? (child as? NSNumber)?.stringValue {
+                result[key] = TrackID.qualify(vault: scope, id: raw).raw
+            } else {
+                result[key] = normalizeIDs(child, vault: scope)
+            }
+        }
     }
 
     /// POST returning the raw response body, for endpoints whose payload is not

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  appHref,
   assetHref,
   googleMapsEmbedUrl,
   hostOf,
@@ -16,6 +17,41 @@ import {
   youtubeEmbedUrl,
   youtubeStartSeconds,
 } from "./urls";
+
+describe("appHref", () => {
+  it("maps root and vault-relative app links to live top-level launch URLs", () => {
+    expect(appHref("/apps/weekly/", { vault: "work", staticMode: false })).toBe(
+      "/apps/weekly/?__track_vault=work",
+    );
+    expect(appHref("apps/weekly?tab=2#summary", { vault: "work", staticMode: false })).toBe(
+      "/apps/weekly/?tab=2&__track_vault=work#summary",
+    );
+    expect(appHref("./apps/weekly/?vault=app-value", { staticMode: false })).toBe(
+      "/apps/weekly/?vault=app-value",
+    );
+  });
+
+  it("anchors static links to the site subpath or external apps base", () => {
+    expect(appHref("apps/weekly/?q=a%2Fb#result", { staticMode: true, baseURL: "/manual/" })).toBe(
+      "/manual/apps/weekly/?q=a%2Fb#result",
+    );
+    expect(
+      appHref("/apps/weekly/", {
+        staticMode: true,
+        baseURL: "/manual/",
+        appsBaseURL: "https://tools.example/base/",
+      }),
+    ).toBe("https://tools.example/base/apps/weekly/");
+  });
+
+  it("does not reinterpret non-app links or paths with traversal", () => {
+    expect(appHref("../apps/weekly/", { staticMode: false })).toBeNull();
+    expect(appHref("apps/../secret/", { staticMode: false })).toBeNull();
+    expect(appHref("apps/weekly/%2e%2e/secret", { staticMode: false })).toBeNull();
+    expect(appHref("apps/weekly/file%2fother.js", { staticMode: false })).toBeNull();
+    expect(appHref("https://example.com/apps/weekly/", { staticMode: false })).toBeNull();
+  });
+});
 
 describe("webHref", () => {
   it("upgrades bare domains to https", () => {

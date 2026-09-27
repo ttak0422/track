@@ -595,8 +595,8 @@ public struct FigureHost: NSViewRepresentable {
         func requestRender() {
             let json = Self.renderConfig(for: parent)
             guard json != lastJSON else { return }
-            lastJSON = json
             guard let webView, isReady else { return }
+            lastJSON = json
             webView.evaluateJavaScript("window.trackFigure.render(\(json))", completionHandler: nil)
         }
 
@@ -723,7 +723,7 @@ extension FigureAssets {
     <style>
       :root { color-scheme: light dark; }
       html, body { margin: 0; padding: 0; }
-      body { overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+      body { overflow-x: auto; overflow-y: hidden; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
       #toolbar { display: none; align-items: center; gap: 2px; min-height: 30px;
         padding: 3px 5px; box-sizing: border-box; background: rgba(243,242,238,.92);
         border: 1px solid rgba(120,118,110,.22); border-radius: 6px; margin-bottom: 6px; }
@@ -771,7 +771,8 @@ extension FigureAssets {
       }
 
        function postHeight() {
-         post({ type: "height", height: Math.ceil(figure.getBoundingClientRect().height) });
+         var chrome = toolbar.getBoundingClientRect().height;
+         post({ type: "height", height: Math.ceil(figure.getBoundingClientRect().height + (chrome ? chrome + 6 : 0)) });
        }
 
        // ECharts keeps its canvas/SVG viewport at the size it had at init time.
@@ -900,8 +901,9 @@ extension FigureAssets {
          // The fold/copy/zoom handlers above are kind-agnostic (they act on
          // the rendered figure and cfg.source), so every SVG diagram kind
          // gets the strip — the same DiagramFrame the web reader shares
-         // across mermaid/d2/graphviz. draw.io stays static like the web.
-         showToolbar(cfg.kind === "mermaid" || cfg.kind === "dot" || cfg.kind === "d2");
+         // across diagrams and charts; maps keep their own zoom controls.
+         showToolbar(cfg.kind !== "html" && cfg.kind !== "map" && cfg.kind !== "math");
+         toolbar.style.background = cfg.theme.panelSoft;
          // Publish the useful first frame before a CDN asset resolves.
          postHeight();
          figure.textContent = "";
@@ -1007,8 +1009,10 @@ extension FigureAssets {
                 var data = params && params.data;
                 if (!data || typeof data !== "object") { return; }
                 var candidate = data.href || data.link || data.url || data.trackwiki;
-                if (typeof candidate === "string" && candidate.indexOf("trackwiki://") === 0) {
+                if (typeof candidate === "string" && /^(https?:\\/\\/|trackwiki:\\/\\/)/i.test(candidate)) {
                   post({ type: "link", url: candidate });
+                } else if (typeof data.note === "string" && data.note) {
+                  post({ type: "link", url: "trackwiki://" + encodeURIComponent(data.note) });
                 }
               });
              } catch (err) {

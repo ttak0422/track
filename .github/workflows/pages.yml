@@ -40,6 +40,9 @@ jobs:
 
       - name: Set up Cachix
         uses: cachix/cachix-action@v15
+        # Cache availability is optional, including uploads in the post-action hook.
+        # Build and test steps still fail normally.
+        continue-on-error: true
         with:
           name: ttak0422
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}

@@ -1,6 +1,7 @@
 package site
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -200,5 +201,53 @@ func TestBuildExpandsSavedQueryFence(t *testing.T) {
 	root := readJSON[jsonNoteResponse](t, filepath.Join(out, "data", "note", PublishID(100)+".json"))
 	if !strings.Contains(root.Note.Body, "| [[Alpha]] |") {
 		t.Fatalf("saved query should have expanded to its result table: %q", root.Note.Body)
+	}
+}
+
+// TestBuildKeepsAgentRegistryOut locks the live-only rule: the static export is built from the same
+// machine config that registers agents (with tokens and agmsg connection settings), and the whole
+// published tree — frontend files and the locked data bundle alike — must carry zero trace of the
+// agent registry. The web API is live-only, so agent data exists on no other surface.
+func TestBuildKeepsAgentRegistryOut(t *testing.T) {
+	cfg, s := vaultStore(t)
+	cfg.Agents = map[string]config.AgentConfig{
+		"research-assistant": {
+			Name:       "Research Assistant",
+			Operations: []string{"research", "explain"},
+			Token:      "token-research-9876",
+			Agmsg: &config.AgmsgConfig{
+				SendScript: "/opt/agmsg/send.sh",
+				Team:       "team-a",
+				Sender:     "track-web",
+				Recipient:  "ra@agmsg.local",
+			},
+		},
+	}
+	writeVaultNoteMeta(t, cfg, 100, "# Welcome\n", note.Metadata{Title: "Welcome"})
+	out := buildAll(t, cfg, s, 100)
+
+	forbidden := []string{
+		"research-assistant", "Research Assistant", "research", "explain",
+		"token-research-9876", "/opt/agmsg/send.sh", "team-a", "ra@agmsg.local",
+	}
+	if err := filepath.WalkDir(out, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		for _, f := range forbidden {
+			if bytes.Contains(raw, []byte(f)) {
+				t.Fatalf("static site leaks agent data %q in %s", f, path)
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("walk output: %v", err)
 	}
 }

@@ -16,7 +16,6 @@
       systems = [
         "x86_64-linux"
         "aarch64-linux"
-        "x86_64-darwin"
         "aarch64-darwin"
       ];
       perSystem =
@@ -37,6 +36,8 @@
             # Builtin templates are embedded (builtin/*.template.md via go:embed), so the non-.go assets
             # must be part of the build source too.
             ./builtin
+            # The Babel integration test exercises the shipped literate source.
+            ./examples/literate-dotfiles/dotfiles.md
           ];
 
           # The React frontend source, excluding generated/installed directories.
@@ -56,7 +57,7 @@
               root = ./web;
               fileset = webFiles;
             };
-            npmDepsHash = "sha256-kZ2UV/Vr5Gn3+Z3VGfyer02LkcBCxUeW6+VeuKARhUA=";
+            npmDepsHash = "sha256-pPS/S6yqO61FMmuXEI5rh1d1NI/+yM+LrmEOq/GgJ6w=";
             installPhase = ''
               runHook preInstall
               cp -r dist $out

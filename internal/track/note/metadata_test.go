@@ -380,3 +380,31 @@ func TestWriteMetadataReadStateBumpsVersion(t *testing.T) {
 		t.Fatalf("SeenAt = %q, want %q", got.SeenAt, in.SeenAt)
 	}
 }
+
+func TestWriteReadMetadataBabelHashesVersion(t *testing.T) {
+	for _, block := range []babel.BlockMeta{
+		{Language: "sh", InputHash: "sha256:inputs"},
+		{Language: "sh", ExecutionKey: "sha256:execution"},
+		{Language: "sh", InputHash: "sha256:inputs", ExecutionKey: "sha256:execution"},
+	} {
+		path := filepath.Join(t.TempDir(), "metadata.yaml")
+		in := Metadata{Version: MetadataVersionV2, Title: "Babel", Blocks: map[string]babel.BlockMeta{"main": block}}
+		if err := WriteMetadata(path, in); err != nil {
+			t.Fatal(err)
+		}
+		got, found, err := ReadMetadata(path)
+		in.Version = MetadataVersionV12
+		if err != nil || !found || !reflect.DeepEqual(got, in) {
+			t.Fatalf("v12 roundtrip: got=%+v found=%v err=%v", got, found, err)
+		}
+		// An existing v12 sidecar stays v12 even after the last hashed block is removed.
+		got.Blocks = nil
+		if err := WriteMetadata(path, got); err != nil {
+			t.Fatal(err)
+		}
+		reread, _, err := ReadMetadata(path)
+		if err != nil || reread.Version != MetadataVersionV12 {
+			t.Fatalf("version downgraded: %+v %v", reread, err)
+		}
+	}
+}

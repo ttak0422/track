@@ -148,7 +148,7 @@ days:
 
 Fields:
 
-- `version`: metadata schema version. Required for new writes. The version is the newest schema any present field needs: a sidecar carrying Babel block results is at least v2, one carrying `days` is at least v3, and one carrying `flags` is at least v10.
+- `version`: metadata schema version. Required for new writes. The version is the newest schema any present field needs: a sidecar carrying Babel block results is at least v2, one carrying `days` is at least v3, one carrying `flags` is at least v10, `exec_log` needs v11, and Babel `input_hash`/`execution_key` need v12.
 - `title`: note title and the link keyword. This sidecar field is authoritative.
 - `tags`: note tags.
 - `created`: creation date string. The current format is `YYYY-MM-DD`.
@@ -201,3 +201,25 @@ The vault and cache hold two very different kinds of data:
 Deleting `.track/notes/` is therefore irrecoverable data loss. Treat it like `.git`: keep it under version control and back it up alongside the note bodies.
 
 track does **not** reconstruct lost metadata from the note body, because rebuilding a sidecar from the `.md` alone would silently drop tags and block results while appearing to succeed. The `track doctor --fix` repair is deliberately limited to restoring *structure and identity*, never inventing content: a missing sidecar is recreated with a placeholder `Untitled N` title, an orphan sidecar's markdown is recreated empty, a duplicate title is renumbered, and a stray conflict copy is imported as a new note. It never recovers the original title, tags, or block results — a backup of `.track/notes/` is still the only way to get those back. See ADR 0014 for the health-check and repair model.
+
+## Preserved source versions
+
+`.track/sources/<note-id>/<sha256>/record.json` stores an immutable UTF-8 body and
+its source or derivation metadata (schema 1). If an original file was supplied,
+`original` in that directory stores its exact bytes, with its filename and SHA-256
+in the record. This is authoritative data, independent of SQLite and `.track/gen`;
+back it up with the vault. Existing notes require no migration.
+
+Version paths retain a stable owning note ID; deduplication spans the vault. Source
+identity includes the original location, media type, body hash and optional original hash; derived identity includes
+the sorted unique input `(note_id, version)` references, method, exact settings
+identifier, format and explicit regeneration key. Repeating an identity reuses the
+existing record and its owning note ID, without modifying the requested working note.
+Legacy duplicate paths remain readable; saves validate all matching copies and return
+the smallest owner ID. Missing owners, missing record files and corrupt matching records
+fail explicitly. Entirely removed version directories cannot be detected by the scan.
+The `.save.lock` advisory process lock serializes the owner scan and publication;
+do not remove or replace this file while writers run. Each version directory is
+published atomically after verification.
+Unfinished `.pending-*` directories are ignored, and corrupt versions return errors.
+No retention limit or automatic cleanup is applied. See ADR 0077.

@@ -22,6 +22,16 @@ export SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk
 export CLANG_MODULE_CACHE_PATH="$PWD/native/.build/clang-module-cache"
 swift build --package-path native
 swift run --package-path native VerifyFixtures
+scripts/check-native-live-events.sh
+swift run --package-path native VerifyVaultScope
+swift run --package-path native VerifyReader
+swift run --package-path native VerifyNavigation
+swift run --package-path native VerifyDesign
+swift run --package-path native VerifyReading
+swift run -c release --package-path native VerifyReading --calendar-benchmark
+swift run --package-path native VerifyTasks
+swift run --package-path native VerifyAgentRequests
+swift run --package-path native VerifyVoice
 ```
 
 Build the unsigned, non-sandboxed app bundle with `make native-app`. Override
@@ -34,4 +44,13 @@ Build the unsigned, non-sandboxed app bundle with `make native-app`. Override
 
 - swift-testing / XCTest は CLT に入っていないため、テストは `swift test`
   ではなく `swift run VerifyFixtures` で行う。フル Xcode があれば移行可。
+- `VerifyAgentRequests` checks request lifecycle, follow-up context and lost-response retries against a mocked gateway; it never dispatches to an agent.
+- `VerifyVaultScope` checks vault selection persistence and request/response identity with two mocked vaults sharing note IDs.
+- `VerifyReading --calendar-benchmark` compares the previous full-scan calendar aggregation with indexed lookups using mocked HTTP (3,598 notes, 8,672 activity days, 0/512 tasks, 42 cells). It checks equivalence before 5 warmups and 31 timed runs; this measures aggregation, not window-drag latency.
 - fixture (`Tools/VerifyFixtures/Fixtures/*.json`) は `track web` の実応答から採取。
+
+`VerifyVoice` exercises transcript edits and mocked journal saves without accessing the microphone.
+
+`VerifyFiguresMedia` checks scoped asset routing, annotation/source retention and HTML isolation.
+Add `--webview` on a desktop Mac to exercise local SVG rendering, chart callbacks and PDF page controls,
+and write `/private/tmp/native-figure-smoke.png`; no CDN or gateway is contacted.

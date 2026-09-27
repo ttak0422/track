@@ -8,7 +8,7 @@ import { graphCountCaption } from "./graphCaption";
 import { type PreviewAnchor, initialPreviewBounds } from "./preview/bounds";
 import { useFloating } from "./preview/floatingStore";
 import { pointerCanHover, previewOpenDelay } from "./preview/stack";
-import { IconRotate2, RailIcon } from "./icons";
+import { IconEye, IconEyeOff, IconRotate2, RailIcon } from "./icons";
 import { overviewGraph } from "./overviewGraph";
 
 interface Point {
@@ -29,6 +29,7 @@ export function GraphFullView() {
   const navigate = useNavigate();
   const floating = useFloating();
   const [resetToken, setResetToken] = useState(0);
+  const [showTitles, setShowTitles] = useState(true);
   // The whole vault is more than a picture can hold, so the view draws the link graph's connected
   // part up to a cap and says what it left out (overviewGraph).
   const overview = useMemo(
@@ -105,6 +106,7 @@ export function GraphFullView() {
         <GraphCanvas
           graph={graph}
           resetToken={resetToken}
+          showTitles={showTitles}
           onHover={onHover}
           onSelect={(noteID) => void navigate({ to: "/notes/$noteId", params: { noteId: String(noteID) } })}
         />
@@ -113,6 +115,15 @@ export function GraphFullView() {
         <p className="graph-scope">{graphCountCaption(nodeCount, overview.hidden)}</p>
       ) : null}
       <div className="graph-controls">
+        <button
+          className="graph-reset"
+          type="button"
+          aria-label={showTitles ? "Hide note titles" : "Show note titles"}
+          title={showTitles ? "Hide note titles" : "Show note titles"}
+          onClick={() => setShowTitles((visible) => !visible)}
+        >
+          <RailIcon Icon={showTitles ? IconEyeOff : IconEye} size={15} />
+        </button>
         <button
           className="graph-reset"
           type="button"

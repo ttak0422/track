@@ -52,13 +52,8 @@ type RunOptions struct {
 // Gate and configuration problems return an error; a process that runs but exits non-zero is a
 // RunResult with a "failed" status and the exit code, not an error.
 func (r *Runner) Run(b Block, opts RunOptions) (RunResult, error) {
-	switch firstValue(b.HeaderArgs, "eval") {
-	case "no", "never":
-		return RunResult{}, ErrEvalDisabled
-	case "query":
-		if !opts.Confirmed {
-			return RunResult{}, ErrConfirmRequired
-		}
+	if err := CheckEval(b, opts.Confirmed); err != nil {
+		return RunResult{}, err
 	}
 
 	ex, ok := r.languages[b.Language]
@@ -163,4 +158,18 @@ func writeTempScript(b Block) (string, func(), error) {
 		return "", func() {}, err
 	}
 	return name, cleanup, nil
+}
+
+// CheckEval applies the execution policy before either running or reusing a cached result.
+func CheckEval(b Block, confirmed bool) error {
+	switch firstValue(b.HeaderArgs, "eval") {
+	case "no", "never":
+		return ErrEvalDisabled
+	case "query":
+		if !confirmed {
+			return ErrConfirmRequired
+		}
+	}
+
+	return nil
 }

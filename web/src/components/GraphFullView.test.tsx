@@ -1,4 +1,4 @@
-import { act, fireEvent, render } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GraphFullView, graphPointAnchor } from "./GraphFullView";
 import { previewOpenDelay } from "./preview/stack";
@@ -26,11 +26,13 @@ vi.mock("./GraphCanvasLazy", () => ({
   GraphCanvas: ({
     onHover,
     onSelect,
+    showTitles,
   }: {
     onHover?: (id: string | null, p: { x: number; y: number }) => void;
     onSelect: (id: string) => void;
+    showTitles?: boolean;
   }) => (
-    <div>
+    <div data-show-titles={String(showTitles ?? true)}>
       <button type="button" onClick={() => onHover?.("a", { x: 10, y: 10 })}>
         hover-a
       </button>
@@ -150,5 +152,15 @@ describe("GraphFullView hover preview", () => {
     const { container } = render(<GraphFullView />);
     click(container, "select-a");
     expect(navigate).toHaveBeenCalledWith({ to: "/notes/$noteId", params: { noteId: "a" } });
+  });
+
+  it("toggles note titles from the whole-graph controls", () => {
+    const { container } = render(<GraphFullView />);
+    const canvas = container.querySelector("[data-show-titles]")!;
+    expect(canvas).toHaveAttribute("data-show-titles", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Hide note titles" }));
+    expect(canvas).toHaveAttribute("data-show-titles", "false");
+    expect(screen.getByRole("button", { name: "Show note titles" })).toBeInTheDocument();
   });
 });

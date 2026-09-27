@@ -36,8 +36,10 @@ const (
 	MetadataVersionV10 = 10
 	// MetadataVersionV11 adds the append-only agent execution log under exec_log.
 	MetadataVersionV11 = 11
+	// MetadataVersionV12 adds Babel input hashes and execution cache keys.
+	MetadataVersionV12 = 12
 	// MaxMetadataVersion is the newest schema this build can read and write.
-	MaxMetadataVersion = MetadataVersionV11
+	MaxMetadataVersion = MetadataVersionV12
 )
 
 func supportedVersion(v int) bool {
@@ -97,6 +99,12 @@ func WriteMetadata(path string, meta Metadata) error {
 	}
 	if len(meta.ExecLog) > 0 && meta.Version < MetadataVersionV11 {
 		meta.Version = MetadataVersionV11
+	}
+	for _, block := range meta.Blocks {
+		if (block.InputHash != "" || block.ExecutionKey != "") && meta.Version < MetadataVersionV12 {
+			meta.Version = MetadataVersionV12
+			break
+		}
 	}
 	if !supportedVersion(meta.Version) {
 		return fmt.Errorf("unsupported metadata version %d", meta.Version)

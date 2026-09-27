@@ -914,9 +914,8 @@ func TestBabelExecRunsAndStores(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The note also carries an activity day from creation, so its sidecar is at version 3 while still
-	// storing the babel block result.
-	if !strings.Contains(string(metaContent), "version: 3") || !strings.Contains(string(metaContent), "hi:") {
+	// Fresh Babel results carry validated input hashes and execution keys (sidecar version 12).
+	if !strings.Contains(string(metaContent), "version: 12") || !strings.Contains(string(metaContent), "hi:") {
 		t.Fatalf("sidecar should store the block result: %q", metaContent)
 	}
 
@@ -1113,7 +1112,7 @@ func TestBabelTangleWritesPlansAndRefusesEscapes(t *testing.T) {
 	}
 
 	// Dry run: plan only, nothing on disk.
-	out, code := runIn(t, vault, "babel", "tangle", "--id", "512", "--dry-run")
+	out, code := runIn(t, vault, "babel", "tangle", "--id", "512", "--out-dir", filepath.Join(vault, "note"), "--dry-run")
 	if code != 0 || out["dry_run"] != true {
 		t.Fatalf("tangle dry-run: %v", out)
 	}
@@ -1123,22 +1122,22 @@ func TestBabelTangleWritesPlansAndRefusesEscapes(t *testing.T) {
 	}
 	target := targets[0].(map[string]any)
 	if int(target["blocks"].(float64)) != 2 {
-		t.Fatalf("expected 2 contributing blocks, got %v", target)
+		t.Fatalf("expected 2 blocks including the overridden block, got %v", target)
 	}
 	outFile := filepath.Join(vault, "note", "scripts", "build.sh")
 	if _, err := os.Stat(outFile); !os.IsNotExist(err) {
 		t.Fatalf("dry-run must not write files: %v", err)
 	}
 
-	// Real run writes the concatenated file inside the vault.
-	if out, code = runIn(t, vault, "babel", "tangle", "--id", "512"); code != 0 {
+	// Real run writes only the last block inside the vault.
+	if out, code = runIn(t, vault, "babel", "tangle", "--id", "512", "--out-dir", filepath.Join(vault, "note")); code != 0 {
 		t.Fatalf("tangle: %v", out)
 	}
 	content, err := os.ReadFile(outFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(content) != "echo one\n\necho two\n" {
+	if string(content) != "echo two\n" {
 		t.Fatalf("tangled content: %q", content)
 	}
 
@@ -1147,8 +1146,8 @@ func TestBabelTangleWritesPlansAndRefusesEscapes(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(vault, "note", "512.md"), []byte(escape), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	out, code = runIn(t, vault, "babel", "tangle", "--id", "512")
-	if code != 1 || !strings.Contains(out["error"].(string), "outside the vault") {
+	out, code = runIn(t, vault, "babel", "tangle", "--id", "512", "--out-dir", filepath.Join(vault, "note"))
+	if code != 1 || !strings.Contains(out["error"].(string), "outside the output directory") {
 		t.Fatalf("expected escape refusal, got code=%d out=%v", code, out)
 	}
 }

@@ -43,3 +43,6 @@
 .voice-candidate:disabled, .voice-candidate:disabled:hover { background: transparent; color: var(--faint); cursor: not-allowed; }
 .voice-error { color: var(--danger); font-size: 13px; }
 @media (max-width: 540px) { .voice-view { padding: 28px 20px 96px; } .voice-console { margin-top: 28px; } }
+.voice-agent-actions { display: flex; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.voice-agent-actions button { color: var(--muted); border: 0; background: transparent; cursor: pointer; padding: 6px; }
+.voice-agent-actions button:hover { color: var(--text); background: var(--panel-soft); border-radius: var(--radius-sm); }

@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -1867,4 +1868,104 @@ func TestStopWeb(t *testing.T) {
 			t.Fatalf("pid file should be removed after stop, stat err = %v", err)
 		}
 	})
+}
+
+// A metadata dialog owns an editable-field snapshot. Reading milestones do not
+// invalidate it, but only one concurrent save may consume a changed snapshot.
+func TestNoteMetaSnapshotConflict(t *testing.T) {
+	server, cfg := putNoteSetup(t, 100, "Alpha", "Body.\n")
+	path := cfg.MetadataPath(100)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, append(raw, []byte("extension:\n  nested: [one, two]\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seed := getJSON(t, server.URL+"/api/note/meta?id=100")
+	etag, ok := seed["etag"].(string)
+	if !ok || etag == "" {
+		t.Fatalf("missing metadata revision: %v", seed)
+	}
+	meta, _, err := note.ReadMetadata(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.SeenAt = "2026-09-14T10:00:00Z"
+	if err := note.WriteMetadata(path, meta); err != nil {
+		t.Fatal(err)
+	}
+	if got := getJSON(t, server.URL+"/api/note/meta?id=100")["etag"]; got != etag {
+		t.Fatalf("reading milestone changed editable revision: %v", got)
+	}
+	type result struct {
+		status int
+		body   map[string]any
+		err    error
+	}
+	post := func(title string) result {
+		body, _ := json.Marshal(map[string]any{"title": title, "description": "saved", "etag": etag})
+		resp, err := http.Post(server.URL+"/api/note/meta?id=100", "application/json", bytes.NewReader(body))
+		if err != nil {
+			return result{err: err}
+		}
+		defer resp.Body.Close()
+		var decoded map[string]any
+		err = json.NewDecoder(resp.Body).Decode(&decoded)
+		return result{resp.StatusCode, decoded, err}
+	}
+	results := make(chan result, 2)
+	go func() { results <- post("Alpha one") }()
+	go func() { results <- post("Alpha two") }()
+	statuses := map[int]int{}
+	for range 2 {
+		res := <-results
+		if res.err != nil {
+			t.Fatal(res.err)
+		}
+		statuses[res.status]++
+		if res.status == http.StatusOK && (res.body["etag"] == etag || res.body["etag"] == "") {
+			t.Fatalf("save must return its new revision: %v", res.body)
+		}
+	}
+	if statuses[http.StatusOK] != 1 || statuses[http.StatusConflict] != 1 {
+		t.Fatalf("same-revision saves: %v", statuses)
+	}
+	meta, _, err = note.ReadMetadata(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.Description != "saved" || meta.SeenAt != "2026-09-14T10:00:00Z" || !reflect.DeepEqual(meta.Extra["extension"], map[string]any{"nested": []any{"one", "two"}}) {
+		t.Fatalf("save lost metadata: %+v", meta)
+	}
+	body, err := os.ReadFile(cfg.PathForKind(config.KindNote, 100))
+	if err != nil || string(body) != "Body.\n" {
+		t.Fatalf("metadata save changed body: %q, %v", body, err)
+	}
+}
+
+func TestNoteMetaRejectsJournalRenameBeforeEditing(t *testing.T) {
+	_, cfg := putNoteSetup(t, 20260914, "2026-09-14", "Journal.\n")
+	if err := os.MkdirAll(filepath.Dir(cfg.PathForKind(config.KindJournal, 20260914)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(cfg.NotePath(20260914), cfg.PathForKind(config.KindJournal, 20260914)); err != nil {
+		t.Fatal(err)
+	}
+	s, err := store.Open(filepath.Join(t.TempDir(), "journal.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.UpsertNote(&note.Note{ID: 20260914, Kind: config.KindJournal, Path: cfg.PathForKind(config.KindJournal, 20260914), Meta: note.Metadata{Title: "2026-09-14"}}); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(cfg.MetadataPath(20260914))
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/note/meta?id=20260914", strings.NewReader(`{"title":"Renamed", "description":"must not save"}`))
+	rec := httptest.NewRecorder()
+	New(cfg, s).Handler().ServeHTTP(rec, req)
+	after, _ := os.ReadFile(cfg.MetadataPath(20260914))
+	if rec.Code != http.StatusBadRequest || !bytes.Equal(before, after) {
+		t.Fatalf("rejected journal rename changed metadata: status %d, %s", rec.Code, rec.Body.String())
+	}
 }

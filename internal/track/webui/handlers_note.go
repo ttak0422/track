@@ -445,6 +445,8 @@ func (s *Server) handleNoteMeta(v *vaultView, w http.ResponseWriter, r *http.Req
 	}
 	switch r.Method {
 	case http.MethodGet, "":
+		v.reindexMu.Lock()
+		defer v.reindexMu.Unlock()
 		meta, _, err := note.ReadMetadata(v.cfg.MetadataPath(id))
 		if err != nil {
 			writeError(w, err, http.StatusInternalServerError)
@@ -453,6 +455,7 @@ func (s *Server) handleNoteMeta(v *vaultView, w http.ResponseWriter, r *http.Req
 		writeMetaFields(w, meta, ref.FileKind)
 	case http.MethodPost:
 		var req struct {
+			ETag        *string  `json:"etag"`
 			Title       string   `json:"title"`
 			Tags        []string `json:"tags"`
 			Description string   `json:"description"`
@@ -464,6 +467,26 @@ func (s *Server) handleNoteMeta(v *vaultView, w http.ResponseWriter, r *http.Req
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, fmt.Errorf("decode request: %w", err), http.StatusBadRequest)
 			return
+		}
+		// Serialize the snapshot check, edit and reindex with server writes.
+		// External CLI/cloud writers do not take this lock.
+		v.reindexMu.Lock()
+		defer v.reindexMu.Unlock()
+		if req.ETag != nil {
+			current, _, err := note.ReadMetadata(v.cfg.MetadataPath(id))
+			if err != nil {
+				writeError(w, err, http.StatusInternalServerError)
+				return
+			}
+			etag, err := metaFieldsETag(current)
+			if err != nil {
+				writeError(w, err, http.StatusInternalServerError)
+				return
+			}
+			if *req.ETag != etag {
+				writeError(w, errors.New("metadata changed since it was loaded; reload before saving"), http.StatusConflict)
+				return
+			}
 		}
 		props, err := note.ParsePropsText(req.Props)
 		if err != nil {
@@ -488,6 +511,17 @@ func (s *Server) handleNoteMeta(v *vaultView, w http.ResponseWriter, r *http.Req
 				return
 			} else if ok && other.NoteID != id {
 				writeError(w, fmt.Errorf("title %q already in use by note %d", newTitle, other.NoteID), http.StatusBadRequest)
+				return
+			}
+		}
+		if ref.FileKind == config.KindJournal && newTitle != "" {
+			current, _, err := note.ReadMetadata(v.cfg.MetadataPath(id))
+			if err != nil {
+				writeError(w, err, http.StatusInternalServerError)
+				return
+			}
+			if newTitle != current.Title {
+				writeError(w, errors.New("a journal title is derived from its date and cannot be renamed"), http.StatusBadRequest)
 				return
 			}
 		}
@@ -532,7 +566,13 @@ func writeMetaFields(w http.ResponseWriter, meta note.Metadata, kind string) {
 	if flags == nil {
 		flags = []string{}
 	}
+	etag, err := metaFieldsETag(meta)
+	if err != nil {
+		writeError(w, err, http.StatusInternalServerError)
+		return
+	}
 	writeJSON(w, map[string]any{
+		"etag":        etag,
 		"title":       meta.Title,
 		"kind":        kind,
 		"tags":        tags,
@@ -542,6 +582,16 @@ func writeMetaFields(w http.ResponseWriter, meta note.Metadata, kind string) {
 		"flags":       flags,
 		"props":       propsText,
 	})
+}
+
+// Hash only editable fields: reading milestones and activity can change while
+// a dialog is open and are preserved by ApplyMetaDocValue.
+func metaFieldsETag(meta note.Metadata) (string, error) {
+	doc, err := note.MetaDocYAML(meta)
+	if err != nil {
+		return "", err
+	}
+	return note.ContentETag([]byte(doc)), nil
 }
 
 // handleRender sanitizes a raw note body into the Markdown the frontend renders: track action links

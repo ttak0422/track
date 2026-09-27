@@ -72,7 +72,7 @@ values swapped; nothing else branches on theme.
 | `--panel-soft` | Sunk ground: code blocks, inputs, and quiet controls | `#f3f2ee` | `#212528` |
 | `--text` | Body ink | `#1a1a18` | `#e9e9e4` |
 | `--muted` | Secondary ink: chrome at rest, inline code, table cells | `#5e5d58` | `#a2a29b` |
-| `--faint` | Tertiary ink: meta, labels, and captions' sources | `#6f6e68` | `#8b8b83` |
+| `--faint` | Tertiary ink: meta, labels, and captions' sources | `#6f6e68` | `#8c8c84` |
 | `--line` | Hairline | `#e6e4de` | `#282c2f` |
 | `--line-strong` | Stated rule: link underlines, table headers, and scrollbar thumbs | `#c7c5bd` | `#3e4347` |
 | `--line-node` | Graph node outlines | `#8e8c84` | `#6e7478` |

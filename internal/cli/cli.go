@@ -20,7 +20,10 @@ func Run(args []string) int {
 	if !ok {
 		return 1
 	}
-	applyPathVault(args)
+	// File-based tangle does not consult machine or vault configuration.
+	if len(args) < 2 || args[0] != "babel" || args[1] != "tangle" {
+		applyPathVault(args)
+	}
 	if len(args) == 0 {
 		usage()
 		return 1
@@ -68,6 +71,10 @@ func Run(args []string) int {
 		return cmdTask(rest)
 	case "tasks":
 		return cmdTasks(rest)
+	case "cite":
+		return cmdCite(rest)
+	case "source":
+		return cmdSource(rest)
 	case "asset":
 		return cmdAsset(rest)
 	case "rename":
@@ -107,6 +114,8 @@ func Run(args []string) int {
 		return cmdVault(rest)
 	case "template":
 		return cmdTemplate(rest)
+	case "agent":
+		return cmdAgent(rest)
 	case "babel":
 		return cmdBabel(rest)
 	case "export":
@@ -192,6 +201,13 @@ Usage:
                                         that token, and passing neither flag is an error (JSON)
   track tasks [--id N | --title S | --path P] [--state A,B] [--due YYYY-MM-DD] [--overdue]
               [--sort priority]         list indexed tasks with state/deadline filters (JSON)
+  track cite --id N [--version SHA256] [--heading S | --block S | --page N | --start-line N --end-line N]
+                                        return exact evidence and its resolved position (JSON)
+  track source save --id N --source URI --format MIME --at RFC3339 [--original FILE]
+                                        freeze a source note and optional original file (JSON)
+  track source save --id N --input N:VERSION --method S --settings S --format MIME --at RFC3339 [--run S]
+                                        freeze a derived note with pinned inputs; retries reuse its version (JSON)
+  track source list --id N              list saved evidence versions, independently of generations (JSON)
   track asset import <file>             copy a file into the vault's assets/ dir; prints the assets/<file> ref (JSON)
   track asset dir [--ensure]            print (and optionally create) the vault's assets directory (JSON)
   track rename (--id N | --title S | --path P) --to S
@@ -261,26 +277,39 @@ Usage:
   track web [--addr 127.0.0.1:8765]      serve the local web workspace
   track web stop [--addr 127.0.0.1:8765]
                                         stop the web workspace on this addr (JSON)
+  track agent claim [--addr HOST:PORT] [--vault NAME] --request REQ --dispatch DISP
+                                        confirm an agent started executing a request through the
+                                        local web API; the Bearer token comes from the machine
+                                        config's entry for the request's agent (JSON)
+  track agent result [--addr HOST:PORT] [--vault NAME] --request REQ --dispatch DISP
+                                        submit the result JSON on stdin ({"answer_markdown":...,
+                                        "sources":[...]} for explain/research, {"proposed_body":...}
+                                        for update) (JSON)
+  track agent fail [--addr HOST:PORT] [--vault NAME] --request REQ --dispatch DISP [--reason R]
+                                        report a confirmed execution failure (JSON)
   track template new --name <s> [--id N]
                                         create a template (JSON)
   track template open --name <s>         open or create a template (JSON)
   track template list                    list templates (JSON)
   track babel exec (--id N | --path P) [--name S | --ordinal N | --line N] [--yes]
-                                        [--var k=v ...] [--body-stdin] [--timeout D]
+                                        [--var k=v ...] [--body-stdin] [--timeout D] [--dry-run]
                                         run a source block, selected by name, ordinal, or a line
                                         inside it; --var feeds the block's environment and a value
-                                        naming another block uses its stored result (JSON)
+                                        naming another block uses its current successful stored result;
+                                        --dry-run previews expanded source and inputs without running (JSON)
   track babel run --name S (--id N | --path P) [--var k=v ...]
                                         call a named block with parameters (same as exec)
-  track babel tangle (--id N | --path P) [--dry-run]
-                                        write blocks carrying :tangle <file> out to files inside the
-                                        vault; same-target blocks concatenate in note order (JSON)
-  track babel restore (--id N | --path P)
+  track babel tangle (--file P [--file P ...] | --path P | --id N) [--out-dir DIR] [--dry-run]
+                                        extract source into DIR or a new temporary directory;
+                                        file inputs need no config or DB; same-file targets use the last
+                                        block, cross-file collisions fail before writing (JSON)
+  track babel restore (--id N | --path P) [--body-stdin]
                                         list stored source block results (JSON)
   track export (--id N | --title S | --path P) [--out F] [--frontmatter] [--exports-default M]
                                         write a note out as Markdown (stdout, or JSON path with --out)
   track export-site (--all | --id N ...) [--root N] [--calendar] [--share]
-                                        [--base-url URL] --frontend <dist> --out <dir>
+                                        [--base-url URL] [--app NAME ...] [--apps-base-url URL]
+                                        --frontend <dist> --out <dir>
                                         publish vault notes as a static site (React frontend + JSON
                                         bundle); --all takes every note, --root defaults to the vault
                                         config's web.home (JSON)

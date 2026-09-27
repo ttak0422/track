@@ -4,7 +4,7 @@ import { useGraphQuery } from "../queries";
 import { useVaultScope } from "../vaultScope";
 import { GraphCanvas } from "./GraphCanvasLazy";
 import { graphCountCaption } from "./graphCaption";
-import { IconAffiliate, IconRotate2, IconX, RailIcon } from "./icons";
+import { IconAffiliate, IconEye, IconEyeOff, IconRotate2, IconX, RailIcon } from "./icons";
 import { overviewGraph } from "./overviewGraph";
 
 // The floating whole-vault graph, behind a corner launcher. It only mounts on views without a graph
@@ -33,6 +33,7 @@ const minHeight = 220;
 export function GraphPanel() {
   const [resetToken, setResetToken] = useState(0);
   const [visible, setVisible] = useState(false);
+  const [showTitles, setShowTitles] = useState(true);
   const [panelSize, setPanelSize] = useState<PanelSize>(() => ({
     width: Math.min(defaultWidth, window.innerWidth - 36),
     height: Math.min(defaultHeight, window.innerHeight - 112),
@@ -124,6 +125,7 @@ export function GraphPanel() {
         <GraphCanvas
           graph={graph}
           resetToken={resetToken}
+          showTitles={showTitles}
           onSelect={(noteID) =>
             void navigate({ to: "/notes/$noteId", params: { noteId: String(noteID) } })
           }
@@ -141,6 +143,15 @@ export function GraphPanel() {
           onClick={() => setResetToken((token) => token + 1)}
         >
           <RailIcon Icon={IconRotate2} size={15} />
+        </button>
+        <button
+          className="graph-reset"
+          type="button"
+          aria-label={showTitles ? "Hide note titles" : "Show note titles"}
+          title={showTitles ? "Hide note titles" : "Show note titles"}
+          onClick={() => setShowTitles((visible) => !visible)}
+        >
+          <RailIcon Icon={showTitles ? IconEyeOff : IconEye} size={15} />
         </button>
         <button
           className="graph-reset"

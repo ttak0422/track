@@ -40,3 +40,21 @@ generating language-specific assignment code, but track's executors are arbitrar
 - Typed variables (tables, lists) and automatic dependency execution remain deferred; the
   environment-string contract is documented in the spec and help.
 - A note can only ever write files inside its own vault, including through `..` targets.
+
+## Completion of the existing workflow (2026-09-22)
+
+Stored-result references, restore, and Markdown export now share an input-integrity check.
+An input hash covers language, parsed headers, expanded source, and resolved variables; cache reuse
+also includes the executor command/arguments and canonical working directory. These durable fields
+require sidecar v12. Legacy runs remain stored but require re-execution before reuse. Only successful
+runs can feed dependencies or satisfy `:cache yes`; execution policy is checked even on a cache hit.
+Ambient environment and external files are outside the opt-in cache contract.
+
+`exec/run --dry-run` previews expanded source and resolved inputs without executing or writing a result.
+Tangle checks all canonical destinations before writing, including metadata protection through symlinks
+and rejection of duplicate canonical targets. Filesystem write failures are not a multi-file transaction.
+
+The literate dotfiles example composes shell and Git configuration using these generic mechanisms.
+Web sharing currently publishes original source; it does not honor Babel result/export headers. Nix
+realization, machine selection, and installation/activation are separate integration concerns, not
+Babel execution or tangling policies.

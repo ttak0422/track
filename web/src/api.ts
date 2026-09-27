@@ -6,6 +6,8 @@ import { idParams, qualify, vaultParams } from "./vaultId";
 import type {
   ActivityResponse,
   AgendaResponse,
+  AgentRequest,
+  AgentsResponse,
   AssetUploadResponse,
   DateField,
   DeleteNoteResponse,
@@ -20,6 +22,7 @@ import type {
   NotesResponse,
   OgpResponse,
   RenderResponse,
+  RequestsResponse,
   ResolveResponse,
   SaveNoteMetaRequest,
   SaveNoteRequest,
@@ -45,6 +48,51 @@ export class APIError extends Error {
     super(message);
     this.name = "APIError";
   }
+}
+
+export function listAgents(): Promise<AgentsResponse> {
+  if (STATIC_MODE) return Promise.resolve({ agents: [] });
+  return api<AgentsResponse>("/api/agents");
+}
+
+export function listAgentRequests(vault = ""): Promise<RequestsResponse> {
+  if (STATIC_MODE) return Promise.resolve({ requests: [] });
+  return api<RequestsResponse>(`/api/requests${vaultParams(vault, "?")}`);
+}
+
+export function getAgentRequest(id: string, vault = ""): Promise<AgentRequest> {
+  return api<AgentRequest>(`/api/requests/${encodeURIComponent(id)}${vaultParams(vault, "?")}`);
+}
+
+export function createAgentRequest(
+  body: unknown,
+  vault = "",
+): Promise<{ request: AgentRequest; reused?: boolean }> {
+  if (STATIC_MODE) return readOnly();
+  return api(`/api/requests${vaultParams(vault, "?")}`, { method: "POST", body });
+}
+export function cancelAgentRequest(id: string, vault = ""): Promise<AgentRequest> {
+  return api<AgentRequest>(`/api/requests/${encodeURIComponent(id)}/cancel${vaultParams(vault, "?")}`, {
+    method: "POST",
+    body: {},
+  });
+}
+export function retryAgentRequest(id: string, vault = ""): Promise<AgentRequest> {
+  return api<AgentRequest>(`/api/requests/${encodeURIComponent(id)}/retry${vaultParams(vault, "?")}`, {
+    method: "POST",
+    body: {},
+  });
+}
+export function saveAgentRequest(
+  id: string,
+  body: { client_request_id: string; title: string; vault?: string },
+  vault = "",
+): Promise<AgentRequest> {
+  if (STATIC_MODE) return readOnly();
+  return api<AgentRequest>(`/api/requests/${encodeURIComponent(id)}/save${vaultParams(vault, "?")}`, {
+    method: "POST",
+    body,
+  });
 }
 
 export async function api<T>(path: string, options: APIOptions = {}): Promise<T> {

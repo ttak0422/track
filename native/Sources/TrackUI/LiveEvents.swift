@@ -19,9 +19,8 @@ public extension Notification.Name {
 // app uses to invalidate whatever data it is showing — the native analogue of
 // queryClient.invalidateQueries.
 //
-// A dropped or refused stream is retried after a delay (30 s by default): the
-// connection *is* the web's live channel, so the delay is the native stand-in
-// for the 30 s poll backstop the parity inventory keeps beside EventSource.
+// A dropped stream reconnects independently of the periodic refresh fallback.
+// A missed event must not leave a view stale until another file changes.
 // The stream is opened from a private ephemeral session so a stopped poller
 // never tears down the shared session other requests run on.
 
@@ -41,22 +40,29 @@ public final class LiveEventPoller {
     private let onChange: () async -> Void
     private let retryDelay: TimeInterval
     private var streamTask: Task<Void, Never>?
+    private var pollTask: Task<Void, Never>?
+    private var changeTask: Task<Void, Never>?
+    private let pollInterval: TimeInterval
+    private var refreshing = false
 
     /// - Parameters:
     ///   - baseURL: server origin (`http://127.0.0.1:<port>`); `/api/events`
     ///     is appended to it.
     ///   - onChange: called on the main actor for every `change`/`data` frame.
-    ///   - retryDelay: pause before reconnecting after a failure or an ended
-    ///     stream; 30 s by default (the poll backstop).
+    ///   - retryDelay: pause before reconnecting after a failure or an ended stream.
+    ///   - pollInterval: data refresh fallback, independent of SSE connectivity.
     public init(
         baseURL: URL,
         onChange: @escaping () async -> Void,
-        retryDelay: TimeInterval = 30
+        retryDelay: TimeInterval = 30,
+        pollInterval: TimeInterval = 30,
+        session: URLSession? = nil
     ) {
         self.baseURL = baseURL
-        self.session = Self.makeSession()
+        self.session = session ?? Self.makeSession()
         self.onChange = onChange
         self.retryDelay = retryDelay
+        self.pollInterval = pollInterval
     }
 
     /// Opens the stream (or does nothing if one is already running).
@@ -67,6 +73,14 @@ public final class LiveEventPoller {
         streamTask = Task { [weak self] in
             await self?.run()
         }
+        let interval = pollInterval
+        pollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(interval)) } catch { return }
+                guard let self, !Task.isCancelled else { return }
+                await self.refresh()
+            }
+        }
     }
 
     /// Closes the stream and stops reconnecting. Safe to call twice; start()
@@ -74,6 +88,30 @@ public final class LiveEventPoller {
     public func stop() {
         streamTask?.cancel()
         streamTask = nil
+        pollTask?.cancel()
+        pollTask = nil
+        changeTask?.cancel()
+        changeTask = nil
+        isConnected = false
+    }
+
+    /// Refresh on a timer or when the app becomes active without inventing a
+    /// user-visible "changed" notification. Only actual SSE events announce a change.
+    public func refresh() async {
+        guard !Task.isCancelled, !refreshing else { return }
+        refreshing = true
+        defer { refreshing = false }
+        await onChange()
+    }
+
+    private func scheduleChange(payload: String?) {
+        changeTask?.cancel()
+        changeTask = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(150)) } catch { return }
+            guard let self, !Task.isCancelled else { return }
+            self.recordChange(payload: payload)
+            await self.refresh()
+        }
     }
 
     // MARK: - Run loop
@@ -93,7 +131,9 @@ public final class LiveEventPoller {
         do {
             let (bytes, response) = try await session.bytes(for: request)
             guard (response as? HTTPURLResponse)?.statusCode == 200 else { return }
+            guard !Task.isCancelled else { return }
             isConnected = true
+            await refresh()
             defer { isConnected = false }
             var parser = SSEParser()
             for try await line in bytes.lines {
@@ -102,8 +142,7 @@ public final class LiveEventPoller {
                 // that closes it; nil means the line belongs to a frame that
                 // is still open (or a keep-alive comment).
                 if let event = parser.push(line), Self.isRefreshEvent(event) {
-                    recordChange(payload: parser.lastData)
-                    await onChange()
+                    scheduleChange(payload: parser.lastData)
                 }
             }
         } catch {
@@ -114,6 +153,7 @@ public final class LiveEventPoller {
 
     private func recordChange(payload: String?) {
         lastChangeAt = Date()
+        lastChangedNoteName = nil
         guard let payload, let data = payload.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { return }
