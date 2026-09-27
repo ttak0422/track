@@ -635,6 +635,9 @@ describe("MarkdownView", () => {
   it("renders Mermaid fences through the diagram component", () => {
     const { container } = render(<MarkdownView markdown={"```mermaid\ngraph TD\nA-->B\n```"} />);
     expect(container.querySelector(".mermaid-diagram")).toBeInTheDocument();
+    expect(container.querySelector(".mermaid-diagram")?.parentElement).toBe(
+      container.querySelector(".markdown-view"),
+    );
     expect(screen.queryByRole("button", { name: "Copy code" })).not.toBeInTheDocument();
   });
 
@@ -642,6 +645,9 @@ describe("MarkdownView", () => {
     const { container } = render(<MarkdownView markdown={"```dot\ndigraph { a -> b }\n```"} />);
     expect(container.querySelector(".graphviz-diagram")).toBeInTheDocument();
     await waitFor(() => expect(container.querySelector("svg")).toBeInTheDocument());
+    expect(container.querySelector(".graphviz-diagram")?.parentElement).toBe(
+      container.querySelector(".markdown-view"),
+    );
     expect(screen.getByRole("img", { name: "Graphviz diagram" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Copy code" })).not.toBeInTheDocument();
   });
@@ -649,6 +655,9 @@ describe("MarkdownView", () => {
   it("renders d2 fences through the D2 diagram component", async () => {
     const { container } = render(<MarkdownView markdown={"```d2\na -> b\n```"} />);
     await waitFor(() => expect(container.querySelector("svg")).toBeInTheDocument());
+    expect(container.querySelector(".mermaid-diagram")?.parentElement).toBe(
+      container.querySelector(".markdown-view"),
+    );
     expect(screen.getByRole("img", { name: "D2 diagram" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Copy code" })).not.toBeInTheDocument();
   });

@@ -41,15 +41,14 @@ export function GraphvizDiagram({ text }: GraphvizDiagramProps) {
   }, [text, visible]);
 
   return (
-    <div ref={ref}>
-      <DiagramFrame
-        state={state}
-        source={text}
-        sourceLang="dot"
-        label="Graphviz diagram"
-        className="graphviz-diagram"
-      />
-    </div>
+    <DiagramFrame
+      visibilityRef={ref}
+      state={state}
+      source={text}
+      sourceLang="dot"
+      label="Graphviz diagram"
+      className="graphviz-diagram"
+    />
   );
 }
 

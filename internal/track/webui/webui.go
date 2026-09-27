@@ -34,11 +34,16 @@ type Server struct {
 	// views caches the vaults this server opened, by the registry name that reaches them. The
 	// registry gives a vault exactly one name, so one entry is one vault. The workspace reads and
 	// writes across them, so a request names its vault and never inherits the active one by accident.
-	viewsMu  sync.Mutex
-	views    map[string]*vaultView
-	mux      *http.ServeMux
-	webRoot  fs.FS
-	colorCSS string
+	viewsMu sync.Mutex
+	views   map[string]*vaultView
+	// appsVaultDirs maps private path selectors on the static-only app origin to vault roots. The
+	// listener never opens an index or registers API handlers; each selector can only reach apps/.
+	appsVaultDirs map[string]string
+	appsPort      string
+	appsBindHost  string
+	mux           *http.ServeMux
+	webRoot       fs.FS
+	colorCSS      string
 	// bindHost is the non-loopback host the server was asked to listen on (empty for the default
 	// loopback bind); guard admits it alongside the loopback names.
 	bindHost string
@@ -105,10 +110,19 @@ func New(cfg *config.Config, s *store.Store) *Server {
 		cfg:           cfg,
 		store:         s,
 		views:         map[string]*vaultView{},
+		appsVaultDirs: map[string]string{"launch": cfg.VaultDir},
 		mux:           http.NewServeMux(),
 		webRoot:       embeddedWebRoot,
 		events:        newEventHub(),
 		dispatchQueue: make(chan dispatchJob, dispatchQueueSize),
+	}
+	for name, vaultDir := range cfg.Vaults {
+		if name != active.name {
+			if canonical, err := config.CanonicalPath(vaultDir); err == nil {
+				vaultDir = canonical
+			}
+			srv.appsVaultDirs["vault-"+name] = vaultDir
+		}
 	}
 	// A palette is a best-effort cosmetic override; a bad file must not take the workspace down, so we
 	// warn and fall back to the built-in colors rather than failing to start.
@@ -123,7 +137,15 @@ func New(cfg *config.Config, s *store.Store) *Server {
 }
 
 func (s *Server) Handler() http.Handler {
-	return s.guard(s.mux)
+	return s.guard(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// ServeMux canonicalizes dot segments before routing. The app route has its own strict path
+		// parser so traversal attempts are rejected rather than redirected into the workspace SPA/API.
+		if r.URL.Path == "/apps" || strings.HasPrefix(r.URL.Path, "/apps/") {
+			s.handleAppLaunch(w, r)
+			return
+		}
+		s.mux.ServeHTTP(w, r)
+	}))
 }
 
 // requestLoopbackOnly keeps the request gateway local even when the workspace itself is deliberately
@@ -234,11 +256,12 @@ func latestDispatchID(r request.Request) string {
 	return r.Attempts[len(r.Attempts)-1].ID
 }
 
-// guard rejects the requests a browser could aim at this local server from a foreign page: any Host
-// that is not this server (DNS rebinding would otherwise expose every read API), and mutating
-// requests bearing a foreign Origin (CSRF against the write APIs — a cross-site fetch POST is a
-// "simple request", so no preflight protects them). Non-browser clients (curl, the Neovim plugin)
-// send no Origin header and are unaffected.
+// guard rejects requests a browser could aim at this local server from a foreign page: any Host that
+// is not this server (DNS rebinding would otherwise expose every read API), and any foreign Origin on
+// every method. Fetch Metadata and Referer backstop browser API requests that omit Origin. Checking
+// reads and GET websocket upgrades as well as writes keeps the separate static app origin from using
+// the workspace API. Non-browser clients (curl, the Neovim plugin) send none of these headers and are
+// unaffected.
 // ponytail: a non-loopback --addr allowlists that exact bind host only; binding 0.0.0.0 still
 // admits loopback names alone — make the allowlist configurable if remote use ever matters.
 func (s *Server) guard(next http.Handler) http.Handler {
@@ -252,11 +275,24 @@ func (s *Server) guard(next http.Handler) http.Handler {
 			writeError(w, fmt.Errorf("host %q not served", r.Host), http.StatusForbidden)
 			return
 		}
-		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
-			if o := r.Header.Get("Origin"); o != "" {
-				u, err := url.Parse(o)
+		if o := r.Header.Get("Origin"); o != "" {
+			u, err := url.Parse(o)
+			if err != nil || u.Host != r.Host {
+				writeError(w, fmt.Errorf("cross-origin request from %q refused", o), http.StatusForbidden)
+				return
+			}
+		}
+		if isAPIPath(r.URL.Path) {
+			if site := r.Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" {
+				writeError(w, fmt.Errorf("cross-origin API fetch site %q refused", site), http.StatusForbidden)
+				return
+			}
+		}
+		if isAPIPath(r.URL.Path) && r.Header.Get("Origin") == "" {
+			if ref := r.Header.Get("Referer"); ref != "" {
+				u, err := url.Parse(ref)
 				if err != nil || u.Host != r.Host {
-					writeError(w, fmt.Errorf("cross-origin write from %q refused", o), http.StatusForbidden)
+					writeError(w, fmt.Errorf("cross-origin API request from %q refused", ref), http.StatusForbidden)
 					return
 				}
 			}
@@ -268,11 +304,49 @@ func (s *Server) guard(next http.Handler) http.Handler {
 func Serve(cfg *config.Config, st *store.Store, addr string) error {
 	srv := New(cfg, st)
 	defer srv.closeViews()
-	if h, _, err := net.SplitHostPort(addr); err == nil {
-		srv.bindHost = h
+	mainListener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
 	}
+	workspaceHost, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		mainListener.Close()
+		return err
+	}
+	appListener, appHost, appPort, err := listenStaticApps(addr, mainListener)
+	if err != nil {
+		mainListener.Close()
+		return err
+	}
+	srv.bindHost = workspaceHost
+	srv.appsBindHost = appHost
+	srv.appsPort = appPort
 	srv.startWatch()
-	return http.ListenAndServe(addr, srv.Handler())
+	return serveListeners(mainListener, appListener, srv)
+}
+
+func serveListeners(mainListener, appListener net.Listener, srv *Server) error {
+	mainServer := &http.Server{Handler: srv.Handler()}
+	appsServer := &http.Server{Handler: srv.staticAppsHandler()}
+	errs := make(chan error, 2)
+	go func() { errs <- mainServer.Serve(mainListener) }()
+	go func() { errs <- appsServer.Serve(appListener) }()
+
+	first := <-errs
+	_ = mainServer.Close()
+	_ = appsServer.Close()
+	second := <-errs
+	if first != nil && first != http.ErrServerClosed {
+		return first
+	}
+	if second != nil && second != http.ErrServerClosed {
+		return second
+	}
+	return nil
+}
+
+func isAPIPath(path string) bool {
+	return path == "/api" || strings.HasPrefix(path, "/api/")
 }
 
 // stopGrace and stopPoll bound `track web stop`'s wait for a graceful exit before it escalates to

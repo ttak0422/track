@@ -174,6 +174,9 @@ type jsonSite struct {
 	// BaseURL is the site's absolute origin (export-site --base-url, no trailing slash). The
 	// prerender needs it for og:image / og:url, which must be absolute; empty omits those tags.
 	BaseURL string `json:"base_url,omitempty"`
+	// AppsBaseURL is an optional external origin/path prefix before /apps/<name>/. Empty means the
+	// app links use the site's own static base path.
+	AppsBaseURL string `json:"apps_base_url,omitempty"`
 	// Share opts the static note reader into showing its X and copy-link actions. It is deliberately
 	// opt-in because the track documentation site does not need publishing controls.
 	Share bool `json:"share,omitempty"`
@@ -187,7 +190,7 @@ type jsonSite struct {
 // is the static-mode Vite build (index.html + assets/...). root is the entry note's id. saved supplies
 // the named queries a ```track-query fence may reference (nil on a directory site, which has no config).
 // iconSrc is the resolved site-icon file to publish as icon.<ext> at the site root ("" = none).
-func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, baseURL, iconSrc string, saved map[string]string, frontendDir, outDir string) (Result, error) {
+func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, baseURL, appsBaseURL, vaultDir string, apps []string, iconSrc string, saved map[string]string, frontendDir, outDir string) (Result, error) {
 	if len(docs) == 0 {
 		return Result{}, fmt.Errorf("no notes to publish")
 	}
@@ -482,11 +485,12 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 
 	// site.json: the entry note and site-level toggles.
 	siteMeta := jsonSite{
-		Root:     slugOf(docPtr(byID, root)),
-		Title:    rootTitle,
-		Calendar: calendar,
-		Share:    share,
-		BaseURL:  strings.TrimRight(baseURL, "/"),
+		Root:        slugOf(docPtr(byID, root)),
+		Title:       rootTitle,
+		Calendar:    calendar,
+		Share:       share,
+		BaseURL:     strings.TrimRight(baseURL, "/"),
+		AppsBaseURL: strings.TrimRight(appsBaseURL, "/"),
 	}
 	if iconSrc != "" {
 		// Published under a fixed name so the source file name never leaks; the extension carries the
@@ -508,6 +512,11 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 	if err := copyTree(frontendDir, outDir); err != nil {
 		return Result{}, fmt.Errorf("copy frontend: %w", err)
 	}
+	// Apps occupy a stable, unhashed /apps/<name>/ path. Clear this reserved output tree first so a
+	// rebuild with a shorter allowlist cannot leave a previously published app behind.
+	if err := publishApps(vaultDir, outDir, apps); err != nil {
+		return Result{}, fmt.Errorf("publish apps: %w", err)
+	}
 	// The site icon lands after copyTree so a stray icon.* in the frontend build can never clobber it.
 	if iconSrc != "" {
 		if err := copyFile(iconSrc, filepath.Join(outDir, siteMeta.Icon)); err != nil {
@@ -527,7 +536,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 	}
 
 	// Copy referenced note assets.
-	res := Result{OutDir: outDir}
+	res := Result{OutDir: outDir, Apps: append([]string(nil), apps...)}
 	for _, d := range docs {
 		res.Notes = append(res.Notes, d.id)
 	}

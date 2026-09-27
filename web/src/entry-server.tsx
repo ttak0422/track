@@ -28,7 +28,10 @@ export async function renderPage(routePath: string): Promise<RenderedPage> {
 
   await prefetchForRoute(queryClient, routePath);
 
-  const history = createMemoryHistory({ initialEntries: [routePath] });
+  // Callers use site-relative routes for prefetching, output files and OGP. History instead needs
+  // the deployed URL the browser sees, because createAppRouter strips the build-time basepath.
+  const pathname = import.meta.env.BASE_URL.replace(/\/$/, "") + routePath;
+  const history = createMemoryHistory({ initialEntries: [pathname] });
   const router = createAppRouter(history, { isServer: true });
   await router.load();
 

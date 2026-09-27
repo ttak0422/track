@@ -1,5 +1,13 @@
 import type { MermaidConfig } from "mermaid";
-import { type PointerEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  type PointerEvent,
+  type Ref,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useThemeVersion } from "../../hooks/useThemeVersion";
 import { useVisible } from "../../hooks/useVisible";
 import { CodeBlock } from "./CodeBlock";
@@ -63,9 +71,13 @@ export function MermaidDiagram({ text }: MermaidDiagramProps) {
   }, [text, themeVersion, visible]);
 
   return (
-    <div ref={ref}>
-      <DiagramFrame state={state} source={text} sourceLang="mermaid" label="Mermaid diagram" />
-    </div>
+    <DiagramFrame
+      visibilityRef={ref}
+      state={state}
+      source={text}
+      sourceLang="mermaid"
+      label="Mermaid diagram"
+    />
   );
 }
 
@@ -74,6 +86,8 @@ interface DiagramFrameProps {
   // The block's source text, for the copy button and the error fallback code block.
   source: string;
   sourceLang: string;
+  // Observe the rendered frame itself so Markdown's full-width rules apply to this block.
+  visibilityRef?: Ref<HTMLDivElement>;
   // Accessible name of the rendered visualization, e.g. "Mermaid diagram".
   label: string;
   // Extra class on the root, so engine-specific CSS (e.g. Graphviz dark-mode inversion) can hook in.
@@ -82,7 +96,14 @@ interface DiagramFrameProps {
 
 // DiagramFrame is the presentation shell shared by the diagram engines: loading placeholder, error
 // fallback (message + source), and the fitted pan/zoom viewport with fold/copy/zoom controls.
-export function DiagramFrame({ state, source, sourceLang, label, className }: DiagramFrameProps) {
+export function DiagramFrame({
+  state,
+  source,
+  sourceLang,
+  label,
+  className,
+  visibilityRef,
+}: DiagramFrameProps) {
   const svg = state.status === "ready" ? state.svg : null;
   const panZoom = usePanZoom(svg, { persistenceKey: diagramStorageKey(sourceLang, source) });
   const [enlarged, setEnlarged] = useState(false);
@@ -104,7 +125,7 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
 
   if (state.status === "error") {
     return (
-      <div className={`${rootClass} mermaid-diagram-error`}>
+      <div ref={visibilityRef} className={`${rootClass} mermaid-diagram-error`}>
         <p>{state.message}</p>
         <CodeBlock lang={sourceLang} text={source} />
       </div>
@@ -112,7 +133,11 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
   }
 
   if (state.status === "loading") {
-    return <div className={`${rootClass} mermaid-diagram-loading`}>Rendering diagram...</div>;
+    return (
+      <div ref={visibilityRef} className={`${rootClass} mermaid-diagram-loading`}>
+        Rendering diagram...
+      </div>
+    );
   }
 
   const {
@@ -130,7 +155,7 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
   } = panZoom;
   const showPopupControl = !collapsed && (showFoldControl || overflow.left || overflow.right);
   return (
-    <div className={rootClass} data-collapsed={collapsed || undefined}>
+    <div ref={visibilityRef} className={rootClass} data-collapsed={collapsed || undefined}>
       {/* Every control the diagram has, in one strip above the drawing. They used to float over the
           two top corners, where they landed on whatever the diagram put there — a node's label, most
           of the time — and a chip a reader has to look past is worse than one they have to look for.

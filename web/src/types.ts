@@ -431,6 +431,8 @@ export interface SiteResponse {
   title: string;
   calendar?: boolean;
   base_url?: string;
+  // Optional absolute prefix before the stable /apps/<name>/ route; absent means the site base path.
+  apps_base_url?: string;
   share?: boolean;
   // Published site icon file name at the site root ("icon.<ext>", from config web.icon); replaces
   // the built-in brand mark.

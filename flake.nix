@@ -16,7 +16,6 @@
       systems = [
         "x86_64-linux"
         "aarch64-linux"
-        "x86_64-darwin"
         "aarch64-darwin"
       ];
       perSystem =
@@ -58,7 +57,7 @@
               root = ./web;
               fileset = webFiles;
             };
-            npmDepsHash = "sha256-QDnH5JDJ0zOs1oU/vnfuSEaV81kK0EZ6QeRwF2leKIE=";
+            npmDepsHash = "sha256-YArL1GYqYvAYc5FGr9/lNjfRudipss5gnOGsVeHCzlo=";
             installPhase = ''
               runHook preInstall
               cp -r dist $out

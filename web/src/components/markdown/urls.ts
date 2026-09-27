@@ -23,6 +23,66 @@ export function noteCandidateFromHref(href: string): string {
   }
 }
 
+export interface AppHrefOptions {
+  vault?: string;
+  staticMode?: boolean;
+  baseURL?: string;
+  appsBaseURL?: string;
+}
+
+// appHref recognizes the reserved /apps/<name>/ URL form and its note-relative spelling apps/<name>/.
+// Live links pass the note's vault through a private launch parameter; the launch handler removes it
+// before redirecting to the app origin. Static sites use their Vite base path or the configured external
+// apps base URL, never the note's current route as the resolution base.
+export function appHref(href: string, options: AppHrefOptions = {}): string | null {
+  const reference = appReference(href);
+  if (!reference) return null;
+  const { name, suffix, query, hash } = reference;
+  if (options.staticMode ?? STATIC_MODE) {
+    const base = options.appsBaseURL?.trim()
+      ? `${options.appsBaseURL.replace(/\/+$/, "")}/apps/`
+      : `${(options.baseURL ?? import.meta.env.BASE_URL).replace(/\/*$/, "/")}apps/`;
+    return `${base}${name}/${suffix}${query}${hash}`;
+  }
+  const params = new URLSearchParams(query.startsWith("?") ? query.slice(1) : query);
+  if (options.vault) params.append("__track_vault", options.vault);
+  const encodedQuery = params.toString();
+  return `/apps/${name}/${suffix}${encodedQuery ? `?${encodedQuery}` : ""}${hash}`;
+}
+
+function appReference(href: string): { name: string; suffix: string; query: string; hash: string } | null {
+  const trimmed = href.trim();
+  if (trimmed === "" || /^[a-z][a-z0-9+.-]*:/i.test(trimmed) || trimmed.startsWith("//")) return null;
+  const hashAt = trimmed.indexOf("#");
+  const hash = hashAt >= 0 ? trimmed.slice(hashAt) : "";
+  const beforeHash = hashAt >= 0 ? trimmed.slice(0, hashAt) : trimmed;
+  const queryAt = beforeHash.indexOf("?");
+  const query = queryAt >= 0 ? beforeHash.slice(queryAt) : "";
+  let path = queryAt >= 0 ? beforeHash.slice(0, queryAt) : beforeHash;
+  if (path.startsWith("./")) path = path.slice(2);
+  else if (path.startsWith("/")) path = path.slice(1);
+  if (!path.startsWith("apps/")) return null;
+
+  const parts = path.split("/");
+  const name = parts[1] ?? "";
+  if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(name)) return null;
+  const suffixParts = parts.slice(2);
+  const trailing = suffixParts.at(-1) === "";
+  if (trailing) suffixParts.pop();
+  if (suffixParts.some((part) => part === "" || part === "." || part === "..")) return null;
+  for (const part of suffixParts) {
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(part);
+    } catch {
+      return null;
+    }
+    if (decoded === "." || decoded === ".." || /[\\/\u0000]/.test(decoded)) return null;
+  }
+  const suffix = suffixParts.length > 0 ? `${suffixParts.join("/")}${trailing ? "/" : ""}` : "";
+  return { name, suffix, query, hash };
+}
+
 // webHref upgrades a bare domain ("www.x.com", "example.com/path") to an https URL, leaving anything that
 // already has a scheme (or is not domain-like) untouched.
 export function webHref(href: string): string {

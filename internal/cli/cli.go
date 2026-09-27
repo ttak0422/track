@@ -308,7 +308,8 @@ Usage:
   track export (--id N | --title S | --path P) [--out F] [--frontmatter] [--exports-default M]
                                         write a note out as Markdown (stdout, or JSON path with --out)
   track export-site (--all | --id N ...) [--root N] [--calendar] [--share]
-                                        [--base-url URL] --frontend <dist> --out <dir>
+                                        [--base-url URL] [--app NAME ...] [--apps-base-url URL]
+                                        --frontend <dist> --out <dir>
                                         publish vault notes as a static site (React frontend + JSON
                                         bundle); --all takes every note, --root defaults to the vault
                                         config's web.home (JSON)
