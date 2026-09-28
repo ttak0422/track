@@ -9,36 +9,33 @@ Spec: `docs/spec/native-macos.md`.
 - `Sources/TrackUI` — 検索・閲覧・タスクの SwiftUI。
 - `Tools/VerifyFixtures` — fixture decode 検証の実行ファイル。
 
-## Build / verify (CLT-only Mac)
+## Build / verify
 
-このリポジトリは nix flake が `SDKROOT` / `DEVELOPER_DIR` を nix の
-apple-sdk に固定する (`.envrc: use flake`)。nix の SDK は Swift 5.10 用で
-手元の Swift 6.3 と合わないため、swift コマンドだけ nix の指定を外す。
-リポジトリ側の変更は不要。
+`Package.swift` の `.macOS(.v15)` は最低デプロイ対象 OS であり、ビルドに使う SDK の
+バージョン指定ではない。ビルド補助スクリプトは `xcode-select -p` で選ばれた Apple
+Developer Directory から `/usr/bin/xcrun` 経由で Swift コンパイラと macOS SDK を組にして
+選ぶ。Nix などが設定した汎用 `DEVELOPER_DIR` / `SDKROOT` は使わない。
 
 ```sh
-export DEVELOPER_DIR=/Library/Developer/CommandLineTools
-export SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk
-export CLANG_MODULE_CACHE_PATH="$PWD/native/.build/clang-module-cache"
-swift build --package-path native
-swift run --package-path native VerifyFixtures
+make native-verify
 scripts/check-native-live-events.sh
-swift run --package-path native VerifyVaultScope
-swift run --package-path native VerifyReader
-swift run --package-path native VerifyNavigation
-swift run --package-path native VerifyDesign
-swift run --package-path native VerifyReading
-swift run -c release --package-path native VerifyReading --calendar-benchmark
-swift run --package-path native VerifyTasks
-swift run --package-path native VerifyAgentRequests
-swift run --package-path native VerifyVoice
+sh scripts/apple-toolchain.sh native swift run --package-path native VerifyVaultScope
+sh scripts/apple-toolchain.sh native swift run --package-path native VerifyReader
+sh scripts/apple-toolchain.sh native swift run --package-path native VerifyNavigation
+sh scripts/apple-toolchain.sh native swift run --package-path native VerifyDesign
+sh scripts/apple-toolchain.sh native swift run --package-path native VerifyReading
+sh scripts/apple-toolchain.sh native swift run -c release --package-path native VerifyReading --calendar-benchmark
+sh scripts/apple-toolchain.sh native swift run --package-path native VerifyTasks
+sh scripts/apple-toolchain.sh native swift run --package-path native VerifyAgentRequests
+sh scripts/apple-toolchain.sh native swift run --package-path native VerifyVoice
 ```
 
 Build the unsigned, non-sandboxed app bundle with `make native-app`. Override
-`NATIVE_SDKROOT` when the installed Command Line Tools use another SDK path.
+`NATIVE_DEVELOPER_DIR` and/or `NATIVE_SDKROOT` for another installed Apple toolchain or SDK. The
+desktop app uses the same discovery, with `DESKTOP_DEVELOPER_DIR` and `DESKTOP_SDKROOT` overrides.
 
-恒久的に切り替える場合は `sudo xcode-select --switch
-/Library/Developer/CommandLineTools` (要管理者権限)。
+If no compatible Apple toolchain is selected or installed, the helper reports how to install/select
+one or how to provide explicit overrides.
 
 ## Notes
 

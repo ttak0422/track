@@ -110,8 +110,8 @@ web/node_modules: web/package-lock.json
 	@touch web/node_modules
 
 NATIVE_APP ?= build/Track.app
-NATIVE_DEVELOPER_DIR ?= /Library/Developer/CommandLineTools
-NATIVE_SDKROOT ?= /Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk
+NATIVE_DEVELOPER_DIR ?=
+NATIVE_SDKROOT ?=
 NATIVE_MODULE_CACHE ?= $(CURDIR)/native/.build/clang-module-cache
 NATIVE_SWIFT_PRODUCT ?= TrackApp
 
@@ -127,18 +127,20 @@ native-app: native-verify ## Build the unsigned, non-sandboxed macOS app bundle
 		test -x "$(NATIVE_APP)/Contents/Helpers/track"
 
 native-verify: ## Build the SwiftPM app target and fixture verifier with the system macOS toolchain
-	env DEVELOPER_DIR="$(NATIVE_DEVELOPER_DIR)" SDKROOT="$(NATIVE_SDKROOT)" CLANG_MODULE_CACHE_PATH="$(NATIVE_MODULE_CACHE)" swift build --package-path native -c release --product $(NATIVE_SWIFT_PRODUCT)
-	env DEVELOPER_DIR="$(NATIVE_DEVELOPER_DIR)" SDKROOT="$(NATIVE_SDKROOT)" CLANG_MODULE_CACHE_PATH="$(NATIVE_MODULE_CACHE)" swift run --package-path native VerifyFixtures
+	NATIVE_DEVELOPER_DIR="$(NATIVE_DEVELOPER_DIR)" NATIVE_SDKROOT="$(NATIVE_SDKROOT)" CLANG_MODULE_CACHE_PATH="$(NATIVE_MODULE_CACHE)" sh scripts/apple-toolchain.sh native swift build --package-path native -c release --product $(NATIVE_SWIFT_PRODUCT)
+	NATIVE_DEVELOPER_DIR="$(NATIVE_DEVELOPER_DIR)" NATIVE_SDKROOT="$(NATIVE_SDKROOT)" CLANG_MODULE_CACHE_PATH="$(NATIVE_MODULE_CACHE)" sh scripts/apple-toolchain.sh native swift run --package-path native VerifyFixtures
 
 .PHONY: desktop-app desktop-verify desktop-smoke desktop-recovery-smoke desktop-termination-test
 
 DESKTOP_APP ?= build/desktop/Track.app
+DESKTOP_DEVELOPER_DIR ?=
+DESKTOP_SDKROOT ?=
 
 desktop-app: ## Build the independent unsigned Track.app bundle
-	DESKTOP_APP="$(DESKTOP_APP)" sh scripts/desktop-build.sh
+	DESKTOP_APP="$(DESKTOP_APP)" DESKTOP_DEVELOPER_DIR="$(DESKTOP_DEVELOPER_DIR)" DESKTOP_SDKROOT="$(DESKTOP_SDKROOT)" sh scripts/desktop-build.sh
 
 desktop-verify: desktop-app ## Build Track and run Swift + Go regression tests
-	sh scripts/desktop-verify.sh
+	DESKTOP_DEVELOPER_DIR="$(DESKTOP_DEVELOPER_DIR)" DESKTOP_SDKROOT="$(DESKTOP_SDKROOT)" sh scripts/desktop-verify.sh
 	python3 scripts/desktop-shutdown-test.py "$(DESKTOP_APP)/Contents/MacOS/Track"
 
 desktop-smoke: desktop-app ## Exercise the bundled app in WKWebView with an isolated temporary vault

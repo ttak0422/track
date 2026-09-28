@@ -10,18 +10,7 @@ if [ "$(uname -s)" != "Darwin" ]; then
 	exit 1
 fi
 
-DEVELOPER_DIR=${DESKTOP_DEVELOPER_DIR:-/Library/Developer/CommandLineTools}
-SDKROOT=${DESKTOP_SDKROOT:-/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk}
-if [ ! -d "$DEVELOPER_DIR" ]; then
-	printf 'Developer directory does not exist: %s\n' "$DEVELOPER_DIR" >&2
-	exit 1
-fi
-if [ ! -d "$SDKROOT" ]; then
-	printf 'macOS SDK does not exist: %s\n' "$SDKROOT" >&2
-	exit 1
-fi
-
-for tool in go swift npm node python3; do
+for tool in go npm node python3; do
 	if ! command -v "$tool" >/dev/null 2>&1; then
 		printf 'required tool is not on PATH: %s\n' "$tool" >&2
 		exit 1
@@ -58,8 +47,8 @@ mkdir -p "$ROOT/build"
 
 python3 "$SCRIPT_DIR/desktop-embed-overlay.py" "$ROOT" "$FRONTEND_DIST" "$OVERLAY"
 
-env DEVELOPER_DIR="$DEVELOPER_DIR" SDKROOT="$SDKROOT" CLANG_MODULE_CACHE_PATH="$MODULE_CACHE" \
-	swift build --package-path "$ROOT/desktop" -c release --product TrackWeb
+CLANG_MODULE_CACHE_PATH="$MODULE_CACHE" sh "$SCRIPT_DIR/apple-toolchain.sh" desktop swift \
+	build --package-path "$ROOT/desktop" -c release --product TrackWeb
 
 rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources"
