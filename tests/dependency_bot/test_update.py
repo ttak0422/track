@@ -270,5 +270,16 @@ class ProtectionTests(unittest.TestCase):
         self.assertTrue(all(len(call.args) == 1 for call in api.call_args_list))
 
 
+class WorkflowSecurityTests(unittest.TestCase):
+    def test_pr_validation_cannot_upload_to_cachix(self):
+        root = Path(__file__).parents[2]
+        for name in ('ci.yml', 'lighthouse.yml'):
+            source = (root / '.github/workflows' / name).read_text()
+            tokens = [line.strip() for line in source.splitlines() if 'authToken:' in line]
+            self.assertEqual(tokens, ["authToken: ${{ github.event_name != 'pull_request' && secrets.CACHIX_AUTH_TOKEN || '' }}"])
+        source = (root / '.github/workflows/lighthouse.yml').read_text()
+        self.assertIn('permissions:\n  contents: read\n', source)
+
+
 if __name__ == '__main__':
     unittest.main()

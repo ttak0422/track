@@ -34,6 +34,12 @@ rechecks the PR state and base immediately before updating; a concurrent diverge
 head is rejected by GitHub. Checkout never persists credentials. No artifact from
 an untrusted workflow is consumed.
 
+PR validation must also remain unprivileged after the helper writes a commit:
+the CI and Lighthouse workflows never receive the Cachix upload token on
+`pull_request`, regardless of the triggering actor. Lighthouse explicitly uses
+`contents: read`. The existing preview author guard skips Dependabot PRs. These
+restrictions preserve the trust boundary after a human approves or reruns CI.
+
 ## Loop prevention and recovery
 
 This helper listens only to completion of **CI**, not to itself. It writes only
