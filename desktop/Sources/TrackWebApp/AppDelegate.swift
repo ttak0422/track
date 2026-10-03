@@ -315,6 +315,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             defer: false
         )
         window.title = "Track"
+        WorkspaceWindowChrome.apply(to: window)
         window.minSize = NSSize(width: 680, height: 480)
         window.isReleasedWhenClosed = false
         window.contentView = root
@@ -647,6 +648,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         viewItem.submenu = viewMenu
         menu.addItem(viewItem)
 
+        WorkspaceWindowChrome.installWindowMenu(in: menu, application: application)
         application.mainMenu = menu
     }
 
