@@ -1,5 +1,10 @@
 # Web / Native 互換対応リスト
 
+> Historical record: the SwiftUI shell is retired. This document describes the former implementation;
+> its commands and acceptance status are not current WKWebView verification. See the
+> [current desktop shell](../../desktop/README.md) and
+> [pre-retirement source](https://github.com/ttak0422/track/tree/52b8380d125d688b7e468a2f7d537808144cc77c/native).
+
 更新日: 2026-09-15。比較基準: `origin/main` の `e24c235`。
 対象はライブ版 `track web` と macOS Native。基本機能・データの意味・操作結果を互換にし、見た目と操作性を Web と同等以上にする。
 本書は現在の残対応表であり、以前の MVP 時点の未実装一覧を置き換える。
@@ -102,6 +107,6 @@ C01–31 は従来の追跡番号として維持する。実行時は下の UI/F
 
 本更新はソース照合と既存画像の確認であり、全アプリの再撮影・全テストの再実行ではない。
 完了時は対象ID、実装commit、比較入力、操作結果、対になる画像、残る制限を証跡へ追加し、本表の該当行を更新する。
-ビルド/モデルテスト成功を視覚・操作合格の代わりにしない。手順は [Native README](../../native/README.md)。
+ビルド/モデルテスト成功を視覚・操作合格の代わりにしない。手順は [Native README](https://github.com/ttak0422/track/blob/52b8380d125d688b7e468a2f7d537808144cc77c/native/README.md)。
 
 参照仕様: [Web](web.md)、[Native](native-macos.md)、[Design](design.md)。

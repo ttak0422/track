@@ -1,5 +1,10 @@
 # Calendar集計とウィンドウ移動の性能
 
+> Historical record: the SwiftUI shell is retired. This document describes the former implementation;
+> its commands and acceptance status are not current WKWebView verification. See the
+> [current desktop shell](../../../desktop/README.md) and
+> [pre-retirement source](https://github.com/ttak0422/track/tree/52b8380d125d688b7e468a2f7d537808144cc77c/native).
+
 2026-09-15、macOS 26.4.1 / arm64、Releaseビルドで確認。
 この変更はCalendarの全ノート・タスク走査を読込時の日別索引へ置き換える。
 セル内容、配列順序、重複日、同日due/scheduled、先頭journal、再読込と失敗時の置換、日付をまたぐ期限判定を維持する。

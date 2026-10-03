@@ -1,5 +1,10 @@
 # Native 図表・メディア確認（C14/C15）
 
+> Historical record: the SwiftUI shell is retired. This document describes the former implementation;
+> its commands and acceptance status are not current WKWebView verification. See the
+> [current desktop shell](../../../desktop/README.md) and
+> [pre-retirement source](https://github.com/ttak0422/track/tree/52b8380d125d688b7e468a2f7d537808144cc77c/native).
+
 2026-09-14。基点 `84e71d0`、`feat/native-figures-media`。SSG は対象外。
 
 ## 変更

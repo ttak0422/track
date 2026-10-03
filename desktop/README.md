@@ -1,9 +1,8 @@
 # Track for macOS
 
-`Track.app` is an independent, non-sandboxed AppKit shell around the existing live Go/web
-workspace. It does not build screens in Swift and does not read or depend on the existing `native/`
-implementation. Go remains the source of truth for vault behavior and the Vite production bundle is
-the UI.
+`Track.app` is the supported macOS AppKit/WKWebView shell around the existing live Go/web
+workspace. Go remains the source of truth for vault behavior and the Vite production bundle is
+the UI. The former SwiftUI shell has been retired; see [retirement boundaries](#swiftui-retirement).
 
 ## Build and run
 
@@ -15,9 +14,8 @@ open "build/desktop/Track.app"
 ```
 
 The release bundle is `build/desktop/Track.app`, with bundle identifier `com.ttak0422.track.web`.
-It shares the display name `Track` with the existing native app, but its output path is separate from
-`build/Track.app` and its bundle identifier differs (`com.ttak0422.track` for the native app). This
-keeps `make desktop-app` from overwriting the native bundle while allowing both apps to coexist. The
+The build path and bundle identifier remain unchanged, so existing desktop website data stays
+associated with this shell. Previously built SwiftUI bundles are not removed or overwritten. The
 app is unsigned and not notarized; the first launch may require the user to approve it in macOS
 privacy/security settings. It is intentionally not App Sandbox constrained. File uploads use the
 standard macOS file picker.
@@ -100,9 +98,15 @@ and any existing ignored build assets in that source directory are not rewritten
 - Native audio bridging is not implemented in this stage. Browser/WebKit audio behavior is whatever
   the existing web UI provides; no native audio permission or bridge is added.
 
-## Staged migration
+## SwiftUI retirement
 
-This app is a parallel shell, not a replacement for the existing macOS app. It establishes the
-smallest useful WebKit path while leaving the existing bundle, `native/`, Go APIs, and web appearance
-alone. Compare the live workspace and user workflows in this shell first; move defaults or retire an
-older shell only in a separately reviewed stage after parity and lifecycle behavior are accepted.
+The old `native/` SwiftPM package, its dedicated verification scripts, and the `native-app` /
+`native-verify` Make targets have been removed. Build this shell with `make desktop-app` instead.
+The [last pre-retirement source](https://github.com/ttak0422/track/tree/52b8380d125d688b7e468a2f7d537808144cc77c/native)
+and its build instructions remain available in Git history. Older architecture and parity evidence
+under `docs/` describe that retired implementation, not requirements verified by this shell.
+
+This retirement does not establish full SwiftUI feature parity or migrate its preferences/windows.
+In particular, native audio bridging remains outside this shell's current capabilities. The Go
+engine, HTTP APIs, CLI/LSP, web frontend, Neovim integration, and Nix packages are retained.
+No installed application, vault, configuration, cache, or runtime data is removed by this source change.
