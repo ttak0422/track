@@ -1,5 +1,10 @@
 # Native 互換対応の検証記録
 
+> Historical record: the SwiftUI shell is retired. This document describes the former implementation;
+> its commands and acceptance status are not current WKWebView verification. See the
+> [current desktop shell](../../../desktop/README.md) and
+> [pre-retirement source](https://github.com/ttak0422/track/tree/52b8380d125d688b7e468a2f7d537808144cc77c/native).
+
 2026-09-14、`feat/native-parity-integration` で worktree ごとの変更を統合して検証。
 Web 基準は `d8e31bb`。検証対象の実装末尾は `4083667`。
 CLT/SDK macOS 26.5、SwiftPM debug buildで検証した。
@@ -36,7 +41,7 @@ scripts/check-native-design.sh --snapshots docs/evidence/native-parity/reader-sa
 
 ## 実行可能な回帰チェック
 
-手順は [Native README](../../../native/README.md)。CLT環境なのでXCTestを追加せず、SwiftPMの実行ターゲットを使用する。
+手順は [Native README](https://github.com/ttak0422/track/blob/52b8380d125d688b7e468a2f7d537808144cc77c/native/README.md)。CLT環境なのでXCTestを追加せず、SwiftPMの実行ターゲットを使用する。
 HTTP応答の順序、409、通信失敗は各ターゲット内のURLProtocolで制御し、実ユーザーのノートや実エージェントへ書き込まない。
 
 | チェック | 対象 |

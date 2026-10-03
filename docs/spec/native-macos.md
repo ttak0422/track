@@ -1,5 +1,10 @@
 # macOS Native App (SwiftUI) — Architecture & API Contract
 
+> Historical record: the SwiftUI shell is retired. This document describes the former implementation;
+> its commands and acceptance status are not current WKWebView verification. See the
+> [current desktop shell](../../desktop/README.md) and
+> [pre-retirement source](https://github.com/ttak0422/track/tree/52b8380d125d688b7e468a2f7d537808144cc77c/native).
+
 `[[20260906 macOSネイティブアプリ計画]]` の実装仕様。MVP: 閲覧+検索+タスク。
 macOS専用、Web技術スタック不使用、Goエンジン流用。
 

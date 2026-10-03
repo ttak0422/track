@@ -24,6 +24,9 @@ on:
       - "scripts/lhci-summary.mjs"
       - ".github/workflows/lighthouse.yml"
 
+permissions:
+  contents: read
+
 jobs:
   lighthouse:
     runs-on: ubuntu-latest
@@ -46,7 +49,8 @@ jobs:
         continue-on-error: true
         with:
           name: ttak0422
-          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          # PR runs stay read-only even after a GITHUB_TOKEN repair or human rerun.
+          authToken: ${{ github.event_name != 'pull_request' && secrets.CACHIX_AUTH_TOKEN || '' }}
 
       - name: Install Chrome
         id: chrome

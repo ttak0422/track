@@ -1,0 +1,84 @@
+name: Dependabot Nix hash
+
+# This workflow executes only trusted default-branch code, never a PR checkout.
+# A failed initial CI run can still need a hash repair. No workflow_run on this helper.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      pull_request:
+        description: Dependabot PR number (repair only; never merge)
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: dependency-nix-${{ github.event.workflow_run.pull_requests[0].number || inputs.pull_request }}
+  cancel-in-progress: false
+
+jobs:
+  calculate:
+    name: Calculate dependency hash
+    if: >-
+      github.repository == 'ttak0422/track' &&
+      ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+       (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request' &&
+        github.event.workflow_run.head_repository.full_name == github.repository &&
+        toJSON(github.event.workflow_run.pull_requests) != '[]' &&
+        github.event.workflow_run.pull_requests[1] == null))
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      result: ${{ steps.calculate.outputs.result }}
+    steps:
+      - name: Checkout trusted workflow commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Install Nix
+        uses: cachix/install-nix-action@b85815f71a6de0ddee80b8a80a98d43f4bcc66c7 # v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+      - name: Validate metadata and prefetch lock data
+        id: calculate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODE: calculate
+          TRUSTED_BASE: ${{ github.workflow_sha }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number || inputs.pull_request }}
+        run: python3 scripts/dependency_bot/update.py
+
+  publish:
+    name: Publish dependency hash
+    needs: calculate
+    if: needs.calculate.outputs.result != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      actions: read
+      checks: read
+      statuses: read
+    steps:
+      - name: Checkout trusted workflow commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Revalidate and conditionally update
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODE: publish
+          TRUSTED_BASE: ${{ github.workflow_sha }}
+          RESULT: ${{ needs.calculate.outputs.result }}
+          CI_RUN_ID: ${{ github.event.workflow_run.id }}
+          # Merging still requires an active strict, no-bypass main ruleset.
+          AUTO_MERGE: 'true'
+        run: python3 scripts/dependency_bot/update.py

@@ -21,9 +21,13 @@ internal/cli/            # argument routing -> engine -> JSON
 internal/track/          # engine (config, note metadata, store, index, link, lsp)
 lua/track/               # Neovim frontend (config, client, lsp, follow, ...)
 web/                     # web workspace frontend
+desktop/                 # macOS AppKit/WKWebView shell
 nix/apps/                # `nix run .#test-nvim` launcher
 flake.nix                # Go CLI + Vim plugin packaging
 ```
+
+For the macOS app, see [desktop build and verification](desktop/README.md). The former SwiftUI
+shell is retired; `make desktop-app` builds the current app.
 
 ## Agent skills
 

@@ -10,14 +10,24 @@ final class WebViewCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         @escaping @MainActor @Sendable (Bool) -> Void
     ) -> Void
 
-    let workspaceOrigin = URL(string: "http://127.0.0.1:18765")!
-    let staticAppsOrigin = URL(string: "http://127.0.0.1:18766")!
+    let workspaceOrigin: URL
+    let staticAppsOrigin: URL
+
+    init(
+        workspaceOrigin: URL = URL(string: "http://127.0.0.1:18765")!,
+        staticAppsOrigin: URL = URL(string: "http://127.0.0.1:18766")!
+    ) {
+        self.workspaceOrigin = workspaceOrigin
+        self.staticAppsOrigin = staticAppsOrigin
+        super.init()
+    }
 
     weak var window: NSWindow?
     weak var webView: WKWebView?
     var onConfirmDataLoss: DataLossConfirmation?
     var onSmokeResult: (([String: Any]?, String?) -> Void)?
     var externalURLHandler: ((URL) -> Void)?
+    var restartFixture: RestartFixture?
     var smokeMode = false
     private var didLoadWorkspace = false
     private(set) var hasCompletedWorkspaceNavigation = false
@@ -286,7 +296,7 @@ final class WebViewCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         }
         guard smokeMode, !smokeCheckStarted else { return }
         smokeCheckStarted = true
-        let script = """
+        let script = restartFixture?.script ?? """
         (() => {
           window.__trackWebSmoke = { done: false };
           (async () => {
@@ -352,7 +362,7 @@ final class WebViewCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
                 self.onSmokeResult?(report, nil)
                 return
             }
-            guard attempt < 180 else {
+            guard attempt < (self.restartFixture == nil ? 180 : 450) else {
                 self.onSmokeResult?(nil, "WKWebView did not finish its UI/API smoke probe")
                 return
             }
