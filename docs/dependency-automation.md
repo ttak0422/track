@@ -60,25 +60,42 @@ rerunning the old commit is insufficient. No PAT or GitHub App is installed to
 bypass this. The privileged helper is not expected to run in this configuration
 PR: `workflow_run` workflows must first exist on the default branch.
 
-## Automatic merge: currently disabled
+## Automatic merge: protected, currently blocked by the main ruleset
 
-`AUTO_MERGE` is explicitly `false`. The bounded merge implementation is tested,
-but enabling it also needs approval for `actions: read`, `checks: read`, and
-`statuses: read` on the publish job. No additional credentials or
-`pull-requests: write` are needed: GitHub's merge endpoint accepts `contents: write`.
-Those additional read permissions have **not** been added. The configuration PR
-must not be merged merely because dependency auto-merging was authorized.
+`AUTO_MERGE` is `true`. The publisher has `contents: write` plus the read-only
+`actions`, `checks`, and `statuses` permissions needed to verify CI. No additional
+credentials, `pull-requests: write`, administration permission, or protection
+changes are included. Set `AUTO_MERGE` to `false` to disable merging independently
+of hash repair. Dependency auto-merge authorization does not authorize merging this
+configuration PR.
 
-When enabled after approval, merging requires the same conservative dependency
-policy, an unchanged hash, successful `CI` for the exact current PR head, successful
-`test` and `macOS desktop` jobs (including the explicit Nix package build), and no
-pending or failed checks/statuses. GitHub must report the PR as clean. The merge
-API receives the validated head SHA and cannot merge a newer head. No admin bypass
-or protection-setting changes are made. Existing main was unprotected during
-implementation; the helper still performs its own checks. Base movement is checked
-before merging, but GitHub's merge API has no expected-base-SHA parameter; strict
-branch protection is needed if atomic base freshness is required. Protection or
-merge-queue incompatibility remains a visible refusal, not a reason to bypass it.
+Merging requires the same conservative dependency policy, an unchanged hash,
+successful `CI` for the exact current PR head, successful `test` and `macOS desktop`
+jobs (including the explicit Nix package build), and no pending or failed
+checks/statuses. GitHub must report the PR as clean. The merge API receives the
+validated head SHA and cannot merge a newer head.
+
+A client-side base check alone cannot prevent main advancing between that check
+and the merge API call. Therefore the helper additionally requires an **active
+repository ruleset on main with strict required checks, GitHub Actions' `test`
+context, and an explicitly empty bypass list**. GitHub enforces that rule at merge
+time. The script reads effective rules and then verifies the matching ruleset's
+parameters, enforcement, and bypass list; missing or unreadable data is a refusal.
+Legacy branch protection alone and organization-only rulesets are not supported
+by this initial verifier. No administrative API access or bypass is used.
+
+At implementation time, ruleset `18796090` was active and had no bypass actors,
+but `strict_required_status_checks_policy` was **false**. Automatic merging is
+therefore blocked until a maintainer explicitly approves and enables the strict
+setting in that ruleset. Hash repair can run without that change. This PR does
+**not** modify the ruleset. A current-main requirement can require more Dependabot
+rebases and CI runs; that is an intentional tradeoff for safe autonomous merging.
+
+If another check is still pending when CI completes, merging is refused. There is
+no timer or retry loop. After all checks finish, a maintainer may rerun the exact
+current-head CI to produce a new completion event. Manual helper dispatch remains
+repair-only. Merge-queue or branch-rule restrictions are visible refusals, not a
+reason to bypass protection.
 
 ## Verification
 

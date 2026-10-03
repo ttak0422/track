@@ -139,7 +139,8 @@ class PublishTests(unittest.TestCase):
 
     def test_merge_bound_to_head(self):
         with patch.dict(os.environ, {'AUTO_MERGE': 'true'}), patch.object(u, 'checks_pass') as checks, \
-                patch.object(u, 'api', side_effect=[metadata(), {'merged': True}]) as api:
+                patch.object(u, 'require_strict_protection'), \
+                patch.object(u, 'api', side_effect=[metadata(), {'object': {'sha': 'base'}}, {'merged': True}]) as api:
             u.publish(self.result, 'base', '123')
         checks.assert_called_once_with('head', '123')
         self.assertEqual(api.call_args.args, ('/pulls/1/merge', 'PUT', {'sha': 'head', 'merge_method': 'squash'}))
@@ -230,6 +231,43 @@ class CalculationTests(unittest.TestCase):
             self.assertEqual(result['base'], 'base')
             self.assertEqual(result['hash'], H)
             self.assertFalse(result['changed'])
+
+
+class ProtectionTests(unittest.TestCase):
+    def rule(self):
+        return {'type': 'required_status_checks', 'ruleset_source_type': 'Repository',
+                'ruleset_source': u.REPO, 'ruleset_id': 123, 'parameters': {
+                    'strict_required_status_checks_policy': True,
+                    'required_status_checks': [{'context': 'test', 'integration_id': 15368}]}}
+
+    def test_strict_no_bypass_rule(self):
+        rule = self.rule()
+        ruleset = {'enforcement': 'active', 'bypass_actors': [], 'rules': [rule]}
+        with patch.object(u, 'api', side_effect=[[rule], ruleset]): u.require_strict_protection()
+
+    def test_unprotected_and_nonstrict_refused(self):
+        rule = self.rule(); rule['parameters']['strict_required_status_checks_policy'] = False
+        for rules in [[], [rule]]:
+            with patch.object(u, 'api', return_value=rules), self.assertRaises(u.Refused):
+                u.require_strict_protection()
+
+    def test_bypass_disabled_missing_visibility_refused(self):
+        rule = self.rule()
+        for extra in [{'bypass_actors': [{'actor_type': 'Integration'}]}, {'enforcement': 'evaluate'},
+                      {'bypass_actors': None}, {'rules': []}]:
+            ruleset = {'enforcement': 'active', 'bypass_actors': [], 'rules': [rule]} | extra
+            with patch.object(u, 'api', side_effect=[[rule], ruleset]), self.assertRaises(u.Refused):
+                u.require_strict_protection()
+
+    def test_protection_refusal_cannot_merge(self):
+        result = {'number': 1, 'base': 'base', 'head': 'head', 'hash': H,
+                  'lock_sha256': u.hashlib.sha256(b'lock').hexdigest()}
+        with patch.dict(os.environ, {'AUTO_MERGE': 'true'}), \
+                patch.object(u, 'snapshot', return_value=(metadata(), {}, 'npmDepsHash = "' + H + '";', 'lock')), \
+                patch.object(u, 'checks_pass'), patch.object(u, 'api', return_value=[]) as api, \
+                self.assertRaises(u.Refused):
+            u.publish(result, 'base', '123')
+        self.assertTrue(all(len(call.args) == 1 for call in api.call_args_list))
 
 
 if __name__ == '__main__':

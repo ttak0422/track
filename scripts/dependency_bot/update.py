@@ -202,6 +202,32 @@ def checks_pass(head, run_id):
             (status['total_count'] == 0 or status['state'] == 'success'), 'commit statuses not successful')
 
 
+
+def require_strict_protection():
+    # Effective active rules are readable with normal repository metadata access.
+    # Unlike a client-side base-SHA check, strict required checks protect the merge
+    # atomically if main advances after the final API read.
+    rules = api('/rules/branches/main?per_page=100')
+    require(len(rules) < 100, 'too many effective rules')
+    for rule in rules:
+        parameters = rule.get('parameters', {})
+        checks = parameters.get('required_status_checks', [])
+        if (rule['type'] != 'required_status_checks'
+                or parameters.get('strict_required_status_checks_policy') is not True
+                or not any(c.get('context') == 'test' and c.get('integration_id') == 15368 for c in checks)
+                or rule.get('ruleset_source_type') != 'Repository'
+                or rule.get('ruleset_source') != REPO):
+            continue
+        ruleset_id = rule['ruleset_id']
+        require(type(ruleset_id) is int and ruleset_id > 0, 'invalid ruleset id')
+        ruleset = api('/rulesets/' + str(ruleset_id))
+        if (ruleset.get('enforcement') == 'active' and ruleset.get('bypass_actors') == []
+                and any(r.get('type') == 'required_status_checks' and r.get('parameters') == parameters
+                        for r in ruleset.get('rules', []))):
+            return
+    raise Refused('auto-merge blocked: main needs an active no-bypass ruleset with strict GitHub Actions test checks')
+
+
 def publish(result, trusted_base, run_id):
     require(result['base'] == trusted_base, 'unexpected calculation base')
     number, head = result['number'], result['head']
@@ -228,17 +254,19 @@ def publish(result, trusted_base, run_id):
         print('Hash updated. Approve the resulting CI runs in GitHub if requested; no automatic rerun loop.')
         return
     if os.environ.get('AUTO_MERGE') != 'true':
-        print('Auto-merge disabled: checks/statuses/actions read permissions require approval.')
+        print('Auto-merge disabled by workflow configuration.')
         return
     if not run_id:
         print('Hash is current. Manual runs never merge; wait for successful exact-head CI.')
         return
     checks_pass(head, run_id)
+    require_strict_protection()
     latest = api('/pulls/' + str(number))
     validate_metadata(latest, head)
     require(latest['base']['sha'] == trusted_base and latest.get('mergeable_state') == 'clean',
             'branch protection, review, or base update blocks merge')
-    # GitHub also enforces branch protection. Never bypass it or enable admin merging.
+    require(api('/git/ref/heads/main')['object']['sha'] == trusted_base, 'main moved')
+    # GitHub enforces the validated strict ruleset at merge time. Never bypass it.
     response = api('/pulls/' + str(number) + '/merge', 'PUT', {'sha': head, 'merge_method': 'squash'})
     require(response.get('merged'), 'GitHub declined merge')
     print('Merged validated Dependabot update at ' + head)
