@@ -168,12 +168,15 @@ def calculate(number, base):
     with tempfile.TemporaryDirectory() as directory:
         path = Path(directory) / 'package-lock.json'
         path.write_text(lock)
-        env = {k: v for k, v in os.environ.items() if k not in ('GH_TOKEN', 'GITHUB_TOKEN')}
+        # Explicit process environment; no credentials or arbitrary workflow environment.
+        env = {k: os.environ[k] for k in ('PATH', 'HOME', 'TMPDIR', 'NIX_REMOTE',
+               'NIX_SSL_CERT_FILE', 'SSL_CERT_FILE') if k in os.environ}
         value = subprocess.check_output(
             ['nix', 'run', 'github:nixos/nixpkgs/' + nixpkgs['rev'] + '#prefetch-npm-deps',
              '--', str(path)], env=env, text=True, timeout=900).strip()
     updated = replace_hash(flake, value)
-    result = {'number': number, 'base': base, 'head': pr['head']['sha'], 'hash': value,
+    # Output public GitHub metadata, not values read from the workflow environment.
+    result = {'number': number, 'base': pr['base']['sha'], 'head': pr['head']['sha'], 'hash': value,
               'lock_sha256': hashlib.sha256(lock.encode()).hexdigest(), 'changed': updated != flake}
     with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
         output.write('result=' + json.dumps(result, separators=(',', ':')) + '\n')
