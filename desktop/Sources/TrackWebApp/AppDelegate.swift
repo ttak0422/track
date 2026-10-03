@@ -6,6 +6,8 @@ import WebKit
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuItemValidation {
     private let application: NSApplication
+    private let restartTestMode: Bool
+    private var restartFixture: RestartFixture?
     private let smokeMode: Bool
     private let recoveryTestMode: Bool
     private let shutdownTestMode: Bool
@@ -35,16 +37,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     init(application: NSApplication = .shared, arguments: [String] = ProcessInfo.processInfo.arguments) {
         self.application = application
         let appArguments = Array(arguments.dropFirst())
+        restartTestMode = appArguments.contains("--restart-test")
         recoveryTestMode = appArguments.contains("--recovery-test")
         shutdownTestMode = appArguments.contains("--shutdown-test")
-        smokeMode = appArguments.contains("--smoke-test") || recoveryTestMode
+        smokeMode = appArguments.contains("--smoke-test") || recoveryTestMode || restartTestMode
         super.init()
         smokeResultURL = ProcessInfo.processInfo.environment["TRACK_WEB_SMOKE_RESULT"].map(URL.init(fileURLWithPath:))
         shutdownTestTriggerURL = ProcessInfo.processInfo.environment["TRACK_WEB_SHUTDOWN_TEST_TRIGGER"].map(URL.init(fileURLWithPath:))
         shutdownTestResultURL = ProcessInfo.processInfo.environment["TRACK_WEB_SHUTDOWN_TEST_RESULT"].map(URL.init(fileURLWithPath:))
 
         do {
-            let testArguments = ["--smoke-test", "--recovery-test", "--shutdown-test"]
+            if restartTestMode {
+                guard appArguments == ["--restart-test"] else {
+                    throw CocoaError(.validationMissingMandatoryProperty)
+                }
+                restartFixture = try RestartFixture()
+            }
+            let testArguments = ["--restart-test", "--smoke-test", "--recovery-test", "--shutdown-test"]
             let userArguments = appArguments.filter { !testArguments.contains($0) && !$0.hasPrefix("-psn_") }
             launchOptions = try LaunchOptions(arguments: userArguments)
         } catch {
@@ -53,6 +62,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Fail before creating any WebView or launching a server when fixture validation fails.
+        if restartTestMode {
+            guard let fixture = restartFixture, launchFailure == nil else {
+                fputs("Invalid restart fixture: \(launchFailure ?? "missing fixture")\n", stderr)
+                terminationApproved = true
+                application.terminate(nil)
+                return
+            }
+            Task { @MainActor in
+                do {
+                    // Initialize WebKit on the main thread before its asynchronous store enumeration.
+                    // This ephemeral object never opens the default persistent store.
+                    _ = WKWebsiteDataStore.nonPersistent()
+                    let identifiers = await WKWebsiteDataStore.allDataStoreIdentifiers
+                    let receipt = fixture.root.appendingPathComponent("store-owned")
+                    if fixture.phase == "seed" {
+                        guard !identifiers.contains(fixture.identifier) else {
+                            throw CocoaError(.fileWriteFileExists)
+                        }
+                        try Data(fixture.identifier.uuidString.utf8).write(to: receipt, options: .withoutOverwriting)
+                    } else {
+                        guard try String(contentsOf: receipt, encoding: .utf8) == fixture.identifier.uuidString else {
+                            throw CocoaError(.validationMissingMandatoryProperty)
+                        }
+                    }
+                    if fixture.phase == "cleanup" {
+                        try await WKWebsiteDataStore.remove(forIdentifier: fixture.identifier)
+                        try Data("cleaned".utf8).write(to: fixture.root.appendingPathComponent("cleaned"))
+                        self.terminationApproved = true
+                        self.application.terminate(nil)
+                        return
+                    }
+                    if fixture.phase == "restore" && !identifiers.contains(fixture.identifier) {
+                        throw CocoaError(.fileNoSuchFile)
+                    }
+                    self.launchWorkspace()
+                } catch {
+                    self.finishSmoke(["ok": false, "error": "Restart fixture: \(error)"])
+                }
+            }
+            return
+        }
+        launchWorkspace()
+    }
+
+    private func launchWorkspace() {
         application.setActivationPolicy(.regular)
         installMenu()
         createWindow()
@@ -197,7 +252,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         let configuration = WKWebViewConfiguration()
         // The production workspace keeps its tabs and settings at the stable loopback origin across
         // launches. The smoke test is fully isolated from a user's WebKit website data.
-        configuration.websiteDataStore = smokeMode || shutdownTestMode ? .nonPersistent() : .default()
+        if let fixture = restartFixture {
+            configuration.websiteDataStore = WKWebsiteDataStore(forIdentifier: fixture.identifier)
+        } else {
+            configuration.websiteDataStore = smokeMode || shutdownTestMode ? .nonPersistent() : .default()
+        }
         if recoveryTestMode {
             // Exercise WKUIDelegate's popup callback without granting this behavior to the shipped app.
             configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
@@ -210,6 +269,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         let coordinator = WebViewCoordinator()
         coordinator.window = nil
         coordinator.webView = webView
+        coordinator.restartFixture = restartFixture
         coordinator.smokeMode = smokeMode
         if recoveryTestMode {
             coordinator.externalURLHandler = { _ in }
@@ -421,6 +481,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             fputs("Track smoke result: \(error.localizedDescription)\n", stderr)
         }
         terminationWasConfirmed = true
+        if restartTestMode && webView == nil { terminationApproved = true }
         application.terminate(nil)
     }
 
