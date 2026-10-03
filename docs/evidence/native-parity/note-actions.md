@@ -1,5 +1,10 @@
 # Native note actions — C22 / C23
 
+> Historical record: the SwiftUI shell is retired. This document describes the former implementation;
+> its commands and acceptance status are not current WKWebView verification. See the
+> [current desktop shell](../../../desktop/README.md) and
+> [pre-retirement source](https://github.com/ttak0422/track/tree/52b8380d125d688b7e468a2f7d537808144cc77c/native).
+
 2026-09-14。実装baseは `84e71d0`。メタデータ競合・未知キー保存のbackendは PR #267 (`2e2b17a`) に依存する。Nativeの統合先はpreview対応 PR #269。
 
 ## 実装

@@ -1,5 +1,10 @@
 # Native preview / graph checks — 2026-09-14
 
+> Historical record: the SwiftUI shell is retired. This document describes the former implementation;
+> its commands and acceptance status are not current WKWebView verification. See the
+> [current desktop shell](../../../desktop/README.md) and
+> [pre-retirement source](https://github.com/ttak0422/track/tree/52b8380d125d688b7e468a2f7d537808144cc77c/native).
+
 Scope: C13, C17 and the preview portion of C29–30. Based on `84e71d0`.
 
 The search pin command, aside references, Markdown link rail and graph nodes now use one preview surface. It renders the full note through the existing GFM/figure renderer, resolves links in the source vault, and reports unresolved notes. Hover waits 350 ms. Leaving cancels pending work; the reader transaction rejects cancelled or superseded responses. Each preview owns its reader, so preview navigation preserves the original note and its draft.
