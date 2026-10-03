@@ -18,6 +18,7 @@ final class WebViewCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
     var onConfirmDataLoss: DataLossConfirmation?
     var onSmokeResult: (([String: Any]?, String?) -> Void)?
     var externalURLHandler: ((URL) -> Void)?
+    var restartFixture: RestartFixture?
     var smokeMode = false
     private var didLoadWorkspace = false
     private(set) var hasCompletedWorkspaceNavigation = false
@@ -286,7 +287,7 @@ final class WebViewCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         }
         guard smokeMode, !smokeCheckStarted else { return }
         smokeCheckStarted = true
-        let script = """
+        let script = restartFixture?.script ?? """
         (() => {
           window.__trackWebSmoke = { done: false };
           (async () => {
@@ -352,7 +353,7 @@ final class WebViewCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
                 self.onSmokeResult?(report, nil)
                 return
             }
-            guard attempt < 180 else {
+            guard attempt < (self.restartFixture == nil ? 180 : 450) else {
                 self.onSmokeResult?(nil, "WKWebView did not finish its UI/API smoke probe")
                 return
             }
