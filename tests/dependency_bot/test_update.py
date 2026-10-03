@@ -214,5 +214,23 @@ class CheckTests(unittest.TestCase):
             with patch.object(u, 'api', side_effect=data), self.assertRaises(u.Refused): u.checks_pass('head', '123')
 
 
+class CalculationTests(unittest.TestCase):
+    def test_prefetch_environment_and_public_output(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            output = str(Path(directory) / 'output')
+            with patch.dict(os.environ, {'GITHUB_OUTPUT': output, 'GH_TOKEN': 'secret',
+                                         'UNRELATED_SECRET': 'secret'}), \
+                    patch.object(u, 'snapshot', return_value=(metadata(), {}, 'npmDepsHash = "' + H + '";', '{}')), \
+                    patch.object(u.subprocess, 'check_output', return_value=H + '\n') as command:
+                u.calculate(1, 'base')
+            self.assertNotIn('GH_TOKEN', command.call_args.kwargs['env'])
+            self.assertNotIn('UNRELATED_SECRET', command.call_args.kwargs['env'])
+            result = u.json.loads(Path(output).read_text().removeprefix('result='))
+            self.assertEqual(result['base'], 'base')
+            self.assertEqual(result['hash'], H)
+            self.assertFalse(result['changed'])
+
+
 if __name__ == '__main__':
     unittest.main()
