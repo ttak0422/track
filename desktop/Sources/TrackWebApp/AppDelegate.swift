@@ -11,13 +11,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private let smokeMode: Bool
     private let recoveryTestMode: Bool
     private let shutdownTestMode: Bool
+    private let searchTestMode: Bool
     private var terminationApproved = false
     private var terminationPending = false
     private var terminationWasConfirmed = false
     private var smokeFinished = false
+    private var searchTestActionCounts: [Int: Int] = [:]
     private var supervisor: WebServerSupervisor?
     private var webView: WKWebView?
     private var coordinator: WebViewCoordinator?
+    private var textFinder: NSTextFinder?
+    private var findBarContainerView: SearchFindBarContainerView?
     private var statusView: NSView?
     private var progressIndicator: NSProgressIndicator?
     private var statusTitle: NSTextField?
@@ -40,7 +44,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         restartTestMode = appArguments.contains("--restart-test")
         recoveryTestMode = appArguments.contains("--recovery-test")
         shutdownTestMode = appArguments.contains("--shutdown-test")
-        smokeMode = appArguments.contains("--smoke-test") || recoveryTestMode || restartTestMode
+        searchTestMode = appArguments.contains("--search-test")
+        smokeMode = appArguments.contains("--smoke-test") || recoveryTestMode || searchTestMode || restartTestMode
         super.init()
         smokeResultURL = ProcessInfo.processInfo.environment["TRACK_WEB_SMOKE_RESULT"].map(URL.init(fileURLWithPath:))
         shutdownTestTriggerURL = ProcessInfo.processInfo.environment["TRACK_WEB_SHUTDOWN_TEST_TRIGGER"].map(URL.init(fileURLWithPath:))
@@ -53,7 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 }
                 restartFixture = try RestartFixture()
             }
-            let testArguments = ["--restart-test", "--smoke-test", "--recovery-test", "--shutdown-test"]
+            let testArguments = ["--restart-test", "--smoke-test", "--recovery-test", "--shutdown-test", "--search-test"]
             let userArguments = appArguments.filter { !testArguments.contains($0) && !$0.hasPrefix("-psn_") }
             launchOptions = try LaunchOptions(arguments: userArguments)
         } catch {
@@ -111,6 +116,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         application.setActivationPolicy(.regular)
         installMenu()
         createWindow()
+        if searchTestMode {
+            startSearchTest()
+            return
+        }
         if let launchFailure {
             display(.failed(launchFailure))
             if shutdownTestMode {
@@ -178,6 +187,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         if menuItem.action == #selector(goBack(_:)) { return webView?.canGoBack ?? false }
         if menuItem.action == #selector(goForward(_:)) { return webView?.canGoForward ?? false }
+        if menuItem.action == #selector(performTextFinderAction(_:)) {
+            guard let action = NSTextFinder.Action(rawValue: menuItem.tag) else { return false }
+            return textFinder?.validateAction(action) ?? false
+        }
         return true
     }
 
@@ -248,7 +261,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     private func createWindow() {
-        let root = NSView(frame: .zero)
+        let root = SearchFindBarContainerView(frame: .zero)
         let configuration = WKWebViewConfiguration()
         // The production workspace keeps its tabs and settings at the stable loopback origin across
         // launches. The smoke test is fully isolated from a user's WebKit website data.
@@ -270,7 +283,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         coordinator.window = nil
         coordinator.webView = webView
         coordinator.restartFixture = restartFixture
-        coordinator.smokeMode = smokeMode
+        coordinator.smokeMode = smokeMode && !searchTestMode
         if recoveryTestMode {
             coordinator.externalURLHandler = { _ in }
         }
@@ -294,18 +307,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         webView.navigationDelegate = coordinator
         webView.uiDelegate = coordinator
 
+        let textFinder = NSTextFinder()
+        textFinder.client = webView
+        textFinder.findBarContainer = root
+        textFinder.isIncrementalSearchingEnabled = true
+        self.textFinder = textFinder
+        findBarContainerView = root
+
         let statusView = makeStatusView()
-        root.addSubview(webView)
-        root.addSubview(statusView)
+        root.contentHost.addSubview(webView)
+        root.contentHost.addSubview(statusView)
         NSLayoutConstraint.activate([
-            webView.leadingAnchor.constraint(equalTo: root.leadingAnchor),
-            webView.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            webView.topAnchor.constraint(equalTo: root.topAnchor),
-            webView.bottomAnchor.constraint(equalTo: root.bottomAnchor),
-            statusView.leadingAnchor.constraint(equalTo: root.leadingAnchor),
-            statusView.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            statusView.topAnchor.constraint(equalTo: root.topAnchor),
-            statusView.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            webView.leadingAnchor.constraint(equalTo: root.contentHost.leadingAnchor),
+            webView.trailingAnchor.constraint(equalTo: root.contentHost.trailingAnchor),
+            webView.topAnchor.constraint(equalTo: root.contentHost.topAnchor),
+            webView.bottomAnchor.constraint(equalTo: root.contentHost.bottomAnchor),
+            statusView.leadingAnchor.constraint(equalTo: root.contentHost.leadingAnchor),
+            statusView.trailingAnchor.constraint(equalTo: root.contentHost.trailingAnchor),
+            statusView.topAnchor.constraint(equalTo: root.contentHost.topAnchor),
+            statusView.bottomAnchor.constraint(equalTo: root.contentHost.bottomAnchor),
         ])
 
         let window = NSWindow(
@@ -317,6 +337,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         window.title = "Track"
         WorkspaceWindowChrome.apply(to: window)
         window.minSize = NSSize(width: 680, height: 480)
+        window.tabbingMode = .disallowed
         window.isReleasedWhenClosed = false
         window.contentView = root
         window.delegate = self
@@ -328,6 +349,234 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         self.webView = webView
         self.coordinator = coordinator
         self.statusView = statusView
+    }
+
+    private func startSearchTest() {
+        guard let webView, let statusView else {
+            finishSmoke(["ok": false, "error": "search test window was not created"])
+            return
+        }
+        statusView.isHidden = true
+        webView.isHidden = false
+        window?.makeKeyAndOrderFront(nil)
+        application.activate(ignoringOtherApps: true)
+        let marker = "TrackSearchSmokeMarker"
+        let html = """
+        <!doctype html><html><body>
+        <main><p>First \(marker) occurrence.</p><p>Second \(marker) occurrence.</p></main>
+        </body></html>
+        """
+        webView.loadHTMLString(html, baseURL: URL(string: "http://127.0.0.1:18765/"))
+        waitForSearchTestDocument(attempt: 0)
+    }
+
+    private func waitForSearchTestDocument(attempt: Int) {
+        guard let webView else {
+            finishSmoke(["ok": false, "error": "search test WKWebView disappeared"])
+            return
+        }
+        webView.evaluateJavaScript("document.body?.innerText.includes('TrackSearchSmokeMarker') === true") { [weak self] result, error in
+            guard let self else { return }
+            if error == nil, result as? Bool == true {
+                self.runSearchMenuProbe()
+                return
+            }
+            guard attempt < 100 else {
+                self.finishSmoke(["ok": false, "error": error?.localizedDescription ?? "search test fixture did not load"])
+                return
+            }
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(50))
+                self?.waitForSearchTestDocument(attempt: attempt + 1)
+            }
+        }
+    }
+
+    private func runSearchMenuProbe() {
+        guard let webView, let window else {
+            finishSmoke(["ok": false, "error": "search test lost its window or WKWebView"])
+            return
+        }
+        let editMenu = application.mainMenu?.items.first(where: { $0.submenu?.title == "Edit" })?.submenu
+        let findMenu = editMenu?.items.first(where: { $0.title == "Find" })?.submenu
+        let find = findMenu?.item(withTitle: "Find…")
+        let next = findMenu?.item(withTitle: "Find Next")
+        let previous = findMenu?.item(withTitle: "Find Previous")
+        let finderAction = #selector(performTextFinderAction(_:))
+        let menuConfigured = find?.action == finderAction
+            && find?.target === self
+            && find?.tag == NSTextFinder.Action.showFindInterface.rawValue
+            && find?.keyEquivalent == "f"
+            && find?.keyEquivalentModifierMask == [.command]
+            && next?.action == finderAction
+            && next?.target === self
+            && next?.tag == NSTextFinder.Action.nextMatch.rawValue
+            && next?.keyEquivalent == "g"
+            && next?.keyEquivalentModifierMask == [.command]
+            && previous?.action == finderAction
+            && previous?.target === self
+            && previous?.tag == NSTextFinder.Action.previousMatch.rawValue
+            && previous?.keyEquivalent == "G"
+            && previous?.keyEquivalentModifierMask == [.command, .shift]
+
+        _ = window.makeFirstResponder(webView)
+        let commandFDispatched = find.map { _ in
+            dispatchSearchShortcut(.showFindInterface, characters: "f", keyCode: 3, modifiers: [.command], window: window)
+        } ?? false
+        guard commandFDispatched else {
+            finishSearchTest(
+                menuConfigured: menuConfigured,
+                commandFDispatched: false,
+                findUIVisible: false,
+                queryMatched: false,
+                selectionTextMatches: false,
+                nextDispatched: false,
+                previousDispatched: false
+            )
+            return
+        }
+        waitForFindInterface(attempt: 0, menuConfigured: menuConfigured, commandFDispatched: true, window: window)
+    }
+
+    private func waitForFindInterface(attempt: Int, menuConfigured: Bool, commandFDispatched: Bool, window: NSWindow) {
+        guard let webView else {
+            finishSmoke(["ok": false, "error": "search test WKWebView disappeared before find UI appeared"])
+            return
+        }
+        let visible = window.contentView.map(hasVisibleFindBar(in:)) ?? hasVisibleFindBar(in: webView)
+        if visible {
+            // Closing the bar must not discard its height for the next Cmd+F.
+            findBarContainerView?.isFindBarVisible = false
+            findBarContainerView?.isFindBarVisible = true
+            guard let bar = findBarContainerView?.findBarView, !bar.isHidden, bar.frame.height > 0 else {
+                finishSmoke(["ok": false, "error": "find bar lost its height after reopening"])
+                return
+            }
+            probeFixtureSearch(in: webView) { [weak self] matched, selectedText in
+                guard let self else { return }
+                let editMenu = self.application.mainMenu?.items.first(where: { $0.submenu?.title == "Edit" })?.submenu
+                let findMenu = editMenu?.items.first(where: { $0.title == "Find" })?.submenu
+                let nextItem = findMenu?.item(withTitle: "Find Next")
+                let previousItem = findMenu?.item(withTitle: "Find Previous")
+                let nextDispatched = nextItem.map { _ in
+                    self.dispatchSearchShortcut(.nextMatch, characters: "g", keyCode: 5, modifiers: [.command], window: window)
+                } ?? false
+                let previousDispatched = previousItem.map { _ in
+                    self.dispatchSearchShortcut(.previousMatch, characters: "G", keyCode: 5, modifiers: [.command, .shift], window: window)
+                } ?? false
+                self.finishSearchTest(
+                    menuConfigured: menuConfigured,
+                    commandFDispatched: commandFDispatched,
+                    findUIVisible: true,
+                    queryMatched: matched,
+                    selectionTextMatches: selectedText,
+                    nextDispatched: nextDispatched,
+                    previousDispatched: previousDispatched
+                )
+            }
+            return
+        }
+        guard attempt < 40 else {
+            finishSearchTest(
+                menuConfigured: menuConfigured,
+                commandFDispatched: commandFDispatched,
+                findUIVisible: false,
+                queryMatched: false,
+                selectionTextMatches: false,
+                nextDispatched: false,
+                previousDispatched: false
+            )
+            return
+        }
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(50))
+            self?.waitForFindInterface(attempt: attempt + 1, menuConfigured: menuConfigured, commandFDispatched: commandFDispatched, window: window)
+        }
+    }
+
+    private func probeFixtureSearch(in webView: WKWebView, completion: @escaping (Bool, Bool) -> Void) {
+        let marker = "TrackSearchSmokeMarker"
+        webView.find(marker, configuration: WKFindConfiguration()) { result in
+            webView.evaluateJavaScript("""
+            (() => {
+              const selection = window.getSelection();
+              return { text: selection?.toString() || '', context: selection?.anchorNode?.parentElement?.textContent || '' };
+            })()
+            """) { selection, error in
+                let report = selection as? [String: String]
+                let selectionMatches = error == nil && report?["text"] == marker
+                completion(result.matchFound, selectionMatches)
+            }
+        }
+    }
+
+    private func finishSearchTest(
+        menuConfigured: Bool,
+        commandFDispatched: Bool,
+        findUIVisible: Bool,
+        queryMatched: Bool,
+        selectionTextMatches: Bool,
+        nextDispatched: Bool,
+        previousDispatched: Bool
+    ) {
+        let tabbingDisabled = window?.tabbingMode == .disallowed
+        let titlebarPreserved = window?.styleMask.contains(.titled) == true
+        let shortcutsDispatched = nextDispatched && previousDispatched
+        let report: [String: Any] = [
+            "ok": menuConfigured && commandFDispatched && findUIVisible && queryMatched && shortcutsDispatched && tabbingDisabled && titlebarPreserved,
+            "find": [
+                "menuConfigured": menuConfigured,
+                "commandFDispatched": commandFDispatched,
+                "nativeFindUIVisible": findUIVisible,
+                "queryMatched": queryMatched,
+                "selectionTextMatches": selectionTextMatches,
+                "nextShortcutDispatched": nextDispatched,
+                "previousShortcutDispatched": previousDispatched,
+            ],
+            "window": [
+                "tabbingDisabled": tabbingDisabled,
+                "titlebarPreserved": titlebarPreserved,
+            ],
+        ]
+        finishSmoke(report)
+    }
+
+    private func dispatchSearchShortcut(
+        _ expectedAction: NSTextFinder.Action,
+        characters: String,
+        keyCode: UInt16,
+        modifiers: NSEvent.ModifierFlags,
+        window: NSWindow
+    ) -> Bool {
+        let previousCount = searchTestActionCounts[expectedAction.rawValue, default: 0]
+        _ = application.mainMenu?.performKeyEquivalent(
+            with: keyEvent(characters, keyCode: keyCode, modifiers: modifiers, window: window)
+        )
+        return searchTestActionCounts[expectedAction.rawValue, default: 0] > previousCount
+    }
+
+    private func keyEvent(_ characters: String, keyCode: UInt16, modifiers: NSEvent.ModifierFlags, window: NSWindow) -> NSEvent {
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifiers,
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: characters,
+            charactersIgnoringModifiers: characters,
+            isARepeat: false,
+            keyCode: keyCode
+        )!
+    }
+
+    private func hasVisibleFindBar(in view: NSView) -> Bool {
+        if let container = view as? any NSTextFinderBarContainer,
+           container.isFindBarVisible,
+           container.findBarView != nil {
+            return true
+        }
+        return view.subviews.contains(where: hasVisibleFindBar(in:))
     }
 
     private func makeStatusView() -> NSView {
@@ -481,6 +730,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         } catch {
             fputs("Track smoke result: \(error.localizedDescription)\n", stderr)
         }
+        if searchTestMode { terminationApproved = true }
         terminationWasConfirmed = true
         if restartTestMode && webView == nil { terminationApproved = true }
         application.terminate(nil)
@@ -636,6 +886,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         editMenu.addItem(NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
         editMenu.addItem(NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v"))
         editMenu.addItem(NSMenuItem(title: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"))
+        editMenu.addItem(.separator())
+        let findItem = NSMenuItem(title: "Find", action: nil, keyEquivalent: "")
+        let findMenu = NSMenu(title: "Find")
+        findMenu.addItem(textFinderMenuItem(
+            title: "Find…",
+            action: .showFindInterface,
+            keyEquivalent: "f",
+            modifiers: [.command]
+        ))
+        findMenu.addItem(textFinderMenuItem(
+            title: "Find Next",
+            action: .nextMatch,
+            keyEquivalent: "g",
+            modifiers: [.command]
+        ))
+        findMenu.addItem(textFinderMenuItem(
+            title: "Find Previous",
+            action: .previousMatch,
+            keyEquivalent: "G",
+            modifiers: [.command, .shift]
+        ))
+        findItem.submenu = findMenu
+        editMenu.addItem(findItem)
         editItem.submenu = editMenu
         menu.addItem(editItem)
 
@@ -650,6 +923,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
         WorkspaceWindowChrome.installWindowMenu(in: menu, application: application)
         application.mainMenu = menu
+    }
+
+    private func textFinderMenuItem(
+        title: String,
+        action: NSTextFinder.Action,
+        keyEquivalent: String,
+        modifiers: NSEvent.ModifierFlags
+    ) -> NSMenuItem {
+        NSMenuItem(title: title, action: #selector(performTextFinderAction(_:)), keyEquivalent: keyEquivalent).also {
+            $0.target = self
+            $0.tag = action.rawValue
+            $0.keyEquivalentModifierMask = modifiers
+        }
+    }
+
+    @objc private func performTextFinderAction(_ sender: Any?) {
+        guard let menuItem = sender as? NSMenuItem,
+              let action = NSTextFinder.Action(rawValue: menuItem.tag) else { return }
+        if searchTestMode { searchTestActionCounts[action.rawValue, default: 0] += 1 }
+        textFinder?.performAction(action)
+        if action == .showFindInterface {
+            findBarContainerView?.isFindBarVisible = true
+        } else if action == .hideFindInterface {
+            findBarContainerView?.isFindBarVisible = false
+        }
     }
 
     private var window: NSWindow? { NSApp.windows.first }
@@ -682,6 +980,53 @@ private enum RecoveryTestPhase {
     case stopping
     case restarting
     case verifying
+}
+
+@MainActor
+private final class SearchFindBarContainerView: NSView, @preconcurrency NSTextFinderBarContainer {
+    let contentHost = NSView(frame: .zero)
+    var findBarView: NSView? {
+        didSet {
+            oldValue?.removeFromSuperview()
+            if let findBarView { addSubview(findBarView) }
+            needsLayout = true
+        }
+    }
+    var isFindBarVisible = false {
+        didSet {
+            needsLayout = true
+            layoutSubtreeIfNeeded()
+        }
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        addSubview(contentHost)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is unsupported")
+    }
+
+    override func layout() {
+        super.layout()
+        let findBarHeight = isFindBarVisible ? (findBarView?.frame.height ?? 0) : 0
+        contentHost.frame = NSRect(x: 0, y: 0, width: bounds.width, height: max(0, bounds.height - findBarHeight))
+        if let findBarView {
+            findBarView.isHidden = !isFindBarVisible
+            findBarView.frame = NSRect(
+                x: 0,
+                y: contentHost.frame.maxY,
+                width: bounds.width,
+                height: findBarView.frame.height
+            )
+        }
+    }
+
+    func findBarViewDidChangeHeight() {
+        needsLayout = true
+        layoutSubtreeIfNeeded()
+    }
 }
 
 private extension NSMenuItem {

@@ -112,12 +112,14 @@ web/node_modules: web/package-lock.json
 .PHONY: desktop-app desktop-verify desktop-smoke desktop-recovery-smoke desktop-termination-test
 
 DESKTOP_APP ?= build/desktop/Track.app
+DESKTOP_DEVELOPER_DIR ?=
+DESKTOP_SDKROOT ?=
 
 desktop-app: ## Build the independent unsigned Track.app bundle
-	DESKTOP_APP="$(DESKTOP_APP)" sh scripts/desktop-build.sh
+	DESKTOP_APP="$(DESKTOP_APP)" DESKTOP_DEVELOPER_DIR="$(DESKTOP_DEVELOPER_DIR)" DESKTOP_SDKROOT="$(DESKTOP_SDKROOT)" sh scripts/desktop-build.sh
 
 desktop-verify: desktop-app ## Build Track and run Swift + Go regression tests
-	sh scripts/desktop-verify.sh
+	DESKTOP_DEVELOPER_DIR="$(DESKTOP_DEVELOPER_DIR)" DESKTOP_SDKROOT="$(DESKTOP_SDKROOT)" sh scripts/desktop-verify.sh
 	python3 scripts/desktop-shutdown-test.py "$(DESKTOP_APP)/Contents/MacOS/Track"
 
 desktop-smoke: desktop-app ## Exercise the bundled app in WKWebView with an isolated temporary vault

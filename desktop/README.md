@@ -62,10 +62,21 @@ temporary vault/cache afterward. It never selects a configured user vault or use
 the real WKWebView, enters a draft, stops and retries the Go server, then checks that the same document
 and draft value survived while API connectivity returned. The popup test suppresses actual browser
 launches; production behavior still routes only eligible user-initiated external links to the browser.
+The focused `search-smoke.py` test launches the SwiftPM executable in an isolated mode without Go and
+checks real AppKit menu-key dispatch into WKWebView's native find bar, Find Next/Previous shortcuts,
+an actual fixture query and selected text, and the window's native-tabbing policy. Build through the
+desktop toolchain helper, then run it:
 
-The system Command Line Tools SDK is used by default (`/Library/Developer/CommandLineTools` and
-`MacOSX26.5.sdk`). Override `DESKTOP_DEVELOPER_DIR` or `DESKTOP_SDKROOT` when building with another
-installed macOS toolchain. The frontend is staged in `build/desktop-web-dist`; a Go build overlay
+```sh
+make desktop-app
+python3 desktop/search-smoke.py "build/desktop/Track.app/Contents/MacOS/Track"
+```
+
+The build selects the system developer directory reported by `xcode-select -p` and resolves both the
+Swift compiler and macOS SDK through `/usr/bin/xcrun`; inherited Nix `DEVELOPER_DIR` and `SDKROOT`
+values are ignored. `desktop/Package.swift`'s `.macOS(.v14)` is the minimum deployment target, not an
+SDK version pin. Override `DESKTOP_DEVELOPER_DIR` and/or `DESKTOP_SDKROOT` to select another
+installed toolchain or SDK. The frontend is staged in `build/desktop-web-dist`; a Go build overlay
 maps those files into `internal/track/webui/dist` only for the app binary. The tracked placeholder
 and any existing ignored build assets in that source directory are not rewritten.
 
@@ -107,6 +118,9 @@ results within its timeout. GUI failures are not skipped or treated as successfu
   Track cannot reliably inspect dirty state across the React editor, embedded HTML, and static
   apps, so it conservatively asks before top-level page navigation, Back/Forward, Reload, window
   close, and Quit. The dialog states this limitation rather than claiming exact dirty detection.
+- Edit > Find delegates to WebKit's native text finder: Cmd+F opens its in-page find bar, Cmd+G finds
+  the next match, and Shift+Cmd+G finds the previous match. Track disables native window tabbing on
+  its titled workspace window; content extends through the hidden native titlebar region.
 - Native audio bridging is not implemented in this stage. Browser/WebKit audio behavior is whatever
   the existing web UI provides; no native audio permission or bridge is added.
 
