@@ -184,6 +184,54 @@ jobs:
           export TRACK_CACHE_DIR="$(mktemp -d)"
           nix run .#test-nvim -- --headless '+luafile scripts/e2e/nvim_include_cr.lua'
 
+  desktop:
+    name: macOS desktop
+    runs-on: macos-15
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      # Resolve the host Xcode before entering Nix, whose SDK is not the AppKit toolchain.
+      # Existing desktop overrides also work with the Command Line Tools locally.
+      - name: Check Apple toolchain and GUI session
+        run: |
+          developer_dir="$(/usr/bin/xcode-select -p)"
+          sdk_root="$(env -u SDKROOT DEVELOPER_DIR="$developer_dir" /usr/bin/xcrun --sdk macosx --show-sdk-path)"
+          swift_bin="$(DEVELOPER_DIR="$developer_dir" /usr/bin/xcrun --find swift)"
+          test -d "$sdk_root"
+          "$swift_bin" --version
+          /bin/launchctl print "gui/$(id -u)" >/dev/null
+          {
+            echo "DESKTOP_DEVELOPER_DIR=$developer_dir"
+            echo "DESKTOP_SDKROOT=$sdk_root"
+            echo "DESKTOP_SWIFT_BIN=$(dirname "$swift_bin")"
+          } >>"$GITHUB_ENV"
+
+      - name: Build desktop and verify lifecycle
+        run: |
+          nix develop --command bash -euo pipefail -c '
+            export PATH="$DESKTOP_SWIFT_BIN:$PATH"
+            make desktop-verify
+          '
+
+      # Reuse the bundle: each Python runner creates private config/vault/cache fixtures,
+      # requires positive UI/API results, and fails on timeout or surviving listeners.
+      - name: WKWebView smoke and server recovery
+        timeout-minutes: 5
+        run: |
+          python3 scripts/desktop-smoke.py build/desktop/Track.app/Contents/MacOS/Track
+          python3 scripts/desktop-smoke.py build/desktop/Track.app/Contents/MacOS/Track --recovery-test
+
   # Reads this run's coverage profile and the one from the last main run, and comments the per-package
   # table and the change against main. Forks and Dependabot get no token that can comment, so they are
   # left out rather than failed. Runs without Nix: the action ships its own binary.

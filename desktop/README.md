@@ -71,6 +71,18 @@ installed macOS toolchain. The frontend is staged in `build/desktop-web-dist`; a
 maps those files into `internal/track/webui/dist` only for the app binary. The tracked placeholder
 and any existing ignored build assets in that source directory are not rewritten.
 
+## Continuous integration
+
+The `macOS desktop` CI job runs on `macos-15` alongside the Ubuntu checks. It resolves the
+runner's installed Xcode/SDK through `xcode-select` and `xcrun`, passes the existing desktop
+toolchain overrides, and uses the pinned Nix development shell for Go and Node. The job has a
+30-minute limit and requires a GUI login session; missing prerequisites fail the job.
+
+It runs `make desktop-verify` (release bundle, Swift regressions, Go tests, and isolated
+SIGSTOP-child termination), then reuses the bundle for the WKWebView UI/API and recovery
+smokes. Each smoke uses disposable config/vault/cache fixtures and requires explicit successful
+results within its timeout. GUI failures are not skipped or treated as successful checks.
+
 ## Runtime boundaries and limitations
 
 - Track starts its bundled Go server at `127.0.0.1:18765`; the Go static-app listener uses its
