@@ -66,9 +66,11 @@ export function recentsForScope(recent: NoteTab[], scope: string): NoteTab[] {
 // ponytail: sentinel ids, revisit if slugs ever collide.
 export const GRAPH_TAB_ID = "graph";
 export const CALENDAR_TAB_ID = "calendar";
-const VIEW_TABS: Record<string, { to: "/graph" | "/calendar"; label: string }> = {
+export const MARKDOWN_TAB_ID = "markdown";
+const VIEW_TABS: Record<string, { to: "/graph" | "/calendar" | "/markdown"; label: string }> = {
   [GRAPH_TAB_ID]: { to: "/graph", label: "Graph" },
   [CALENDAR_TAB_ID]: { to: "/calendar", label: "Calendar" },
+  [MARKDOWN_TAB_ID]: { to: "/markdown", label: "Markdown viewer" },
 };
 
 // isViewTab tells a view tab (graph/calendar) apart from a note tab, e.g. to skip note-only actions.
@@ -115,6 +117,7 @@ export function noteIDFromPath(pathname: string): NoteID | null {
   if (path === "/" && STATIC_MODE && START_PAGE_ID) return START_PAGE_ID;
   if (path === "/graph") return GRAPH_TAB_ID;
   if (path === "/calendar") return CALENDAR_TAB_ID;
+  if (path === "/markdown") return MARKDOWN_TAB_ID;
   const match = path.match(/^\/notes\/([^/]+)$/);
   return match ? match[1] : null;
 }

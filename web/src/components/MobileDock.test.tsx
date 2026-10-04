@@ -124,7 +124,7 @@ describe("MobileDock", () => {
       x: Number.parseFloat(b.style.left),
       y: Number.parseFloat(b.style.top),
     }));
-    expect(spots).toHaveLength(8);
+    expect(spots).toHaveLength(9);
     for (const [i, a] of spots.entries()) {
       // Inside jsdom's 1024x768 window, every one of them.
       expect(a.x).toBeGreaterThanOrEqual(8);
@@ -134,6 +134,32 @@ describe("MobileDock", () => {
       for (const b of spots.slice(i + 1)) {
         expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeGreaterThanOrEqual(44);
       }
+    }
+  });
+
+  it("opens the Markdown viewer on a phone without overlapping fan controls", () => {
+    vi.stubGlobal("innerWidth", 390);
+    vi.stubGlobal("innerHeight", 844);
+    try {
+      const { container } = dock();
+      const fab = container.querySelector(".mobile-dock-fab")!;
+      fireEvent.pointerDown(fab);
+      fireEvent.pointerUp(fab);
+      const buttons = [...container.querySelectorAll<HTMLElement>(".mobile-dock-fan-btn")];
+      for (const [i, button] of buttons.entries()) {
+        const x = Number.parseFloat(button.style.left), y = Number.parseFloat(button.style.top);
+        expect(x).toBeGreaterThanOrEqual(8);
+        expect(y).toBeGreaterThanOrEqual(8);
+        expect(x).toBeLessThanOrEqual(390 - 44 - 8);
+        expect(y).toBeLessThanOrEqual(844 - 44 - 8);
+        for (const other of buttons.slice(i + 1)) {
+          expect(Math.hypot(x - Number.parseFloat(other.style.left), y - Number.parseFloat(other.style.top))).toBeGreaterThanOrEqual(44);
+        }
+      }
+      fireEvent.click(screen.getByRole("button", { name: "Markdown viewer" }));
+      expect(navigate).toHaveBeenLastCalledWith({ to: "/markdown", search: {} });
+    } finally {
+      vi.unstubAllGlobals();
     }
   });
 

@@ -1,0 +1,9 @@
+version: 6
+title: Markdown viewer
+tags:
+  - help/reference
+created: '2026-10-04'
+props:
+  section: reference
+  up: '[[Web workspace]]'
+icon: 📄

@@ -1,4 +1,5 @@
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
+import { ExternalMarkdownProvider } from "./ExternalMarkdownSource";
 import { GraphPanel } from "./GraphPanel";
 import { HierarchyMenu } from "./HierarchyMenu";
 import { BrandMark } from "./Logo";
@@ -22,7 +23,7 @@ import { NoteRailControls } from "./NoteRailControls";
 import { RailTip } from "./RailTip";
 import { SearchProvider } from "../searchState";
 import { VaultScopeProvider, useVaultScope } from "../vaultScope";
-import { IconAffiliate, IconCalendar, IconChecklist, IconHistory, IconNotebook, RailIcon } from "./icons";
+import { IconAffiliate, IconFileText, IconCalendar, IconChecklist, IconHistory, IconNotebook, RailIcon } from "./icons";
 import { IconMicrophone } from "@tabler/icons-react";
 
 export function Shell() {
@@ -32,7 +33,7 @@ export function Shell() {
       <FloatingProvider>
       <TabsProvider>
       <VaultScopeProvider>
-      <ShellView />
+      <ExternalMarkdownProvider><ShellView /></ExternalMarkdownProvider>
       </VaultScopeProvider>
       </TabsProvider>
       </FloatingProvider>
@@ -46,6 +47,7 @@ function ShellView() {
   // Normalize a trailing slash: the prerendered static site serves routes as directories (/graph/).
   const path = pathname.replace(/\/$/, "") || "/";
   const isHome = path === "/";
+  const isMarkdown = path === "/markdown";
   const isGraph = path === "/graph";
   const isCalendar = path === "/calendar";
   // Note pages carry their own always-on local graph in the aside; the static "/" renders the
@@ -101,6 +103,13 @@ function ShellView() {
                 <SidebarSearch />
                 <SidebarNew />
                 <SidebarHistory />
+                {!STATIC_MODE && (
+                  <RailTip label="Markdown viewer">
+                    <Link className="rail-button" to="/markdown" search={{}} aria-label="Markdown viewer">
+                      <RailIcon Icon={IconFileText} />
+                    </Link>
+                  </RailTip>
+                )}
                 {/* The published static site is read-only and cannot create journals. */}
                 {!STATIC_MODE && (
                   <RailTip label="Today's journal">
@@ -169,7 +178,7 @@ function ShellView() {
         </div>
         {/* The floating launcher serves the views without a graph of their own (day, tags, search);
             note pages show the local graph in their aside instead. */}
-        {isHero || isGraph || isCalendar || isNote ? null : <GraphPanel />}
+        {isHero || isGraph || isCalendar || isNote || isMarkdown ? null : <GraphPanel />}
         <FloatingLayer />
         <NotificationToast />
         <AgentRequestPanel />

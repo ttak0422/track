@@ -27,6 +27,7 @@ import { TaskBoard } from "./markdown/TaskBoard";
 import { TaskCheck, TaskRow, TaskTable } from "./markdown/TaskControls";
 import { Embed } from "./markdown/Embed";
 import { ExternalLink } from "./markdown/ExternalLink";
+import { ExternalMarkdownView, type ExternalMarkdownOptions } from "./markdown/ExternalMarkdownView";
 import { D2Diagram } from "./markdown/D2Diagram";
 import { DrawioDiagram } from "./markdown/DrawioDiagram";
 import { GraphvizDiagram } from "./markdown/GraphvizDiagram";
@@ -67,6 +68,9 @@ import {
 
 interface MarkdownViewProps {
   markdown: string;
+  // External files are untrusted, read-only documents, never vault notes. The separate renderer
+  // deliberately omits note resolution, embeds, query fences, and all task-writing controls.
+  external?: true | ExternalMarkdownOptions;
   // The canonical note title is the chrome h1 above the body in full-page readers. The body renders
   // as-is: a note whose leading h1 repeats the title keeps both, and that body h1 is an ordinary
   // heading (an outline entry like any other).
@@ -94,7 +98,21 @@ interface MarkdownViewProps {
 // /api/render (action links flattened); the track-specific construct is [[...]] wiki links (remarkWikiLink).
 // KaTeX is loaded lazily (see ./markdown/math), so a note without math never pulls in its bundle; while a
 // math note's first render waits for that chunk, the "$…$" briefly shows as source, then typesets.
-export function MarkdownView({
+export function MarkdownView(props: MarkdownViewProps) {
+  if (props.external) {
+    return (
+      <ExternalMarkdownView
+        markdown={props.markdown}
+        title={props.title}
+        showTitle={props.showTitle}
+        options={props.external === true ? undefined : props.external}
+      />
+    );
+  }
+  return <VaultMarkdownView {...props} />;
+}
+
+function VaultMarkdownView({
   markdown,
   title,
   showTitle = true,
