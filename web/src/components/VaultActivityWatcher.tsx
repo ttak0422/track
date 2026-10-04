@@ -1,8 +1,8 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { listNotes } from "../api";
 import { useNotifications } from "../notifications";
-import { queryKeys } from "../queries";
+import { queryKeys, refreshNewNotes } from "../queries";
 import { activityMessage, newlyActive, today } from "../vaultActivity";
 
 // How often the notes list is refetched to spot work done outside this tab. The vault is edited by a
@@ -12,6 +12,7 @@ const POLL_MS = 60_000;
 // VaultActivityWatcher toasts what someone else added or changed — another tab, the Neovim plugin, a
 // sync landing files under the vault. It renders nothing; the live workspace mounts one.
 export function VaultActivityWatcher() {
+  const queryClient = useQueryClient();
   const { notify } = useNotifications();
   // Shares the notes cache with the calendar and the home lists; the interval is what keeps it fresh.
   const query = useQuery({ queryKey: queryKeys.notes(), queryFn: listNotes, refetchInterval: POLL_MS });
@@ -21,10 +22,14 @@ export function VaultActivityWatcher() {
     if (!notes) return;
     const { notes: active, priming } = newlyActive(notes, today());
     if (!priming && active.length > 0) {
+      // This read has already refreshed the index, even if its filesystem/SSE event was missed.
+      // New has separate creation-order queries; refreshing only the polled notes cache leaves it
+      // behind the toast. Do not invalidate the parent notes key here and restart our own poll.
+      void refreshNewNotes(queryClient);
       // The toast announces what changed; it is clickable, so it names the note it can jump to.
       notify(activityMessage(active.map((note) => note.title)), active[0].note_id);
     }
-  }, [notes, notify]);
+  }, [notes, notify, queryClient]);
 
   return null;
 }
