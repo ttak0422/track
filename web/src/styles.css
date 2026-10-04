@@ -1034,8 +1034,7 @@ img.theme-asset-dark {
   min-width: 0;
   min-height: 0;
   flex: 1;
-  /* Full-bleed diagrams are centred on the prose but paint beyond this box. Clip that paint at the
-     reading surface so it can sit under the dock/aside without turning the page into a side scroller. */
+  /* Keep intentional pan/zoom overflow inside the reading surface, without horizontal page scroll. */
   overflow-x: clip;
   overflow-y: auto;
   padding: 32px;
@@ -2660,9 +2659,7 @@ textarea.modal-input:focus-visible {
      with a lot of backlinks scrolls only its own backlink list, not the whole page. */
   min-height: 0;
   overflow: auto;
-  /* Named because a full-bleed diagram has to undo it to reach the reader's edges (see the bleed rule
-     in the docked-rail block); a padding it could not see would leave the diagram short by exactly
-     this much. */
+  /* Shared inset for the reading and editing panes. */
   --preview-pad-inline: 16px;
   padding: 16px var(--preview-pad-inline);
   background: var(--panel);
@@ -3735,17 +3732,10 @@ textarea.modal-input:focus-visible {
   touch-action: none;
 }
 
-/* Only the drawing viewport bleeds to the window: the frame remains at the prose width so its fold and
-   control chips keep their reading-column anchors. The viewport clips its own drawing and fades at
-   those real edges, while .reader clips the window-wide overrun from horizontal page scrolling. */
+/* The shared diagram frame measures the available read-only surface before fitting. Without that
+   measurement (split panes, previews, collapsed diagrams), stay inside the local column. */
 .markdown-view > .mermaid-diagram > .mermaid-viewport {
   width: 100%;
-}
-
-.markdown-view > .mermaid-diagram > .mermaid-viewport:not([data-collapsed]) {
-  width: 100vw;
-  max-width: 100vw;
-  margin-left: calc(50% - 50vw);
 }
 
 .mermaid-viewport:active {
@@ -5029,15 +5019,8 @@ textarea.modal-input:focus-visible {
   }
 
   .workspace:not(.home) .note-reader:not(:has(.note-editor textarea)) > .note-layout > .note-aside {
-    /* A full-bleed diagram runs the width of the reading surface and passes under this column, where
-       its strokes crossed the contents and backlink lists and made them hard to read. The rail takes
-       the page's own ground so the words win — the surface, not a panel: no rule, no radius, nothing
-       that would read as a box.
-
-       The ground reaches past the words by the measure the rest of the page keeps (--preview-pad's
-       16px), because ground flush with a glyph is not ground: a stroke arriving from under the column
-       stops touching the letter it stopped at. It grows outward only — the padding is added to the
-       column's width and taken back off its margins — so neither the words nor the row move. */
+    /* The aside keeps the sheet's own ground and a small inset around its words. Diagram fitting
+       stops at this padded edge, so no part of the default overview hides behind the sidebar. */
     --aside-pad: 16px;
     position: sticky;
     top: calc(32px - var(--aside-pad)); /* the reader's 32px of breathing room, less the ground's own */
@@ -5063,39 +5046,6 @@ textarea.modal-input:focus-visible {
     padding-bottom: calc(18px + var(--aside-pad));
     background: var(--panel);
     scrollbar-width: none;
-  }
-
-  /* A bleeding diagram takes the whole reading surface, not a window's width struck from the middle of
-     the prose. Once the rail docks the column is no longer centred, so that second reading stopped
-     ~190px short of the scrollbar and spilled the same amount off the left, where it was only ever
-     clipped. Anchor it to the reader's left padding edge instead — the 64px dock lane, the preview's
-     own padding, and whatever margin auto-centring gave the column — and 100vw carries it past the far
-     edge on its own. 100vw counts the scrollbar the reader's client box does not, which overshoots both
-     ends by about half its width; the reader clips that. The rail keeps its own words legible by
-     standing on ground of its own (see the .note-aside rule above), not by holding the diagram back. */
-  .workspace:not(.home)
-    .note-reader:not(:has(.note-editor textarea))
-    .markdown-view
-    > .mermaid-diagram
-    > .mermaid-viewport:not([data-collapsed]) {
-    margin-left: calc(
-      -64px - var(--preview-pad-inline, 16px) -
-        max(
-          0px,
-          (100vw - 96px - (var(--content-width, 880px) + 60px + clamp(240px, 24vw, 380px))) / 2
-        )
-    );
-  }
-
-  /* "Full" width leaves the column uncapped, so it starts at the lane with no centring margin — and
-     none is a value calc() cannot digest anyway. */
-  html[data-content-width="none"]
-    .workspace:not(.home)
-    .note-reader:not(:has(.note-editor textarea))
-    .markdown-view
-    > .mermaid-diagram
-    > .mermaid-viewport:not([data-collapsed]) {
-    margin-left: calc(-64px - var(--preview-pad-inline, 16px));
   }
 
   .workspace:not(.home) .note-reader:not(:has(.note-editor textarea)) > .note-layout > .note-aside > .backlinks {

@@ -157,13 +157,14 @@ with 13px, list items with 7px.
 - Body copy carries no color and no background. Links are ink with a
   `--line-strong` underline (see variant 8); inline code is mono and `--muted`
   with no chip, because a filled chip in a Japanese line makes the line ripple.
-- A block that bleeds takes the whole reading surface — the reader's left edge to
-  its scrollbar — not a window's width struck from the middle of the prose. Once
-  the aside docks the column is no longer centred, so the second reading leaves a
-  band of surface unused on the right and spills the same amount off the left,
-  where it is only ever clipped. The bleed is measured from the reader's left
-  padding edge instead. Nothing is held back to protect the aside: the aside's
-  padded ground (see Sidebar) is what keeps the block from taking its words.
+- An expanded SVG diagram may use the space beyond the note column, but its viewport stays inside
+  the reader's usable surface: after the floating dock's lane and before a docked aside's padded
+  ground (or the reader's right padding when the aside is stacked). Measure those actual bounds;
+  window width and a guessed sidebar width are not the available drawing width. First paint and
+  Reset fit the whole diagram width inside them, even when a very wide diagram needs small text.
+  Its popup and zoom controls remain available for detail. Split panes, included notes, floating
+  previews and collapsed diagrams keep their own column bounds. Resizing refits an untouched view;
+  an explicit pan or zoom stays put until Reset.
 
 ### Scrollbars
 
@@ -487,10 +488,9 @@ The note's aside is a quiet column; the rail is a floating dock over the sheet.
   stays the safety net. The sizes are measured, not computed: the font scale
   and the content width setting move them, and a constant would drift.
 - Docked, the aside takes the sheet's own ground (`--panel`) — no rule, no
-  radius, nothing that reads as a box. It is not decoration: a full-bleed block
-  runs the width of the reading surface and passes beneath this column, and
-  strokes crossing the contents and backlink lists made them unreadable. The
-  words win, and the ground is what lets them.
+  radius, nothing that reads as a box. Expanded diagram viewports stop at this
+  column's padded left edge, so their fitted overviews and the contents and
+  backlink lists all remain visible.
 - That ground reaches past the words by the page's usual 16px, because ground
   flush with a glyph is not ground — a stroke arriving from under the column
   stops touching the letter it stopped at. It grows outward only: the padding is
