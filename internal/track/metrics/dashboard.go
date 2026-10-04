@@ -282,7 +282,11 @@ func loadMetricFile(dataDir, file string) ([]dataset.Record, error) {
 			continue
 		}
 		if _, ok := r.Float("value"); !ok {
-			continue
+			// An explicitly missing observation still identifies a series, including a series
+			// with no readings yet. Keep it discoverable; the renderer preserves its gaps.
+			if raw, present := r["value"]; !present || raw != nil || dataset.Validate(dataset.KindMetric, r) != nil {
+				continue
+			}
 		}
 		if _, ok := r.String("time"); !ok {
 			continue

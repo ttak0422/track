@@ -1,0 +1,185 @@
+{
+  "version": 1,
+  "title": "Research observations (synthetic)",
+  "blocks": [
+    {
+      "markdown": "# Research observations: synthetic example\n\nAll values and sources are fictional. These panels keep valuation estimates, news-derived attention proxies, and business observations separate. They do not estimate true value or recommend trades. October 3 is missing, not zero or evidence that attention cooled. October 5 has a genuine zero news-source count. The evidence table below keeps each missing reason visible even when a chart has no mark to hover. Source links are reserved example.com placeholders."
+    },
+    {
+      "chart": {
+        "version": 2,
+        "title": "Forward sales multiple (x)",
+        "mark": "line",
+        "data": {
+          "source": "metrics.jsonl",
+          "kind": "metric"
+        },
+        "filter": {
+          "field": "name",
+          "equals": "forward_sales_multiple"
+        },
+        "encoding": {
+          "x": {
+            "field": "time"
+          },
+          "y": [
+            {
+              "field": "value",
+              "title": "Forward sales multiple (x)"
+            }
+          ],
+          "detail": [
+            {
+              "field": "missing_reason",
+              "title": "Missing reason"
+            },
+            {
+              "field": "claim_type",
+              "title": "Kind"
+            },
+            {
+              "field": "available_at",
+              "title": "Available at"
+            }
+          ],
+          "href": {
+            "field": "url"
+          }
+        }
+      }
+    },
+    {
+      "chart": {
+        "version": 2,
+        "title": "Independent news sources (count)",
+        "mark": "line",
+        "data": {
+          "source": "metrics.jsonl",
+          "kind": "metric"
+        },
+        "filter": {
+          "field": "name",
+          "equals": "independent_news_sources"
+        },
+        "encoding": {
+          "x": {
+            "field": "time"
+          },
+          "y": [
+            {
+              "field": "value",
+              "title": "Independent news sources (count)"
+            }
+          ],
+          "detail": [
+            {
+              "field": "missing_reason",
+              "title": "Missing reason"
+            },
+            {
+              "field": "claim_type",
+              "title": "Kind"
+            },
+            {
+              "field": "available_at",
+              "title": "Available at"
+            }
+          ],
+          "href": {
+            "field": "url"
+          }
+        }
+      }
+    },
+    {
+      "chart": {
+        "version": 2,
+        "title": "Order growth (%)",
+        "mark": "line",
+        "data": {
+          "source": "metrics.jsonl",
+          "kind": "metric"
+        },
+        "filter": {
+          "field": "name",
+          "equals": "order_growth"
+        },
+        "encoding": {
+          "x": {
+            "field": "time"
+          },
+          "y": [
+            {
+              "field": "value",
+              "title": "Order growth (%)"
+            }
+          ],
+          "detail": [
+            {
+              "field": "missing_reason",
+              "title": "Missing reason"
+            },
+            {
+              "field": "claim_type",
+              "title": "Kind"
+            },
+            {
+              "field": "available_at",
+              "title": "Available at"
+            }
+          ],
+          "href": {
+            "field": "url"
+          }
+        }
+      }
+    },
+    {
+      "table": {
+        "data": {
+          "source": "metrics.jsonl",
+          "kind": "metric"
+        },
+        "columns": [
+          {
+            "field": "time",
+            "label": "Date"
+          },
+          {
+            "field": "name",
+            "label": "Metric"
+          },
+          {
+            "field": "value",
+            "label": "Value (blank = missing)"
+          },
+          {
+            "field": "unit",
+            "label": "Unit"
+          },
+          {
+            "field": "missing_reason",
+            "label": "Missing reason"
+          },
+          {
+            "field": "claim_type",
+            "label": "Kind"
+          },
+          {
+            "field": "available_at",
+            "label": "Available at"
+          },
+          {
+            "field": "source_id",
+            "label": "Source"
+          },
+          {
+            "field": "url",
+            "label": "Evidence"
+          }
+        ],
+        "filter": true
+      }
+    }
+  ]
+}

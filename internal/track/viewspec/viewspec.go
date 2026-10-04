@@ -1414,13 +1414,18 @@ func (s Spec) Resolve(records []dataset.Record) Resolved {
 }
 
 // resolveGauge reads the dial value: the last finite y[0] value across the filtered records, with
-// the range from y[0].domain (0..100 when the spec declares none).
+// the range from y[0].domain (0..100 when the spec declares none). An explicit null clears the dial
+// instead of silently carrying an older reading forward.
 func (s Spec) resolveGauge(records []dataset.Record, res *Resolved) {
 	g := &Gauge{Value: math.NaN(), Min: 0, Max: 100}
 	if d := s.Encoding.Y[0].Domain; len(d) == 2 {
 		g.Min, g.Max = d[0], d[1]
 	}
 	for _, rec := range s.filtered(records) {
+		if raw, present := rec[s.Encoding.Y[0].Field]; present && raw == nil {
+			g.Value = math.NaN()
+			continue
+		}
 		if v := floatOrNaN(rec, s.Encoding.Y[0].Field); !math.IsNaN(v) && !math.IsInf(v, 0) {
 			g.Value = v
 		}
@@ -1810,9 +1815,9 @@ func sortAndLimit(res *Resolved, ch Channel) {
 		case "descending":
 			cmp = func(a, b int) int { return compareValues(res.Labels[b], res.Labels[a]) }
 		case "value":
-			cmp = func(a, b int) int { return compareFloats(labelValue(res, a), labelValue(res, b)) }
+			cmp = func(a, b int) int { return compareLabelValues(res, a, b, false) }
 		default: // "-value"
-			cmp = func(a, b int) int { return compareFloats(labelValue(res, b), labelValue(res, a)) }
+			cmp = func(a, b int) int { return compareLabelValues(res, a, b, true) }
 		}
 		slices.SortStableFunc(idx, cmp)
 		res.Labels = permuteStrings(res.Labels, idx)
@@ -1837,15 +1842,38 @@ func sortAndLimit(res *Resolved, ch Channel) {
 }
 
 // labelValue is the measure a value sort orders a category by: its finite series values summed (so a
-// multi-series or stacked chart sorts by the total). A category with no finite value at all sums to 0.
+// multi-series or stacked chart sorts by the total). A category with no finite value is missing,
+// not zero: it sorts after observed categories in either direction.
 func labelValue(res *Resolved, i int) float64 {
 	sum := 0.0
+	found := false
 	for _, s := range res.Series {
 		if i < len(s.Values) && !math.IsNaN(s.Values[i]) && !math.IsInf(s.Values[i], 0) {
 			sum += s.Values[i]
+			found = true
 		}
 	}
+	if !found {
+		return math.NaN()
+	}
 	return sum
+}
+
+func compareLabelValues(res *Resolved, a, b int, descending bool) int {
+	av, bv := labelValue(res, a), labelValue(res, b)
+	if math.IsNaN(av) {
+		if math.IsNaN(bv) {
+			return 0
+		}
+		return 1
+	}
+	if math.IsNaN(bv) {
+		return -1
+	}
+	if descending {
+		return compareFloats(bv, av)
+	}
+	return compareFloats(av, bv)
 }
 
 // compareFloats orders two float64s for sorting.

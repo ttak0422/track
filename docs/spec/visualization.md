@@ -29,7 +29,7 @@ silently dropped.
 |--------------|----------------------------|----------------------------------|-------------------------------------------|
 | `event`      | `time`, `title`            | `entity`, `url`, `note`          | A point-in-time happening                 |
 | `price`      | `entity`, `time`, `open`, `high`, `low`, `close` | `volume`   | One OHLCV bar                             |
-| `metric`     | `name`, `time`, `value`    | `entity`                         | A named numeric series sample             |
+| `metric`     | `name`, `time`, `value`    | `entity`, `missing_reason`       | A numeric or explicitly missing sample             |
 | `entity`     | `id`, `name`               | `kind` (stock/index/fx/…)        | A thing series refer to                   |
 | `annotation` | `time`, `text`             | `target`                         | A label for narrative overlays            |
 
@@ -55,8 +55,34 @@ present in the data by name, on top of the documented ones.
 `kind` is a real schema, not a loose label: rendering validates every record against its kind
 (`dataset.Validate`) and **fails with an error rather than drawing a partial chart** if a required
 field is missing, a numeric field is non-numeric, or the schema version is newer than supported. Extra
-fields are still allowed, so a record may carry custom columns a spec then charts. (Validation is
-deliberately strict; loosening a field later is a one-line struct change.)
+fields are still allowed, so a record may carry custom columns a spec then charts.
+
+### Explicitly missing metrics
+
+A metric's required `value` key may be a finite number (including zero) or an explicit JSON `null`.
+A null requires a nonblank string `missing_reason`; a nonblank reason on a numeric value is rejected.
+An omitted value, invalid numeric string, `NaN`, or infinity is an error, not a missing observation.
+Other required fields and all other kinds retain their validation rules. Existing numeric JSONL needs
+no migration; this is an additive metric extension within canonical version 1. Older readers may
+reject the new null form and must be upgraded before consuming it.
+
+```jsonl
+{"version":1,"name":"news_sources","time":"2026-10-01","value":0}
+{"version":1,"name":"news_sources","time":"2026-10-02","value":null,"missing_reason":"source unavailable"}
+```
+
+- Line/area charts break at explicit gaps; they do not interpolate or replace them with zero.
+- A rolling mean containing a missing observation is also missing.
+- Value-sorted rankings put categories with no finite values after observed categories in either
+  direction, before applying a limit; a real zero still ranks by its numeric value. Partial multi-series
+  categories retain the existing finite-value sum, so producers must assess completeness separately.
+- An explicit null at the end of a gauge's filtered input clears its reading, rather than silently
+  showing an older value. Input order determines latest; Track does not infer missing dates or freshness.
+- Reason/evidence fields can use existing `encoding.detail`, `href`, and `note` channels. Missing marks
+  may have no hover target; include an evidence table when every reason must be visible.
+
+See [the synthetic research-observation example](../../examples/research-observations/README.md) for
+separate valuation, attention-proxy, and business-series panels plus a reason/evidence table.
 
 ## View Spec
 
@@ -368,7 +394,8 @@ a single reading, not a series:
 ```
 
 - The dial's range is `y[0].domain` (`0..100` when absent); the value is the last record's `y[0]`
-  field, so a rolling file keeps showing the newest reading.
+  field, so a rolling file keeps showing the newest reading. An explicit null clears the dial.
+  Records are processed in input order; sort them chronologically in the producer.
 - **Vband overlays become the dial's colored zones**: each `{yfrom, yto, label}` span maps onto the
   range and is painted green → yellow → orange → red bottom-up (cycling for more than four zones),
   with neutral gaps between unclaimed spans.

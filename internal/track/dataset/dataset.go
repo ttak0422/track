@@ -72,13 +72,15 @@ type Price struct {
 	Volume  float64   `json:"volume,omitempty"`
 }
 
-// Metric is a named numeric series sample, optionally scoped to an entity.
+// Metric is a named numeric series sample, optionally scoped to an entity. A nil Value is an
+// explicitly missing observation and requires MissingReason; omitting value in JSON is invalid.
 type Metric struct {
-	Version int       `json:"version"`
-	Name    string    `json:"name"`
-	Entity  string    `json:"entity,omitempty"`
-	Time    time.Time `json:"time"`
-	Value   float64   `json:"value"`
+	Version       int       `json:"version"`
+	Name          string    `json:"name"`
+	Entity        string    `json:"entity,omitempty"`
+	Time          time.Time `json:"time"`
+	Value         *float64  `json:"value"`
+	MissingReason string    `json:"missing_reason,omitempty"`
 }
 
 // Entity is a thing that prices/metrics/events refer to.
@@ -143,6 +145,8 @@ func KindFields(k Kind) []Field {
 // jsonType maps a Go field type to a friendly JSON type name for help/docs.
 func jsonType(t reflect.Type) string {
 	switch {
+	case t.Kind() == reflect.Pointer:
+		return jsonType(t.Elem()) + "|null"
 	case t == reflect.TypeOf(time.Time{}):
 		return "time(RFC3339)"
 	case t.Kind() == reflect.String:

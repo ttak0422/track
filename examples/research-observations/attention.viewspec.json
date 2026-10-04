@@ -1,0 +1,41 @@
+{
+  "version": 2,
+  "title": "Independent news sources (count)",
+  "mark": "line",
+  "data": {
+    "source": "metrics.jsonl",
+    "kind": "metric"
+  },
+  "filter": {
+    "field": "name",
+    "equals": "independent_news_sources"
+  },
+  "encoding": {
+    "x": {
+      "field": "time"
+    },
+    "y": [
+      {
+        "field": "value",
+        "title": "Independent news sources (count)"
+      }
+    ],
+    "detail": [
+      {
+        "field": "missing_reason",
+        "title": "Missing reason"
+      },
+      {
+        "field": "claim_type",
+        "title": "Kind"
+      },
+      {
+        "field": "available_at",
+        "title": "Available at"
+      }
+    ],
+    "href": {
+      "field": "url"
+    }
+  }
+}

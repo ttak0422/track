@@ -2,6 +2,7 @@ package dataset
 
 import (
 	"fmt"
+	"math"
 	"strings"
 )
 
@@ -19,19 +20,51 @@ func Validate(kind Kind, rec Record) error {
 	if v, ok := rec.Float("version"); ok && v > float64(SchemaVersion) {
 		return fmt.Errorf("record version %v is newer than supported %d", v, SchemaVersion)
 	}
+	if kind == KindMetric {
+		if err := validateMetricValue(rec); err != nil {
+			return err
+		}
+	}
 	for _, f := range KindFields(kind) {
 		raw, present := rec[f.Name]
+		if kind == KindMetric && f.Name == "value" && present && raw == nil {
+			continue // validateMetricValue requires an explanation for this explicit gap
+		}
 		if !present || isBlank(raw) {
 			if f.Required {
 				return fmt.Errorf("missing required field %q", f.Name)
 			}
 			continue
 		}
-		if f.Type == "number" {
+		if f.Type == "number" || f.Type == "number|null" {
 			if _, ok := rec.Float(f.Name); !ok {
 				return fmt.Errorf("field %q must be a number", f.Name)
 			}
 		}
+	}
+	return nil
+}
+
+// validateMetricValue distinguishes a deliberate missing observation from malformed input. The
+// required value key stays mandatory; only an explicit null with a meaningful reason is a gap.
+func validateMetricValue(rec Record) error {
+	raw, present := rec["value"]
+	reason, hasReason := rec["missing_reason"]
+	text, isString := reason.(string)
+	if hasReason && !isString {
+		return fmt.Errorf("field %q must be a string", "missing_reason")
+	}
+	if present && raw == nil {
+		if strings.TrimSpace(text) == "" {
+			return fmt.Errorf("null metric value requires a non-empty %q", "missing_reason")
+		}
+		return nil
+	}
+	if strings.TrimSpace(text) != "" {
+		return fmt.Errorf("field %q requires an explicit null metric value", "missing_reason")
+	}
+	if value, ok := rec.Float("value"); ok && (math.IsNaN(value) || math.IsInf(value, 0)) {
+		return fmt.Errorf("field %q must be a finite number or an explicit null with missing_reason", "value")
 	}
 	return nil
 }
