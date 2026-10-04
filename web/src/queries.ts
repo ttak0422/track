@@ -214,6 +214,16 @@ export function useNewNotesQuery(limit = 10, vault = "") {
   });
 }
 
+// Refresh creation-order lists after an indexed change, including the fallback activity poll.
+// Cancel first: invalidateQueries alone reuses an initial request with no cached data, so a response
+// captured before the change could otherwise arrive late and hide the new note indefinitely.
+// Prefix matching preserves each list's vault/limit and marks inactive vaults stale for their next use.
+export async function refreshNewNotes(queryClient: QueryClient) {
+  const queryKey = ["notes", "new"] as const;
+  await queryClient.cancelQueries({ queryKey });
+  await queryClient.invalidateQueries({ queryKey });
+}
+
 // useDatedTasksQuery lists every task in the vault carrying a date, for the calendar and the day
 // page. One cache entry serves both, so opening a day from the calendar paints from what is already
 // held.

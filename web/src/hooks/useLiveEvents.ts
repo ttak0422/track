@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
-import { queryKeys } from "../queries";
+import { queryKeys, refreshNewNotes } from "../queries";
 import { STATIC_MODE } from "../runtime";
 
 // Subscribes to the server's change stream and refreshes data when the vault
@@ -23,7 +23,8 @@ export function useLiveEvents() {
         window.clearTimeout(invalidateTimer);
       }
       invalidateTimer = window.setTimeout(() => {
-        void queryClient.invalidateQueries({ queryKey: queryKeys.notes() });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.notes(), exact: true });
+        void refreshNewNotes(queryClient);
         void queryClient.invalidateQueries({ queryKey: ["note"] });
         void queryClient.invalidateQueries({ queryKey: ["search"] });
         void queryClient.invalidateQueries({ queryKey: ["activity"] });
@@ -45,6 +46,9 @@ export function useLiveEvents() {
       }, 150);
     }
     const source = new EventSource("/api/events");
+    // Events are not replayed. Refresh on connection/reconnection to cover changes in the gap,
+    // including an initial list request that began before the stream subscribed.
+    source.addEventListener("open", scheduleInvalidation);
     source.addEventListener("change", scheduleInvalidation);
     source.addEventListener("data", scheduleDataInvalidation);
     return () => {
