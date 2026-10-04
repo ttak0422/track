@@ -240,29 +240,15 @@ describe("content width", () => {
     expect(propsRule).toMatch(/max-width:\s*var\(--content-measure\)/);
   });
 
-  it("lets shared diagram viewports bleed to the window while keeping frame chrome in the prose column", () => {
+  it("keeps diagram viewports local until the shared frame measures their available width", () => {
     const viewportRule = ruleBody(".markdown-view > .mermaid-diagram > .mermaid-viewport");
 
     expect(viewportRule).toMatch(/width:\s*100%/);
-    expect(css).toMatch(/\.markdown-view > \.mermaid-diagram > \.mermaid-viewport:not\(\[data-collapsed\]\)\s*\{[^}]*width:\s*100vw/);
-    expect(css).toMatch(/\.markdown-view > \.mermaid-diagram > \.mermaid-viewport:not\(\[data-collapsed\]\)\s*\{[^}]*margin-left:\s*calc\(50%\s*-\s*50vw\)/);
+    // DiagramFrame uses actual reader/sidebar bounds; CSS must not reintroduce a viewport-width
+    // drawing under the sidebar or move it away from those measured edges.
+    expect(css).not.toMatch(/\.mermaid-viewport[^{}]*\{[^}]*100vw/);
+    expect(css).not.toMatch(/\.mermaid-viewport[^{}]*\{[^}]*50vw/);
     expect(css).not.toMatch(/\.markdown-view > \.mermaid-diagram\s*\{[^}]*width:\s*100vw/);
-  });
-
-  it("anchors the docked bleed at the reading surface's edge, not the middle of the prose", () => {
-    const docked = mediaBody("(min-width: 1100px)");
-
-    // Undo the reader's dock lane and the preview's own padding, then whatever margin auto-centring
-    // gave the column — the prose's midpoint is not the surface's once the rail sits beside it.
-    expect(docked).toMatch(/margin-left:\s*calc\(\s*-64px - var\(--preview-pad-inline, 16px\)/);
-    expect(docked).toMatch(/100vw - 96px/);
-    // The padding it undoes has to be the one .note-preview actually sets, or the block lands short.
-    expect(ruleBody(".note-preview")).toMatch(/--preview-pad-inline:\s*16px/);
-    expect(ruleBody(".note-preview")).toMatch(/padding:\s*16px var\(--preview-pad-inline\)/);
-    // Uncapped, the column starts at the lane with no centring margin to undo.
-    expect(docked).toMatch(
-      /html\[data-content-width="none"\][\s\S]*?margin-left:\s*calc\(-64px - var\(--preview-pad-inline, 16px\)\)/,
-    );
   });
 
   it("gives the docked aside padded ground, so a bleeding block cannot reach its text", () => {

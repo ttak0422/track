@@ -153,7 +153,8 @@ export function DiagramFrame({
     showFoldControl,
     toggleCollapsed,
   } = panZoom;
-  const showPopupControl = !collapsed && (showFoldControl || overflow.left || overflow.right);
+  // Width fitting can make a short, wide diagram small; its popup must stay reachable.
+  const showPopupControl = !collapsed;
   return (
     <div ref={visibilityRef} className={rootClass} data-collapsed={collapsed || undefined}>
       {/* Every control the diagram has, in one strip above the drawing. They used to float over the
@@ -370,15 +371,9 @@ interface Transform {
 
 const identityTransform: Transform = { x: 0, y: 0, scale: 1 };
 
-// Width target: fitting shrinks a diagram to at most this fraction of the viewport width — until
-// the readability floor below binds, past which the diagram runs wider and clips.
+// Leave a little breathing room around the initial overview. No minimum readable scale: even a
+// very wide diagram must fit before the reader chooses to zoom in or open the popup.
 const fitWidthRatio = 0.8;
-
-// Readability floor: a wide diagram never fits below this fraction of the ideal scale (12px text
-// against a 16px article). Past it the diagram overflows horizontally — clipped at the viewport
-// edge and pannable, the horizontal analog of a tall diagram's collapsed preview — instead of
-// shrinking the whole visualization to an unreadable thumbnail.
-const minReadableRatio = 0.75;
 
 // Font size mermaid renders at (pinned in mermaidConfig). The ideal display scale makes diagram
 // text match the surrounding article text: articleFontPx / mermaidFontPx.
@@ -392,16 +387,10 @@ const collapsedHeight = 320;
 // compacted without forcing a permanent control onto small diagrams.
 const autoCollapseHeight = 480;
 
-// Pan (pointer drag) and zoom (wheel/buttons) applied as a CSS transform on the diagram. On first paint
-// the diagram is fitted to the ideal scale — diagram text matching the article's font size — shrunk
-// only if that would overflow fitWidthRatio of the viewport width, and never below the readability
-// floor: a wider diagram keeps legible text, is clipped at the viewport edge, and pans (drag or
-// horizontal wheel), with `overflow` naming the clipped sides so the frame can fade them. The
-// viewport height is sized to the scaled diagram; reset returns to the fit, and the fit follows
-// container resizes until the user pans or zooms. A tall diagram has a fold toggle, but starts
-// expanded unless the reader previously collapsed this source. `svg` is the rendered markup (null
-// until ready), used to re-fit
-// whenever the diagram changes.
+// First paint and Reset fit the whole width inside the available reading surface. Explicit pan/zoom
+// can clip content, with fades indicating the hidden sides. Resize follows the default overview until
+// the reader interacts; afterward only the reset target changes. Tall diagrams can be folded, and a
+// source's fold choice persists across visits.
 function usePanZoom(svg: string | null, { persistenceKey }: { persistenceKey?: string } = {}) {
   const [transform, setTransform] = useState<Transform>(identityTransform);
   const [viewportHeight, setViewportHeight] = useState<number | null>(null);
@@ -414,6 +403,8 @@ function usePanZoom(svg: string | null, { persistenceKey }: { persistenceKey?: s
   const fitRef = useRef<Transform>(identityTransform);
   const naturalRef = useRef({ w: 0, h: 0 });
   const idealScaleRef = useRef(1);
+  // Keep the interaction floor with the current overview, even when a touched view survives a resize.
+  const minScaleRef = useRef(0.2);
   // Set once the user pans or zooms: container resizes then stop re-fitting (the fit would stomp
   // their view) and only the reset target keeps tracking the width.
   const touchedRef = useRef(false);
@@ -439,12 +430,17 @@ function usePanZoom(svg: string | null, { persistenceKey }: { persistenceKey?: s
       setTransform(fitRef.current);
       return;
     }
+    sizeInlineViewport(viewport, col);
+    setViewportW(viewport.clientWidth);
     const ideal = idealScaleRef.current;
     const center = frameCenter(viewport);
     const view = col
       ? computeCollapsedFit(w, h, viewport.clientWidth, ideal, center)
       : computeFit(w, h, viewport.clientWidth, ideal, center);
-    fitRef.current = computeFit(w, h, viewport.clientWidth, ideal, center).transform;
+    const fit = computeFit(w, h, viewport.clientWidth, ideal, center);
+    fitRef.current = fit.transform;
+    setShowFoldControl(fit.height > autoCollapseHeight || col);
+    minScaleRef.current = Math.min(0.2, view.transform.scale);
     setTransform(view.transform);
     setViewportHeight(view.height);
   }
@@ -458,13 +454,12 @@ function usePanZoom(svg: string | null, { persistenceKey }: { persistenceKey?: s
     const naturalH = pan.offsetHeight;
     if (naturalW === 0 || naturalH === 0) return false;
     naturalRef.current = { w: naturalW, h: naturalH };
+    sizeInlineViewport(viewport, collapsedRef.current);
     setViewportW(viewport.clientWidth);
     idealScaleRef.current = measureIdealScale(viewport);
     touchedRef.current = false;
-    const { height } = computeFit(naturalW, naturalH, viewport.clientWidth, idealScaleRef.current);
     const storedCollapsed = persistenceKey != null && readCollapsedState(persistenceKey);
     const shouldCollapse = storedCollapsed === true;
-    setShowFoldControl(height > autoCollapseHeight || shouldCollapse);
     setCollapsed(shouldCollapse);
     applyView(shouldCollapse);
     return true;
@@ -485,29 +480,55 @@ function usePanZoom(svg: string | null, { persistenceKey }: { persistenceKey?: s
     const el = viewportRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
     let lastW = el.clientWidth;
-    const ro = new ResizeObserver(() => {
+    let lastCenter = frameCenter(el);
+    let lastIdealScale = idealScaleRef.current;
+    const resize = () => {
+      sizeInlineViewport(el, collapsedRef.current);
       const w = el.clientWidth;
+      const center = frameCenter(el);
+      const idealScale = measureIdealScale(el);
       if (w === 0) return;
       // A modal's viewport is display:none during the first layout effect. When showModal() makes it
       // measurable, recover the natural size here instead of leaving the popup permanently unfit.
       if (naturalRef.current.w === 0) {
         if (!measureAndApply()) return;
         lastW = w;
+        lastCenter = center;
         return;
       }
       // Keep the overflow fades honest even when a touched view skips the re-fit below.
       setViewportW(w);
-      if (w === lastW) return;
+      if (w === lastW && center === lastCenter && idealScale === lastIdealScale) return;
       lastW = w;
-      idealScaleRef.current = measureIdealScale(el);
+      lastCenter = center;
+      lastIdealScale = idealScale;
+      idealScaleRef.current = idealScale;
       const { w: nw, h: nh } = naturalRef.current;
-      fitRef.current = computeFit(nw, nh, w, idealScaleRef.current, frameCenter(el)).transform;
+      const fit = computeFit(nw, nh, w, idealScale, center);
+      fitRef.current = fit.transform;
+      setShowFoldControl(fit.height > autoCollapseHeight || collapsedRef.current);
       if (!touchedRef.current) {
         applyView(collapsedRef.current);
       }
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
+    };
+    const ro = new ResizeObserver(resize);
+    // Observe the layout owners too: a content-width setting or docked/stacked aside can move the
+    // frame without resizing the already-expanded viewport itself.
+    const frame = el.parentElement;
+    const reader = el.closest(".reader");
+    const layout = el.closest(".note-layout");
+    const aside = layout?.querySelector(":scope > .note-aside");
+    for (const target of new Set([el, frame, reader, layout, aside])) {
+      if (target) ro.observe(target);
+    }
+    window.addEventListener("resize", resize);
+    const settings = new MutationObserver(resize);
+    settings.observe(document.documentElement, { attributes: true, attributeFilter: ["style", "data-content-width"] });
+    return () => {
+      ro.disconnect();
+      settings.disconnect();
+      window.removeEventListener("resize", resize);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [svg, persistenceKey]);
 
@@ -562,7 +583,7 @@ function usePanZoom(svg: string | null, { persistenceKey }: { persistenceKey?: s
       const rect = el!.getBoundingClientRect();
       const cx = event.clientX - rect.left;
       const cy = event.clientY - rect.top;
-      setTransform((prev) => zoomAt(prev, cx, cy, Math.exp(-delta * 0.0015)));
+      setTransform((prev) => zoomAt(prev, cx, cy, Math.exp(-delta * 0.0015), minScaleRef.current));
     }
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
@@ -597,7 +618,7 @@ function usePanZoom(svg: string | null, { persistenceKey }: { persistenceKey?: s
     if (!el || collapsed) return;
     touchedRef.current = true;
     const rect = el.getBoundingClientRect();
-    setTransform((prev) => zoomAt(prev, rect.width / 2, rect.height / 2, factor));
+    setTransform((prev) => zoomAt(prev, rect.width / 2, rect.height / 2, factor, minScaleRef.current));
   }
 
   // Which sides hide clipped content under the current pan — recomputed per render (pan, zoom, and
@@ -676,11 +697,8 @@ export function computeCollapsedFit(
   return { transform: fit.transform, height: Math.min(fit.height, collapsedHeight) };
 }
 
-// computeFit shows a naturalW×naturalH diagram at idealScale (diagram text matches the article's
-// font size), shrinking only if that overflows fitWidthRatio of viewW — but never below the
-// readability floor: a wider diagram keeps legible text and is clipped at the viewport edge
-// instead. The diagram is centred on centerX — the frame's midpoint, see frameCenter — whether it
-// fits or overflows, and the returned height hugs the scaled diagram.
+// Fit the complete width, including when its text needs to be smaller than the article's. Prefer
+// alignment with the control bar, but keep the overview inside the viewport's real visible edges.
 export function computeFit(
   naturalW: number,
   naturalH: number,
@@ -688,19 +706,49 @@ export function computeFit(
   idealScale = 1,
   centerX = viewW / 2,
 ): { transform: Transform; height: number } {
-  const scale = clamp(
-    Math.min((viewW * fitWidthRatio) / naturalW, idealScale),
-    minReadableRatio * idealScale,
-    8,
-  );
+  const scale = Math.min((viewW * fitWidthRatio) / naturalW, idealScale, 8);
+  const width = naturalW * scale;
+  const inset = (viewW * (1 - fitWidthRatio)) / 2;
   return {
-    transform: { scale, x: centerX - (naturalW * scale) / 2, y: 0 },
+    transform: { scale, x: clamp(centerX - width / 2, inset, viewW - inset - width), y: 0 },
     height: naturalH * scale,
   };
 }
 
+// Expanded read-only diagrams may outgrow the note's measure, but not the actual reading surface.
+// Measure that surface rather than deriving it from 100vw: dock lanes, scrollbars, content-width
+// settings, and a docked aside all change the space that is really visible. Split panes, popups,
+// includes with their own scroller, and collapsed previews keep their local frame instead.
+function sizeInlineViewport(viewport: HTMLElement, collapsed: boolean) {
+  const frame = viewport.parentElement;
+  const reader = viewport.closest<HTMLElement>(".reader");
+  const preview = viewport.closest<HTMLElement>(".note-preview");
+  const note = viewport.closest(".note-reader");
+  const canBleed = !collapsed && frame?.matches(".note-preview > .markdown-view > .mermaid-diagram") &&
+    reader && preview && note && !note.querySelector(".note-editor textarea") &&
+    getComputedStyle(preview).overflowX === "visible";
+  if (!frame || !canBleed) {
+    viewport.style.removeProperty("width");
+    viewport.style.removeProperty("margin-left");
+    return;
+  }
+  const rect = reader.getBoundingClientRect();
+  if (reader.clientWidth === 0 || frame.getBoundingClientRect().width === 0) return;
+  const css = getComputedStyle(reader);
+  const left = rect.left + reader.clientLeft + (parseFloat(css.paddingLeft) || 0);
+  let right = rect.left + reader.clientLeft + reader.clientWidth - (parseFloat(css.paddingRight) || 0);
+  const layout = note.querySelector<HTMLElement>(":scope > .note-layout");
+  const aside = layout?.querySelector<HTMLElement>(":scope > .note-aside");
+  if (layout && aside && getComputedStyle(layout).flexDirection === "row" && aside.getBoundingClientRect().width > 0) {
+    right = Math.min(right, aside.getBoundingClientRect().left);
+  }
+  if (right <= left) return;
+  viewport.style.width = `${right - left}px`;
+  viewport.style.marginLeft = `${left - frame.getBoundingClientRect().left}px`;
+}
+
 // frameCenter is the x the diagram is centred on, in the viewport's own coordinates. Only the
-// drawing viewport bleeds to the window; the frame around it — the control bar the reader sees above
+// drawing viewport expands to the reading surface; the frame around it — the control bar the reader sees above
 // the diagram — stays at the reading column, so a diagram centred on the viewport hangs off the bar
 // it belongs to. Measured rather than derived from the bleed CSS: the lightbox reuses the same
 // viewport with no bleed at all, and there the frame is the viewport.
@@ -734,8 +782,8 @@ function measureIdealScale(el: HTMLElement): number {
 }
 
 // zoomAt multiplies the scale by factor while keeping the point (cx, cy) fixed in the viewport.
-function zoomAt(prev: Transform, cx: number, cy: number, factor: number): Transform {
-  const scale = clamp(prev.scale * factor, 0.2, 8);
+function zoomAt(prev: Transform, cx: number, cy: number, factor: number, minScale = 0.2): Transform {
+  const scale = clamp(prev.scale * factor, minScale, 8);
   const k = scale / prev.scale;
   return { scale, x: cx - (cx - prev.x) * k, y: cy - (cy - prev.y) * k };
 }
