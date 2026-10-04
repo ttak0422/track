@@ -299,6 +299,7 @@ func buildSeriesChart(opt map[string]any, res viewspec.Resolved) {
 		}
 		applySeriesStyle(es, res, i, form, i)
 		if form == viewspec.ChartLine || form == viewspec.ChartArea {
+			es["connectNulls"] = false // explicit missing observations must never be interpolated
 			// No vertex dots, matching the SVG renderer's plain polyline; the axis tooltip still
 			// highlights the hovered point.
 			es["showSymbol"] = false
@@ -1330,9 +1331,12 @@ func buildGauge(opt map[string]any, res viewspec.Resolved) {
 		"axisTick":  map[string]any{"show": false},
 		"splitLine": map[string]any{"show": false},
 		"axisLabel": map[string]any{"show": false},
-		"pointer":   map[string]any{"width": 4, "length": "46%"},
-		"anchor":    map[string]any{"show": true, "size": 8},
+		// ECharts puts a null datum's pointer at the minimum and prints NaN by default. Hide
+		// both explicitly for a missing reading, and restore them when a finite value returns.
+		"pointer": map[string]any{"show": value != nil, "width": 4, "length": "46%"},
+		"anchor":  map[string]any{"show": true, "size": 8},
 		"detail": map[string]any{
+			"show":         value != nil,
 			"formatter":    "{value}",
 			"fontSize":     36,
 			"offsetCenter": []any{0, "38%"},

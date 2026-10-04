@@ -1,0 +1,58 @@
+{
+  "version": 2,
+  "mark": "line",
+  "title": "News sources (synthetic)",
+  "data": {
+    "kind": "metric",
+    "records": [
+      {
+        "version": 1,
+        "name": "news_sources",
+        "time": "2026-10-01",
+        "value": 18
+      },
+      {
+        "version": 1,
+        "name": "news_sources",
+        "time": "2026-10-02",
+        "value": 12
+      },
+      {
+        "version": 1,
+        "name": "news_sources",
+        "time": "2026-10-03",
+        "value": null,
+        "missing_reason": "Collection unavailable"
+      },
+      {
+        "version": 1,
+        "name": "news_sources",
+        "time": "2026-10-04",
+        "value": 3
+      },
+      {
+        "version": 1,
+        "name": "news_sources",
+        "time": "2026-10-05",
+        "value": 0
+      }
+    ]
+  },
+  "encoding": {
+    "x": {
+      "field": "time"
+    },
+    "y": [
+      {
+        "field": "value",
+        "title": "Source count"
+      }
+    ],
+    "detail": [
+      {
+        "field": "missing_reason",
+        "title": "Missing reason"
+      }
+    ]
+  }
+}
