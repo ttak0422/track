@@ -27,6 +27,21 @@ Address it without registering it: pass `--path docs/help/note/<id>.md`, which n
 itself, or prefix anything else with `TRACK_VAULT=docs/help`. Without one of those a command uses the
 default vault — a read comes back empty, and a **write lands in another vault silently**.
 
+### Document user-visible changes
+
+- New features and user-visible behavior changes must include corresponding `docs/help` updates in
+  the same PR. Explain how to use the behavior, give runnable examples where appropriate, and cover
+  important limits and errors. ADRs, technical specifications, and CLI reference text alone do not
+  replace user-facing help.
+- Update the affected `docs/help/note/<id>.md` pages and keep navigation, heading links, assets, and
+  any changed `.track/notes/<id>.yaml` metadata consistent so users can find the guidance. Follow the
+  vault-selection instructions above when using the CLI.
+- Verify examples and relevant behavior tests, run `nix develop --command make site`, and inspect
+  the affected rendered pages and links. The PR must identify the help pages updated and report
+  verification results, including anything blocked or not run. Check CI for the final published head.
+- Internal-only changes with no user-visible effect may omit help updates; explain that exception
+  in the PR rather than silently skipping documentation.
+
 ## Development
 
 - This project is under active development: prioritize the best design over backward compatibility, and do not hesitate to make breaking changes when they lead to a better result.
