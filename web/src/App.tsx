@@ -14,6 +14,7 @@ import { CalendarFullView } from "./components/CalendarFullView";
 import { DayView } from "./components/DayView";
 import { EmptyState } from "./components/EmptyState";
 import { GraphFullView } from "./components/GraphFullView";
+import { MarkdownViewer } from "./components/MarkdownViewer";
 import { NoteReader } from "./components/NoteReader";
 import { SearchHome } from "./components/SearchHome";
 import { TasksView } from "./components/TasksView";
@@ -38,6 +39,18 @@ const noteRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/notes/$noteId",
   component: NoteRoute,
+});
+
+const markdownRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/markdown",
+  validateSearch: (search: Record<string, unknown>): { doc?: string } => ({
+    ...(typeof search.doc === "string" && search.doc ? { doc: search.doc } : {}),
+  }),
+  component: () => {
+    const { doc } = markdownRoute.useSearch();
+    return STATIC_MODE ? <EmptyState /> : <MarkdownViewer documentID={doc} />;
+  },
 });
 
 const graphRoute = createRoute({
@@ -109,6 +122,7 @@ const devRoutes = import.meta.env.DEV
 const routeTree = rootRoute.addChildren([
   indexRoute,
   noteRoute,
+  markdownRoute,
   graphRoute,
   voiceRoute,
   calendarRoute,

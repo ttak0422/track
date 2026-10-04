@@ -5675,3 +5675,65 @@ textarea.modal-input:focus-visible {
 
 /* Map marker: visualization geometry, with the reader's ink and ground. */
 .map-fence-marker { border: 2px solid var(--text); border-radius: 50%; background: var(--panel); }
+
+/* External Markdown uses text controls (variant 1) and the existing reader sheet. */
+.external-markdown-viewer {
+  width: 100%;
+  max-width: var(--content-width, 880px);
+  margin-inline: auto;
+}
+.external-markdown-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.external-markdown-source {
+  margin-block: 20px;
+  padding-block: 12px;
+  border-block: 1px solid var(--line);
+}
+.external-markdown-source p {
+  overflow-wrap: anywhere;
+  font-size: calc(13px * var(--font-scale, 1));
+}
+.external-markdown-file {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: calc(14px * var(--font-scale, 1));
+}
+.external-markdown-file select {
+  min-width: 0;
+  max-width: 100%;
+  padding: 6px 8px;
+  color: var(--text);
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font: inherit;
+}
+.external-markdown-actions .text-button {
+  padding: 6px 0;
+  border: 0;
+  border-radius: 0;
+  color: var(--muted);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.external-markdown-actions .text-button:hover,
+.external-markdown-actions .text-button:focus-visible {
+  color: var(--text);
+}
+.external-markdown-viewer .markdown-view img {
+  max-width: 100%;
+  height: auto;
+}
+
+.reader:has(.external-markdown-viewer) {
+  scrollbar-width: thin;
+  scrollbar-gutter: stable;
+}
+.reader:has(.external-markdown-viewer)::-webkit-scrollbar {
+  display: block;
+}

@@ -241,3 +241,18 @@ describe("recentsForScope", () => {
     expect(recentsForScope([], "work")).toEqual([]);
   });
 });
+
+describe("external Markdown view tab", () => {
+  it("keeps the viewer separate from vault note recents and preserves note navigation", () => {
+    window.localStorage.clear();
+    routerMock.pathname = "/markdown";
+    const { result, rerender } = renderHook(() => useTabs(), { wrapper });
+    expect(result.current.tabs).toEqual([{ id: "markdown", title: "Markdown viewer" }]);
+    expect(result.current.recent).toEqual([]);
+    expect(result.current.activeID).toBe("markdown");
+    routerMock.pathname = "/notes/123";
+    rerender();
+    expect(result.current.tabs.map((tab) => tab.id)).toEqual(["123", "markdown"]);
+    expect(result.current.recent.map((tab) => tab.id)).toEqual(["123"]);
+  });
+});

@@ -221,6 +221,15 @@ export function MobileDock() {
   }
   if (!STATIC_MODE) {
     actions.push({
+      key: "markdown",
+      label: "Markdown viewer",
+      icon: <RailIcon Icon={IconFileText} />,
+      run: () => {
+        setOpen(false);
+        void navigate({ to: "/markdown", search: {} });
+      },
+    });
+    actions.push({
       key: "tasks",
       label: "Tasks",
       icon: <RailIcon Icon={IconChecklist} />,
