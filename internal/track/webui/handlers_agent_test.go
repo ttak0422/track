@@ -121,3 +121,27 @@ func TestAgentsEndpointMethodAndEmptyRegistry(t *testing.T) {
 		t.Fatalf("empty registry should list an empty array: %s", body)
 	}
 }
+
+// The panel must accept the actual omitempty wire shape for unrestricted agents. Listing this
+// fake delivery destination is read-only: no send script is invoked by GET /api/agents.
+func TestAgentsUnrestrictedDeliveryProjection(t *testing.T) {
+	server, _ := requestServerAgents(t, map[string]config.AgentConfig{
+		"general": {Agmsg: &config.AgmsgConfig{SendScript: "/fixture/not-executed/send.sh"}},
+	})
+	code, body := agentsBody(t, server.URL+"/api/agents")
+	if code != http.StatusOK {
+		t.Fatalf("status = %d", code)
+	}
+	var out struct {
+		Agents []map[string]any `json:"agents"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Agents) != 1 || out.Agents[0]["id"] != "general" || out.Agents[0]["agmsg_available"] != true {
+		t.Fatalf("unrestricted agent unavailable: %s", body)
+	}
+	if _, present := out.Agents[0]["operations"]; present {
+		t.Fatalf("expected omitted operations for unrestricted agent: %s", body)
+	}
+}
