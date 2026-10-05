@@ -2851,10 +2851,6 @@ textarea.modal-input:focus-visible {
    narrower cap it sets for itself rather than being stretched past the prose beside it. */
 .markdown-view > .embed:not(.ogp-card),
 .markdown-view > .media-frame,
-.markdown-view > .mermaid-diagram,
-.markdown-view > .drawio-diagram,
-.markdown-view > .mindmap-diagram,
-.markdown-view > .graphviz-diagram,
 .markdown-view > .viewspec-chart,
 .markdown-view > .viewspec-chart-wrap,
 .markdown-view > .note-include,
@@ -3732,8 +3728,7 @@ textarea.modal-input:focus-visible {
   touch-action: none;
 }
 
-/* The shared diagram frame measures the available read-only surface before fitting. Without that
-   measurement (split panes, previews, collapsed diagrams), stay inside the local column. */
+/* Diagram controls and their clipped pan/zoom viewport share the surrounding prose measure. */
 .markdown-view > .mermaid-diagram > .mermaid-viewport {
   width: 100%;
 }
@@ -4992,20 +4987,12 @@ textarea.modal-input:focus-visible {
   display: none;
 }
 
-/* Put the aside beside the note instead of under it whenever the viewport holds both: the reader
-   becomes a row of note column + rail, centered together, and the note column gives up width
-   before the rail does — so the rail shows on an ordinary laptop, not only when the centered
-   column's margin happens to hold one. The rail's width scales with the viewport (clamp), so a
-   screen with width to spare shows longer titles instead of 186px stubs; the reader's max-width
-   mirrors the same clamp so the row only grows when the rail actually does. Reading surfaces
-   only: :has(.note-editor textarea) keeps edit/split stacked (the meta dialog's textarea must not
-   undock the rail), and the live home renders the configured home note in hero chrome, so it stays
-   stacked too. The rail sticks under the tab bar and scrolls its own overflow. The "Full" content
-   width stores none, which calc() cannot digest, so ThemeMenu mirrors it into
-   html[data-content-width] for the uncapped gate. */
+/* Wide reading layouts span the sheet so the aside stays at the window's right edge. The
+   main column remains centered in the space left beside it and keeps the selected content width.
+   Narrow screens, edit/split and the live home retain their stacked layout. */
 @media (min-width: 1100px) {
   .workspace:not(.home) .note-reader:not(:has(.note-editor textarea)) {
-    max-width: calc(var(--content-width, 880px) + 60px + clamp(240px, 24vw, 380px));
+    max-width: none;
   }
 
   .workspace:not(.home) .note-reader:not(:has(.note-editor textarea)) > .note-layout {
@@ -5014,13 +5001,13 @@ textarea.modal-input:focus-visible {
     gap: 60px;
   }
 
-  html[data-content-width="none"] .workspace:not(.home) .note-reader:not(:has(.note-editor textarea)) {
-    max-width: none;
+  .workspace:not(.home) .note-reader:not(:has(.note-editor textarea)) > .note-layout > .note-main {
+    max-width: var(--content-width, 880px);
+    margin-inline: auto;
   }
 
   .workspace:not(.home) .note-reader:not(:has(.note-editor textarea)) > .note-layout > .note-aside {
-    /* The aside keeps the sheet's own ground and a small inset around its words. Diagram fitting
-       stops at this padded edge, so no part of the default overview hides behind the sidebar. */
+    /* Keep a quiet inset around the aside text, with its ground reaching toward the window edge. */
     --aside-pad: 16px;
     position: sticky;
     top: calc(32px - var(--aside-pad)); /* the reader's 32px of breathing room, less the ground's own */

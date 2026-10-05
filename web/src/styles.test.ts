@@ -240,21 +240,24 @@ describe("content width", () => {
     expect(propsRule).toMatch(/max-width:\s*var\(--content-measure\)/);
   });
 
-  it("keeps diagram viewports local until the shared frame measures their available width", () => {
+  it("keeps diagram viewports and their frames inside the prose measure", () => {
     const viewportRule = ruleBody(".markdown-view > .mermaid-diagram > .mermaid-viewport");
 
     expect(viewportRule).toMatch(/width:\s*100%/);
-    // DiagramFrame uses actual reader/sidebar bounds; CSS must not reintroduce a viewport-width
-    // drawing under the sidebar or move it away from those measured edges.
+    // Diagram frames inherit the prose cap instead of opting into full-column content.
+    expect(ruleBody(".markdown-view > *")).toMatch(/max-width:\s*var\(--content-measure\)/);
+    expect(css).not.toMatch(/\.markdown-view > \.(mermaid|mindmap|graphviz|drawio)-diagram,/);
     expect(css).not.toMatch(/\.mermaid-viewport[^{}]*\{[^}]*100vw/);
     expect(css).not.toMatch(/\.mermaid-viewport[^{}]*\{[^}]*50vw/);
     expect(css).not.toMatch(/\.markdown-view > \.mermaid-diagram\s*\{[^}]*width:\s*100vw/);
   });
 
-  it("gives the docked aside padded ground, so a bleeding block cannot reach its text", () => {
+  it("pins the aside to the full reader width while centering a capped main column", () => {
     const docked = mediaBody("(min-width: 1100px)");
     const aside = docked.match(/> \.note-aside \{([^}]*)\}/)?.[1] ?? "";
 
+    expect(docked).toMatch(/\.note-reader:not\(:has\(\.note-editor textarea\)\) \{\s*max-width:\s*none/);
+    expect(docked).toMatch(/> \.note-main \{[^}]*max-width:\s*var\(--content-width, 880px\);[^}]*margin-inline:\s*auto/);
     expect(aside).toMatch(/background:\s*var\(--panel\)/);
     expect(aside).toMatch(/padding:\s*var\(--aside-pad\)/);
     // Ground flush with a glyph is not ground: it has to reach past the words, by the measure the

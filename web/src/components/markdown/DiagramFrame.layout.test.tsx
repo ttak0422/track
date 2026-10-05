@@ -2,8 +2,8 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DiagramFrame } from "./MermaidDiagram";
 
-// jsdom has no layout engine: supply the measured boxes, including an asymmetric reader, a real
-// scrollbar allowance, and an aside's padded left edge. The frame must use those boxes, not 100vw.
+// jsdom has no layout engine: supply prose-frame boxes independently from the wider reader and
+// aside. Fitting must use the local frame, never the extra space around the article.
 let geometry: { readerWidth: number; frameLeft: number; frameWidth: number; asideLeft: number; naturalWidth: number; naturalHeight: number };
 let resizeCallbacks: (() => void)[];
 const bounds = (left: number, width: number, height = 100): DOMRect =>
@@ -78,13 +78,14 @@ function elements(container: HTMLElement) {
 }
 const resize = () => act(() => resizeCallbacks.forEach(callback => callback()));
 
-describe("DiagramFrame available reading width", () => {
-  it("bleeds beyond prose but ends before the docked sidebar", () => {
+describe("DiagramFrame prose width", () => {
+  it("fits inside prose even when the reader has room before the docked sidebar", () => {
     const { container } = render(<Surface />);
     const { viewport, expectFit } = elements(container);
-    expect(viewport.style.width).toBe("1132px"); // 1196 - 64; never the 1516px window
-    expect(viewport.style.marginLeft).toBe("-216px");
-    expect(viewport.getBoundingClientRect().right).toBe(1196);
+    expect(viewport.style.width).toBe("");
+    expect(viewport.style.marginLeft).toBe("");
+    expect(viewport.getBoundingClientRect().left).toBe(geometry.frameLeft);
+    expect(viewport.getBoundingClientRect().right).toBe(geometry.frameLeft + geometry.frameWidth);
     expectFit();
   });
 
@@ -96,7 +97,7 @@ describe("DiagramFrame available reading width", () => {
     geometry.frameWidth = 880;
     view.rerender(<Surface stacked />);
     resize();
-    expect(viewport.style.width).toBe("1003px");
+    expect(viewport.clientWidth).toBe(880);
     expectFit();
 
     geometry.readerWidth = 390;
@@ -104,7 +105,7 @@ describe("DiagramFrame available reading width", () => {
     geometry.frameWidth = 334;
     view.rerender(<Surface stacked mobile />);
     resize();
-    expect(viewport.style.width).toBe("366px");
+    expect(viewport.clientWidth).toBe(334);
     expectFit();
 
     geometry.readerWidth = 1800;
@@ -113,18 +114,18 @@ describe("DiagramFrame available reading width", () => {
     geometry.asideLeft = 1390;
     view.rerender(<Surface />);
     resize();
-    expect(viewport.style.width).toBe("1326px");
+    expect(viewport.clientWidth).toBe(1250);
     expectFit();
   });
 
-  it("tracks an unchanged-width frame moving after a content-width setting", () => {
+  it("keeps local centering when an unchanged-width prose frame moves", () => {
     geometry.naturalWidth = 400;
     const { container } = render(<Surface />);
     const { transform, expectFit } = elements(container);
     const before = transform().x;
     geometry.frameLeft -= 120;
     resize();
-    expect(transform().x).toBeCloseTo(before - 120);
+    expect(transform().x).toBeCloseTo(before);
     expectFit();
   });
 
@@ -136,9 +137,10 @@ describe("DiagramFrame available reading width", () => {
     fireEvent.pointerMove(viewport, { pointerId: 1, clientX: 70, clientY: 30 });
     fireEvent.pointerUp(viewport, { pointerId: 1 });
     const touched = pan.style.transform;
+    geometry.frameWidth = 600;
     geometry.asideLeft = 900;
     resize();
-    expect(viewport.style.width).toBe("836px");
+    expect(viewport.clientWidth).toBe(600);
     expect(pan.style.transform).toBe(touched);
     fireEvent.click(screen.getByRole("button", { name: "Reset diagram view" }));
     expect(pan.style.transform).not.toBe(touched);
@@ -162,8 +164,9 @@ describe("DiagramFrame available reading width", () => {
     expect(viewport.style.height).toBe("320px");
     expectFit();
     fireEvent.click(screen.getByRole("button", { name: "Expand diagram" }));
-    expect(viewport.style.width).toBe("1132px");
+    expect(viewport.clientWidth).toBe(geometry.frameWidth);
     expectFit();
+    geometry.frameWidth = 500;
     geometry.asideLeft = 600;
     resize();
     expect(screen.queryByRole("button", { name: "Collapse diagram" })).not.toBeInTheDocument();
@@ -188,6 +191,7 @@ describe("DiagramFrame available reading width", () => {
 
     // A touched view stays at its old scale across resize. A larger new reset target must not
     // turn Zoom out into Zoom in or prevent zooming back to that original overview.
+    geometry.frameWidth = 1300;
     geometry.readerWidth = 2100;
     geometry.asideLeft = 1800;
     resize();
