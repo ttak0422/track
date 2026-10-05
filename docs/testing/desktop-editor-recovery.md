@@ -21,7 +21,9 @@ so a competing bind causes failure instead of adopting another server. Stop and
 cleanup operate only through owned process handles. The driver verifies that both
 listeners and the temporary PID lease disappear after the harness exits.
 
-The probe checks these transitions:
+The probe checks these transitions. Before editing, it follows a real Contents link and checks
+that neither the document nor a confirmation changed, navigates to a second unchanged note, and
+returns. After editing it repeats Contents navigation without losing the draft or prompting:
 
 1. Open the fixture note through React, select Edit, and dispatch input through the
    actual textarea's native setter and bubbling input event. Check the dirty tab
@@ -53,5 +55,6 @@ The interruption is a controlled stop/restart, not a crash/SIGSTOP recovery test
 
 Concurrent writes producing HTTP 409 and ordering between SSE invalidation and
 reconnection need a separate deterministic conflict fixture. They are not covered
-by this unchanged-disk scenario. Likewise this does not establish IME composition,
+by this unchanged-disk scenario. The frontend unit tests separately check dirty-state reporting during IME composition and a newer
+edit arriving while an older save completes. This harness does not establish real IME keystrokes,
 accessibility, security, performance, or persistence across an app restart.

@@ -26,6 +26,7 @@ import {
 import { useTabs } from "./tabs/tabsStore";
 import type { FollowState, NoteID } from "../types";
 import { vaultOf } from "../vaultId";
+import { useNativeEditorState } from "../nativeNavigation";
 
 interface NoteEditorProps {
   noteID: NoteID;
@@ -97,6 +98,13 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
   const pendingFollowRef = useRef<FollowState | null>(null);
   const previewRef = useRef<HTMLElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  useNativeEditorState({
+    body,
+    textarea: textareaRef,
+    savedBody: () => loadedRef.current.body,
+    pending: saveNote.isPending,
+    isDeleted: () => deletedRef.current,
+  });
 
   useEffect(() => {
     noteIDRef.current = noteID;

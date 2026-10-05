@@ -47,6 +47,18 @@ public enum WebURLPolicy {
         return .cancel
     }
 
+    /// Only an anchor link is known to preserve the document. An equal URL used by Reload,
+    /// form submission, or a programmatic load must still pass the dirty-state gate.
+    public static func isSameDocumentAnchor(from current: URL?, to destination: URL, isLink: Bool) -> Bool {
+        guard isLink, let current,
+              var source = URLComponents(url: current, resolvingAgainstBaseURL: false),
+              var target = URLComponents(url: destination, resolvingAgainstBaseURL: false),
+              target.fragment != nil else { return false }
+        source.fragment = nil
+        target.fragment = nil
+        return source == target
+    }
+
     private static func matchesOrigin(_ candidate: URLComponents, origin: URL) -> Bool {
         guard let expected = URLComponents(url: origin, resolvingAgainstBaseURL: false),
               candidate.scheme?.lowercased() == expected.scheme?.lowercased(),

@@ -238,6 +238,8 @@ jobs:
         run: |
           python3 scripts/desktop-smoke.py build/desktop/Track.app/Contents/MacOS/Track
           python3 scripts/desktop-smoke.py build/desktop/Track.app/Contents/MacOS/Track --recovery-test
+          python3 scripts/desktop-editor-recovery.py build/desktop/Track.app/Contents/Resources/track
+          python3 desktop/search-smoke.py build/desktop/Track.app/Contents/MacOS/Track
 
   # Reads this run's coverage profile and the one from the last main run, and comments the per-package
   # table and the change against main. Forks and Dependabot get no token that can comment, so they are

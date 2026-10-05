@@ -12,7 +12,8 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-FINAL_BODY = 'WK3 unsaved draft\n日本語 café — second line\nEdited after retry.\n'
+HEADINGS = '\n\n## First section\n\n## Second section\n'
+FINAL_BODY = 'WK3 unsaved draft\n日本語 café — second line\n' + HEADINGS + 'Edited after retry.\n'
 
 
 def reserve_pair():
@@ -58,12 +59,15 @@ def main():
         environment = {key: value for key, value in os.environ.items() if not key.startswith('TRACK_')}
         environment.update(TRACK_CONFIG=str(config), TRACK_VAULT=str(vault), TRACK_CACHE_DIR=str(cache))
         environment.update(
-            DEVELOPER_DIR=os.environ.get('DESKTOP_DEVELOPER_DIR', '/Library/Developer/CommandLineTools'),
-            SDKROOT=os.environ.get('DESKTOP_SDKROOT', '/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk'),
+            DEVELOPER_DIR=os.environ.get('DESKTOP_DEVELOPER_DIR') or subprocess.check_output(['/usr/bin/xcode-select', '-p'], text=True).strip(),
             CLANG_MODULE_CACHE_PATH=str(root / 'module-cache'),
         )
+        environment['SDKROOT'] = os.environ.get('DESKTOP_SDKROOT') or subprocess.check_output(
+            ['/usr/bin/xcrun', '--sdk', 'macosx', '--show-sdk-path'], env={key: value for key, value in environment.items() if key != 'SDKROOT'}, text=True).strip()
         subprocess.run([str(executable), 'new', '--id', '100', '--title', 'WK3 fixture',
-                        '--body', 'WK3 original body\n'], env=environment, check=True, timeout=30)
+                        '--body', 'WK3 original body' + HEADINGS], env=environment, check=True, timeout=30)
+        subprocess.run([str(executable), 'new', '--id', '101', '--title', 'Clean second note',
+                        '--body', 'Second unchanged note'], env=environment, check=True, timeout=30)
         # Symlink only reviewed source files into a temporary SwiftPM package. This avoids adding
         # a test executable to the shipped app or depending on another PR's AppDelegate hooks.
         (package / 'Core').symlink_to(ROOT / 'desktop/Sources/TrackWebCore', target_is_directory=True)
@@ -71,7 +75,8 @@ def main():
         harness.mkdir()
         for source in (ROOT / 'desktop/Tests/EditorRecovery/main.swift',
                        ROOT / 'desktop/Sources/TrackWebApp/WebViewCoordinator.swift',
-                       ROOT / 'desktop/Sources/TrackWebApp/TrackServerProcess.swift'):
+                       ROOT / 'desktop/Sources/TrackWebApp/TrackServerProcess.swift',
+                       ROOT / 'desktop/Sources/TrackWebApp/RestartFixture.swift'):
             (harness / source.name).symlink_to(source)
         (package / 'Package.swift').write_text('''// swift-tools-version: 6.0
 import PackageDescription
