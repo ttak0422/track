@@ -80,14 +80,17 @@ export function AgentRequestPanel() {
         };
   const agentList = agents.data?.agents ?? [];
   const available = useMemo(
-    () => agentList.filter((a) => a.operations?.length === 0 || a.operations?.includes(intent)),
+    () => agentList.filter((a) => !a.operations?.length || a.operations.includes(intent)),
     [agentList, intent],
   );
+  const selectable = useMemo(() => available.filter((agent) => agent.agmsg_available), [available]);
+  const selectedAgent = selectable.find((agent) => agent.id === agentID);
+  const canSend = !!selectedAgent && !agents.isError && !agents.isPending;
   const list = requests.data?.requests ?? [];
 
   useEffect(() => {
-    if (agentID === "" && available[0]) setAgentID(available[0].id);
-  }, [available, agentID]);
+    if (!selectable.some((agent) => agent.id === agentID)) setAgentID(selectable[0]?.id ?? "");
+  }, [selectable, agentID]);
   useEffect(() => {
     if (selected) {
       const fresh = list.find((r) => r.id === selected.id);
@@ -118,7 +121,10 @@ export function AgentRequestPanel() {
     return () => window.removeEventListener("track:open-agent-request", open);
   }, []);
   useEffect(() => {
-    if (target && !closed) void requests.refetch();
+    if (target && !closed) {
+      void requests.refetch();
+      void agents.refetch();
+    }
   }, [target, closed]);
   useEffect(() => () => returnFocus.current?.focus(), []);
   useEffect(() => {
@@ -127,7 +133,7 @@ export function AgentRequestPanel() {
   if (STATIC_MODE) return null;
 
   const send = async () => {
-    if (!target || !instruction.trim() || !agentID || (intent === "update" && !target.note)) return;
+    if (!target || !instruction.trim() || !canSend || (intent === "update" && !target.note)) return;
     const body: Record<string, unknown> = {
       client_request_id: crypto.randomUUID(),
       intent,
@@ -266,7 +272,13 @@ export function AgentRequestPanel() {
           />
           <label className="agent-request-agent">
             依頼先
-            <select aria-label="Agent" value={agentID} onChange={(e) => setAgentID(e.target.value)}>
+            <select
+              aria-label="Agent"
+              aria-describedby="agent-availability"
+              value={selectedAgent?.id ?? ""}
+              disabled={agents.isPending || agents.isError || selectable.length === 0}
+              onChange={(e) => setAgentID(e.target.value)}
+            >
               <option value="">選択してください</option>
               {available.map((agent) => (
                 <option key={agent.id} value={agent.id} disabled={!agent.agmsg_available}>
@@ -276,13 +288,38 @@ export function AgentRequestPanel() {
               ))}
             </select>
           </label>
+          <div
+            id="agent-availability"
+            className="agent-request-note"
+            role={agents.isError ? "alert" : agents.isPending || selectable.length === 0 ? "status" : undefined}
+          >
+            {agents.isPending ? (
+              "依頼先を読み込み中…"
+            ) : agents.isError ? (
+              "依頼先を取得できませんでした。接続を確認して再読み込みしてください。"
+            ) : agentList.length === 0 ? (
+              "依頼先が登録されていません。Track を起動した環境のマシン設定（agents）を確認し、変更後は Track を再起動してください。"
+            ) : available.length === 0 ? (
+              `「${labels[intent]}」に対応する依頼先がありません。別の操作を選んでください。`
+            ) : selectable.length === 0 ? (
+              "依頼先の送信設定がありません。マシン設定の agmsg.send_script を確認し、変更後は Track を再起動してください。"
+            ) : null}
+            <button
+              type="button"
+              className="text-button"
+              disabled={agents.isFetching}
+              onClick={() => void agents.refetch()}
+            >
+              依頼先を再読み込み
+            </button>
+          </div>
           <button
             className="primary-button"
             type="button"
             disabled={
               create.isPending ||
               !instruction.trim() ||
-              !agentID ||
+              !canSend ||
               (intent === "update" && !target.note)
             }
             onClick={() => void send()}
