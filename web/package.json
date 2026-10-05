@@ -19,7 +19,7 @@
     "budoux": "0.8.4",
     "d3-force": "3.0.0",
     "echarts": "^6.1.0",
-    "katex": "^0.16.47",
+    "katex": "^0.18.2",
     "leaflet": "^1.9.4",
     "mermaid": "11.16.1",
     "pdfjs-dist": "6.2.108",
