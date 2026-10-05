@@ -51,24 +51,42 @@ def main() -> None:
         find = report.get("find", {})
         window = report.get("window", {})
         checks = {
-            "Edit > Find contains the native WebKit actions and shortcuts": find.get("menuConfigured") is True,
-            "Cmd+F dispatches and shows WebKit's native find UI": (
-                find.get("commandFDispatched") is True and find.get("nativeFindUIVisible") is True
-            ),
-            "WKWebView finds and selects the fixture query": (
-                find.get("queryMatched") is True and find.get("selectionTextMatches") is True
-            ),
-            "Cmd+G dispatches Find Next": find.get("nextShortcutDispatched") is True,
-            "Shift+Cmd+G dispatches Find Previous": find.get("previousShortcutDispatched") is True,
-            "native window tabs are disabled": window.get("tabbingDisabled") is True,
-            "the titled window and titlebar remain enabled": window.get("titlebarPreserved") is True,
+            name: find.get(key) is True
+            for key, name in {
+                "menuConfigured": "Edit > Find contains the native actions and shortcuts",
+                "commandFDispatched": "Cmd+F dispatches",
+                "nativeFindUIVisible": "Cmd+F opens a visible native find bar",
+                "queryEnteredThroughField": "typing in the real find field selects the first result",
+                "queryMatched": "the typed English query matches",
+                "selectionTextMatches": "the selected page text matches the query",
+                "visibleHighlight": "the selected text is visibly highlighted while the field has focus",
+                "nextShortcutDispatched": "Cmd+G dispatches Find Next",
+                "nextMoved": "Cmd+G moves to a different result",
+                "previousShortcutDispatched": "Shift+Cmd+G dispatches Find Previous",
+                "previousMoved": "Shift+Cmd+G moves back to the first result",
+                "nextWrapped": "Find Next wraps from last to first",
+                "previousWrapped": "Find Previous wraps from first to last",
+                "incrementalQueryMatched": "additional typing updates the page match without Return",
+                "newestQueryWins": "stale callbacks cannot overwrite a newer query",
+                "japaneseMatched": "typing Japanese selects a Japanese result",
+                "japaneseNextMoved": "Find Next moves between Japanese results",
+                "japanesePreviousMoved": "Find Previous moves between Japanese results",
+                "noMatchFeedback": "a missing query displays No matches",
+                "noMatchClearsSelection": "a missing query clears the old selection",
+                "clearResetsFeedback": "clearing the field resets match feedback",
+                "escapeCloses": "Escape closes the find bar",
+                "reopenPreservesQuery": "reopening preserves the query and focuses the field",
+                "reopenFinds": "reopening restores a real page match",
+            }.items()
         }
+        checks["native window tabs are disabled"] = window.get("tabbingDisabled") is True
+        checks["the titled window and titlebar remain enabled"] = window.get("titlebarPreserved") is True
         failures = [name for name, passed in checks.items() if not passed]
         if report.get("ok") is not True or failures:
             details = "; ".join(f"FAIL {name}" for name in failures)
             raise SystemExit(f"WKWebView search smoke failed: {details}; report={json.dumps(report, ensure_ascii=False)}")
 
-        print("WKWebView search smoke passed: native find UI, a real text match, shortcuts, and the window tab policy were verified.")
+        print("WKWebView search smoke passed: typed English/Japanese queries, painted selection, next/previous movement and wrapping, no-match, clear, Escape/reopen, and window policy verified.")
 
 
 if __name__ == "__main__":

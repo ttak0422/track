@@ -63,8 +63,9 @@ the real WKWebView, enters a draft, stops and retries the Go server, then checks
 and draft value survived while API connectivity returned. The popup test suppresses actual browser
 launches; production behavior still routes only eligible user-initiated external links to the browser.
 The focused `search-smoke.py` test launches the SwiftPM executable in an isolated mode without Go and
-checks real AppKit menu-key dispatch into WKWebView's native find bar, Find Next/Previous shortcuts,
-an actual fixture query and selected text, and the window's native-tabbing policy. Build through the
+enters English and Japanese queries through the native field editor, then verifies actual selected
+page text and painted highlight pixels, next/previous movement and wrapping, no-match/clear feedback,
+Escape/reopen behavior, and the window's native-tabbing policy. It never calls the search API directly. Build through the
 desktop toolchain helper, then run it:
 
 ```sh
@@ -105,7 +106,7 @@ results within its timeout. GUI failures are not skipped or treated as successfu
   parent disappears, covering a crashed or forcibly terminated shell.
 - A server retry does not reload an already-rendered WebView. It retains the current document and
   dispatches online/focus events so the live query and event-stream clients can reconnect without
-  discarding editor-local input. Explicit Reload remains behind the conservative discard warning.
+  discarding editor-local input. Explicit Reload checks the live note editor before deciding whether to warn.
 - WKWebView uses its persistent website data store in normal operation. It receives no JavaScript
   message handler, native object, arbitrary shell capability, or custom URL-scheme handler. The
   existing web UI can render sandboxed HTML embeds, remote HTTP(S) iframe embeds, and vault-local
@@ -115,11 +116,16 @@ results within its timeout. GUI failures are not skipped or treated as successfu
   `javascript:`, `mailto:`, and arbitrary schemes are not handed to the OS. Script-created external
   popups fail closed when WebKit cannot establish a direct user gesture.
 - macOS Edit actions (Undo/Cut/Copy/Paste/Select All), Quit, Back, Forward, and Reload are provided.
-  Track cannot reliably inspect dirty state across the React editor, embedded HTML, and static
-  apps, so it conservatively asks before top-level page navigation, Back/Forward, Reload, window
-  close, and Quit. The dialog states this limitation rather than claiming exact dirty detection.
-- Edit > Find delegates to WebKit's native text finder: Cmd+F opens its in-page find bar, Cmd+G finds
-  the next match, and Shift+Cmd+G finds the previous match. Track disables native window tabbing on
+  Before document navigation, Back/Forward, and Reload, the shell reads the active note editor's
+  live draft, saved baseline, pending save, and IME composition state. Clean notes proceed without
+  warning. Same-document Contents links never discard a draft and bypass this check. Other
+  documents, failed probes, and focused embedded frames keep conservative warnings, as do window
+  close and Quit. The read-only probe adds no native message handler or arbitrary capabilities.
+- Edit > Find opens a native AppKit search bar wired to WebKit's public page-search API. Cmd+F
+  focuses the field; typing selects, scrolls to, and highlights matching rendered page text,
+  including Japanese. Cmd+G or Return finds the next match; Shift+Cmd+G or Shift+Return finds the
+  previous match, wrapping at either end. Escape or Done closes the bar. A missing query shows
+  “No matches” and clears the old selection. Track disables native window tabbing on
   its titled workspace window; content extends through the hidden native titlebar region.
 - Native audio bridging is not implemented in this stage. Browser/WebKit audio behavior is whatever
   the existing web UI provides; no native audio permission or bridge is added.

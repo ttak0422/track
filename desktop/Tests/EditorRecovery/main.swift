@@ -61,22 +61,41 @@ final class RecoveryHarness: NSObject, NSApplicationDelegate {
         supervisor.start()
         try await ready()
         coordinator.loadWorkspace()
+        webView.load(URLRequest(url: origin.appendingPathComponent("notes/100")))
         for _ in 0..<200 {
             if coordinator.hasCompletedWorkspaceNavigation { break }
             try await Task.sleep(for: .milliseconds(50))
         }
         try require(coordinator.hasCompletedWorkspaceNavigation, "initial navigation timeout")
-        // Open the note route so the real tab store also owns its dirty indicator.
-        // This navigation occurs before the draft exists.
+        let probe = try String(contentsOfFile: arguments[3], encoding: .utf8)
+        _ = try await evaluate(probe + "\n'installed'")
+        try await stage("clean")
+        try require(cancellations == 0, "clean Contents link displayed a warning")
+        _ = try await evaluate("(() => { const link = document.createElement('a'); link.href = '/notes/101'; document.body.appendChild(link); link.click(); return true; })()")
+        for _ in 0..<200 {
+            if !webView.isLoading && webView.url?.path == "/notes/101" { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        try require(webView.url?.path == "/notes/101" && cancellations == 0, "unchanged note navigation was blocked")
+        // Let the destination editor mount before exercising a programmatic document replacement.
+        var editorMounted = false
+        for _ in 0..<200 {
+            if try await evaluate("document.querySelector('form.note-editor') ? 'ready' : 'waiting'") == "ready" {
+                editorMounted = true
+                break
+            }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        try require(editorMounted, "second note editor did not mount")
         webView.load(URLRequest(url: origin.appendingPathComponent("notes/100")))
         for _ in 0..<200 {
             if !webView.isLoading && webView.url?.path == "/notes/100" { break }
             try await Task.sleep(for: .milliseconds(50))
         }
-        try require(!webView.isLoading && webView.url?.path == "/notes/100", "note navigation timeout")
-        let probe = try String(contentsOfFile: arguments[3], encoding: .utf8)
+        try require(webView.url?.path == "/notes/100" && cancellations == 0, "clean return navigation was blocked")
         _ = try await evaluate(probe + "\n'installed'")
         try await stage("prepare")
+        try require(cancellations == 0, "dirty Contents link displayed a warning")
         // The existing delegate contract allows a deterministic Cancel response to reload.
         webView.reload()
         for _ in 0..<100 {

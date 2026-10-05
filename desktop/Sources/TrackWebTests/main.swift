@@ -14,6 +14,7 @@ struct TrackWebTestRunner {
         await run("exact local origins") { try testExactLocalOrigins() }
         await run("user-initiated external navigation") { try testExternalNavigationRequiresGesture() }
         await run("sandboxed external frames") { try testRemoteFramesStayInWebKit() }
+        await run("same-document anchor protection") { try testSameDocumentAnchors() }
         await run("unsupported URL schemes") { try testUnsupportedSchemes() }
         await run("startup failure and retry") { try await testLaunchFailureCanRetry() }
         await run("readiness does not adopt another server") { try await testExternalServerCannotSatisfyReadiness() }
@@ -23,7 +24,7 @@ struct TrackWebTestRunner {
         await run("startup cancellation") { try await testStartupCancellation() }
 
         if failures == 0 {
-            print("All 13 Track logic regression tests passed.")
+            print("All 14 Track logic regression tests passed.")
         } else {
             fputs("\(failures) Track logic regression test(s) failed.\n", stderr)
             exit(EXIT_FAILURE)
@@ -62,6 +63,20 @@ struct TrackWebTestRunner {
         try expectThrows { _ = try LaunchOptions(arguments: ["--vault", "work", "--vault-path", "/tmp/work"]) }
         try expectThrows { _ = try LaunchOptions(arguments: ["--vault-path", "relative/path"]) }
         try expectThrows { _ = try LaunchOptions(arguments: ["--unrestricted-shell"]) }
+    }
+
+    private static func testSameDocumentAnchors() throws {
+        let source = URL(string: "http://127.0.0.1:18765/notes/100?q=one#first")!
+        func anchor(_ target: String, link: Bool = true) -> Bool {
+            WebURLPolicy.isSameDocumentAnchor(from: source, to: URL(string: target)!, isLink: link)
+        }
+        try expect(anchor("http://127.0.0.1:18765/notes/100?q=one#second"), "Contents anchor was treated as unload")
+        try expect(anchor(source.absoluteString), "repeated anchor should remain in this document")
+        try expect(!anchor(source.absoluteString, link: false), "reload must not bypass dirty protection")
+        try expect(!anchor("http://127.0.0.1:18765/notes/101?q=one#second"), "different note bypassed dirty protection")
+        try expect(!anchor("http://127.0.0.1:18765/notes/100?q=two#second"), "query navigation bypassed dirty protection")
+        try expect(!anchor("http://127.0.0.1:18766/notes/100?q=one#second"), "other origin bypassed dirty protection")
+        try expect(!anchor("http://127.0.0.1:18765/notes/100?q=one"), "fragmentless link can reload a document")
     }
 
     private static func testExactLocalOrigins() throws {

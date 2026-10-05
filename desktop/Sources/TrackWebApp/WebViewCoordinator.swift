@@ -29,22 +29,13 @@ final class WebViewCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
     var externalURLHandler: ((URL) -> Void)?
     var restartFixture: RestartFixture?
     var smokeMode = false
-    private var didLoadWorkspace = false
     private(set) var hasCompletedWorkspaceNavigation = false
     private var smokeCheckStarted = false
-    private var allowNextConfirmedNavigation = false
+    private var navigationGeneration = 0
     private var targetBlankProbeToken: String?
     private var targetBlankProbeCounts: [String: Int] = [:]
     private var targetBlankProbeCompletion: (([String: Int]?, String?) -> Void)?
     private var targetBlankProbeTimeout: Task<Void, Never>?
-
-    func allowNextNavigationAfterNativeConfirmation() {
-        allowNextConfirmedNavigation = true
-    }
-
-    func cancelNextNavigationConfirmation() {
-        allowNextConfirmedNavigation = false
-    }
 
     func loadWorkspace() {
         guard let webView else { return }
@@ -52,7 +43,6 @@ final class WebViewCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
             serverDidRecover()
             return
         }
-        didLoadWorkspace = true
         webView.load(URLRequest(url: workspaceOrigin))
     }
 
@@ -185,23 +175,24 @@ final class WebViewCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
                 completion(.allow)
                 return
             }
-            if targetIsMainFrame, allowNextConfirmedNavigation {
-                allowNextConfirmedNavigation = false
+            guard targetIsMainFrame, hasCompletedWorkspaceNavigation else {
                 completion(.allow)
                 return
             }
-            guard targetIsMainFrame,
-                  didLoadWorkspace,
-                  action.targetFrame != nil,
-                  shouldConfirmBeforeNavigation(action.navigationType) else {
+            navigationGeneration += 1
+            let generation = navigationGeneration
+            if WebURLPolicy.isSameDocumentAnchor(
+                from: webView.url, to: url, isLink: action.navigationType == .linkActivated
+            ) {
                 completion(.allow)
                 return
             }
-            guard let onConfirmDataLoss else {
-                completion(.cancel)
-                return
-            }
-            onConfirmDataLoss("navigating to another page") { confirmed in
+            confirmDocumentNavigation(in: webView, generation: generation) { [weak self] confirmed in
+                // A slow script reply or a sheet for an older request must not overtake newer navigation.
+                guard let self, self.navigationGeneration == generation else {
+                    completion(.cancel)
+                    return
+                }
                 completion(confirmed ? .allow : .cancel)
             }
         }
@@ -254,21 +245,9 @@ final class WebViewCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         ) {
         case .allowInWebView:
             recordTargetBlankEvent("internal", url: url)
-            let load = { [weak self, weak webView] in
-                guard let self, let webView else { return }
-                if self.didLoadWorkspace && self.shouldConfirmBeforeNavigation(navigationAction.navigationType) {
-                    self.onConfirmDataLoss?("opening a page in this window") { confirmed in
-                        guard confirmed else { return }
-                        self.allowNextNavigationAfterNativeConfirmation()
-                        if webView.load(navigationAction.request) == nil {
-                            self.cancelNextNavigationConfirmation()
-                        }
-                    }
-                } else {
-                    webView.load(navigationAction.request)
-                }
-            }
-            load()
+            // The ensuing main-frame .other request goes through the same live dirty-state gate.
+            // No global one-shot permission can accidentally authorise an unrelated navigation.
+            webView.load(navigationAction.request)
         case .openInDefaultBrowser(let externalURL):
             recordTargetBlankEvent("external-open", url: url)
             openExternalURL(externalURL)
@@ -469,14 +448,40 @@ final class WebViewCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         }
     }
 
-    private func shouldConfirmBeforeNavigation(_ type: WKNavigationType) -> Bool {
-        switch type {
-        case .linkActivated, .formSubmitted, .formResubmitted, .backForward, .reload:
-            return true
-        case .other:
-            return false
-        @unknown default:
-            return true
+    private func confirmDocumentNavigation(
+        in webView: WKWebView,
+        generation: Int,
+        completion: @escaping @MainActor @Sendable (Bool) -> Void
+    ) {
+        guard webView.url?.scheme == workspaceOrigin.scheme,
+              webView.url?.host == workspaceOrigin.host,
+              webView.url?.port == workspaceOrigin.port else {
+            if let confirm = onConfirmDataLoss { confirm("navigating to another page", completion) }
+            else { completion(false) }
+            return
+        }
+        let script = """
+        (() => {
+          if (document.activeElement?.tagName === 'IFRAME' || document.querySelector('[role="dialog"]')) return null;
+          const read = window.__trackNativeEditorState;
+          return typeof read === 'function' ? read() : null;
+        })()
+        """
+        webView.evaluateJavaScript(script) { [weak self] value, error in
+            guard let self, self.navigationGeneration == generation else {
+                completion(false)
+                return
+            }
+            // Only an explicit clean result from the current editor suppresses the warning.
+            // Unknown documents, embedded apps, failed scripts, and dirty/IME/pending-save states
+            // retain conservative protection; the probe grants no native capabilities to content.
+            if error == nil, let dirty = value as? Bool, !dirty {
+                completion(true)
+            } else if let confirm = self.onConfirmDataLoss {
+                confirm("navigating to another page", completion)
+            } else {
+                completion(false)
+            }
         }
     }
 

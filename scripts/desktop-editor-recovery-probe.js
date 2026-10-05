@@ -1,7 +1,8 @@
 // Runs only in the disposable WKWebView harness. No React internals or mocked network.
 (() => {
-  const original = 'WK3 original body';
-  const draft = 'WK3 unsaved draft\n日本語 café — second line\n';
+  const headings = '\n\n## First section\n\n## Second section\n';
+  const original = 'WK3 original body' + headings.trimEnd();
+  const draft = 'WK3 unsaved draft\n日本語 café — second line\n' + headings;
   const finalBody = draft + 'Edited after retry.';
   const editor = () => document.querySelector('form.note-editor textarea[aria-label="Note body"]');
   const save = () => document.querySelector('form.note-editor button[type="submit"]');
@@ -39,7 +40,18 @@
     assert(document.querySelector('.tab.active.dirty'), 'React dirty marker lost');
     assert(save() && !save().disabled, 'Save must remain enabled');
   };
+  const contents = async () => {
+    await wait(() => document.querySelector('.note-toc a[href="#h-second-section"]'), 'Contents link absent');
+    document.querySelector('.note-toc a[href="#h-second-section"]').click();
+    await wait(() => location.hash === '#h-second-section', 'Contents anchor did not navigate');
+  };
   const stages = {
+    async clean() {
+      await wait(() => document.querySelector('button[aria-label^="Display mode:"]'), 'note not loaded');
+      window.__wk3Document = 'same-document';
+      await contents();
+      assert(window.__wk3Document === 'same-document', 'clean anchor replaced document');
+    },
     async prepare() {
       const vaults = await fetch('/api/vaults', { cache: 'no-store' });
       assert(vaults.ok && (await vaults.json()).active?.path === window.__wk3ExpectedVault,
@@ -52,6 +64,11 @@
       await wait(() => document.querySelector('.tab.active.dirty') && !save().disabled, 'React did not adopt input');
       // Remount the textarea: a DOM-only value assignment cannot pass this check.
       await mode('Preview');
+      await mode('Edit');
+      checkDraft();
+      history.replaceState(history.state, '', location.pathname);
+      await mode('Preview');
+      await contents();
       await mode('Edit');
       checkDraft();
       assert(await bodyOnServer() === original, 'draft saved before requested');
