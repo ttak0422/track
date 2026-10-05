@@ -21,7 +21,7 @@ none fits, extend this document first — do not invent a one-off treatment.
   reader (body, title, meta) plus the small-caps label. Sections are told
   apart by their leading and by a rule above them, never by a fourth size.
 - **Two measures by default.** Prose reads at `--measure` (40em ≈ 42–48 Japanese
-  characters); visualizations, tables, and code blocks run the full column. The
+  characters); charts, tables, and code blocks run the full column; SVG diagrams stay within prose. The
   Content width setting may widen the prose measure through `--content-measure`,
   while the default difference keeps visualizations reading as content rather than chrome.
 - **A box is earned.** A border or fill exists only to separate a control from
@@ -149,7 +149,7 @@ with 13px, list items with 7px.
 ## The reading surface
 
 - The reader column is `--content-width` (880px by default, and a setting).
-  Visualizations, tables, and code blocks fill it.
+  Charts, tables, and code blocks fill it; inline diagrams keep the prose cap.
 - Prose — paragraphs, lists, headings, the title, the meta strip — defaults to
   `--measure` inside that column and follows the setting through
   `--content-measure`. The cap lands on `.markdown-view > *`, and the block-level
@@ -157,14 +157,14 @@ with 13px, list items with 7px.
 - Body copy carries no color and no background. Links are ink with a
   `--line-strong` underline (see variant 8); inline code is mono and `--muted`
   with no chip, because a filled chip in a Japanese line makes the line ripple.
-- An expanded SVG diagram may use the space beyond the note column, but its viewport stays inside
-  the reader's usable surface: after the floating dock's lane and before a docked aside's padded
-  ground (or the reader's right padding when the aside is stacked). Measure those actual bounds;
-  window width and a guessed sidebar width are not the available drawing width. First paint and
-  Reset fit the whole diagram width inside them, even when a very wide diagram needs small text.
-  Its popup and zoom controls remain available for detail. Split panes, included notes, floating
-  previews and collapsed diagrams keep their own column bounds. Resizing refits an untouched view;
-  an explicit pan or zoom stays put until Reset.
+- An inline SVG diagram and its control bar share the surrounding prose measure. First paint and
+  Reset fit the whole diagram width inside that local frame, even when a very wide diagram needs
+  small text. Its popup and zoom controls remain available for detail. Explicit pan/zoom clips
+  inside the frame without widening the page. Resizing refits an untouched view; an explicit pan
+  or zoom stays put until Reset, whose target follows the latest width.
+- On wide reading surfaces, the note layout spans the sheet: the aside stays at the right window
+  edge with its existing inset, while the main column remains capped and centered in the space
+  beside it. Narrow screens and edit/split views stack the aside below the note.
 
 ### Scrollbars
 

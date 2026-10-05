@@ -86,7 +86,7 @@ interface DiagramFrameProps {
   // The block's source text, for the copy button and the error fallback code block.
   source: string;
   sourceLang: string;
-  // Observe the rendered frame itself so Markdown's full-width rules apply to this block.
+  // Observe the rendered frame itself, inside Markdown's prose width.
   visibilityRef?: Ref<HTMLDivElement>;
   // Accessible name of the rendered visualization, e.g. "Mermaid diagram".
   label: string;
@@ -430,7 +430,6 @@ function usePanZoom(svg: string | null, { persistenceKey }: { persistenceKey?: s
       setTransform(fitRef.current);
       return;
     }
-    sizeInlineViewport(viewport, col);
     setViewportW(viewport.clientWidth);
     const ideal = idealScaleRef.current;
     const center = frameCenter(viewport);
@@ -454,7 +453,6 @@ function usePanZoom(svg: string | null, { persistenceKey }: { persistenceKey?: s
     const naturalH = pan.offsetHeight;
     if (naturalW === 0 || naturalH === 0) return false;
     naturalRef.current = { w: naturalW, h: naturalH };
-    sizeInlineViewport(viewport, collapsedRef.current);
     setViewportW(viewport.clientWidth);
     idealScaleRef.current = measureIdealScale(viewport);
     touchedRef.current = false;
@@ -483,7 +481,6 @@ function usePanZoom(svg: string | null, { persistenceKey }: { persistenceKey?: s
     let lastCenter = frameCenter(el);
     let lastIdealScale = idealScaleRef.current;
     const resize = () => {
-      sizeInlineViewport(el, collapsedRef.current);
       const w = el.clientWidth;
       const center = frameCenter(el);
       const idealScale = measureIdealScale(el);
@@ -512,8 +509,7 @@ function usePanZoom(svg: string | null, { persistenceKey }: { persistenceKey?: s
       }
     };
     const ro = new ResizeObserver(resize);
-    // Observe the layout owners too: a content-width setting or docked/stacked aside can move the
-    // frame without resizing the already-expanded viewport itself.
+    // Observe the frame as well as the viewport so prose-width settings are measured immediately.
     const frame = el.parentElement;
     const reader = el.closest(".reader");
     const layout = el.closest(".note-layout");
@@ -561,9 +557,7 @@ function usePanZoom(svg: string | null, { persistenceKey }: { persistenceKey?: s
         if (scaledW <= viewW + 1) return;
         // At an end of the pan the event is left unconsumed, so a swipe past the edge falls
         // through to the browser (back/forward) and a no-op tick doesn't mark the view touched.
-        // The rest position is centred on the frame, which the bleeding viewport is wider than, so it
-        // can sit inside the viewport's own edges; the range has to reach it rather than snapping the
-        // diagram to the window edge on the first tick.
+        // Include the fitted rest position in the range so the first tick never snaps sideways.
         const fitX = fitRef.current.x;
         const x = clamp(
           transformRef.current.x - event.deltaX,
@@ -715,49 +709,10 @@ export function computeFit(
   };
 }
 
-// Expanded read-only diagrams may outgrow the note's measure, but not the actual reading surface.
-// Measure that surface rather than deriving it from 100vw: dock lanes, scrollbars, content-width
-// settings, and a docked aside all change the space that is really visible. Split panes, popups,
-// includes with their own scroller, and collapsed previews keep their local frame instead.
-function sizeInlineViewport(viewport: HTMLElement, collapsed: boolean) {
-  const frame = viewport.parentElement;
-  const reader = viewport.closest<HTMLElement>(".reader");
-  const preview = viewport.closest<HTMLElement>(".note-preview");
-  const note = viewport.closest(".note-reader");
-  const canBleed = !collapsed && frame?.matches(".note-preview > .markdown-view > .mermaid-diagram") &&
-    reader && preview && note && !note.querySelector(".note-editor textarea") &&
-    getComputedStyle(preview).overflowX === "visible";
-  if (!frame || !canBleed) {
-    viewport.style.removeProperty("width");
-    viewport.style.removeProperty("margin-left");
-    return;
-  }
-  const rect = reader.getBoundingClientRect();
-  if (reader.clientWidth === 0 || frame.getBoundingClientRect().width === 0) return;
-  const css = getComputedStyle(reader);
-  const left = rect.left + reader.clientLeft + (parseFloat(css.paddingLeft) || 0);
-  let right = rect.left + reader.clientLeft + reader.clientWidth - (parseFloat(css.paddingRight) || 0);
-  const layout = note.querySelector<HTMLElement>(":scope > .note-layout");
-  const aside = layout?.querySelector<HTMLElement>(":scope > .note-aside");
-  if (layout && aside && getComputedStyle(layout).flexDirection === "row" && aside.getBoundingClientRect().width > 0) {
-    right = Math.min(right, aside.getBoundingClientRect().left);
-  }
-  if (right <= left) return;
-  viewport.style.width = `${right - left}px`;
-  viewport.style.marginLeft = `${left - frame.getBoundingClientRect().left}px`;
-}
-
-// frameCenter is the x the diagram is centred on, in the viewport's own coordinates. Only the
-// drawing viewport expands to the reading surface; the frame around it — the control bar the reader sees above
-// the diagram — stays at the reading column, so a diagram centred on the viewport hangs off the bar
-// it belongs to. Measured rather than derived from the bleed CSS: the lightbox reuses the same
-// viewport with no bleed at all, and there the frame is the viewport.
+// Inline frames and popup viewports both center within their own CSS-sized width. The inline
+// frame has the same measure as prose; pan/zoom may clip inside it but never expands that box.
 function frameCenter(viewport: HTMLElement): number {
-  const frameRect = viewport.parentElement?.getBoundingClientRect();
-  // Unmeasurable (no layout engine): the viewport's own midpoint, which is the frame's whenever the
-  // viewport is not bleeding.
-  if (!frameRect || frameRect.width === 0) return viewport.clientWidth / 2;
-  return frameRect.left - viewport.getBoundingClientRect().left + frameRect.width / 2;
+  return viewport.clientWidth / 2;
 }
 
 // sizeSvgToViewBox pins the rendered SVG to its natural (viewBox) pixel size. Mermaid emits
