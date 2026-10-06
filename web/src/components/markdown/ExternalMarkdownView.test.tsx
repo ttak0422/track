@@ -213,8 +213,19 @@ describe("external MarkdownView", () => {
   });
 
   it("typesets math without trusting KaTeX network/HTML commands", async () => {
-    const { container } = render(<MarkdownView external markdown={String.raw`$x^2$ and $\includegraphics{https://tracker.test/pixel.png}$ and $\href{https://tracker.test/page}{click}$`} />);
+    const { container } = render(<MarkdownView external markdown={String.raw`$x^2$ and $\includegraphics{https://tracker.test/pixel.png}$ and $\href{https://tracker.test/page}{click}$ and $\htmlClass{untrusted-math}{x}$`} />);
     await waitFor(() => expect(container.querySelector(".katex")).not.toBeNull(), { timeout: 10000 });
+    expect(container.querySelectorAll("img, a, iframe")).toHaveLength(0);
+    expect(container.querySelector(".untrusted-math")).toBeNull();
+    expect(container.querySelector(".katex-base")).toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("bounds recursive macros and recovers from malformed math without losing later equations", async () => {
+    const { container } = render(<MarkdownView external markdown={String.raw`$\def\loop{\loop}\loop$ and $\frac{1$ and $x^2$`} />);
+    await waitFor(() => expect(container.querySelectorAll(".katex-error")).toHaveLength(2), { timeout: 10000 });
+    expect(container.querySelector(".katex-error")).toHaveAttribute("title", expect.stringContaining("Too many expansions"));
+    expect(container.querySelector(".katex .katex-base")).toBeInTheDocument();
     expect(container.querySelectorAll("img, a, iframe")).toHaveLength(0);
     expect(fetch).not.toHaveBeenCalled();
   });

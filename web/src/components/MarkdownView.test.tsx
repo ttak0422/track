@@ -753,6 +753,30 @@ describe("MarkdownView", () => {
       timeout: 10_000,
     });
     expect(container.querySelector(".katex-display")).toBeInTheDocument();
+    // The outer .katex classes also exist in 0.16: they do not catch a nested old renderer paired
+    // with 0.18 CSS. math-dependencies.test.ts separately checks resolution and the real CSS bytes.
+    for (const name of ["katex-base", "katex-strut"]) {
+      expect(container.querySelector(`.katex .${name}`)).toBeInTheDocument();
+    }
+    expect(container.querySelector(".katex .base, .katex .strut")).toBeNull();
+    expect(container.querySelectorAll(".katex math")).toHaveLength(2);
+  });
+
+  it("keeps roots, fractions, matrices and fenced math compatible with the KaTeX stylesheet", async () => {
+    const markdown = [
+      String.raw`Inline $\sqrt[3]{\frac{1}{2}}$.`, "",
+      "$$", String.raw`\begin{pmatrix}a&b\\c&d\end{pmatrix}`, "$$", "",
+      "```math", String.raw`\overline{x}+\underline{y}`, "```",
+    ].join("\n");
+    const { container } = render(<MarkdownView markdown={markdown} />);
+    await waitFor(() => expect(container.querySelectorAll(".katex")).toHaveLength(3), { timeout: 10000 });
+    expect(container.querySelectorAll(".katex-display")).toHaveLength(2);
+    for (const name of ["katex-root", "katex-sizing", "katex-overline", "katex-underline"]) {
+      expect(container.querySelector(`.${name}`)).toBeInTheDocument();
+    }
+    expect(container.querySelector(".mfrac")).toBeInTheDocument();
+    expect(container.querySelector(".mtable")).toBeInTheDocument();
+    expect(container.querySelector("pre code.language-math, .katex-error")).toBeNull();
   });
 
   it("anchors a ^id-marked paragraph and list item, hiding the marker", () => {

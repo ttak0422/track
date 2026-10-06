@@ -11,6 +11,10 @@ let promise: Promise<MathPlugins> | null = null;
 // loadMathPlugins dynamically imports remark-math, rehype-katex, and KaTeX's stylesheet, so the ~270KB
 // KaTeX bundle is fetched only for notes that actually contain $…$ math instead of shipping in the main
 // chunk. The result is cached: the first math note in a session pays the load, the rest are instant.
+// package.json narrowly aligns rehype-katex@7.0.1 and mermaid@11.16.1 with the direct KaTeX version.
+// Both use public renderToString, but declare 0.16.x ranges. KaTeX 0.18's renamed layout classes
+// require their HTML output (including Mermaid's optional legacy math) and this CSS to stay together.
+// Integration tests cover that contract and error/trust limits. Recheck overrides on adapter updates.
 export function loadMathPlugins(): Promise<MathPlugins> {
   promise ??= (async () => {
     const [remark, rehype] = await Promise.all([
