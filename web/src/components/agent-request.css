@@ -1,5 +1,5 @@
 /* Floating layer (design variant 3), widened for reading a selected answer. */
-.agent-request-panel { box-sizing: border-box; position: fixed; z-index: 30; inset: 0 0 0 auto; width: min(430px, 100vw); padding: 24px; overflow: auto; background: var(--panel); border-left: 1px solid var(--line); box-shadow: -8px 0 24px color-mix(in srgb, var(--text) 10%, transparent); transform: translateX(102%); transition: transform 180ms ease; color: var(--text); }
+.agent-request-panel { box-sizing: border-box; position: fixed; z-index: 92; inset: var(--tabstrip-bottom, 0px) 0 0 auto; width: min(430px, 100vw); padding: 24px; overflow: auto; background: var(--panel); border-left: 1px solid var(--line); box-shadow: -8px 0 24px color-mix(in srgb, var(--text) 10%, transparent); transform: translateX(102%); transition: transform 180ms ease; color: var(--text); }
 .agent-request-panel.has-result { width: min(760px, 100vw); }
 .agent-request-panel.open { transform: translateX(0); }
 .agent-request-heading, .agent-request-history-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }

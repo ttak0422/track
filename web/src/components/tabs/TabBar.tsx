@@ -14,7 +14,31 @@ import { IconChevronDown, IconX, RailIcon } from "../icons";
 // the unsaved-changes dot stays inline. The working vault's switcher rides the strip's own right end,
 // so the selected vault stays visible even with no tabs open.
 export function TabBar() {
+  const measureBoundary = useRef<(() => void) | null>(null);
+  // Share the measured strip boundary with fixed workspace panels. Observe the outer strip,
+  // which exists even with no note tabs, so font scaling and narrow/mobile layouts stay aligned.
+  const observeBoundary = useCallback((strip: HTMLDivElement | null) => {
+    const workspace = strip?.closest<HTMLElement>(".workspace");
+    if (!strip || !workspace) return;
+    const measure = () => workspace.style.setProperty(
+      "--tabstrip-bottom", `${Math.max(0, strip.getBoundingClientRect().bottom)}px`,
+    );
+    measureBoundary.current = measure;
+    measure();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(strip);
+    window.addEventListener("resize", measure);
+    return () => {
+      measureBoundary.current = null;
+      observer?.disconnect();
+      window.removeEventListener("resize", measure);
+      workspace.style.removeProperty("--tabstrip-bottom");
+    };
+  }, []);
   const { tabs, activeID, dirtyID, close } = useTabs();
+  // A restored/closed last tab can remove the reader pane's reserved top padding without
+  // changing the strip height. ResizeObserver alone cannot detect that position-only change.
+  useLayoutEffect(() => { measureBoundary.current?.(); });
   const navigate = useNavigate();
   const stripRef = useRef<HTMLDivElement>(null);
   // How many tabs the strip has room for, found by measuring: grow while the row fits, shrink while
@@ -72,7 +96,7 @@ export function TabBar() {
   }
 
   return (
-    <div className="tabstrip">
+    <div className="tabstrip" ref={observeBoundary}>
       {visible.length > 0 ? (
         <div className="tabbar" role="list" aria-label="Open notes" ref={observeStrip}>
         {visible.map((tab) => {
