@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FloatingProvider, useFloating } from "../preview/floatingStore";
 import { TabBar } from "./TabBar";
@@ -40,6 +40,40 @@ describe("TabBar", () => {
     routerMock.pathname = "/notes/a1";
     routerMock.navigate.mockClear();
     window.localStorage.clear();
+  });
+
+  it("keeps fixed panels below the measured strip through resizing and empty tabs", () => {
+    let bottom = 33;
+    const callbacks: (() => void)[] = [];
+    const disconnect = vi.fn();
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      return { bottom: this.classList.contains("tabstrip") ? bottom : 0 } as DOMRect;
+    });
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(callback: () => void) { callbacks.push(callback); }
+      observe() {}
+      disconnect = disconnect;
+    });
+    const view = render(<main className="workspace">{strip()}</main>);
+    const workspace = document.querySelector<HTMLElement>(".workspace")!;
+    expect(workspace.style.getPropertyValue("--tabstrip-bottom")).toBe("33px");
+    // The outer strip observer runs independently from tab overflow's width observer.
+    bottom = 49.5;
+    act(() => callbacks[0]());
+    expect(workspace.style.getPropertyValue("--tabstrip-bottom")).toBe("49.5px");
+    bottom = 28;
+    fireEvent(window, new Event("resize"));
+    expect(workspace.style.getPropertyValue("--tabstrip-bottom")).toBe("28px");
+    routerMock.pathname = "/";
+    view.rerender(<main className="workspace">{strip()}</main>);
+    bottom = 1;
+    fireEvent.click(screen.getByRole("button", { name: "Close Untitled" }));
+    expect(workspace.style.getPropertyValue("--tabstrip-bottom")).toBe("1px");
+    view.unmount();
+    expect(disconnect).toHaveBeenCalled();
+    expect(workspace.style.getPropertyValue("--tabstrip-bottom")).toBe("");
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("floats the open note from the button under its tab", () => {
