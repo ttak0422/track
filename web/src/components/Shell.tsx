@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { ExternalMarkdownProvider } from "./ExternalMarkdownSource";
 import { GraphPanel } from "./GraphPanel";
@@ -16,7 +17,8 @@ import { openJournal } from "../api";
 import { useLiveEvents } from "../hooks/useLiveEvents";
 import { useSiteQuery } from "../queries";
 import { START_PAGE_ID, STATIC_MODE } from "../runtime";
-import { NoteControlsProvider } from "../noteControls";
+import { useReadingKeybindings } from "../keybindings/useReadingKeybindings";
+import { NoteControlsProvider, useNoteControls } from "../noteControls";
 import { AgentRequestPanel, openAgentRequest } from "./AgentRequestPanel";
 import { NotificationToast } from "../notifications";
 import { NoteRailControls } from "./NoteRailControls";
@@ -60,6 +62,9 @@ function ShellView() {
   // route, so the workspace's views are reachable from the landing screen too.
   const isHero = isHome && !STATIC_MODE && START_PAGE_ID === "";
   const navigate = useNavigate();
+  const readerRef = useRef<HTMLElement>(null);
+  const { mode } = useNoteControls();
+  const readingKeys = useReadingKeybindings(readerRef, isNote && mode === "preview");
   useLiveEvents();
 
   // A published site opts into the calendar explicitly (`track export-site --calendar`): reference
@@ -172,7 +177,13 @@ function ShellView() {
           </aside>
         <div className="reader-pane">
           <TabBar />
-          <section className="reader">
+          <section
+            className="reader"
+            ref={readerRef}
+            tabIndex={readingKeys ? 0 : undefined}
+            aria-label={readingKeys ? "Note reading area" : undefined}
+            aria-description={readingKeys ? "j/k scroll; Tab/Shift+Tab switch notes. Escape returns Tab to focus navigation." : undefined}
+          >
             <Outlet />
           </section>
         </div>
