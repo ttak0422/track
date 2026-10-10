@@ -234,6 +234,8 @@ function bundlePdfjsAssets(): PluginOption {
 }
 
 export default defineConfig({
+  // LikeC4's browser parser/layout worker loads its bundled Graphviz WASM lazily.
+  worker: { format: "es" },
   // Normalize to a trailing slash: GitHub's configure-pages emits base_path as "/repo" (no slash), and
   // BASE_URL consumers concatenate paths onto it ("/repo" + "data/…" would yield "/repodata/…").
   base: siteBase,

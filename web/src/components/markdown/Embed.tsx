@@ -6,6 +6,7 @@ import { NoteKindContext, NoteVaultContext } from "./context";
 import { D2Diagram } from "./D2Diagram";
 import { DrawioDiagram } from "./DrawioDiagram";
 import { GraphvizDiagram } from "./GraphvizDiagram";
+import { LikeC4Diagram } from "./LikeC4Diagram";
 import { MediaFrame } from "./MediaFrame";
 import { MermaidDiagram } from "./MermaidDiagram";
 import { EChartsFence } from "./EChartsBlock";
@@ -194,6 +195,9 @@ function TextAssetEmbed({ href, src, alt }: TextAssetEmbedProps) {
   // A D2 source attachment (.d2) renders with the same engine fenced ```d2 blocks use.
   if (textAssetLang(src) === "d2") {
     return <D2Diagram text={text.data} />;
+  }
+  if (textAssetLang(src) === "likec4") {
+    return <LikeC4Diagram text={text.data} />;
   }
   // A draw.io attachment (.drawio) renders with the same engine fenced ```drawio blocks use.
   // (.drawio.svg/.drawio.png exports are ordinary images and never reach this branch.)

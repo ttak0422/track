@@ -175,6 +175,9 @@ describe("text-file asset embeds", () => {
   it("maps every extension to a render language — aliases translated, the rest passed through", () => {
     expect(textAssetLang("assets/chart.mmd")).toBe("mermaid");
     expect(textAssetLang("assets/flow.d2")).toBe("d2");
+    expect(textAssetLang("assets/architecture.c4")).toBe("likec4");
+    expect(textAssetLang("assets/architecture.likec4")).toBe("likec4");
+    expect(textAssetLang("assets/ARCHITECTURE.C4?version=2")).toBe("likec4");
     expect(textAssetLang("assets/notes.txt")).toBe("");
     expect(textAssetLang("assets/data.json")).toBe("json");
     expect(textAssetLang("assets/run.sh")).toBe("bash");

@@ -3728,6 +3728,34 @@ textarea.modal-input:focus-visible {
   touch-action: none;
 }
 
+/* Variant 1 text controls: each model's view names sit on the page above its shared SVG frame. */
+.likec4-views {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+
+.likec4-views button {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: calc(13px * var(--font-scale, 1));
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+.likec4-views button:hover,
+.likec4-views button:focus-visible,
+.likec4-views button[aria-pressed="true"] {
+  color: var(--text);
+}
+
+.likec4-views button[aria-pressed="true"] {
+  font-weight: 500;
+}
+
 /* Diagram controls and their clipped pan/zoom viewport share the surrounding prose measure. */
 .markdown-view > .mermaid-diagram > .mermaid-viewport {
   width: 100%;

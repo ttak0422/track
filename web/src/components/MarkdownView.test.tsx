@@ -39,6 +39,10 @@ vi.mock("@hpcc-js/wasm-graphviz", () => ({
   Graphviz: { load: async () => ({ dot: () => '<svg viewBox="0 0 10 10"><text>G</text></svg>' }) },
 }));
 
+vi.mock("./markdown/likec4Engine", () => ({
+  renderLikeC4: async () => [{ id: "system", title: "System", svg: '<svg viewBox="0 0 10 10"><text>Architecture</text></svg>' }],
+}));
+
 // Partial mock: only the task write and the OGP fetch are stubbed, so every other api call the view
 // makes (asset text, wiki-link resolution) keeps its real implementation. The OGP fetch is stubbed so a
 // card renders deterministically instead of degrading to its offline fallback.
@@ -660,6 +664,22 @@ describe("MarkdownView", () => {
     );
     expect(screen.getByRole("img", { name: "D2 diagram" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Copy code" })).not.toBeInTheDocument();
+  });
+
+  it("renders likec4 fences through the multi-view diagram component", async () => {
+    const { container } = render(<MarkdownView markdown={"```likec4\nviews { view system { include * } }\n```"} />);
+    await screen.findByRole("img", { name: "LikeC4 diagram: System" });
+    expect(container.querySelector(".likec4-diagram")?.parentElement).toBe(container.querySelector(".markdown-view"));
+  });
+
+  it.each(["c4", "likec4"])("renders a .%s attachment through the same diagram component", async (extension) => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.setQueryData(["assetText", `/api/asset?kind=note&name=architecture.${extension}`],
+      "views { view system { include * } }");
+    render(<QueryClientProvider client={client}><FloatingProvider>
+      <MarkdownView markdown={`![](assets/architecture.${extension})`} />
+    </FloatingProvider></QueryClientProvider>);
+    await screen.findByRole("img", { name: "LikeC4 diagram: System" });
   });
 
   it("renders drawio fences through the draw.io viewer component", async () => {

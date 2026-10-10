@@ -209,7 +209,7 @@ embed instead of a link:
 - `.pdf` URLs become an inline iframe viewer with an "open" link fallback;
 - image URLs (`.png`, `.jpg`, `.gif`, `.webp`, `.avif`, `.svg`, …) render as an `<img>`;
 - a text-file **attachment** (`assets/<file>`) is fetched and rendered inline: a
-  diagram source (`.mmd`/`.mermaid`, `.dot`/`.gv`, `.d2`, `.drawio`) renders with its
+  diagram source (`.mmd`/`.mermaid`, `.dot`/`.gv`, `.d2`, `.c4`/`.likec4`, `.drawio`) renders with its
   diagram engine, any other text extension (`.txt`, `.json`, `.yaml`, `.csv`, shell
   scripts, …) as a code block. This is asset-only — a remote text URL is left to the
   OGP/link path — and degrades to a plain link while loading fails;
@@ -250,6 +250,11 @@ contract: lazy-loaded engine, error falls back to the source. draw.io is not a t
 DSL — the block (or a `.drawio` attachment) holds the `<mxfile>` XML the editor
 saves, compressed or not, and renders through drawio's vendored static viewer
 (ADR 0065); the first page of a multi-page file is shown.
+
+LikeC4 (` ```likec4 ` and `.c4`/`.likec4` attachments) adds a self-contained architecture model
+with multiple selectable views. Its official browser parser and Graphviz WASM run in an isolated,
+lazy-loaded worker, and its sanitized SVG uses the shared diagram frame. See
+[LikeC4 note diagrams](likec4.md) for runtime boundaries and limits.
 
 ### Save conflict detection
 
