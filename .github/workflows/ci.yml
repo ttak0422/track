@@ -241,6 +241,10 @@ jobs:
           python3 scripts/desktop-editor-recovery.py build/desktop/Track.app/Contents/Resources/track
           python3 desktop/search-smoke.py build/desktop/Track.app/Contents/MacOS/Track
 
+      - name: Clean and dirty native termination
+        timeout-minutes: 5
+        run: python3 scripts/desktop-clean-termination.py build/desktop/Track.app/Contents/Resources/track
+
   # Reads this run's coverage profile and the one from the last main run, and comments the per-package
   # table and the change against main. Forks and Dependabot get no token that can comment, so they are
   # left out rather than failed. Runs without Nix: the action ships its own binary.

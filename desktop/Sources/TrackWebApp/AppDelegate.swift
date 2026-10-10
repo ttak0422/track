@@ -6,6 +6,8 @@ import WebKit
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuItemValidation {
     private let application: NSApplication
+    private let workspaceOrigin: URL
+    private let websiteDataStore: WKWebsiteDataStore?
     private let restartTestMode: Bool
     private var restartFixture: RestartFixture?
     private let smokeMode: Bool
@@ -38,8 +40,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var shutdownTestTask: Task<Void, Never>?
     private var shutdownTestStartUptime: TimeInterval?
 
-    init(application: NSApplication = .shared, arguments: [String] = ProcessInfo.processInfo.arguments) {
+    init(
+        application: NSApplication = .shared,
+        arguments: [String] = ProcessInfo.processInfo.arguments,
+        workspaceOrigin: URL = URL(string: "http://127.0.0.1:18765")!,
+        websiteDataStore: WKWebsiteDataStore? = nil
+    ) {
         self.application = application
+        self.workspaceOrigin = workspaceOrigin
+        self.websiteDataStore = websiteDataStore
         let appArguments = Array(arguments.dropFirst())
         restartTestMode = appArguments.contains("--restart-test")
         recoveryTestMode = appArguments.contains("--recovery-test")
@@ -140,11 +149,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         if terminationApproved { return .terminateNow }
         if terminationPending { return .terminateLater }
         if shutdownTestMode { terminationWasConfirmed = true }
-        guard terminationWasConfirmed || confirmPotentialDataLoss(reason: "quitting Track") else {
-            return .terminateCancel
-        }
+        let alreadyConfirmed = terminationWasConfirmed
         terminationWasConfirmed = false
         terminationPending = true
+        // Return terminateLater before even an immediate clean/cancel result can reply to AppKit.
+        Task { @MainActor in
+            if alreadyConfirmed || self.coordinator == nil {
+                self.stopForTermination(sender)
+            } else {
+                self.coordinator?.confirmDiscardingEdits(reason: "quitting Track") { [weak self] confirmed in
+                    guard let self, self.terminationPending else { return }
+                    if confirmed {
+                        self.stopForTermination(sender)
+                    } else {
+                        self.terminationPending = false
+                        sender.reply(toApplicationShouldTerminate: false)
+                    }
+                }
+            }
+        }
+        return .terminateLater
+    }
+
+    private func stopForTermination(_ sender: NSApplication) {
         if shutdownTestMode {
             shutdownTestStartUptime = ProcessInfo.processInfo.systemUptime
             writeShutdownTestResult(ok: false, error: "waiting for supervised child exit", phase: "stopping")
@@ -165,7 +192,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         } else {
             Task { @MainActor in childStopped() }
         }
-        return .terminateLater
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -176,10 +202,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         if terminationApproved { return true }
         if terminationPending { return false }
-        guard confirmPotentialDataLoss(reason: "closing the Track window") else { return false }
         // Keep the last window and its editor DOM alive until the deferred app termination has
         // confirmed that the supervised server process really exited.
-        terminationWasConfirmed = true
         application.terminate(nil)
         return false
     }
@@ -232,7 +256,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             return
         }
 
-        let endpoint = URL(string: "http://127.0.0.1:18765/api/vaults")!
+        let endpoint = workspaceOrigin.appendingPathComponent("api/vaults")
+        let serverArguments = options.trackArguments.dropLast() + ["127.0.0.1:\(workspaceOrigin.port!)"]
         let supervisor = WebServerSupervisor(
             endpoint: endpoint,
             healthProbe: ServerHealthProbe.isReady,
@@ -242,7 +267,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 }
                 return TrackServerProcess(
                     executableURL: executableURL,
-                    arguments: options.trackArguments,
+                    arguments: Array(serverArguments),
                     environmentOverrides: options.environmentOverrides
                 )
             }
@@ -262,7 +287,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         if let fixture = restartFixture {
             configuration.websiteDataStore = WKWebsiteDataStore(forIdentifier: fixture.identifier)
         } else {
-            configuration.websiteDataStore = smokeMode || shutdownTestMode ? .nonPersistent() : .default()
+            configuration.websiteDataStore = websiteDataStore ?? (smokeMode || shutdownTestMode ? .nonPersistent() : .default())
         }
         if recoveryTestMode {
             // Exercise WKUIDelegate's popup callback without granting this behavior to the shipped app.
@@ -273,7 +298,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         webView.allowsBackForwardNavigationGestures = true
         webView.isHidden = true
 
-        let coordinator = WebViewCoordinator()
+        let coordinator = WebViewCoordinator(
+            workspaceOrigin: workspaceOrigin,
+            staticAppsOrigin: URL(string: "http://127.0.0.1:\(workspaceOrigin.port! + 1)")!
+        )
         coordinator.window = nil
         coordinator.webView = webView
         coordinator.restartFixture = restartFixture
@@ -575,16 +603,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private func showStatus() {
         webView?.isHidden = true
         statusView?.isHidden = false
-    }
-
-    private func confirmPotentialDataLoss(reason: String) -> Bool {
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = "Unsaved edits may be lost"
-        alert.informativeText = "Track cannot reliably detect unsaved input in every editor, embedded page, or static app. Continue with \(reason)?"
-        alert.addButton(withTitle: "Continue")
-        alert.addButton(withTitle: "Cancel")
-        return alert.runModal() == .alertFirstButtonReturn
     }
 
     private func confirmPotentialDataLoss(

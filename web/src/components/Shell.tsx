@@ -12,6 +12,7 @@ import { SidebarHistory } from "./SidebarHistory";
 import { TabBar } from "./tabs/TabBar";
 import { TabsProvider } from "./tabs/tabsStore";
 import { ThemeMenu } from "./ThemeMenu";
+import { useNativeWorkspaceState } from "../nativeNavigation";
 import { openJournal } from "../api";
 import { useLiveEvents } from "../hooks/useLiveEvents";
 import { useSiteQuery } from "../queries";
@@ -46,6 +47,7 @@ function ShellView() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   // Normalize a trailing slash: the prerendered static site serves routes as directories (/graph/).
   const path = pathname.replace(/\/$/, "") || "/";
+  useNativeWorkspaceState(path);
   const isHome = path === "/";
   const isMarkdown = path === "/markdown";
   const isGraph = path === "/graph";

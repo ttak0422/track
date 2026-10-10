@@ -47,11 +47,14 @@ make desktop-verify
 make desktop-smoke
 make desktop-recovery-smoke
 make desktop-termination-test
+make desktop-clean-termination-test
 ```
 
 `desktop-verify` performs a release app build, the Swift lifecycle/URL-policy regression runner, the
 Go test suite once, a SIGSTOP-child deferred-termination test, and ShellCheck when installed.
-`desktop-termination-test` runs that isolated SIGSTOP test by itself. The
+`desktop-termination-test` runs that isolated SIGSTOP test by itself.
+`desktop-clean-termination-test` covers clean and dirty window/quit/OS callbacks with a separately
+identified bundle and owned ephemeral ports; see [the scenario matrix](../docs/testing/desktop-clean-termination.md). The
 runner is a SwiftPM executable rather than XCTest because the selected Command Line Tools installation
 does not ship `XCTest.framework`. `desktop-smoke` launches the actual bundled app and WKWebView with
 `TRACK_CONFIG`, `TRACK_VAULT`, and `TRACK_CACHE_DIR` all rooted in a disposable temporary fixture.
@@ -119,8 +122,11 @@ results within its timeout. GUI failures are not skipped or treated as successfu
   Before document navigation, Back/Forward, and Reload, the shell reads the active note editor's
   live draft, saved baseline, pending save, and IME composition state. Clean notes proceed without
   warning. Same-document Contents links never discard a draft and bypass this check. Other
-  documents, failed probes, and focused embedded frames keep conservative warnings, as do window
-  close and Quit. The read-only probe adds no native message handler or arbitrary capabilities.
+  documents, failed probes, and focused embedded frames keep conservative warnings. Window Close,
+  Quit, and OS termination requests use the same live check; clean notes and an empty tab strip
+  close without warning. Cancel preserves the draft so it can be saved before quitting. A two-second
+  probe timeout stays conservative. Duplicate termination requests share one check and child stop,
+  with one deferred AppKit reply (including cancellation). The read-only probe adds no native message handler or arbitrary capabilities.
 - Edit > Find opens a native AppKit search bar wired to WebKit's public page-search API. Cmd+F
   focuses the field; typing selects, scrolls to, and highlights matching rendered page text,
   including Japanese. Cmd+G or Return finds the next match; Shift+Cmd+G or Shift+Return finds the

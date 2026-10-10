@@ -109,7 +109,7 @@ web/node_modules: web/package-lock.json
 	cd web && npm ci
 	@touch web/node_modules
 
-.PHONY: desktop-app desktop-verify desktop-smoke desktop-recovery-smoke desktop-termination-test
+.PHONY: desktop-app desktop-verify desktop-smoke desktop-recovery-smoke desktop-termination-test desktop-clean-termination-test
 
 DESKTOP_APP ?= build/desktop/Track.app
 DESKTOP_DEVELOPER_DIR ?=
@@ -130,3 +130,7 @@ desktop-recovery-smoke: desktop-app ## Verify an unsaved WKWebView draft survive
 
 desktop-termination-test: desktop-app ## SIGSTOP the isolated Go child and verify deferred app termination reaps it
 	python3 scripts/desktop-shutdown-test.py "$(DESKTOP_APP)/Contents/MacOS/Track"
+
+# Tests the real delegate with a separate bundle and an ephemeral, owned loopback pair.
+desktop-clean-termination-test: desktop-app ## Check clean/dirty close, Quit and simulated OS termination
+	python3 scripts/desktop-clean-termination.py "$(DESKTOP_APP)/Contents/Resources/track"
