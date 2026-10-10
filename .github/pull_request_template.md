@@ -1,6 +1,7 @@
 <!-- Use an English title such as "docs: clarify diagram examples".
 Write the body in English. Replace these comments with concrete results; do not claim unrun checks.
-Keep optional sections only when useful. Leave the PR open; creating it does not authorize a merge. -->
+Keep optional sections only when useful. Leave the PR open; creating it does not authorize a merge.
+Do not enable auto-merge for Track PRs. -->
 
 ## Summary
 

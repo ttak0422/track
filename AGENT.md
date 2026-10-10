@@ -53,8 +53,8 @@ default vault — a read comes back empty, and a **write lands in another vault 
   user-facing help updates (or explain the internal-only exception), and report actual verification
   results. Include relevant limits, blocked or unrun checks, and CI links for the exact published
   head. Remove placeholder text and omit optional sections that add no useful information.
-- Leave created PRs open for review. Do not merge them or enable auto-merge unless the user gives
-  a separate instruction for that specific PR.
+- Leave created PRs open for review. Merge a PR only after a separate instruction from the user
+  for that specific PR. Do not enable auto-merge for Track PRs.
 
 ## Development
 
