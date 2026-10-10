@@ -57,6 +57,7 @@ go build -trimpath -overlay="$OVERLAY" \
 	-o "$APP_BUNDLE/Contents/Resources/track" ./cmd/track
 cp "$ROOT/desktop/Resources/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
 cp "$ROOT/desktop/Resources/PkgInfo" "$APP_BUNDLE/Contents/PkgInfo"
+cp "$ROOT/desktop/Resources/Track.icns" "$APP_BUNDLE/Contents/Resources/Track.icns"
 chmod 755 "$APP_BUNDLE/Contents/MacOS/Track" "$APP_BUNDLE/Contents/Resources/track"
 
 if command -v plutil >/dev/null 2>&1; then
