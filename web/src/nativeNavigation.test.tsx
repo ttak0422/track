@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { useRef } from "react";
 import { describe, expect, it } from "vitest";
-import { useNativeEditorState } from "./nativeNavigation";
+import { useNativeEditorState, useNativeWorkspaceState } from "./nativeNavigation";
 
 function Editor({ body = "saved", saved = "saved", pending = false, deleted = false }) {
   const textarea = useRef<HTMLTextAreaElement>(null);
@@ -49,5 +49,38 @@ describe("native editor navigation state", () => {
   it("permits leaving after confirmed deletion", () => {
     render(<Editor body="draft" deleted />);
     expect(state()).toBe(false);
+  });
+});
+
+function Workspace({ path = "/empty", editor = false, draft = "saved" }) {
+  useNativeWorkspaceState(path);
+  return editor ? <Editor body={draft} /> : null;
+}
+
+const workspaceState = () => window.__trackNativeWorkspaceState?.();
+
+describe("native workspace termination state", () => {
+  it("reports an empty tab strip clean only while the shell is mounted", () => {
+    expect(workspaceState()).toBeUndefined();
+    const view = render(<Workspace />);
+    expect(workspaceState()).toBe(false);
+    view.unmount();
+    expect(workspaceState()).toBeUndefined();
+  });
+  it("reads the editor on each query and returns to clean after it unmounts", () => {
+    const view = render(<Workspace editor draft="draft" />);
+    expect(workspaceState()).toBe(true);
+    view.rerender(<Workspace />);
+    expect(workspaceState()).toBe(false);
+    view.rerender(<Workspace editor />);
+    expect(workspaceState()).toBe(false);
+  });
+  it("does not claim unknown or voice views are clean", () => {
+    const view = render(<Workspace path="/voice" />);
+    expect(workspaceState()).toBeNull();
+    view.rerender(<Workspace path="/other" />);
+    expect(workspaceState()).toBeNull();
+    view.rerender(<Workspace path="/graph" />);
+    expect(workspaceState()).toBe(false);
   });
 });

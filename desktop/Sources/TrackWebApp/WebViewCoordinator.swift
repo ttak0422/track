@@ -187,7 +187,7 @@ final class WebViewCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
                 completion(.allow)
                 return
             }
-            confirmDocumentNavigation(in: webView, generation: generation) { [weak self] confirmed in
+            confirmDiscardingEdits(reason: "navigating to another page") { [weak self] confirmed in
                 // A slow script reply or a sheet for an older request must not overtake newer navigation.
                 guard let self, self.navigationGeneration == generation else {
                     completion(.cancel)
@@ -448,40 +448,58 @@ final class WebViewCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         }
     }
 
-    private func confirmDocumentNavigation(
-        in webView: WKWebView,
-        generation: Int,
+    func confirmDiscardingEdits(
+        reason: String,
         completion: @escaping @MainActor @Sendable (Bool) -> Void
     ) {
-        guard webView.url?.scheme == workspaceOrigin.scheme,
-              webView.url?.host == workspaceOrigin.host,
-              webView.url?.port == workspaceOrigin.port else {
-            if let confirm = onConfirmDataLoss { confirm("navigating to another page", completion) }
-            else { completion(false) }
+        // Before the first document exists there cannot be an editor draft to discard.
+        guard let webView else {
+            completion(true)
+            return
+        }
+        if webView.url == nil && !hasCompletedWorkspaceNavigation {
+            completion(true)
+            return
+        }
+        let url = webView.url
+        let generation = navigationGeneration
+        var completed = false
+        let resolve: @MainActor @Sendable (Bool?) -> Void = { [weak self] dirty in
+            guard !completed else { return }
+            completed = true
+            guard let self, self.navigationGeneration == generation, webView.url == url else {
+                completion(false)
+                return
+            }
+            // Unknown documents and failed/timed-out probes never authorise losing a draft.
+            if dirty == false {
+                completion(true)
+            } else if let confirm = self.onConfirmDataLoss {
+                confirm(reason, completion)
+            } else {
+                completion(false)
+            }
+        }
+        guard url?.scheme == workspaceOrigin.scheme,
+              url?.host == workspaceOrigin.host,
+              url?.port == workspaceOrigin.port else {
+            resolve(nil)
             return
         }
         let script = """
         (() => {
           if (document.activeElement?.tagName === 'IFRAME' || document.querySelector('[role="dialog"]')) return null;
-          const read = window.__trackNativeEditorState;
+          const read = window.__trackNativeWorkspaceState || window.__trackNativeEditorState;
           return typeof read === 'function' ? read() : null;
         })()
         """
-        webView.evaluateJavaScript(script) { [weak self] value, error in
-            guard let self, self.navigationGeneration == generation else {
-                completion(false)
-                return
-            }
-            // Only an explicit clean result from the current editor suppresses the warning.
-            // Unknown documents, embedded apps, failed scripts, and dirty/IME/pending-save states
-            // retain conservative protection; the probe grants no native capabilities to content.
-            if error == nil, let dirty = value as? Bool, !dirty {
-                completion(true)
-            } else if let confirm = self.onConfirmDataLoss {
-                confirm("navigating to another page", completion)
-            } else {
-                completion(false)
-            }
+        let timeout = Task { @MainActor in
+            do { try await Task.sleep(for: .seconds(2)) } catch { return }
+            resolve(nil)
+        }
+        webView.evaluateJavaScript(script) { value, error in
+            timeout.cancel()
+            resolve(error == nil ? value as? Bool : nil)
         }
     }
 

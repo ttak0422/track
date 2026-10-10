@@ -5,6 +5,7 @@ declare global {
     // Read-only editor state. This is deliberately not a native message/command bridge.
     // Absence means an unrecognised page, for which the shell stays conservative.
     __trackNativeEditorState?: () => boolean;
+    __trackNativeWorkspaceState?: () => boolean | null;
   }
 }
 
@@ -42,6 +43,24 @@ export function useNativeEditorState(state: EditorState): void {
       document.removeEventListener("compositionstart", start, true);
       document.removeEventListener("compositionend", end, true);
       if (window.__trackNativeEditorState === read) delete window.__trackNativeEditorState;
+    };
+  }, []);
+}
+
+// The shell is also present with zero tabs. An absent editor on these routes has no note draft;
+// voice and other unrecognised tools retain the native shell's conservative confirmation.
+export function useNativeWorkspaceState(path: string): void {
+  const currentPath = useRef(path);
+  useLayoutEffect(() => { currentPath.current = path; });
+  useLayoutEffect(() => {
+    const read = () => {
+      if (window.__trackNativeEditorState) return window.__trackNativeEditorState();
+      return /^(?:\/|\/empty|\/graph|\/calendar|\/tasks|\/notes\/[^/]+|\/day\/[^/]+|\/tags\/.+)$/.test(currentPath.current)
+        ? false : null;
+    };
+    window.__trackNativeWorkspaceState = read;
+    return () => {
+      if (window.__trackNativeWorkspaceState === read) delete window.__trackNativeWorkspaceState;
     };
   }, []);
 }
