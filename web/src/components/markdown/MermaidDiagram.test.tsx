@@ -23,6 +23,7 @@ afterEach(() => {
 vi.mock("mermaid", () => ({
   default: {
     initialize: vi.fn(),
+    registerIconPacks: vi.fn(),
     render: vi.fn(async () => ({ svg: "<svg><text>Diagram</text></svg>" })),
   },
 }));
@@ -37,6 +38,17 @@ describe("MermaidDiagram", () => {
     expect(screen.getByText("Rendering diagram...")).toBeInTheDocument();
     await waitFor(() => expect(container.querySelector("svg")).toBeInTheDocument());
     expect(screen.getByRole("img", { name: "Mermaid diagram" })).toBeInTheDocument();
+  });
+
+  it("shows architecture parse errors with the original source", async () => {
+    const { default: mermaid } = await import("mermaid");
+    vi.mocked(mermaid.render).mockRejectedValueOnce(new Error("Unknown service: missing"));
+    const source = "architecture-beta\napi:R --> L:missing";
+    const { container } = render(<MermaidDiagram text={source} />);
+    expect(await screen.findByText("Mermaid render failed: Unknown service: missing")).toBeInTheDocument();
+    expect(container.querySelector("code")).toHaveTextContent("architecture-beta");
+    expect(container.querySelector("code")).toHaveTextContent("api:R --> L:missing");
+    expect(screen.queryByRole("img", { name: "Mermaid diagram" })).not.toBeInTheDocument();
   });
 
   it("pans on drag and returns to origin on reset", async () => {
@@ -361,6 +373,21 @@ describe("mermaidConfig dark mode", () => {
     const variables = mermaidConfig().themeVariables as Record<string, unknown>;
     expect(variables.darkMode).toBe(false); // jsdom resolves no tokens: light fallbacks
     expect(variables.textColor).toBe("#1a1a18");
+  });
+
+  it("uses the active theme's borders and edges for architecture diagrams", () => {
+    const style = document.documentElement.style;
+    style.setProperty("--muted", "rgb(162, 162, 155)");
+    style.setProperty("--line-node", "rgb(110, 116, 120)");
+    try {
+      const variables = mermaidConfig().themeVariables as Record<string, unknown>;
+      expect(variables.archEdgeColor).toBe("rgb(162, 162, 155)");
+      expect(variables.archEdgeArrowColor).toBe(variables.archEdgeColor);
+      expect(variables.archGroupBorderColor).toBe("rgb(110, 116, 120)");
+    } finally {
+      style.removeProperty("--muted");
+      style.removeProperty("--line-node");
+    }
   });
 });
 

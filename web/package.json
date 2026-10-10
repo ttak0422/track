@@ -12,6 +12,7 @@
   "dependencies": {
     "@d2lang/d2": "0.1.34",
     "@hpcc-js/wasm-graphviz": "^1.24.1",
+    "@iconify-json/logos": "1.2.15",
     "@tabler/icons-react": "^3.46.0",
     "@tanstack/react-query": "5.101.0",
     "@tanstack/react-router": "1.170.15",

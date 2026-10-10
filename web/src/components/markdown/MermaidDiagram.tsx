@@ -12,6 +12,7 @@ import { useThemeVersion } from "../../hooks/useThemeVersion";
 import { useVisible } from "../../hooks/useVisible";
 import { CodeBlock } from "./CodeBlock";
 import { copyText } from "./clipboard";
+import { registerMermaidIcons } from "./mermaidIcons";
 import {
   IconCheck,
   IconChevronDown,
@@ -56,6 +57,7 @@ export function MermaidDiagram({ text }: MermaidDiagramProps) {
     async function renderDiagram() {
       try {
         const { default: mermaid } = await import("mermaid");
+        registerMermaidIcons(mermaid);
         mermaid.initialize(mermaidConfig());
         const { svg } = await mermaid.render(renderID, text);
         if (!cancelled) setState({ status: "ready", svg });
@@ -776,6 +778,11 @@ export function mermaidConfig(): MermaidConfig {
       secondaryColor: color("--panel", "#ffffff"),
       tertiaryColor: color("--panel-soft", "#f3f2ee"),
       lineColor: color("--muted", "#5e5d58"),
+      // Architecture's base-theme defaults are fixed gray edges and black group borders, even
+      // with darkMode enabled. Keep those boundaries visible on the current reading surface.
+      archEdgeColor: color("--muted", "#5e5d58"),
+      archEdgeArrowColor: color("--muted", "#5e5d58"),
+      archGroupBorderColor: color("--line-node", "#8e8c84"),
       noteBkgColor: color("--panel", "#ffffff"),
       noteTextColor: color("--text", "#1a1a18"),
       noteBorderColor: color("--line", "#e6e4de"),
