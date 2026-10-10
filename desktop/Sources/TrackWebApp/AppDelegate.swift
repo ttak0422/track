@@ -281,7 +281,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
     private func createWindow() {
         let root = SearchFindBarContainerView(frame: .zero)
+        let coordinator = WebViewCoordinator(
+            workspaceOrigin: workspaceOrigin,
+            staticAppsOrigin: URL(string: "http://127.0.0.1:\(workspaceOrigin.port! + 1)")!
+        )
         let configuration = WKWebViewConfiguration()
+        installReadingShortcutsMarker(in: configuration, workspaceOrigin: coordinator.workspaceOrigin)
         // The production workspace keeps its tabs and settings at the stable loopback origin across
         // launches. The smoke test is fully isolated from a user's WebKit website data.
         if let fixture = restartFixture {
@@ -298,10 +303,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         webView.allowsBackForwardNavigationGestures = true
         webView.isHidden = true
 
-        let coordinator = WebViewCoordinator(
-            workspaceOrigin: workspaceOrigin,
-            staticAppsOrigin: URL(string: "http://127.0.0.1:\(workspaceOrigin.port! + 1)")!
-        )
         coordinator.window = nil
         coordinator.webView = webView
         coordinator.restartFixture = restartFixture

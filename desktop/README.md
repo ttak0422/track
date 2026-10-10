@@ -133,6 +133,12 @@ results within its timeout. GUI failures are not skipped or treated as successfu
   previous match, wrapping at either end. Escape or Done closes the bar. A missing query shows
   “No matches” and clears the old selection. Track disables native window tabbing on
   its titled workspace window; content extends through the hidden native titlebar region.
+- In a focused note Preview reading area, `j`/`k` scroll and `Tab`/`Shift+Tab` cycle open note
+  tabs. Click ordinary preview text to focus the area; `Escape` returns Tab to normal focus
+  navigation. Editing, interactive controls, IME, and open overlays keep their keys. A document-start,
+  main-frame-only boolean marker enables this context on the exact workspace origin; it adds no
+  native message bridge and is absent from static apps and embedded pages. The same frontend in a
+  normal browser keeps its ordinary keyboard behavior. See the help vault's **Web workspace** page.
 - Native audio bridging is not implemented in this stage. Browser/WebKit audio behavior is whatever
   the existing web UI provides; no native audio permission or bridge is added.
 
