@@ -31,6 +31,7 @@ import { ExternalMarkdownView, type ExternalMarkdownOptions } from "./markdown/E
 import { D2Diagram } from "./markdown/D2Diagram";
 import { DrawioDiagram } from "./markdown/DrawioDiagram";
 import { GraphvizDiagram } from "./markdown/GraphvizDiagram";
+import { LikeC4Diagram } from "./markdown/LikeC4Diagram";
 import { loadMathPlugins, looksLikeMath, type MathPlugins, mathPluginsIfLoaded } from "./markdown/math";
 import { MermaidDiagram } from "./markdown/MermaidDiagram";
 import { MapFence, parseMapFence } from "./markdown/MapFence";
@@ -494,6 +495,9 @@ const markdownComponents = {
       }
       if (normalized === "d2") {
         return <D2Diagram text={text} />;
+      }
+      if (normalized === "likec4") {
+        return <LikeC4Diagram text={text} />;
       }
       if (normalized === "drawio") {
         return <DrawioDiagram text={text} />;
