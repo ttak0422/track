@@ -15,16 +15,16 @@ const darkThemeID = 200;
 // Tighter than D2's 100px default, sized to sit inside a note like the other diagram engines.
 const padPx = 16;
 
-// The engine (compiler + renderer on WebAssembly) is a singleton: it costs ~8MB of lazily loaded
+// The engine (compiler + renderer on WebAssembly) is a singleton: it costs ~11MB of lazily loaded
 // code and spawns a worker, so every diagram and re-render shares one instance.
-let enginePromise: Promise<InstanceType<typeof import("@terrastruct/d2").D2>> | null = null;
+let enginePromise: Promise<InstanceType<typeof import("@d2lang/d2").D2>> | null = null;
 function loadEngine() {
-  enginePromise ??= import("@terrastruct/d2").then(({ D2 }) => new D2());
+  enginePromise ??= import("@d2lang/d2").then(({ D2 }) => new D2());
   return enginePromise;
 }
 
-// The D2 worker protocol has no request IDs; the wrapper keeps one current resolver. Keep each
-// compile→render pair together so simultaneous diagrams cannot resolve one another's promises.
+// Keep compile→render pairs together on the shared WASM runtime. D2.js 0.1.34 now has request IDs;
+// serialization also avoids several expensive layouts competing when a note contains many blocks.
 let workerQueue: Promise<void> = Promise.resolve();
 function withD2Worker<T>(operation: () => Promise<T>): Promise<T> {
   const result = workerQueue.then(operation, operation);
@@ -39,11 +39,11 @@ function withD2Worker<T>(operation: () => Promise<T>): Promise<T> {
 // renderSequence).
 let renderSalt = 0;
 
-// D2Diagram renders fenced ```d2 blocks with D2 compiled to WebAssembly (@terrastruct/d2). It is
+// D2Diagram renders fenced ```d2 blocks with D2 compiled to WebAssembly (@d2lang/d2). It is
 // wired exactly like Mermaid/Graphviz: the engine is imported lazily so a note without a d2 block
 // never loads it, and a compile error falls back to the message plus the source. D2 themes its own
 // SVG, so the render picks a light/dark theme id and re-renders when the app theme flips. Off-screen
-// blocks wait for the viewport before touching the ~8MB WASM engine.
+// blocks wait for the viewport before touching the WASM engine (D2 0.9 includes TALA).
 export function D2Diagram({ text }: D2DiagramProps) {
   const { ref, visible } = useVisible<HTMLDivElement>();
   const [state, setState] = useState<DiagramState>({ status: "loading" });
@@ -60,8 +60,7 @@ export function D2Diagram({ text }: D2DiagramProps) {
         const bg = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
         const themeID = isDarkColor(bg) ? darkThemeID : lightThemeID;
         const svg = await withD2Worker(async () => {
-          // The full-request form, not compile(text, options): the package's shorthand declaration
-          // disagrees with its implementation about where the options ride, this shape both agree on.
+          // The note's vars.d2-config may choose dagre, elk, or tala and override the default theme.
           const { diagram, renderOptions } = await d2.compile({
             fs: { index: text },
             options: { themeID, pad: padPx },
@@ -72,7 +71,8 @@ export function D2Diagram({ text }: D2DiagramProps) {
             salt: String(++renderSalt),
           });
         });
-        if (!cancelled) setState({ status: "ready", svg });
+        const { sanitizeD2Svg } = await import("./d2Svg");
+        if (!cancelled) setState({ status: "ready", svg: sanitizeD2Svg(svg) });
       } catch (error) {
         if (!cancelled) setState({ status: "error", message: errorMessage(error) });
       }
