@@ -17,7 +17,7 @@ const defaultRender = async (_diagram: unknown, _options: Record<string, unknown
 const compile = vi.fn(defaultCompile);
 const renderSvg = vi.fn(defaultRender);
 
-vi.mock("@terrastruct/d2", () => ({
+vi.mock("@d2lang/d2", () => ({
   D2: class {
     compile = compile;
     render = renderSvg;
