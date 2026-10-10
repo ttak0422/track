@@ -154,3 +154,22 @@ This retirement does not establish full SwiftUI feature parity or migrate its pr
 In particular, native audio bridging remains outside this shell's current capabilities. The Go
 engine, HTTP APIs, CLI/LSP, web frontend, Neovim integration, and Nix packages are retained.
 No installed application, vault, configuration, cache, or runtime data is removed by this source change.
+
+## App icon
+
+`desktop/Resources/Track.icns` is generated from the standard `web/public/track-icon.svg` mark
+(white `t` on a near-black rounded square). The build copies it into `Contents/Resources`, and
+`CFBundleIconFile` in `Info.plist` selects it for Finder, the Dock, and the app switcher. The Web
+UI's inverted dark-theme mark does not change the bundle icon. SwiftPM does not package this
+resource; launch the assembled `.app` when checking the system icon.
+
+After changing the source SVG, regenerate the committed ICNS on macOS:
+
+```sh
+CLANG_MODULE_CACHE_PATH="$PWD/build/desktop-clang-module-cache" \
+  sh scripts/apple-toolchain.sh desktop swift scripts/desktop-icon.swift
+```
+
+AppKit renders the SVG independently at 16, 32, 128, 256, and 512 points, each at 1x and 2x
+(up to 1024 pixels), and `iconutil` packages the PNGs in `build/desktop/Track.iconset`.
+No image-generation service or additional renderer dependency is needed.

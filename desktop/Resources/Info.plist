@@ -8,6 +8,8 @@
 	<string>Track</string>
 	<key>CFBundleExecutable</key>
 	<string>Track</string>
+	<key>CFBundleIconFile</key>
+	<string>Track.icns</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.ttak0422.track.web</string>
 	<key>CFBundleInfoDictionaryVersion</key>
