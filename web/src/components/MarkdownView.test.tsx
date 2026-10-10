@@ -64,7 +64,7 @@ vi.mock("../api", async (importOriginal) => ({
   getNote,
 }));
 
-vi.mock("@terrastruct/d2", () => ({
+vi.mock("@d2lang/d2", () => ({
   D2: class {
     compile = async () => ({ diagram: {}, renderOptions: {} });
     render = async () => '<svg viewBox="0 0 10 10"><text>D</text></svg>';
