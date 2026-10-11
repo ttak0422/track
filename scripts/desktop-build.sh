@@ -10,16 +10,15 @@ if [ "$(uname -s)" != "Darwin" ]; then
 	exit 1
 fi
 
-for tool in go npm node python3; do
+for tool in go npm node python3 make; do
 	if ! command -v "$tool" >/dev/null 2>&1; then
 		printf 'required tool is not on PATH: %s\n' "$tool" >&2
 		exit 1
 	fi
 done
 
-if [ ! -x web/node_modules/.bin/vite ] || [ ! -x web/node_modules/.bin/tsc ]; then
-	npm ci --prefix web
-fi
+# Direct script invocations use the same dependency freshness check as Make targets.
+make --no-print-directory web/node_modules
 
 APP_BUNDLE=${DESKTOP_APP:-"build/desktop/Track.app"}
 case "$APP_BUNDLE" in
