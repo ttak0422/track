@@ -104,10 +104,14 @@ web-nvim: ## Launch the live web workspace via headless Neovim (Ctrl-C to stop)
 		-c 'lua vim.wait(2147483647, function() return false end)' \
 		-c 'qa!'
 
-# Install frontend dependencies once; re-run only when the lockfile changes.
-web/node_modules: web/package-lock.json
+# Keep all frontend entry points on the same successful install. A directory's
+# mtime can change during a failed install or an unrelated node_modules write.
+.PHONY: web/node_modules
+web/node_modules: web/node_modules/.track-deps-ready
+
+web/node_modules/.track-deps-ready: web/package.json web/package-lock.json
 	cd web && npm ci
-	@touch web/node_modules
+	@touch $@
 
 .PHONY: desktop-app desktop-verify desktop-smoke desktop-recovery-smoke desktop-termination-test desktop-clean-termination-test
 
@@ -115,7 +119,7 @@ DESKTOP_APP ?= build/desktop/Track.app
 DESKTOP_DEVELOPER_DIR ?=
 DESKTOP_SDKROOT ?=
 
-desktop-app: ## Build the independent unsigned Track.app bundle
+desktop-app: web/node_modules ## Build the independent unsigned Track.app bundle
 	DESKTOP_APP="$(DESKTOP_APP)" DESKTOP_DEVELOPER_DIR="$(DESKTOP_DEVELOPER_DIR)" DESKTOP_SDKROOT="$(DESKTOP_SDKROOT)" sh scripts/desktop-build.sh
 
 desktop-verify: desktop-app ## Build Track and run Swift + Go regression tests
