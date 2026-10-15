@@ -100,6 +100,8 @@ final class TerminationHarness: NSObject, NSApplicationDelegate {
         }
         window = app.windows.first { $0.delegate === delegate }!
         webView = findWebView(window.contentView!)!
+        try require(webView.uiDelegate?.responds(to: NSSelectorFromString("webView:runJavaScriptConfirmPanelWithMessage:initiatedByFrame:completionHandler:")) == true,
+                    "WKWebView must use Track's JavaScript confirmation delegate")
         try await waitFor("window.__trackNativeWorkspaceState?.() === false")
         _ = try await evaluate("(() => { const a = document.createElement('a'); a.href = '/notes/100'; document.body.appendChild(a); a.click(); return true; })()")
         try await waitFor("location.pathname === '/notes/100' && !!document.querySelector('.tab-close') && typeof window.__trackNativeEditorState === 'function'")

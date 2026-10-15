@@ -395,15 +395,16 @@ final class WebViewCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
     func webView(
         _ webView: WKWebView,
         runJavaScriptConfirmPanelWithMessage message: String,
-        initiatedByFrame frame: WKFrameInfo,
-        completionHandler: @escaping @MainActor @Sendable (Bool) -> Void
-    ) {
-        let alert = NSAlert()
-        alert.messageText = "Track"
-        alert.informativeText = message
-        alert.addButton(withTitle: "Continue")
-        alert.addButton(withTitle: "Cancel")
-        present(alert) { completionHandler($0 == .alertFirstButtonReturn) }
+        initiatedByFrame frame: WKFrameInfo
+    ) async -> Bool {
+        await withCheckedContinuation { continuation in
+            let alert = NSAlert()
+            alert.messageText = "Track"
+            alert.informativeText = message
+            alert.addButton(withTitle: "Continue")
+            alert.addButton(withTitle: "Cancel")
+            present(alert) { continuation.resume(returning: $0 == .alertFirstButtonReturn) }
+        }
     }
 
     func webView(
