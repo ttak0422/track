@@ -47,4 +47,3 @@ export function wikiLinks(value: string): WikiLinkMatch[] {
   }
   return links;
 }
-
