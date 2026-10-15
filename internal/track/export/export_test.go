@@ -198,3 +198,12 @@ func TestExportBabelRejectsStaleAndLegacyResults(t *testing.T) {
 		}
 	}
 }
+
+func TestExportBracketedWikiTitles(t *testing.T) {
+	n := &note.Note{ID: 1, Body: "see [[[test]]] and [[outer [inner [nested]]|label [draft]]] and `[[[code]]]`\n"}
+	got := exportMarkdown(t, n, Options{}).Markdown
+	want := "see [test] and label [draft] and `[[[code]]]`\n"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}

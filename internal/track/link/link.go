@@ -24,8 +24,45 @@ type Ref struct {
 	BlockID      string // block anchor id after "#^" ([[note#^id]]), or "" when the link has no block anchor
 }
 
-// wikiLink matches a single-line [[...]] with no brackets inside, so [[a]b]] and [[]] do not match.
-var wikiLink = regexp.MustCompile(`\[\[([^\[\]]+)\]\]`)
+// wikiLinkMatches finds single-line [[...]] links, balancing literal square brackets
+// inside the target and alias. The offsets have the same whole/inner layout as a
+// regexp submatch, so callers always retain positions in the original source.
+func wikiLinkMatches(line string) [][4]int {
+	var matches [][4]int
+	for from := 0; from < len(line); {
+		rel := strings.Index(line[from:], "[[")
+		if rel < 0 {
+			break
+		}
+		open := from + rel
+		from = len(line) // An unterminated candidate consumes the rest of this line.
+		depth := 0
+	scan:
+		for i := open + 2; i < len(line); i++ {
+			switch line[i] {
+			case '\n', '\r':
+				from = i + 1
+				break scan
+			case '[':
+				depth++
+			case ']':
+				if depth > 0 {
+					depth--
+					continue
+				}
+				from = i + 1
+				if i+1 < len(line) && line[i+1] == ']' {
+					if i > open+2 {
+						matches = append(matches, [4]int{open, i + 2, open + 2, i})
+					}
+					from = i + 2
+				}
+				break scan
+			}
+		}
+	}
+	return matches
+}
 
 // Refs extracts every [[...]] occurrence in text, skipping fenced code blocks and inline code spans
 // (for example, `[[x]]` is code, not a link). Links are single-line; references whose inner text is blank
@@ -34,7 +71,7 @@ var wikiLink = regexp.MustCompile(`\[\[([^\[\]]+)\]\]`)
 func Refs(text string) []Ref {
 	var out []Ref
 	for _, line := range scannableLines(text) {
-		for _, m := range wikiLink.FindAllStringSubmatchIndex(line.Text, -1) {
+		for _, m := range wikiLinkMatches(line.Text) {
 			if inlineCodeSpanAt(line.Text, m[0]) {
 				continue
 			}

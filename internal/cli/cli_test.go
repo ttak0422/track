@@ -2295,3 +2295,38 @@ func TestTaskDate(t *testing.T) {
 		t.Fatalf("expected an invalid-date error, got %v", out)
 	}
 }
+
+func TestBracketedTitlesRoundTripAndRename(t *testing.T) {
+	for _, title := range []string{"[test]", "outer [inner [nested]]", "[日本語]"} {
+		t.Run(title, func(t *testing.T) {
+			vault := t.TempDir()
+			if out, code := runIn(t, vault, "new", "--title", title, "--id", "100"); code != 0 {
+				t.Fatalf("create: %v", out)
+			}
+			body := "see [[" + title + "|label [draft]]]\n"
+			if out, code := runIn(t, vault, "new", "--title", "Source", "--id", "200", "--body", body); code != 0 {
+				t.Fatalf("source: %v", out)
+			}
+			for _, current := range []string{title, "Renamed [v2 [final]]", "Plain"} {
+				if current != title {
+					out, code := runIn(t, vault, "rename", "--id", "100", "--to", current)
+					if code != 0 || out["backlinks_updated"] != float64(1) {
+						t.Fatalf("rename: %v", out)
+					}
+				}
+				resolved, code := runIn(t, vault, "resolve", "--term", current)
+				if code != 0 || resolved["found"] != true || resolved["note_id"] != float64(100) {
+					t.Fatalf("resolve: %v", resolved)
+				}
+				back, code := runIn(t, vault, "backlinks", "--id", "100")
+				if code != 0 || len(back["backlinks"].([]any)) != 1 {
+					t.Fatalf("backlinks: %v", back)
+				}
+				source, err := os.ReadFile(filepath.Join(vault, "note", "200.md"))
+				if err != nil || string(source) != "see [["+current+"|label [draft]]]\n" {
+					t.Fatalf("source: %q, %v", source, err)
+				}
+			}
+		})
+	}
+}

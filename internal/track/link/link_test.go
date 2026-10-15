@@ -2,6 +2,7 @@ package link
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -333,5 +334,38 @@ func TestSplitVaultRef(t *testing.T) {
 	}
 	if _, _, ok := SplitVaultRef("work:Note", nil); ok {
 		t.Fatal("nil gate must never qualify")
+	}
+}
+
+func TestRefsBracketedTitles(t *testing.T) {
+	for _, title := range []string{"[test]", "Plan [draft]", "outer [inner [nested]]", "[日本語]", `path\[draft]`} {
+		t.Run(title, func(t *testing.T) {
+			body := "see [[" + title + "##Heading|label [draft]]] and [[Next]]"
+			refs := Refs(body)
+			if len(refs) != 2 || refs[0].Text != title || refs[0].Display != "label [draft]" || refs[0].Heading != "Heading" || refs[1].Text != "Next" {
+				t.Fatalf("unexpected refs: %+v", refs)
+			}
+			if body[refs[0].OpenByte:refs[0].CloseByte] != "[["+title+"##Heading|label [draft]]]" {
+				t.Fatalf("wrong byte offsets: %+v", refs[0])
+			}
+			renamed, count := ReplaceRefKey(body, title, "[renamed [nested]]")
+			if count != 1 || Refs(renamed)[0].Text != "[renamed [nested]]" {
+				t.Fatalf("rename failed: %q (%d)", renamed, count)
+			}
+			incs := Includes("  ![[" + title + "]] :only-contents")
+			if len(incs) != 1 || incs[0].Text != title || !incs[0].OnlyContents || incs[0].OpenByte != 3 {
+				t.Fatalf("unexpected includes: %+v", incs)
+			}
+		})
+	}
+}
+
+func TestRefsMalformedBracketRecovery(t *testing.T) {
+	refs := Refs("[[bad] then [[Good]]\n[[unterminated [ [[Nested]]\n[[Next]]")
+	if len(refs) != 2 || refs[0].Text != "Good" || refs[1].Text != "Next" {
+		t.Fatalf("unexpected recovery: %+v", refs)
+	}
+	if refs := Refs(strings.Repeat("[[", 100000)); len(refs) != 0 {
+		t.Fatalf("unterminated brackets became links: %+v", refs)
 	}
 }

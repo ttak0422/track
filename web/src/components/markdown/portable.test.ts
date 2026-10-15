@@ -19,6 +19,23 @@ describe("toPortableMarkdown", () => {
     expect(toPortableMarkdown("![[Note##h|excerpt]] :only-contents :lines 1-3")).toBe("excerpt");
   });
 
+  it("copies bracketed titles, nested brackets, aliases and heading targets in full", () => {
+    expect(toPortableMarkdown("[[[test]]] [[outer [inner [nested]]]][[Plan [draft]|review [now]]]"))
+      .toBe("[test] outer [inner [nested]]review [now]");
+    expect(toPortableMarkdown("[[Plan [draft]##Review]] [[Plan [draft]|]]")).toBe("Plan [draft] Plan [draft]");
+  });
+
+  it("flattens bracketed include titles without copying the directive options", () => {
+    expect(toPortableMarkdown("  ![[[test]]] :only-contents\n![[Plan [draft]|review [now]]] :lines 1-3\n"))
+      .toBe("  [test]\nreview [now]\n");
+    expect(toPortableMarkdown("inline ![[Plan [draft]]] stays")).toBe("inline !Plan [draft] stays");
+  });
+
+  it("leaves malformed bracket candidates and their surrounding text unchanged", () => {
+    expect(toPortableMarkdown("[[a]b]] ![[Plan [draft]] :lines 1-3\n[[Good]]"))
+      .toBe("[[a]b]] ![[Plan [draft]] :lines 1-3\nGood");
+  });
+
   it("leaves ordinary markdown and standard links untouched", () => {
     const md = "# Title\n\n- item\n\n[text](https://x.example) and `code`";
     expect(toPortableMarkdown(md)).toBe(md);

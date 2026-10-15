@@ -1,7 +1,6 @@
 package link
 
 import (
-	"regexp"
 	"strconv"
 	"strings"
 )
@@ -23,10 +22,6 @@ type LineRange struct {
 	From, To int
 }
 
-// includeLine matches a whole line that is exactly "![[...]]" plus optional trailing options —
-// includes are block-level, so an embed in running text is not a directive.
-var includeLine = regexp.MustCompile(`^!\[\[([^\[\]]+)\]\][ \t]*(.*)$`)
-
 // Includes extracts every block-level ![[...]] directive in text, skipping fenced code blocks.
 // The returned Ref carries the line number and the inner-text byte offsets within that line
 // (matching what Refs reports for the same [[...]]), so consumers can key on either.
@@ -34,12 +29,14 @@ func Includes(text string) []Include {
 	var out []Include
 	for _, line := range scannableLines(text) {
 		trimmed := strings.TrimLeft(line.Text, " \t")
-		m := includeLine.FindStringSubmatch(trimmed)
-		if m == nil {
+		matches := wikiLinkMatches(trimmed)
+		if !strings.HasPrefix(trimmed, "![[") || len(matches) == 0 || matches[0][0] != 1 {
 			continue
 		}
+		m := matches[0]
+		inner := trimmed[m[2]:m[3]]
 		indent := len(line.Text) - len(trimmed)
-		target, display := splitDisplay(m[1])
+		target, display := splitDisplay(inner)
 		anchor := splitAnchor(target)
 		if anchor.Key == "" {
 			continue
@@ -48,15 +45,15 @@ func Includes(text string) []Include {
 			Line:         line.Number,
 			OpenByte:     indent + 1, // the "[[" just after "!"
 			StartByte:    indent + 3,
-			EndByte:      indent + 3 + len(m[1]),
-			CloseByte:    indent + 3 + len(m[1]) + 2,
+			EndByte:      indent + 3 + len(inner),
+			CloseByte:    indent + 3 + len(inner) + 2,
 			Text:         anchor.Key,
 			Display:      display,
 			Heading:      anchor.Heading,
 			HeadingLevel: anchor.HeadingLevel,
 			BlockID:      anchor.BlockID,
 		}}
-		parseIncludeOptions(&inc, m[2])
+		parseIncludeOptions(&inc, trimmed[m[1]:])
 		out = append(out, inc)
 	}
 	return out

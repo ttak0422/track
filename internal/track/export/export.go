@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/ttak0422/track/internal/track/babel"
+	"github.com/ttak0422/track/internal/track/link"
 	"github.com/ttak0422/track/internal/track/note"
 )
 
@@ -51,8 +52,6 @@ var (
 	actionLink = regexp.MustCompile(`\[([^\[\]]*)\]\(<[^>]*>\)`)
 	// bareAction matches an angle-bracketed action that stands without a label.
 	bareAction = regexp.MustCompile(`<(?:journal|note)\?[^>]*>`)
-	// wikiLink matches a single [[...]] occurrence, capturing the inner text.
-	wikiLink = regexp.MustCompile(`\[\[([^\[\]]+)\]\]`)
 )
 
 // Export renders a note with the given renderer and options.
@@ -126,9 +125,11 @@ func transformInline(line string, r Renderer) string {
 		return r.ActionLink(actionLink.FindStringSubmatch(m)[1])
 	})
 	line = bareAction.ReplaceAllString(line, "")
-	line = wikiLink.ReplaceAllStringFunc(line, func(m string) string {
-		return r.WikiLink(wikiLink.FindStringSubmatch(m)[1])
-	})
+	refs := link.Refs(line)
+	for i := len(refs) - 1; i >= 0; i-- {
+		ref := refs[i]
+		line = line[:ref.OpenByte] + r.WikiLink(line[ref.StartByte:ref.EndByte]) + line[ref.CloseByte:]
+	}
 	return line
 }
 
