@@ -24,6 +24,9 @@ static build, and ordinary browser workspace do not gain this context.
   modal windows, DOM overlays, and focused embedded documents suppress tab commands. The tab store
   confirms live dirty/IME/pending editor state before removing the active tab, then bypasses the
   duplicate router confirmation. Cancel retains the tab, dirty indicator, and draft.
+  The saved baseline and React buffer are captured at the same layout commit; a passive note
+  adoption must not compare the previous buffer with the next note's baseline. DOM input and IME
+  composition are still read live, including input not yet committed by React.
 - No configuration schema, persistence, settings UI, or JavaScript-to-native API is added here.
 
 ## Focus and safety

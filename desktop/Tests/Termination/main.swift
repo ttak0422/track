@@ -33,6 +33,7 @@ final class TerminationHarness: NSObject, NSApplicationDelegate {
     var duplicateSent = false
     var timer: Timer?
     var finished = false
+    var phase = "loading fixture"
     var expectedPrompts: Int { scenario.contains("cancel") || scenario == "dirty-discard" || scenario == "dirty-tab-discard" ? 1 : 0 }
 
     init(app: TestApplication) {
@@ -115,12 +116,14 @@ final class TerminationHarness: NSObject, NSApplicationDelegate {
             _ = try await evaluate("document.querySelector('.tab-close').click(); true")
             try await waitFor("document.querySelectorAll('.tab').length === 0")
         }
+        phase = "clean tab navigation"
         if scenario == "multi-clean" || scenario == "dirty-multi-cancel" {
             _ = try await evaluate("(() => { const a = document.createElement('a'); a.href = '/notes/101'; document.body.appendChild(a); a.click(); return true; })()")
             try await waitFor("document.querySelectorAll('.tab').length === 2")
             _ = try await evaluate("Array.from(document.querySelectorAll('.tab-label')).find(b => b.querySelector('.tab-title').textContent === 'Fixture').click(); true")
             try await waitFor("location.pathname === '/notes/100' && document.body.innerText.includes('Original fixture') && window.__trackNativeEditorState?.() === false")
         }
+        phase = "editing fixture"
         if scenario.hasPrefix("dirty") || scenario == "saved-quit" || scenario == "pending-cancel" || scenario == "ime-cancel" || scenario == "clean-edit-quit" {
             _ = try await evaluate("document.querySelector('button[aria-label^=\"Display mode:\"]').click(); true")
             try await waitFor("!!document.querySelector('[aria-label=\"Display mode\"]')")
@@ -152,7 +155,9 @@ final class TerminationHarness: NSObject, NSApplicationDelegate {
         if scenario == "probe-error-cancel" { _ = try await evaluate("window.__trackNativeEditorState = () => { throw Error('fixture'); }; true") }
         if scenario == "unknown-cancel" { _ = try await evaluate("delete window.__trackNativeEditorState; delete window.__trackNativeWorkspaceState; true") }
         if scenario == "tab-close-clean" || scenario == "dirty-tab-cancel" || scenario == "dirty-tab-discard" {
+            phase = "dispatching Cmd-W"
             pressCloseTab()
+            phase = "waiting for Cmd-W"
             if scenario == "dirty-tab-cancel" {
                 for _ in 0..<200 {
                     if prompts == 1 && window.attachedSheet == nil { break }
@@ -213,6 +218,7 @@ final class TerminationHarness: NSObject, NSApplicationDelegate {
     }
 
     @objc func requestTermination() {
+        phase = "quitting"
         started = ProcessInfo.processInfo.systemUptime
         if scenario.hasSuffix("close") {
             window.performClose(nil)
@@ -238,6 +244,11 @@ final class TerminationHarness: NSObject, NSApplicationDelegate {
             guard let cancel = choices.first(where: { $0.title == "Cancel" }) else { continue }
             handledPanels.insert(ObjectIdentifier(panel))
             prompts += 1
+            if started == 0 && phase != "dispatching Cmd-W" && phase != "waiting for Cmd-W" {
+                cancel.performClick(nil)
+                finish(error: "unexpected warning during \(phase)")
+                return
+            }
             if prompts > expectedPrompts {
                 cancel.performClick(nil)
                 finish(error: "unexpected unsaved-edits warning in \(scenario)")
@@ -273,7 +284,7 @@ final class TerminationHarness: NSObject, NSApplicationDelegate {
         finished = true
         let result: [String: Any] = ["scenario": scenario, "ok": error == nil, "error": error ?? "",
                                     "prompts": prompts, "replies": replies, "callbacks": callbackReplies,
-                                    "duplicateSent": duplicateSent, "stopDuration": ProcessInfo.processInfo.systemUptime - started]
+                                    "duplicateSent": duplicateSent, "phase": phase, "stopDuration": ProcessInfo.processInfo.systemUptime - started]
         try! JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]).write(to: resultURL)
         print(String(data: try! JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), encoding: .utf8)!)
         exit(error == nil ? 0 : 1)

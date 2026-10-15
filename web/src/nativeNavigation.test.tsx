@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { describe, expect, it } from "vitest";
 import { useNativeEditorState, useNativeWorkspaceState } from "./nativeNavigation";
 
@@ -14,6 +14,22 @@ function Editor({ body = "saved", saved = "saved", pending = false, deleted = fa
 const state = () => window.__trackNativeEditorState?.();
 
 describe("native editor navigation state", () => {
+  it.each([false, true])("keeps a clean committed buffer clean during note adoption (editing=%s)", (editing) => {
+    let duringAdoption: boolean | undefined;
+    function AdoptingEditor() {
+      const baseline = useRef("saved");
+      const textarea = useRef<HTMLTextAreaElement>(null);
+      useNativeEditorState({ body: "saved", textarea, savedBody: () => baseline.current,
+        pending: false, isDeleted: () => false });
+      useEffect(() => {
+        baseline.current = "next note";
+        duringAdoption = state();
+      }, []);
+      return editing ? <textarea ref={textarea} defaultValue="saved" /> : null;
+    }
+    render(<AdoptingEditor />);
+    expect(duringAdoption).toBe(false);
+  });
   it("reports an unchanged note clean and removes its capability on unmount", () => {
     const view = render(<Editor />);
     expect(state()).toBe(false);
