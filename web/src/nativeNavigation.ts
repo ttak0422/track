@@ -1,5 +1,7 @@
 import { useLayoutEffect, useRef, type RefObject } from "react";
 
+export const unsavedChangesMessage = "保存していない変更は失われます。移動しますか？";
+
 declare global {
   interface Window {
     // Read-only editor state. This is deliberately not a native message/command bridge.

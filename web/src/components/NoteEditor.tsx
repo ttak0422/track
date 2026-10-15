@@ -26,13 +26,11 @@ import {
 import { useTabs } from "./tabs/tabsStore";
 import type { FollowState, NoteID } from "../types";
 import { vaultOf } from "../vaultId";
-import { useNativeEditorState } from "../nativeNavigation";
+import { unsavedChangesMessage, useNativeEditorState } from "../nativeNavigation";
 
 interface NoteEditorProps {
   noteID: NoteID;
 }
-
-const unsavedChangesMessage = "保存していない変更は失われます。移動しますか？";
 
 // NoteEditor is the live workspace's editable note view — read, edit (textarea/split), save, delete,
 // follow. NoteReader renders it only when !__TRACK_STATIC__, so it and its editing dependencies are
@@ -220,12 +218,12 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
 
   useBlocker({
     shouldBlockFn: ({ current, next }) => {
-      if (deletedRef.current || !dirty || current.pathname === next.pathname)
+      if (deletedRef.current || current.pathname === next.pathname ||
+          !(window.__trackNativeEditorState?.() ?? dirty))
         return false;
       return !window.confirm(unsavedChangesMessage);
     },
     enableBeforeUnload: () => dirty && !deletedRef.current,
-    disabled: !dirty,
   });
 
   // The tab bar owns the note's title and unsaved-edit indicator (the reader no longer renders its own

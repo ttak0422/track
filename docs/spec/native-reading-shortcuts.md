@@ -14,7 +14,17 @@ static build, and ordinary browser workspace do not gain this context.
   native Preview-only context and action registry using the existing router and tab store.
 - `tabCycle.ts` snapshots note-tab order during a keyboard walk. The existing MRU tab strip remains
   unchanged. Promoting a selected tab must not reduce a three-note walk to a two-note toggle.
-- No configuration schema, persistence, settings UI, or native command dispatcher is added here.
+- `useNativeTabCommands.ts` receives host-to-workspace tab action events. File → Close Tab owns
+  Cmd+W; Quit Track explicitly targets NSApplication and retains its deferred dirty-state/server
+  shutdown flow. A local AppKit event monitor consumes side-button down/up events only inside the
+  key workspace WebView, mapping button numbers 3/4 to `tabs.previous`/`tabs.next`. Existing page
+  history menus, trackpad gestures, and native text-editing shortcuts retain their behavior.
+- Tab commands share the native marker, tab store, route helper, and TabCycle implementation.
+  Their cycle includes view tabs and works from note editors as well as previews. Native sheets,
+  modal windows, DOM overlays, and focused embedded documents suppress tab commands. The tab store
+  confirms live dirty/IME/pending editor state before removing the active tab, then bypasses the
+  duplicate router confirmation. Cancel retains the tab, dirty indicator, and draft.
+- No configuration schema, persistence, settings UI, or JavaScript-to-native API is added here.
 
 ## Focus and safety
 

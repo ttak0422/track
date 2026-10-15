@@ -33,7 +33,7 @@ final class TerminationHarness: NSObject, NSApplicationDelegate {
     var duplicateSent = false
     var timer: Timer?
     var finished = false
-    var expectedPrompts: Int { scenario.contains("cancel") || scenario == "dirty-discard" ? 1 : 0 }
+    var expectedPrompts: Int { scenario.contains("cancel") || scenario == "dirty-discard" || scenario == "dirty-tab-discard" ? 1 : 0 }
 
     init(app: TestApplication) {
         self.app = app
@@ -149,6 +149,28 @@ final class TerminationHarness: NSObject, NSApplicationDelegate {
         }
         if scenario == "probe-error-cancel" { _ = try await evaluate("window.__trackNativeEditorState = () => { throw Error('fixture'); }; true") }
         if scenario == "unknown-cancel" { _ = try await evaluate("delete window.__trackNativeEditorState; delete window.__trackNativeWorkspaceState; true") }
+        if scenario == "tab-close-clean" || scenario == "dirty-tab-cancel" || scenario == "dirty-tab-discard" {
+            pressCloseTab()
+            if scenario == "dirty-tab-cancel" {
+                for _ in 0..<200 {
+                    if prompts == 1 && window.attachedSheet == nil { break }
+                    try await Task.sleep(for: .milliseconds(25))
+                }
+                try require(prompts == 1, "Cmd-W did not confirm the dirty tab")
+                try require((try await evaluate("location.pathname === '/notes/100' && !!document.querySelector('.tab.dirty') && document.querySelector('form.note-editor textarea').value === 'Fixture unsaved 日本語'")) as? Bool == true,
+                            "Cancel must retain the tab, dirty indicator and draft")
+                try require(replies.isEmpty, "Cmd-W reached application termination")
+                try await save()
+                pressCloseTab()
+            }
+            try await waitFor("location.pathname === '/' && document.querySelectorAll('.tab').length === 0 && window.__trackNativeWorkspaceState?.() === false")
+            try require(replies.isEmpty && window.isVisible, "closing the last tab must leave the app open")
+            pressCloseTab()
+            try await Task.sleep(for: .milliseconds(100))
+            try require(replies.isEmpty && window.isVisible, "Cmd-W on an empty strip must not quit")
+            perform(#selector(requestTermination), with: nil, afterDelay: 0)
+            return
+        }
         perform(#selector(requestTermination), with: nil, afterDelay: 0)
         if scenario.contains("cancel") {
             for _ in 0..<300 {
@@ -179,6 +201,13 @@ final class TerminationHarness: NSObject, NSApplicationDelegate {
     func save() async throws {
         _ = try await evaluate("document.querySelector('form.note-editor button[type=submit]').click(); true")
         try await waitFor("window.__trackNativeEditorState() === false && !document.querySelector('.tab.dirty')")
+    }
+
+    func pressCloseTab() {
+        let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command,
+            timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+            context: nil, characters: "w", charactersIgnoringModifiers: "w", isARepeat: false, keyCode: 13)!
+        if app.mainMenu?.performKeyEquivalent(with: event) != true { finish(error: "Cmd-W not handled") }
     }
 
     @objc func requestTermination() {
@@ -212,7 +241,7 @@ final class TerminationHarness: NSObject, NSApplicationDelegate {
                 finish(error: "unexpected unsaved-edits warning in \(scenario)")
                 return
             }
-            let button = scenario == "dirty-discard" ? choices.first(where: { $0.title == "Continue" })! : cancel
+            let button = scenario == "dirty-discard" || scenario == "dirty-tab-discard" ? choices.first(where: { $0.title == "Continue" })! : cancel
             button.performClick(nil)
         }
     }
@@ -225,7 +254,7 @@ final class TerminationHarness: NSObject, NSApplicationDelegate {
             finish(error: "stopped child bypassed bounded graceful shutdown"); return
         }
         if prompts != expectedPrompts { finish(error: "prompt count \(prompts), expected \(expectedPrompts)"); return }
-        if replies != (scenario.contains("cancel") ? [false, true] : [true]) {
+        if replies != (scenario.contains("cancel") && scenario != "dirty-tab-cancel" ? [false, true] : [true]) {
             finish(error: "unexpected termination replies: \(replies)"); return
         }
         if callbackReplies.contains(Int(NSApplication.TerminateReply.terminateCancel.rawValue)) {

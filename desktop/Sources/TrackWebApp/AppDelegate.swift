@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var searchTestActionCounts: [Int: Int] = [:]
     private var supervisor: WebServerSupervisor?
     private var webView: WKWebView?
+    private var tabMouseMonitor: Any?
     private var coordinator: WebViewCoordinator?
     private var textFinder: WebViewFindController?
     private var findBarContainerView: SearchFindBarContainerView?
@@ -195,6 +196,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        if let tabMouseMonitor { NSEvent.removeMonitor(tabMouseMonitor) }
         shutdownTestTask?.cancel()
         supervisor?.stop()
     }
@@ -240,6 +242,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     @objc private func reloadWorkspace(_ sender: Any?) {
         guard let webView else { return }
         webView.reload() // The coordinator checks live editor state before replacing the document.
+    }
+
+    @objc private func closeCurrentTab(_ sender: Any?) {
+        dispatchTabCommand("tabs.close")
+    }
+
+    private func dispatchTabCommand(_ command: String) {
+        guard let webView, !webView.isHidden, webView.window?.attachedSheet == nil,
+              application.modalWindow == nil else { return }
+        // The marker is injected only in the main workspace frame at its exact origin.
+        webView.evaluateJavaScript("""
+        if (window.__trackNativeReading === true) {
+          window.dispatchEvent(new CustomEvent('track:native-tab-command', { detail: '\(command)' }));
+        }
+        """)
+    }
+
+    func handleTabMouseEvent(_ event: NSEvent) -> NSEvent? {
+        guard event.buttonNumber == 3 || event.buttonNumber == 4,
+              let webView, !webView.isHidden, event.window === webView.window,
+              webView.url?.scheme == workspaceOrigin.scheme,
+              webView.url?.host == workspaceOrigin.host,
+              webView.url?.port == workspaceOrigin.port,
+              event.window?.isKeyWindow == true, event.window?.attachedSheet == nil,
+              application.modalWindow == nil,
+              webView.bounds.contains(webView.convert(event.locationInWindow, from: nil)) else { return event }
+        if event.type == .otherMouseDown {
+            dispatchTabCommand(event.buttonNumber == 3 ? "tabs.previous" : "tabs.next")
+        }
+        // Consume the matching release too, so WebKit cannot turn it into page-history navigation.
+        return nil
     }
 
     private func startServer() {
@@ -373,6 +406,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         self.webView = webView
         self.coordinator = coordinator
         self.statusView = statusView
+        tabMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.otherMouseDown, .otherMouseUp]) { [weak self] event in
+            let consumed = MainActor.assumeIsolated {
+                guard let self else { return false }
+                return self.handleTabMouseEvent(event) == nil
+            }
+            return consumed ? nil : event
+        }
     }
 
     private func startSearchTest() {
@@ -782,9 +822,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         appMenu.addItem(NSMenuItem(title: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h").also { $0.keyEquivalentModifierMask = [.command, .option] })
         appMenu.addItem(NSMenuItem(title: "Show All", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: ""))
         appMenu.addItem(.separator())
-        appMenu.addItem(NSMenuItem(title: "Quit Track", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        appMenu.addItem(NSMenuItem(title: "Quit Track", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q").also { $0.target = application })
         appItem.submenu = appMenu
         menu.addItem(appItem)
+
+        let fileItem = NSMenuItem()
+        let fileMenu = NSMenu(title: "File")
+        fileMenu.addItem(NSMenuItem(title: "Close Tab", action: #selector(closeCurrentTab(_:)), keyEquivalent: "w").also { $0.target = self })
+        fileItem.submenu = fileMenu
+        menu.addItem(fileItem)
 
         let editItem = NSMenuItem()
         let editMenu = NSMenu(title: "Edit")

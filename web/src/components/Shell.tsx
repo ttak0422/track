@@ -19,6 +19,7 @@ import { useLiveEvents } from "../hooks/useLiveEvents";
 import { useSiteQuery } from "../queries";
 import { START_PAGE_ID, STATIC_MODE } from "../runtime";
 import { useReadingKeybindings } from "../keybindings/useReadingKeybindings";
+import { useNativeTabCommands } from "../keybindings/useNativeTabCommands";
 import { NoteControlsProvider, useNoteControls } from "../noteControls";
 import { AgentRequestPanel, openAgentRequest } from "./AgentRequestPanel";
 import { NotificationToast } from "../notifications";
@@ -50,6 +51,7 @@ function ShellView() {
   // Normalize a trailing slash: the prerendered static site serves routes as directories (/graph/).
   const path = pathname.replace(/\/$/, "") || "/";
   useNativeWorkspaceState(path);
+  useNativeTabCommands();
   const isHome = path === "/";
   const isMarkdown = path === "/markdown";
   const isGraph = path === "/graph";
