@@ -247,6 +247,9 @@ final class TerminationHarness: NSObject, NSApplicationDelegate {
     }
 
     func complete() {
+        if started == 0 {
+            finish(error: "application terminated before the fixture requested quit"); return
+        }
         if let childPID, kill(childPID, 0) == 0 || errno != ESRCH {
             finish(error: "AppKit received approval before owned Go child was reaped"); return
         }
