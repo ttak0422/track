@@ -5,14 +5,30 @@
 // and the compressed <diagram> payload handled internally; the price is a hand-vendored script
 // (ADR 0065), lazy-injected here so a note without a drawio diagram never downloads it.
 
+// The subset of the vendored viewer used by the local viewport adapter.
+export interface DrawioGraph {
+  resizeContainer: boolean;
+  getGraphBounds(): { x: number; y: number; width: number; height: number };
+  addListener(name: string, listener: () => void): void;
+  removeListener(listener: () => void): void;
+  destroy(): void;
+}
+
+export interface DrawioViewerInstance {
+  graph?: DrawioGraph | null;
+  addListener(name: string, listener: () => void): void;
+  removeListener(listener: () => void): void;
+}
+
 // The subset of GraphViewer this integration relies on.
 export interface DrawioGraphViewer {
-  createViewerForElement: (element: Element) => void;
+  createViewerForElement: (element: Element, ready?: (viewer: DrawioViewerInstance) => void) => void;
 }
 
 declare global {
   interface Window {
     GraphViewer?: DrawioGraphViewer;
+    ResizeSensor?: { detach(element: Element): void };
     MathJax?: unknown;
     Editor?: { MathJaxRender?: (element: Element) => void };
     PROXY_URL?: string;
