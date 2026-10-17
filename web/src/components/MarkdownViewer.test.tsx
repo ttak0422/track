@@ -1,8 +1,11 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { useState } from "react";
+import { StrictMode, useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ExternalMarkdownProvider } from "./ExternalMarkdownSource";
 import { MarkdownViewer } from "./MarkdownViewer";
+import { consumeMarkdownHandoff } from "../markdownHandoff";
+
+vi.mock("../markdownHandoff", () => ({ consumeMarkdownHandoff: vi.fn() }));
 
 const router = vi.hoisted(() => ({ navigate: vi.fn(), hash: "" }));
 vi.mock("@tanstack/react-router", () => ({ useNavigate: () => router.navigate, useRouterState: () => router.hash }));
@@ -40,9 +43,39 @@ function choose(files: File[], folder = false) {
   fireEvent.change(screen.getByLabelText(folder ? "Select Markdown folder" : "Select Markdown files"), { target: { files } });
 }
 
-beforeEach(() => { router.navigate.mockReset(); router.hash = ""; window.localStorage.clear(); });
+beforeEach(() => { router.navigate.mockReset(); router.hash = ""; window.localStorage.clear(); vi.mocked(consumeMarkdownHandoff).mockReset(); });
 
 describe("MarkdownViewer", () => {
+  it("consumes an editor handoff once in StrictMode and selects the current file rather than README", async () => {
+    const token = "a".repeat(64);
+    router.hash = `handoff=${token}`;
+    vi.mocked(consumeMarkdownHandoff).mockResolvedValue({ active: "日本語 file.md", files: [file("README.md", "Not current"), file("日本語 file.md", "Current saved body"), file("docs/next.md", "## Next")] });
+    render(<StrictMode><Harness /></StrictMode>);
+    expect(await screen.findByText("Current saved body")).toBeVisible();
+    expect(consumeMarkdownHandoff).toHaveBeenCalledExactlyOnceWith(token);
+    expect(router.navigate).toHaveBeenLastCalledWith(expect.objectContaining({ to: "/markdown", hash: "", replace: true }));
+    expect(screen.getByText(/Folder from editor/)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Follow next" }));
+    expect(await screen.findByText("## Next")).toBeVisible();
+  });
+
+  it("reports an expired editor handoff and keeps manual selection ahead of a late handoff", async () => {
+    router.hash = `handoff=${"b".repeat(64)}`;
+    vi.mocked(consumeMarkdownHandoff).mockRejectedValue(new Error("Markdown handoff expired"));
+    const first = render(<Harness />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Markdown handoff expired");
+    first.unmount();
+    router.hash = `handoff=${"c".repeat(64)}`;
+    let finish!: (value: { active: string; files: File[] }) => void;
+    vi.mocked(consumeMarkdownHandoff).mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    render(<Harness />);
+    choose([file("manual.md", "Manual choice")]);
+    expect(await screen.findByText("Manual choice")).toBeVisible();
+    await act(async () => finish({ active: "late.md", files: [file("late.md", "Late body")] }));
+    expect(screen.queryByText("Late body")).toBeNull();
+    expect(screen.getByText("Manual choice")).toBeVisible();
+  });
+
   it("chooses local files, follows scoped links, survives note navigation, and clears the source", async () => {
     const fetch = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("No network reads allowed"));
     render(<Harness />);

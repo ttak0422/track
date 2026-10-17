@@ -26,6 +26,10 @@ func applyVaultFlag(args []string) ([]string, bool) {
 	name := ""
 	rest := make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {
+		if args[i] == "--" {
+			rest = append(rest, args[i:]...)
+			break
+		}
 		switch {
 		case args[i] == "--vault":
 			if i+1 >= len(args) {

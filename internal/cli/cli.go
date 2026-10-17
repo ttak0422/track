@@ -20,8 +20,8 @@ func Run(args []string) int {
 	if !ok {
 		return 1
 	}
-	// File-based tangle does not consult machine or vault configuration.
-	if len(args) < 2 || args[0] != "babel" || args[1] != "tangle" {
+	// File-based tangle and Markdown handoff do not consult machine or vault configuration.
+	if (len(args) == 0 || args[0] != "markdown") && (len(args) < 2 || args[0] != "babel" || args[1] != "tangle") {
 		applyPathVault(args)
 	}
 	if len(args) == 0 {
@@ -110,6 +110,8 @@ func Run(args []string) int {
 			return cmdWebStop(rest[1:])
 		}
 		return cmdWeb(rest)
+	case "markdown":
+		return cmdMarkdown(rest)
 	case "vault":
 		return cmdVault(rest)
 	case "template":
@@ -275,6 +277,9 @@ Usage:
   track graph --orphans                 vault-wide link hygiene in one call: notes with no inbound link,
                                         and titles naming a parent scope no note owns (JSON)
   track web [--addr 127.0.0.1:8765]      serve the local web workspace
+  track markdown [--addr HOST:PORT] -- FILE
+                                        send a saved Markdown file and its containing folder to the
+                                        read-only viewer; prints a one-use URL (start track web first)
   track web stop [--addr 127.0.0.1:8765]
                                         stop the web workspace on this addr (JSON)
   track agent claim [--addr HOST:PORT] [--vault NAME] --request REQ --dispatch DISP

@@ -52,6 +52,7 @@ type Server struct {
 	ogpCache map[string]ogpCacheEntry
 	followMu sync.Mutex
 	follow   *followState
+	markdown markdownInbox
 	// dispatchQueue carries freshly created attempts to the agmsg send worker. Delivery is
 	// asynchronous and server-lifetime: the HTTP response that created the attempt never waits on
 	// send.sh, and the worker survives the request that enqueued the job (docs/spec/
@@ -557,6 +558,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/graph/local", s.withVault(s.handleLocalGraph))
 	s.mux.HandleFunc("/api/graph", s.withVault(s.handleGraph))
 	s.mux.HandleFunc("/api/follow", s.handleFollow)
+	s.mux.Handle("/api/markdown", s.requestLoopbackOnly(http.HandlerFunc(s.handleMarkdownHandoff)))
+	s.mux.Handle("/api/markdown/consume", s.requestLoopbackOnly(http.HandlerFunc(s.handleMarkdownConsume)))
 	s.mux.HandleFunc("/api/events", s.handleEvents)
 	s.mux.HandleFunc("/api/vaults", s.handleVaults)
 	// Agent request gateway (docs/spec/live-agent-requests.md, stage 1: the connection-agnostic

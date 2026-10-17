@@ -3,18 +3,51 @@ import { createMemoryHistory, createRootRoute, createRoute, createRouter, Outlet
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ExternalMarkdownProvider } from "./ExternalMarkdownSource";
 import { MarkdownViewer } from "./MarkdownViewer";
+import * as handoff from "../markdownHandoff";
 
-function file(path: string, markdown: string): File {
-  const bytes = new TextEncoder().encode(markdown);
-  const item = new File([bytes], path.split("/").at(-1)!);
+function file(path: string, markdown: string | Uint8Array): File {
+  const bytes = typeof markdown === "string" ? new TextEncoder().encode(markdown) : markdown;
+  const item = new File([bytes as BlobPart], path.split("/").at(-1)!);
   Object.defineProperty(item, "webkitRelativePath", { value: path });
   Object.defineProperty(item, "arrayBuffer", { value: async () => bytes.buffer });
   return item;
 }
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("external Markdown router navigation", () => {
+  it("opens an editor handoff through the real router, renders a local image and follows relative links", async () => {
+    vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+    const create = vi.fn(() => "blob:editor-image");
+    const revoke = vi.fn();
+    vi.stubGlobal("URL", class extends URL { static createObjectURL = create; static revokeObjectURL = revoke; });
+    const consume = vi.spyOn(handoff, "consumeMarkdownHandoff").mockResolvedValue({ active: "日本語 file.md", files: [
+      file("日本語 file.md", "# Current\n\n[Next](docs/next.md#details)\n\n![Local image](images/pic.png)"),
+      file("docs/next.md", "# Next\n\n## Details\n\n[Back](../日本語%20file.md)"),
+      file("images/pic.png", new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])),
+    ] });
+    const history = createMemoryHistory({ initialEntries: [`/markdown#handoff=${"a".repeat(64)}`] });
+    const root = createRootRoute({ component: () => <ExternalMarkdownProvider><Outlet /></ExternalMarkdownProvider> });
+    const route = createRoute({
+      getParentRoute: () => root, path: "/markdown",
+      validateSearch: (search: Record<string, unknown>): { doc?: string } => ({ doc: typeof search.doc === "string" ? search.doc : undefined }),
+      component: () => <MarkdownViewer documentID={route.useSearch().doc} />,
+    });
+    const router = createRouter({ routeTree: root.addChildren([route]), history });
+    const { unmount } = render(<RouterProvider router={router} />);
+    expect(await screen.findByRole("article", { name: "External Markdown: 日本語 file.md" })).toBeVisible();
+    await waitFor(() => expect(screen.getByRole("img", { name: "Local image" })).toHaveAttribute("src", "blob:editor-image"));
+    expect(consume).toHaveBeenCalledExactlyOnceWith("a".repeat(64));
+    expect(history.location.href).not.toContain("handoff=");
+    fireEvent.click(screen.getByRole("link", { name: "Next" }));
+    expect(await screen.findByRole("article", { name: "External Markdown: docs/next.md" })).toBeVisible();
+    expect(history.location.hash).toBe("#details");
+    fireEvent.click(screen.getByRole("link", { name: "Back" }));
+    expect(await screen.findByRole("article", { name: "External Markdown: 日本語 file.md" })).toBeVisible();
+    unmount();
+    expect(revoke).toHaveBeenCalledWith("blob:editor-image");
+  });
+
   it("keeps file and heading history through the real router and never requests vault content", async () => {
     vi.spyOn(window, "scrollTo").mockImplementation(() => {});
     const scroll = vi.spyOn(HTMLElement.prototype, "scrollIntoView");

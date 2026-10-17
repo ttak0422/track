@@ -1,5 +1,5 @@
-// A user-chosen set of local files is the entire authority of the external reader. No path is
-// handed to the Go server, and no body/filename is persisted in the vault or browser storage.
+// A user-chosen set of local files is the entire authority of the external reader. Browser-picked
+// files stay here; the optional CLI handoff transfers bounded bytes, never server-readable paths.
 export const MAX_MARKDOWN_BYTES = 2 * 1024 * 1024;
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_SELECTION_FILES = 5000;
@@ -68,7 +68,7 @@ export class ExternalMarkdownSource {
   private imageBytes = 0;
   private disposed = false;
 
-  constructor(files: readonly File[]) {
+  constructor(files: readonly File[], label?: string) {
     if (files.length > MAX_SELECTION_FILES) throw new Error("Choose a smaller folder (at most 5,000 files).");
     for (const file of files) {
       const path = selectedPath(file);
@@ -87,7 +87,7 @@ export class ExternalMarkdownSource {
     if (!this.documents.length) throw new Error("Choose a .md or .markdown file, or a folder containing one.");
     const folder = files.find((file) => file.webkitRelativePath)?.webkitRelativePath.split("/")[0];
     this.activeDocumentID = this.initialDocument().id;
-    this.label = folder ? `Folder: ${folder}` : `${this.documents.length} selected Markdown file${this.documents.length === 1 ? "" : "s"}`;
+    this.label = label ?? (folder ? `Folder: ${folder}` : `${this.documents.length} selected Markdown file${this.documents.length === 1 ? "" : "s"}`);
   }
 
   initialDocument(): ExternalDocument {
