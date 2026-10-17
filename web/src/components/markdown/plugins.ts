@@ -4,10 +4,7 @@ import { visit } from "unist-util-visit";
 import { taskStates } from "../../taskStates";
 import type { TaskState } from "../../types";
 import { headingElementID, headingSlug } from "./toc";
-
-// The [[target|display]] wiki-link grammar (target, optional |display alias). Shared with the portable
-// export so both flatten the same construct. It carries the /g flag; reset lastIndex before manual exec.
-export const wikiPattern = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
+import { wikiLinks } from "./wikiLinks";
 
 // react-markdown intentionally drops raw HTML. Convert only the safe, presentational <br> tag to
 // mdast's native hard-break node so line breaks authored in table cells are preserved without
@@ -164,24 +161,22 @@ export function remarkWikiLink() {
     visit(tree, "text", (node, index, parent) => {
       if (!parent || index === undefined) return;
       const value = node.value;
-      wikiPattern.lastIndex = 0;
-      if (!wikiPattern.test(value)) return;
-      wikiPattern.lastIndex = 0;
+      const links = wikiLinks(value);
+      if (links.length === 0) return;
       const replacement: unknown[] = [];
       let last = 0;
-      let match: RegExpExecArray | null;
-      while ((match = wikiPattern.exec(value)) !== null) {
-        if (match.index > last) {
-          replacement.push({ type: "text", value: value.slice(last, match.index) });
+      for (const link of links) {
+        if (link.start > last) {
+          replacement.push({ type: "text", value: value.slice(last, link.start) });
         }
-        const target = match[1].trim();
-        const display = (match[2] ?? match[1]).trim();
+        const { target } = link;
+        const display = link.alias || target;
         replacement.push({
           type: "wikilink",
           data: { hName: "wikilink", hProperties: { target, display } },
           children: [],
         });
-        last = wikiPattern.lastIndex;
+        last = link.end;
       }
       if (last < value.length) {
         replacement.push({ type: "text", value: value.slice(last) });

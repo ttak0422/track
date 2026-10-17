@@ -191,3 +191,13 @@ func TestApplyMetaEditSetUnsetProps(t *testing.T) {
 		t.Fatalf("stored props = %#v", stored.Props)
 	}
 }
+
+func TestInlineFieldsBracketedLinkTitles(t *testing.T) {
+	title := "outer [inner [nested]], notes"
+	body := "Met [owner:: [[" + title + "]], [[[Grace]]]] today. [status:: open]"
+	got := InlineFields(body)
+	want := []Prop{{Key: "owner", Value: title, Type: TypeLink, Line: 1}, {Key: "owner", Value: "[Grace]", Type: TypeLink, Line: 1}, {Key: "status", Value: "open", Type: TypeString, Line: 1}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}

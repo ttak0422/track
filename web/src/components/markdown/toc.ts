@@ -1,3 +1,5 @@
+import { wikiLinks } from "./wikiLinks";
+
 // A note's heading outline, and the ids its rendered headings carry so an outline entry can jump to
 // one. The scan is shared with the mindmap fence (which draws the same headings as a tree), so both
 // read a note's structure the same way: ATX headings only — the engine's heading parsers are ATX-only
@@ -53,8 +55,13 @@ export function tocEntries(markdown: string): TocEntry[] {
 // headingLabel strips the syntax a heading's text may carry — wiki links, Markdown links, emphasis,
 // inline code — leaving what the rendered heading reads as.
 function headingLabel(text: string): string {
-  return text
-    .replace(/\[\[([^|\]]+)(?:\|([^\]]+))?\]\]/g, (_, target: string, alias?: string) => alias ?? target)
+  let label = "";
+  let last = 0;
+  for (const link of wikiLinks(text)) {
+    label += text.slice(last, link.start) + (link.alias || link.target);
+    last = link.end;
+  }
+  return (label + text.slice(last))
     .replace(/\[([^\]]+)\]\([^\s)]*\)/g, "$1")
     .replace(/[*_~`]/g, "")
     .trim();

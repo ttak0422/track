@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ttak0422/track/internal/track/link"
 	"github.com/ttak0422/track/internal/track/note"
 )
 
@@ -397,5 +398,15 @@ func TestExpandBlocksSavedAndErrors(t *testing.T) {
 
 	if got := ExpandBlocks("no fences here", nil, testRows(), nil); got != "no fences here" {
 		t.Fatalf("body without fences must pass through: %q", got)
+	}
+}
+
+func TestMarkdownTableBracketedTitles(t *testing.T) {
+	for _, title := range []string{"[test]", "outer [inner [nested]]"} {
+		md := Markdown(Result{Columns: []string{"title"}, Rows: []Row{{Title: title, Cells: []string{title}}}})
+		refs := link.Refs(md)
+		if len(refs) != 1 || refs[0].Text != title {
+			t.Fatalf("generated title link does not round trip: %q, %+v", md, refs)
+		}
 	}
 }

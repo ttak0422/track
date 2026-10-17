@@ -1,6 +1,77 @@
 import { fromMarkdown } from "mdast-util-from-markdown";
 import { describe, expect, it } from "vitest";
-import { remarkBlockEmbed, spliceIncludeTokens, splitWikiTarget } from "./plugins";
+import { remarkBlockEmbed, remarkWikiLink, spliceIncludeTokens, splitWikiTarget } from "./plugins";
+import { wikiLinks } from "./wikiLinks";
+
+describe("wikiLinks", () => {
+  it.each([
+    ["[[[test]]]", "[test]"],
+    ["[[Plan [draft]]]", "Plan [draft]"],
+    ["[[outer [inner [nested]]]]", "outer [inner [nested]]"],
+    ["[[日本語 [下書き]]]", "日本語 [下書き]"],
+    [String.raw`[[path\[draft]]]`, String.raw`path\[draft]`],
+    ["[[Plan [draft]##Review [notes]]]", "Plan [draft]##Review [notes]"],
+  ])("keeps the whole balanced target in %s", (source, target) => {
+    expect(wikiLinks(source)).toEqual([{ start: 0, end: source.length, target, alias: undefined }]);
+  });
+
+  it("preserves offsets, aliases and adjacent links", () => {
+    const first = "[[Plan [draft]|review [now]|later]]";
+    const second = "[[[test]]]";
+    const source = `前 ${first}${second} 後`;
+    expect(wikiLinks(source)).toEqual([
+      { start: 2, end: 2 + first.length, target: "Plan [draft]", alias: "review [now]|later" },
+      { start: 2 + first.length, end: 2 + first.length + second.length, target: "[test]", alias: undefined },
+    ]);
+    expect(wikiLinks("[[Plan [draft]|]]")[0].alias).toBe("");
+  });
+
+  it.each(["[[a]b]]", "[[a[b]]", "[[]]", "[[  ]]", "[[|alias]]", "[[a\nb]]"])(
+    "ignores malformed or empty candidates: %s", (source) => {
+      expect(wikiLinks(source)).toEqual([]);
+    },
+  );
+
+  it("recovers later links after a malformed opening", () => {
+    expect(wikiLinks("[[bad]x]] [[Good]]\n[[broken [\n[[Next]]").map((link) => link.target))
+      .toEqual(["Good", "Next"]);
+    expect(wikiLinks("[[broken [ [[Good]]")).toEqual([]);
+  });
+
+  it("handles a large unterminated opening run without rescanning each bracket", () => {
+    expect(wikiLinks("[".repeat(100_000))).toEqual([]);
+  });
+});
+
+describe("remarkWikiLink", () => {
+  it("renders nested bracket targets and aliases without truncating their text", () => {
+    const tree = fromMarkdown("before [[[test]]] and [[outer [inner [nested]]|alias [here]]] after");
+    remarkWikiLink()(tree);
+    expect(tree.children[0]).toMatchObject({
+      type: "paragraph",
+      children: [
+        { type: "text", value: "before " },
+        { type: "wikilink", data: { hProperties: { target: "[test]", display: "[test]" } } },
+        { type: "text", value: " and " },
+        { type: "wikilink", data: { hProperties: { target: "outer [inner [nested]]", display: "alias [here]" } } },
+        { type: "text", value: " after" },
+      ],
+    });
+  });
+
+  it("leaves code and malformed input literal and falls back from an empty alias", () => {
+    const tree = fromMarkdown("`[[Plan [draft]]]` [[a]b]] [[Plan [draft]|]]");
+    remarkWikiLink()(tree);
+    expect(tree.children[0]).toMatchObject({
+      type: "paragraph",
+      children: [
+        { type: "inlineCode", value: "[[Plan [draft]]]" },
+        { type: "text", value: " [[a]b]] " },
+        { type: "wikilink", data: { hProperties: { target: "Plan [draft]", display: "Plan [draft]" } } },
+      ],
+    });
+  });
+});
 
 describe("splitWikiTarget", () => {
   it("passes a plain key through", () => {

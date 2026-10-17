@@ -92,12 +92,13 @@ func splitList(s string) []string {
 	start := 0
 	for i := 0; i < len(s); i++ {
 		switch {
-		case strings.HasPrefix(s[i:], "[["):
+		case depth == 0 && strings.HasPrefix(s[i:], "[["):
+			depth = 2
+			i++
+		case depth > 0 && s[i] == '[':
 			depth++
-			i++
-		case strings.HasPrefix(s[i:], "]]") && depth > 0:
+		case s[i] == ']' && depth > 0:
 			depth--
-			i++
 		case s[i] == ',' && depth == 0:
 			out = append(out, s[start:i])
 			start = i + 1
@@ -156,12 +157,12 @@ func flattenValue(key string, v any) []Prop {
 }
 
 // inlineLineRe matches a whole-line field: an optional list marker, then "key:: value" to the end of
-// the line. inlineBracketRe matches the mid-sentence form "[key:: value]" anywhere in a line.
+// the line. inlineBracketStartRe starts the mid-sentence form "[key:: value]" anywhere in a line.
 var (
 	inlineLineRe = regexp.MustCompile(`^\s*(?:[-*+]\s+|\d+[.)]\s+)?([A-Za-z][A-Za-z0-9_-]*)::\s+(.+)$`)
-	// The bracketed value is any run of [[...]] links and non-bracket text, so "[owner:: [[Ada]]]"
-	// keeps the link's own closing brackets inside the field.
-	inlineBracketRe = regexp.MustCompile(`\[([A-Za-z][A-Za-z0-9_-]*)::\s+((?:\[\[[^\[\]]+\]\]|[^\[\]])+)\]`)
+	// Match the field prefix separately; its value is scanned with balanced brackets
+	// so a wiki-link title can itself contain brackets.
+	inlineBracketStartRe = regexp.MustCompile(`\[([A-Za-z][A-Za-z0-9_-]*)::\s+`)
 	// fenceRe matches a code-fence line, capturing its run of marks and the info string after it. A
 	// block is closed only by a bare run of the same mark at least as long (CommonMark), so the shorter
 	// fences nested inside a ````-wrapped Markdown example stay code instead of ending the block early
@@ -202,8 +203,31 @@ func InlineFields(body string) []Prop {
 			return
 		}
 		// Mask `inline code` first so a documented "[key:: value]" example never becomes data.
-		for _, m := range inlineBracketRe.FindAllStringSubmatch(codeSpanRe.ReplaceAllString(line, "``"), -1) {
-			out = append(out, fieldProps(m[1], m[2], num)...)
+		masked := codeSpanRe.ReplaceAllString(line, "``")
+		for from := 0; from < len(masked); {
+			m := inlineBracketStartRe.FindStringSubmatchIndex(masked[from:])
+			if m == nil {
+				break
+			}
+			key := masked[from+m[2] : from+m[3]]
+			start := from + m[1]
+			from = len(masked)
+			depth := 0
+			for i := start; i < len(masked); i++ {
+				if masked[i] == '[' {
+					depth++
+				}
+				if masked[i] != ']' {
+					continue
+				}
+				if depth > 0 {
+					depth--
+					continue
+				}
+				out = append(out, fieldProps(key, masked[start:i], num)...)
+				from = i + 1
+				break
+			}
 		}
 	})
 	return out

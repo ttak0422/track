@@ -43,6 +43,15 @@ describe("markdownTree", () => {
       ],
     });
   });
+
+  it("keeps bracketed targets navigable and shows complete aliases", () => {
+    const tree = markdownTree("# Root\n- [[[test]]]\n- [[Plan [draft]|review [now]]]\n- [[a]b]]");
+    expect(tree?.children).toEqual([
+      { label: "[test]", link: { kind: "wiki", target: "[test]" }, children: [] },
+      { label: "review [now]", link: { kind: "wiki", target: "Plan [draft]" }, children: [] },
+      { label: "[[a]b]]", children: [] },
+    ]);
+  });
 });
 
 describe("layoutMindmap", () => {

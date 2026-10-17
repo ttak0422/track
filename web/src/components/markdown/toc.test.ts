@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { headingElementID, scanHeadings, tocEntries } from "./toc";
+import { headingElementID, headingSlug, scanHeadings, tocEntries } from "./toc";
 
 describe("scanHeadings", () => {
   it("reads ATX headings and skips fenced code", () => {
@@ -21,6 +21,16 @@ describe("tocEntries", () => {
   it("strips link and emphasis syntax from the label", () => {
     const entries = tocEntries("# See [[Other Note|the note]]\n## A *bold* `code` word");
     expect(entries.map((e) => e.text)).toEqual(["See the note", "A bold code word"]);
+  });
+
+  it("uses complete bracketed wiki-link labels for the outline and heading anchors", () => {
+    const entries = tocEntries("# [[[test]]]\n## [[Plan [draft]|review [now]]]\n## [[Plan [draft]|]]");
+    expect(entries).toEqual([
+      { level: 1, text: "[test]", id: "test" },
+      { level: 2, text: "review [now]", id: "review-now" },
+      { level: 2, text: "Plan [draft]", id: "plan-draft" },
+    ]);
+    expect(headingSlug("[[Plan [draft]|review [now]]]")).toBe(entries[1].id);
   });
 
   it("keeps Japanese headings addressable", () => {

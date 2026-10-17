@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { WikiLink } from "../preview/WikiLink";
+import { wikiLinks } from "./wikiLinks";
 import "leaflet/dist/leaflet.css";
 
 export type MapType = "roadmap" | "satellite" | "hybrid" | "terrain";
@@ -37,14 +38,17 @@ export function parseMapFence(body: string): MapFenceProps | null {
     if (!match) return null;
     const [, key, value] = match;
     if (key === "marker") {
-      const marker = value.match(/^([^,]+),\s*([^,]+),\s*([^,]+),\s*\[\[([^\]]+)\]\]\s*,\s*(.*)$/);
+      const marker = value.match(/^([^,]+),\s*([^,]+),\s*([^,]+),\s*(.*)$/);
       if (!marker) return null;
-      const [, kind, latitude, longitude, link, description] = marker;
+      const [, kind, latitude, longitude, content] = marker;
+      const link = wikiLinks(content)[0];
+      if (!link || link.start !== 0) return null;
+      const tail = content.slice(link.end).match(/^\s*,\s*(.*)$/);
+      if (!tail) return null;
       const lat = coordinate(latitude, 90);
       const long = coordinate(longitude, 180);
-      const [target, ...label] = link.split("|");
-      if (lat === null || long === null || !target.trim()) return null;
-      markers.push({ type: kind.trim(), lat, long, target: target.trim(), display: label.join("|").trim() || target.trim(), description });
+      if (lat === null || long === null) return null;
+      markers.push({ type: kind.trim(), lat, long, target: link.target, display: link.alias || link.target, description: tail[1] });
     } else {
       if (values.has(key) || !value) return null;
       values.set(key, value);

@@ -1,4 +1,5 @@
 import { scanHeadings } from "./toc";
+import { wikiLinks } from "./wikiLinks";
 // Mindmap model: parse Markdown headings into a tree, and lay the
 // tree out as a left-to-right node/edge diagram. Pure data — no React, no DOM — so it is unit-tested
 // directly and renders identically in the browser and in the static prerender.
@@ -160,8 +161,10 @@ export function layoutMindmap(root: MindmapNode): MindmapLayout {
 }
 
 function parseLabel(source: string): { label: string; link?: MindmapLink } {
-  const wiki = /^\[\[([^|\]]+)(?:\|([^\]]+))?\]\]$/.exec(source);
-  if (wiki) return { label: wiki[2] ?? wiki[1], link: { kind: "wiki", target: wiki[1] } };
+  const wiki = wikiLinks(source)[0];
+  if (wiki?.start === 0 && wiki.end === source.length) {
+    return { label: wiki.alias || wiki.target, link: { kind: "wiki", target: wiki.target } };
+  }
   const external = /^\[([^\]]+)\]\(([^\s)]+)\)$/.exec(source);
   if (external) return { label: external[1], link: { kind: "external", href: external[2] } };
   return { label: source };

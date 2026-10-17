@@ -111,6 +111,18 @@ describe("MarkdownView", () => {
     expect(container.querySelector("h2")?.id).toBe("h-status");
   });
 
+  it("renders a bracketed note title and complete bracketed wiki-link labels", () => {
+    const { container } = renderWithQuery(
+      <FloatingProvider>
+        <MarkdownView title="[test]" markdown="See [[[test]]] and [[Plan [draft]|review [now]]]." />
+      </FloatingProvider>,
+    );
+    expect(container.querySelector("h1.note-title")?.textContent).toBe("[test]");
+    expect([...container.querySelectorAll(".wiki-link")].map((link) => link.textContent))
+      .toEqual(["[test]", "review [now]"]);
+    expect(container.querySelector("p")?.textContent).toBe("See [test] and review [now].");
+  });
+
   it("keeps a distinct leading body h1 below the canonical note title", () => {
     const { container } = render(<MarkdownView title="Project" markdown="# Executive summary" />);
     expect([...container.querySelectorAll("h1")].map((h) => h.textContent)).toEqual([

@@ -26,6 +26,17 @@ describe("parseMapFence", () => {
     expect(parseMapFence("lat: 0\nlong: 0")).toEqual({ lat: 0, long: 0, zoom: 10, type: "roadmap", markers: [] });
   });
 
+  it("accepts bracketed marker titles and aliases without swallowing the description", () => {
+    const map = parseMapFence("lat: 0\nlong: 0\nmarker: default,0,0,[[[test]]], first\nmarker: default,1,2,[[Plan [draft]|review [now]]], details, later");
+    expect(map?.markers).toEqual([
+      { type: "default", lat: 0, long: 0, target: "[test]", display: "[test]", description: "first" },
+      { type: "default", lat: 1, long: 2, target: "Plan [draft]", display: "review [now]", description: "details, later" },
+    ]);
+    for (const marker of ["[[a]b]], bad", "[[Plan [draft]], bad", "[[Good]] trailing, bad"]) {
+      expect(parseMapFence(`lat: 0\nlong: 0\nmarker: default,0,0,${marker}`)).toBeNull();
+    }
+  });
+
   it("rejects old syntax, missing fields, duplicates and invalid coordinates", () => {
     for (const body of ["", ":lat 1 :lon 2", "lat: 1", "lat: \nlong: 2", "lat: 91\nlong: 0", "lat: 1\nlong: 181", "lat: 1\nlong: 2\nlat: 3", "lat: 1\nlong: 2\nzoom: -1", "lat: 1\nlong: 2\ntype: streets", "lat: 1\nlong: 2\nmarker: default,NaN,0,[[X]], bad", "lat: 1\nlong: 2\nmarker: default,0,0,<script>, bad"]) {
       expect(parseMapFence(body), body).toBeNull();
