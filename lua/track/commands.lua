@@ -188,6 +188,10 @@ function M.setup()
       require("track.web").open(opts.fargs)
    end, { nargs = "*", desc = "Start the local web workspace and open it in a browser" })
 
+   register("webStop", function(opts)
+      require("track.web").stop(opts.fargs)
+   end, { nargs = "*", desc = "Stop the local web workspace using its CLI PID record" })
+
    register("markdown", function()
       require("track.web").markdown()
    end, { desc = "Read the saved current Markdown file in Track without importing it" })

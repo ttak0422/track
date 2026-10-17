@@ -182,6 +182,18 @@ jobs:
           printf 'vault_dir: %s\ncache_dir: %s\n' "$TRACK_VAULT" "$TRACK_CACHE_DIR" > "$TRACK_CONFIG"
           nix run .#test-nvim -- --headless '+lua local ok, err = pcall(dofile, "scripts/e2e/nvim_markdown.lua"); if not ok then print(err); vim.cmd("cquit 1") end'
 
+      - name: Neovim web stop E2E
+        run: |
+          fixture="$(mktemp -d)"
+          trap 'rm -rf "$fixture"' EXIT
+          export TRACK_WEB_STOP_FIXTURE="$fixture"
+          export TRACK_VAULT="$fixture/vault"
+          export TRACK_CACHE_DIR="$fixture/cache"
+          export TRACK_CONFIG="$fixture/config.yml"
+          mkdir -p "$TRACK_VAULT"
+          printf 'vault_dir: %s\ncache_dir: %s\n' "$TRACK_VAULT" "$TRACK_CACHE_DIR" > "$TRACK_CONFIG"
+          nix run .#test-nvim -- --headless '+lua local ok, err = pcall(dofile, "scripts/e2e/nvim_web_stop.lua"); if not ok then print(err); vim.cmd("cquit 1") end'
+
       - name: Neovim task conceal E2E
         run: |
           export TRACK_VAULT="$(mktemp -d)"

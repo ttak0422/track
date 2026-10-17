@@ -77,7 +77,7 @@ M.defaults = {
    lsp_bin = "track-lsp",
    -- Vault directory; link highlighting only attaches to files here.
    vault_dir = default_vault(),
-   -- Address used by `:Track web` when no address argument is supplied.
+   -- Address used by `:Track web` and `:Track webStop` without an active launcher job.
    web_addr = "127.0.0.1:8765",
    -- Note file extensions (without dot).
    extensions = { "md" },
