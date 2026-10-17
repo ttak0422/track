@@ -173,14 +173,15 @@ local function listen_host_port(addr)
    return host, tonumber(port)
 end
 
-local function wait_until_ready(addr, url)
+local function wait_until_ready(addr, url, ready)
+   ready = ready or open_ready_url
    readiness_token = readiness_token + 1
    local token = readiness_token
    local host, port = listen_host_port(addr)
    if not host or not port then
       vim.defer_fn(function()
          if token == readiness_token and job_id ~= nil then
-            open_ready_url(url)
+            ready(url)
          end
       end, 350)
       return
@@ -193,7 +194,7 @@ local function wait_until_ready(addr, url)
       end
       local tcp = uv.new_tcp()
       if not tcp then
-         open_ready_url(url)
+         ready(url)
          return
       end
       local ok = pcall(function()
@@ -206,12 +207,12 @@ local function wait_until_ready(addr, url)
                   return
                end
                if not err then
-                  open_ready_url(url)
+                  ready(url)
                   return
                end
                if uv.hrtime() >= deadline then
                   vim.notify("track web did not become ready quickly; opening anyway: " .. url, vim.log.levels.WARN)
-                  open_ready_url(url)
+                  ready(url)
                   return
                end
                vim.defer_fn(attempt, 80)
@@ -260,7 +261,7 @@ local function parse_addr(args)
    return nil, "usage: :Track web [addr] or :Track web --addr addr"
 end
 
-function M.open(args)
+function M.open(args, ready)
    local addr, err = parse_addr(args)
    if not addr then
       vim.notify("track: " .. err, vim.log.levels.ERROR)
@@ -271,7 +272,7 @@ function M.open(args)
    if is_running() then
       local running_url = "http://" .. (running_addr or addr)
       vim.notify("track web already running: " .. running_url, vim.log.levels.INFO)
-      open_ready_url(running_url)
+      wait_until_ready(running_addr or addr, running_url, ready)
       return
    end
 
@@ -292,7 +293,8 @@ function M.open(args)
       on_stderr = function(_, data)
          notify_lines(data, vim.log.levels.INFO)
       end,
-      on_exit = function(_, code)
+      on_exit = function(id, code)
+         if id ~= job_id then return end
          local stopped = stopping
          job_id = nil
          running_addr = nil
@@ -316,7 +318,70 @@ function M.open(args)
    end
 
    running_addr = addr
-   wait_until_ready(addr, url)
+   wait_until_ready(addr, url, ready)
+end
+
+-- Arguments stay an argv array all the way to the CLI. No filename is interpolated into a shell,
+-- URL or Ex command, including spaces, Japanese characters and filenames beginning with '-'.
+function M.markdown()
+   local buf = vim.api.nvim_get_current_buf()
+   local filename = vim.api.nvim_buf_get_name(buf)
+   if vim.bo[buf].buftype ~= "" or filename == "" then
+      vim.notify("track: choose a saved .md or .markdown file", vim.log.levels.ERROR)
+      return
+   end
+   local extension = vim.fn.fnamemodify(filename, ":e"):lower()
+   if extension ~= "md" and extension ~= "markdown" then
+      vim.notify("track: choose a saved .md or .markdown file", vim.log.levels.ERROR)
+      return
+   end
+   if vim.bo[buf].modified then
+      vim.notify("track: save the current file before :Track markdown (unsaved changes are not sent)", vim.log.levels.WARN)
+      return
+   end
+   if vim.fn.filereadable(filename) ~= 1 then
+      vim.notify("track: save the current file before :Track markdown", vim.log.levels.ERROR)
+      return
+   end
+   local addr = is_running() and running_addr or config.options.web_addr
+   local changedtick = vim.api.nvim_buf_get_changedtick(buf)
+   local function run(args, done)
+      local cmd = { client.bin(), "markdown", "--addr", addr }
+      vim.list_extend(cmd, args)
+      vim.system(cmd, { text = true }, function(result)
+         vim.schedule(function()
+            local ok, data = pcall(vim.json.decode, result.stdout or "")
+            if result.code ~= 0 or not ok or type(data) ~= "table" or data.error then
+               vim.notify("track: " .. tostring(ok and type(data) == "table" and data.error or result.stderr or "Markdown handoff failed"), vim.log.levels.ERROR)
+               return
+            end
+            done(data)
+         end)
+      end)
+   end
+   local function handoff()
+      -- The user may have edited or switched buffers while the server was starting. Never silently
+      -- preview an older saved version after that edit, or substitute whichever buffer is current.
+      if not vim.api.nvim_buf_is_valid(buf) or vim.bo[buf].modified or vim.api.nvim_buf_get_name(buf) ~= filename
+         or vim.api.nvim_buf_get_changedtick(buf) ~= changedtick then
+         vim.notify("track: buffer changed; save it and run :Track markdown again", vim.log.levels.WARN)
+         return
+      end
+      run({ "--", filename }, function(data)
+         if not vim.api.nvim_buf_is_valid(buf) or vim.bo[buf].modified or vim.api.nvim_buf_get_changedtick(buf) ~= changedtick then
+            vim.notify("track: buffer changed; save it and run :Track markdown again", vim.log.levels.WARN)
+         elseif type(data.url) == "string" then
+            open_url(data.url)
+         end
+      end)
+   end
+   run({ "--check" }, function(data)
+      if data.ready then
+         handoff()
+      else
+         M.open({ addr }, handoff)
+      end
+   end)
 end
 
 function M.publish_follow(buf)

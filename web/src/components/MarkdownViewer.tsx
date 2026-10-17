@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "reac
 import { scrollExternalMarkdownFragment } from "./markdown/ExternalMarkdownView";
 import { MarkdownView } from "./MarkdownView";
 import { useExternalMarkdownSource } from "./ExternalMarkdownSource";
+import { consumeMarkdownHandoff } from "../markdownHandoff";
 
 export function MarkdownViewer({ documentID = "" }: { documentID?: string }) {
   const { source, select, clear } = useExternalMarkdownSource();
@@ -12,10 +13,35 @@ export function MarkdownViewer({ documentID = "" }: { documentID?: string }) {
   const folderInput = useRef<HTMLInputElement>(null);
   const viewer = useRef<HTMLDivElement>(null);
   const article = useRef<HTMLElement>(null);
+  const handoff = useRef<{ token: string; promise: ReturnType<typeof consumeMarkdownHandoff> } | null>(null);
+  const selectionEpoch = useRef(0);
   const [selectionError, setSelectionError] = useState("");
   const [linkError, setLinkError] = useState("");
   const [loaded, setLoaded] = useState<{ id: string; markdown: string; error: string } | null>(null);
   const document = source?.document(documentID || source.activeDocumentID);
+
+  useEffect(() => {
+    const token = /^handoff=([a-f0-9]{64})$/.exec(hash)?.[1];
+    if (!token) { handoff.current = null; return; }
+    // StrictMode replays effects: share the pending consume rather than spending a one-use token
+    // twice. Navigation, manual selection and closing all invalidate a late response.
+    if (handoff.current?.token !== token) handoff.current = { token, promise: consumeMarkdownHandoff(token) };
+    let cancelled = false;
+    const epoch = selectionEpoch.current;
+    void handoff.current.promise.then(({ active, files }) => {
+      if (cancelled || epoch !== selectionEpoch.current) return;
+      const next = select(files, "Folder from editor");
+      const document = next.documents.find((item) => item.path === active);
+      if (!document) throw new Error("The handed-off Markdown file is missing.");
+      setSelectionError(""); setLoaded(null);
+      void navigate({ to: "/markdown", search: { doc: document.id }, hash: "", replace: true });
+    }).catch((error: unknown) => {
+      if (cancelled || epoch !== selectionEpoch.current) return;
+      setSelectionError(error instanceof Error ? error.message : "Unable to open Markdown handoff.");
+      void navigate({ to: "/markdown", search: {}, hash: "", replace: true });
+    });
+    return () => { cancelled = true; };
+  }, [hash, select, navigate]);
 
   useEffect(() => {
     setLinkError("");
@@ -48,6 +74,7 @@ export function MarkdownViewer({ documentID = "" }: { documentID?: string }) {
     event.currentTarget.value = ""; // selecting the same file again is an explicit refresh
     if (!files.length) return; // cancel keeps the current source and route intact
     try {
+      selectionEpoch.current++;
       const next = select(files);
       setSelectionError("");
       setLoaded(null);
@@ -63,11 +90,12 @@ export function MarkdownViewer({ documentID = "" }: { documentID?: string }) {
     <div ref={viewer} className="external-markdown-viewer">
       <header className="day-head">
         <h1 className="day-title">Markdown viewer</h1>
-        <p className="muted">Read local files without importing them into your vault. Files stay in this browser session.</p>
+        <p className="muted">Read local files without importing them into your vault. Files stay in this browser session after opening.</p>
         <div className="external-markdown-actions">
           <button type="button" className="text-button" onClick={() => filesInput.current?.click()}>Open Markdown files</button>
           <button type="button" className="text-button" onClick={() => folderInput.current?.click()}>Open folder</button>
           {source && <button type="button" className="text-button" onClick={() => {
+            selectionEpoch.current++;
             clear(); setLoaded(null); setSelectionError(""); setLinkError("");
             void navigate({ to: "/markdown", search: {}, hash: "", replace: true });
           }}>Close source</button>}

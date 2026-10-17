@@ -10,6 +10,10 @@ A journal + Zettelkasten note tool: a Go CLI/LSP engine with a SQLite index, plu
 The Go engine is the source of truth — it parses notes, maintains the index, and resolves links.
 The CLI exposes scriptable commands, `track-lsp` exposes interactive editor navigation, and `track web` serves a local workspace.
 
+In Neovim, `:Track markdown` opens the saved current Markdown file in the read-only external viewer,
+starting or reusing the local workspace without importing a note. Its containing folder supplies
+relative Markdown links and local images; save and repeat the command to refresh.
+
 **Documentation: <https://ttak0422.github.io/track/>** — syntax, CLI reference, web workspace, tasks, queries, and visualization.
 
 ## Layout
