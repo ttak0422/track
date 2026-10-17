@@ -1,9 +1,18 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DrawioDiagram } from "./DrawioDiagram";
+import type { DrawioViewerInstance } from "./drawioViewer";
 
-const createViewerForElement = vi.fn((element: Element) => {
+const instances: DrawioViewerInstance[] = [];
+const createViewerForElement = vi.fn((element: Element, ready?: (viewer: DrawioViewerInstance) => void) => {
   element.innerHTML = '<svg viewBox="0 0 100 40"><text>Boxes</text></svg>';
+  const viewer = {
+    graph: {resizeContainer: true, getGraphBounds: () => ({x: 0, y: 0, width: 100, height: 40}),
+      addListener: vi.fn(), removeListener: vi.fn(), destroy: vi.fn()},
+    addListener: vi.fn(), removeListener: vi.fn(),
+  };
+  instances.push(viewer);
+  ready?.(viewer);
 });
 
 vi.mock("./drawioViewer", () => ({
@@ -19,6 +28,7 @@ const mxfile =
 describe("DrawioDiagram", () => {
   afterEach(() => {
     vi.clearAllMocks();
+    instances.length = 0;
   });
 
   it("hands the source to the viewer and renders into the host", async () => {
@@ -31,7 +41,22 @@ describe("DrawioDiagram", () => {
     // no toolbar, no auto-scan class.
     expect(config.xml).toBe(mxfile);
     expect(config.toolbar).toBeNull();
+    expect(config.resize).toBe(false);
+    expect(config["auto-fit"]).toBe(false);
     expect(host.classList.contains("mxgraph")).toBe(false);
+  });
+
+  it("releases the old viewer when the source changes and when unmounted", async () => {
+    const {container, rerender, unmount} = render(<DrawioDiagram text={mxfile} />);
+    await waitFor(() => expect(container.querySelector("svg")).toBeInTheDocument());
+    const first = instances[0];
+    rerender(<DrawioDiagram text={mxfile.replace('value="A"', 'value="B"')} />);
+    await waitFor(() => expect(createViewerForElement).toHaveBeenCalledTimes(2));
+    expect(first.graph!.destroy).toHaveBeenCalledOnce();
+    expect(first.removeListener).toHaveBeenCalledOnce();
+    const second = instances[1];
+    unmount();
+    expect(second.graph!.destroy).toHaveBeenCalledOnce();
   });
 
   it("accepts a bare mxGraphModel document", async () => {

@@ -251,6 +251,7 @@ jobs:
       - name: WKWebView smoke and server recovery
         timeout-minutes: 5
         run: |
+          python3 scripts/drawio-layout-smoke.py
           python3 scripts/desktop-smoke.py build/desktop/Track.app/Contents/MacOS/Track
           python3 scripts/desktop-smoke.py build/desktop/Track.app/Contents/MacOS/Track --recovery-test
           python3 scripts/desktop-editor-recovery.py build/desktop/Track.app/Contents/Resources/track
