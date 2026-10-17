@@ -17,9 +17,9 @@ none fits, extend this document first — do not invent a one-off treatment.
   the keyboard cursor, the active tab, the graph's centre node, the focus ring.
   It is the chrome's whole colour budget: there is no second accent, and nothing
   takes the vermilion merely to look alive.
-- **Hierarchy by space and rule, not size.** Three type sizes in the whole
-  reader (body, title, meta) plus the small-caps label. Sections are told
-  apart by their leading and by a rule above them, never by a fourth size.
+- **Heading hierarchy by size and space.** Body headings share one ink and
+  weight, with descending sizes and leading space. They carry no rules or
+  decorative prefixes, and every rank is larger than bold body text.
 - **Two measures by default.** Prose reads at `--measure` (40em ≈ 42–48 Japanese
   characters); charts, tables, and code blocks run the full column; SVG diagrams stay within prose. The
   Content width setting may widen the prose measure through `--content-measure`,
@@ -125,26 +125,30 @@ breaks those three surfaces silently.
 
 ## Type
 
-Three sizes, and no fourth.
+Body headings use one descending scale, relative to the prose size.
 
 | Role | Size | Weight |
 | --- | --- | --- |
-| Body, `h1`–`h4` in the body | 16px / 1.85 | 400, headings 700 |
+| Body | 16px / 1.85 | 400 |
+| Body `h1` | 26px / 1.5 | 700 |
+| Body `h2` | 23px / 1.5 | 700 |
+| Body `h3` | 21px / 1.5 | 700 |
+| Body `h4` | 19px / 1.5 | 700 |
+| Body `h5` | 18px / 1.5 | 700 |
 | Note title (`.note-title`) | 26px / 1.4 | 500 |
 | Meta, captions, tables, the aside, tabs | 13–14px | 400 |
 | `.label` (section label) | 11px, `.12em`, uppercase, `--faint` | 500 |
 
-`h1` stays at 1.6× the body: note titles run long (`20260805 表現力ベンチ
+The note title stays at 1.625× the body: note titles run long (`20260805 表現力ベンチ
 ゴールデータでの再現`), and a larger one simply folds to two lines.
 
-`h1`–`h4` in the body are the same size as body text. Their hierarchy is space and a rule: a body
-`h1` — a chapter head that opens like an `h2` but under the stated rule (`--line-strong`) instead of
-the hairline — is the largest body heading, and it renders as body content even when its text repeats
-the chrome note title (`.note-title`) above it. `h2` takes 44px of lead and a hairline above it,
-`h3` takes 26px and a faint section sign before its first word — the ink the list markers
-wear, marking the turn inside a section without a second size, since bold shares both the h3's size
-and weight — and `h4` takes 20px in muted ink. Paragraphs and lists lead
-with 13px, list items with 7px.
+Body `h1`–`h5` all use `--text`, weight 700, and line-height 1.5, with no
+border or generated symbol. Their sizes descend from 26px to 18px at the default
+16px prose size and follow the font-size setting. Even `h5` stays larger than
+inline bold. Leading space descends with rank: 44px for `h1` and `h2`, 32px for
+`h3`, 26px for `h4`, and 22px for `h5`. Paragraphs and lists lead with 13px,
+list items with 7px. A body `h1` still renders when it repeats the chrome note
+title (`.note-title`); the chrome title keeps its own weight of 500 and leading.
 
 ## The reading surface
 

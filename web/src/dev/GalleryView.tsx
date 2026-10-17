@@ -167,11 +167,22 @@ export function GalleryView() {
       <div className="gallery-section">
         <h2>Prose</h2>
         <div className="markdown-view">
+          <h1 className="note-title">ノートタイトル / Note title</h1>
           <p>
             Body text with a <a className="gallery-card-link">link</a>, some{" "}
             <code>inline code</code>, and 日本語の本文が混在する段落。Hierarchy comes from ink, not
             boxes.
           </p>
+          <h1>H1 — 章の見出し / Chapter</h1>
+          <p>本文は16px。<strong>太字の本文 / Bold body text</strong>とは大きさで区別します。</p>
+          <h2>H2 — 節の見出し / Section</h2>
+          <p>見出しの前には余白を取り、後ろには本文を続けます。</p>
+          <h3>H3 — 項の見出し / Subsection</h3>
+          <p>見出しの前には余白を取り、後ろには本文を続けます。</p>
+          <h4>H4 — 小見出し / Subheading</h4>
+          <p>見出しの前には余白を取り、後ろには本文を続けます。</p>
+          <h5>H5 — 細目の見出し / Detail</h5>
+          <p>本文は16px。<strong>太字の本文 / Bold body text</strong>とは大きさで区別します。</p>
         </div>
       </div>
 
