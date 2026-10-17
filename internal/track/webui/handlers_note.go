@@ -616,7 +616,7 @@ func (s *Server) handleRender(v *vaultView, w http.ResponseWriter, r *http.Reque
 	// at build time (see site.writeBundle), keeping the two deployments identical. The store scan for
 	// widget data is skipped unless the body actually carries a dashboard fence (the common case).
 	s.refresh(v)
-	body := req.Body
+	body, drawioFences := markDrawioFences(req.Body)
 	if strings.Contains(body, "```"+dashboard.Lang) {
 		body = dashboard.Resolve(body, v.dashboardData())
 	}
@@ -652,8 +652,9 @@ func (s *Server) handleRender(v *vaultView, w http.ResponseWriter, r *http.Reque
 	// numbers align with the text the client splices them into; target bodies render through the
 	// same web renderer so embedded content arrives as sanitized as the note's own.
 	writeJSON(w, map[string]any{
-		"markdown": markdown,
-		"includes": link.ResolveIncludes(markdown, v.loadRenderedNote),
+		"markdown":      markdown,
+		"drawio_fences": drawioFences,
+		"includes":      link.ResolveIncludes(markdown, v.loadRenderedNote),
 	})
 }
 

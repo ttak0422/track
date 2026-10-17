@@ -1030,3 +1030,34 @@ describe("MarkdownView", () => {
     );
   });
 });
+
+it("offers editing only for the exact draw.io render capability, including duplicate XML", () => {
+  const xml = "<mxfile />";
+  const first = { id: "track-drawio-first", start_line: 0, end_line: 2, xml };
+  const second = { id: "track-drawio-second", start_line: 4, end_line: 6, xml };
+  const open = vi.fn();
+  render(<MarkdownView markdown={`\`\`\`drawio ${first.id}\n${xml}\n\`\`\`\n\n\`\`\`drawio ${second.id}\n${xml}\n\`\`\`\n\n\`\`\`drawio\n${xml}\n\`\`\`\n`} drawioEditing={{ fences: [first, second], open }} />);
+  const buttons = screen.getAllByRole("button", { name: "Edit draw.io diagram" });
+  expect(buttons).toHaveLength(2);
+  fireEvent.click(buttons[1]);
+  expect(open).toHaveBeenCalledExactlyOnceWith(second);
+});
+
+it("leaves draw.io read-only without a live draft capability or for mismatched source", () => {
+  const fence = { id: "track-drawio-test", start_line: 0, end_line: 2, xml: "<mxfile />" };
+  const view = render(<MarkdownView markdown={`\`\`\`drawio ${fence.id}\n<mxfile />\n\`\`\``} />);
+  expect(screen.queryByRole("button", { name: "Edit draw.io diagram" })).toBeNull();
+  view.rerender(<MarkdownView markdown={`\`\`\`drawio ${fence.id}\n<mxfile name="other" />\n\`\`\``} drawioEditing={{ fences: [fence], open: vi.fn() }} />);
+  expect(screen.queryByRole("button", { name: "Edit draw.io diagram" })).toBeNull();
+});
+
+it("does not inherit a parent diagram-edit capability inside an included note", () => {
+  const fence = { id: "track-drawio-parent", start_line: 0, end_line: 2, xml: "<mxfile />" };
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<QueryClientProvider client={client}><FloatingProvider>
+    <MarkdownView markdown="![[Included]]\n" includes={[{ line: 0, note_id: 100, caption: "Included", title: "Included", kind: "note", lines: `\`\`\`drawio ${fence.id}\n<mxfile />\n\`\`\``.split("\n") }]}
+      drawioEditing={{ fences: [fence], open: vi.fn() }} />
+  </FloatingProvider></QueryClientProvider>);
+  expect(screen.getByRole("img", { name: "draw.io diagram" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Edit draw.io diagram" })).toBeNull();
+});

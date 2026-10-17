@@ -1,4 +1,5 @@
 import type { Element } from "hast";
+import { DrawioEditingContext, type DrawioEditing } from "./markdown/drawioEditing";
 import {
   type InputHTMLAttributes,
   type MouseEvent as ReactMouseEvent,
@@ -68,6 +69,7 @@ import {
 } from "./markdown/copyRange";
 
 interface MarkdownViewProps {
+  drawioEditing?: DrawioEditing | null;
   markdown: string;
   // External files are untrusted, read-only documents, never vault notes. The separate renderer
   // deliberately omits note resolution, embeds, query fences, and all task-writing controls.
@@ -115,6 +117,7 @@ export function MarkdownView(props: MarkdownViewProps) {
 
 function VaultMarkdownView({
   markdown,
+  drawioEditing = null,
   title,
   showTitle = true,
   noteId,
@@ -237,6 +240,7 @@ function VaultMarkdownView({
     <NoteKindContext.Provider value={kind}>
       <NoteVaultContext.Provider value={vault}>
         <IncludesContext.Provider value={includes ?? []}>
+        <DrawioEditingContext.Provider value={drawioEditing}>
         <MarkdownSourceContext.Provider value={markdown}>
           <div ref={markdownRef} className="markdown-view">
             {title && showTitle ? (
@@ -260,6 +264,7 @@ function VaultMarkdownView({
             ) : null}
           </div>
         </MarkdownSourceContext.Provider>
+        </DrawioEditingContext.Provider>
         </IncludesContext.Provider>
       </NoteVaultContext.Provider>
     </NoteKindContext.Provider>
@@ -500,7 +505,7 @@ const markdownComponents = {
         return <LikeC4Diagram text={text} />;
       }
       if (normalized === "drawio") {
-        return <DrawioDiagram text={text} />;
+        return <EditableDrawio text={text} meta={typeof code.data?.meta === "string" ? code.data.meta : ""} />;
       }
       if (normalized === "mindmap") {
         return <MindmapDiagram text={text} />;
@@ -555,6 +560,19 @@ const markdownComponents = {
   },
   trackinclude: TrackInclude,
 } as Components;
+
+// A capability comes only from the current live note's render response. Nested
+// MarkdownView instances reset it, so includes, queries and previews stay inert.
+function EditableDrawio({ text, meta }: { text: string; meta: string }) {
+  if (__TRACK_STATIC__) return <DrawioDiagram text={text} />;
+  const editing = useContext(DrawioEditingContext);
+  const fence = editing?.fences.find((candidate) => meta.split(/\s+/).includes(candidate.id) && candidate.xml.replace(/\r$/gm, "") === text.replace(/\r$/gm, ""));
+  if (!fence) return <DrawioDiagram text={text} />;
+  return <div>
+    {fence ? <div className="mermaid-bar"><button className="drawio-editor-button" type="button" onClick={() => editing?.open(fence)}>Edit draw.io diagram</button></div> : null}
+    <DrawioDiagram text={text} />
+  </div>;
+}
 
 // hastText concatenates the text content of a hast element, dropping the single trailing newline that a
 // fenced code block carries, so the code is shown exactly as written.

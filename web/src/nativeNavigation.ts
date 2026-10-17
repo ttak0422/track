@@ -16,6 +16,7 @@ interface EditorState {
   textarea: RefObject<HTMLTextAreaElement | null>;
   savedBody: () => string;
   pending: boolean;
+  auxiliaryDirty?: boolean;
   isDeleted: () => boolean;
 }
 
@@ -36,7 +37,7 @@ export function useNativeEditorState(state: EditorState): void {
       // Inspect the actual textarea as well as React state: marked IME text and the final input
       // event can precede React's commit. Pair the baseline with that commit: adopting another
       // note updates its saved ref before React has committed the corresponding buffer.
-      return composing || editor.pending ||
+      return composing || editor.pending || editor.auxiliaryDirty === true ||
         (editor.textarea.current?.value ?? editor.body) !== editor.baseline;
     };
     window.__trackNativeEditorState = read;

@@ -5702,3 +5702,34 @@ textarea.modal-input:focus-visible {
 .reader:has(.external-markdown-viewer)::-webkit-scrollbar {
   display: block;
 }
+
+/* Floating layer (variant 3); actions use the existing text-control recipe. */
+.drawio-editor-dialog {
+  width: min(720px, 96vw);
+  max-width: 96vw;
+  height: auto;
+  max-height: 94vh;
+  padding: 16px;
+  color: var(--text);
+}
+.drawio-editor-dialog[open] { display: flex; flex-direction: column; gap: 8px; }
+.drawio-editor-dialog::backdrop { background: rgb(0 0 0 / 60%); }
+.drawio-editor-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.drawio-editor-dialog h3, .drawio-editor-dialog p { margin: 0; }
+.drawio-editor-dialog p { font-size: calc(13px * var(--font-scale, 1)); }
+.drawio-editor-dialog iframe { width: 100%; flex: 1; min-height: 160px; border: 1px solid var(--line); background: var(--panel); }
+
+.drawio-editor-dialog:has(iframe) { width: min(1440px, 96vw); height: min(1000px, 94vh); }
+/* Text control (variant 1). */
+.drawio-editor-button {
+  align-self: flex-start;
+  border: 0;
+  padding: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: calc(13px * var(--font-scale, 1));
+  cursor: pointer;
+}
+.drawio-editor-button:hover, .drawio-editor-button:focus-visible { color: var(--text); }
+.drawio-editor-button:disabled { cursor: default; color: var(--faint); }
