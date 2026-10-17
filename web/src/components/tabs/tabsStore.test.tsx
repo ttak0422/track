@@ -120,6 +120,7 @@ describe("TabsProvider", () => {
     expect(routerMock.navigate).toHaveBeenCalledWith({
       to: "/notes/$noteId",
       params: { noteId: "a" },
+      ignoreBlocker: true,
     });
   });
 
@@ -130,7 +131,7 @@ describe("TabsProvider", () => {
 
     act(() => result.current.close("a"));
     expect(result.current.tabs).toEqual([]);
-    expect(routerMock.navigate).toHaveBeenCalledWith({ to: "/" });
+    expect(routerMock.navigate).toHaveBeenCalledWith({ to: "/", ignoreBlocker: true });
   });
 
   it("opens the full graph as a tab labelled Graph", () => {
@@ -156,7 +157,7 @@ describe("TabsProvider", () => {
     const { result } = renderHook(() => useTabs(), { wrapper });
 
     act(() => result.current.close("a"));
-    expect(routerMock.navigate).toHaveBeenCalledWith({ to: "/graph" });
+    expect(routerMock.navigate).toHaveBeenCalledWith({ to: "/graph", ignoreBlocker: true });
   });
 
   it("remembers recently opened notes, most recent first, and outlives a relaunch", () => {

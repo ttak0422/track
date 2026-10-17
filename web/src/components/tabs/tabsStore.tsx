@@ -12,6 +12,7 @@ import {
 import { START_PAGE_ID, STATIC_MODE } from "../../runtime";
 import type { NoteID } from "../../types";
 import { vaultOf } from "../../vaultId";
+import { unsavedChangesMessage } from "../../nativeNavigation";
 
 // A note open in the tab bar. The title is cached so a reloaded session can label tabs before each
 // note's data resolves; it is refreshed from the note query when a tab becomes active.
@@ -243,6 +244,9 @@ export function TabsProvider({ children }: { children: ReactNode }) {
     (id) => {
       const index = tabs.findIndex((tab) => tab.id === id);
       if (index < 0) return;
+      // Confirm before changing the strip: a canceled close must retain both the draft and its tab.
+      if (id === activeID && (window.__trackNativeEditorState?.() ?? id === dirtyID) &&
+          !window.confirm(unsavedChangesMessage)) return;
       const next = tabs.filter((tab) => tab.id !== id);
       setTabs(next);
       if (id === dirtyID) setDirtyID(null);
@@ -252,7 +256,7 @@ export function TabsProvider({ children }: { children: ReactNode }) {
       // "/" is the start page), or "/" (the heatmap home) on the live workspace.
       if (id === activeID) {
         const target = next[index] ?? next[index - 1] ?? null;
-        void navigate(target ? tabRoute(target.id) : { to: STATIC_MODE ? "/empty" : "/" });
+        void navigate({ ...(target ? tabRoute(target.id) : { to: STATIC_MODE ? "/empty" : "/" }), ignoreBlocker: true });
       }
     },
     [tabs, activeID, dirtyID, navigate],

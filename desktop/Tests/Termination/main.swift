@@ -33,7 +33,8 @@ final class TerminationHarness: NSObject, NSApplicationDelegate {
     var duplicateSent = false
     var timer: Timer?
     var finished = false
-    var expectedPrompts: Int { scenario.contains("cancel") || scenario == "dirty-discard" ? 1 : 0 }
+    var phase = "loading fixture"
+    var expectedPrompts: Int { scenario.contains("cancel") || scenario == "dirty-discard" || scenario == "dirty-tab-discard" ? 1 : 0 }
 
     init(app: TestApplication) {
         self.app = app
@@ -100,6 +101,8 @@ final class TerminationHarness: NSObject, NSApplicationDelegate {
         }
         window = app.windows.first { $0.delegate === delegate }!
         webView = findWebView(window.contentView!)!
+        try require(webView.uiDelegate?.responds(to: NSSelectorFromString("webView:runJavaScriptConfirmPanelWithMessage:initiatedByFrame:completionHandler:")) == true,
+                    "WKWebView must use Track's JavaScript confirmation delegate")
         try await waitFor("window.__trackNativeWorkspaceState?.() === false")
         _ = try await evaluate("(() => { const a = document.createElement('a'); a.href = '/notes/100'; document.body.appendChild(a); a.click(); return true; })()")
         try await waitFor("location.pathname === '/notes/100' && !!document.querySelector('.tab-close') && typeof window.__trackNativeEditorState === 'function'")
@@ -113,12 +116,14 @@ final class TerminationHarness: NSObject, NSApplicationDelegate {
             _ = try await evaluate("document.querySelector('.tab-close').click(); true")
             try await waitFor("document.querySelectorAll('.tab').length === 0")
         }
+        phase = "clean tab navigation"
         if scenario == "multi-clean" || scenario == "dirty-multi-cancel" {
             _ = try await evaluate("(() => { const a = document.createElement('a'); a.href = '/notes/101'; document.body.appendChild(a); a.click(); return true; })()")
             try await waitFor("document.querySelectorAll('.tab').length === 2")
             _ = try await evaluate("Array.from(document.querySelectorAll('.tab-label')).find(b => b.querySelector('.tab-title').textContent === 'Fixture').click(); true")
             try await waitFor("location.pathname === '/notes/100' && document.body.innerText.includes('Original fixture') && window.__trackNativeEditorState?.() === false")
         }
+        phase = "editing fixture"
         if scenario.hasPrefix("dirty") || scenario == "saved-quit" || scenario == "pending-cancel" || scenario == "ime-cancel" || scenario == "clean-edit-quit" {
             _ = try await evaluate("document.querySelector('button[aria-label^=\"Display mode:\"]').click(); true")
             try await waitFor("!!document.querySelector('[aria-label=\"Display mode\"]')")
@@ -149,6 +154,30 @@ final class TerminationHarness: NSObject, NSApplicationDelegate {
         }
         if scenario == "probe-error-cancel" { _ = try await evaluate("window.__trackNativeEditorState = () => { throw Error('fixture'); }; true") }
         if scenario == "unknown-cancel" { _ = try await evaluate("delete window.__trackNativeEditorState; delete window.__trackNativeWorkspaceState; true") }
+        if scenario == "tab-close-clean" || scenario == "dirty-tab-cancel" || scenario == "dirty-tab-discard" {
+            phase = "dispatching Cmd-W"
+            pressCloseTab()
+            phase = "waiting for Cmd-W"
+            if scenario == "dirty-tab-cancel" {
+                for _ in 0..<200 {
+                    if prompts == 1 && window.attachedSheet == nil { break }
+                    try await Task.sleep(for: .milliseconds(25))
+                }
+                try require(prompts == 1, "Cmd-W did not confirm the dirty tab")
+                try require((try await evaluate("location.pathname === '/notes/100' && !!document.querySelector('.tab.dirty') && document.querySelector('form.note-editor textarea').value === 'Fixture unsaved 日本語'")) as? Bool == true,
+                            "Cancel must retain the tab, dirty indicator and draft")
+                try require(replies.isEmpty, "Cmd-W reached application termination")
+                try await save()
+                pressCloseTab()
+            }
+            try await waitFor("location.pathname === '/' && document.querySelectorAll('.tab').length === 0 && window.__trackNativeWorkspaceState?.() === false")
+            try require(replies.isEmpty && window.isVisible, "closing the last tab must leave the app open")
+            pressCloseTab()
+            try await Task.sleep(for: .milliseconds(100))
+            try require(replies.isEmpty && window.isVisible, "Cmd-W on an empty strip must not quit")
+            perform(#selector(requestTermination), with: nil, afterDelay: 0)
+            return
+        }
         perform(#selector(requestTermination), with: nil, afterDelay: 0)
         if scenario.contains("cancel") {
             for _ in 0..<300 {
@@ -181,7 +210,15 @@ final class TerminationHarness: NSObject, NSApplicationDelegate {
         try await waitFor("window.__trackNativeEditorState() === false && !document.querySelector('.tab.dirty')")
     }
 
+    func pressCloseTab() {
+        let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command,
+            timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+            context: nil, characters: "w", charactersIgnoringModifiers: "w", isARepeat: false, keyCode: 13)!
+        if app.mainMenu?.performKeyEquivalent(with: event) != true { finish(error: "Cmd-W not handled") }
+    }
+
     @objc func requestTermination() {
+        phase = "quitting"
         started = ProcessInfo.processInfo.systemUptime
         if scenario.hasSuffix("close") {
             window.performClose(nil)
@@ -207,17 +244,25 @@ final class TerminationHarness: NSObject, NSApplicationDelegate {
             guard let cancel = choices.first(where: { $0.title == "Cancel" }) else { continue }
             handledPanels.insert(ObjectIdentifier(panel))
             prompts += 1
+            if started == 0 && phase != "dispatching Cmd-W" && phase != "waiting for Cmd-W" {
+                cancel.performClick(nil)
+                finish(error: "unexpected warning during \(phase)")
+                return
+            }
             if prompts > expectedPrompts {
                 cancel.performClick(nil)
                 finish(error: "unexpected unsaved-edits warning in \(scenario)")
                 return
             }
-            let button = scenario == "dirty-discard" ? choices.first(where: { $0.title == "Continue" })! : cancel
+            let button = scenario == "dirty-discard" || scenario == "dirty-tab-discard" ? choices.first(where: { $0.title == "Continue" })! : cancel
             button.performClick(nil)
         }
     }
 
     func complete() {
+        if started == 0 {
+            finish(error: "application terminated before the fixture requested quit"); return
+        }
         if let childPID, kill(childPID, 0) == 0 || errno != ESRCH {
             finish(error: "AppKit received approval before owned Go child was reaped"); return
         }
@@ -225,7 +270,7 @@ final class TerminationHarness: NSObject, NSApplicationDelegate {
             finish(error: "stopped child bypassed bounded graceful shutdown"); return
         }
         if prompts != expectedPrompts { finish(error: "prompt count \(prompts), expected \(expectedPrompts)"); return }
-        if replies != (scenario.contains("cancel") ? [false, true] : [true]) {
+        if replies != (scenario.contains("cancel") && scenario != "dirty-tab-cancel" ? [false, true] : [true]) {
             finish(error: "unexpected termination replies: \(replies)"); return
         }
         if callbackReplies.contains(Int(NSApplication.TerminateReply.terminateCancel.rawValue)) {
@@ -239,7 +284,7 @@ final class TerminationHarness: NSObject, NSApplicationDelegate {
         finished = true
         let result: [String: Any] = ["scenario": scenario, "ok": error == nil, "error": error ?? "",
                                     "prompts": prompts, "replies": replies, "callbacks": callbackReplies,
-                                    "duplicateSent": duplicateSent, "stopDuration": ProcessInfo.processInfo.systemUptime - started]
+                                    "duplicateSent": duplicateSent, "phase": phase, "stopDuration": ProcessInfo.processInfo.systemUptime - started]
         try! JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]).write(to: resultURL)
         print(String(data: try! JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), encoding: .utf8)!)
         exit(error == nil ? 0 : 1)

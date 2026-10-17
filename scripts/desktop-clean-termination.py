@@ -20,7 +20,8 @@ recovery = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(recovery)
 SCENARIOS = ['clean-close', 'clean-quit', 'clean-os', 'empty-close', 'saved-quit', 'multi-clean',
              'dirty-cancel-save', 'dirty-discard', 'dirty-os-cancel', 'initial-os',
-             'timeout-cancel', 'probe-error-cancel', 'unknown-cancel', 'stopped-child-quit', 'startup-os', 'pending-cancel', 'ime-cancel', 'dirty-multi-cancel', 'dirty-cancel-close', 'clean-edit-quit']
+             'timeout-cancel', 'probe-error-cancel', 'unknown-cancel', 'stopped-child-quit', 'startup-os', 'pending-cancel', 'ime-cancel', 'dirty-multi-cancel', 'dirty-cancel-close', 'clean-edit-quit',
+             'tab-close-clean', 'dirty-tab-cancel', 'dirty-tab-discard']
 
 
 def main():
@@ -111,7 +112,7 @@ let package = Package(name: "Termination", platforms: [.macOS(.v14)], targets: [
             report = json.loads(result.read_text()) if result.is_file() else {}
             if status or report.get('ok') is not True:
                 raise RuntimeError(f'{scenario} failed (exit={status}): {report}')
-            expected = 'Fixture unsaved 日本語\n'.encode() if scenario in ('saved-quit', 'dirty-cancel-save', 'dirty-os-cancel', 'pending-cancel', 'dirty-multi-cancel', 'dirty-cancel-close') else original
+            expected = 'Fixture unsaved 日本語\n'.encode() if scenario in ('saved-quit', 'dirty-cancel-save', 'dirty-os-cancel', 'pending-cancel', 'dirty-multi-cancel', 'dirty-cancel-close', 'dirty-tab-cancel') else original
             if (vault / 'note/100.md').read_bytes() != expected:
                 raise RuntimeError(f'{scenario}: saved/discarded disk bytes did not match')
             print(f'PASS {scenario}: disk bytes, owned listener cleanup and lease state verified', flush=True)

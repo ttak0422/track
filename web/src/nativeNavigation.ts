@@ -1,5 +1,7 @@
 import { useLayoutEffect, useRef, type RefObject } from "react";
 
+export const unsavedChangesMessage = "保存していない変更は失われます。移動しますか？";
+
 declare global {
   interface Window {
     // Read-only editor state. This is deliberately not a native message/command bridge.
@@ -18,8 +20,8 @@ interface EditorState {
 }
 
 export function useNativeEditorState(state: EditorState): void {
-  const current = useRef(state);
-  useLayoutEffect(() => { current.current = state; });
+  const current = useRef({ ...state, baseline: state.savedBody() });
+  useLayoutEffect(() => { current.current = { ...state, baseline: state.savedBody() }; });
   useLayoutEffect(() => {
     let composing = false;
     const start = (event: Event) => {
@@ -32,9 +34,10 @@ export function useNativeEditorState(state: EditorState): void {
       const editor = current.current;
       if (editor.isDeleted()) return false;
       // Inspect the actual textarea as well as React state: marked IME text and the final input
-      // event can precede React's commit. The saved baseline is read at query time, not copied.
+      // event can precede React's commit. Pair the baseline with that commit: adopting another
+      // note updates its saved ref before React has committed the corresponding buffer.
       return composing || editor.pending ||
-        (editor.textarea.current?.value ?? editor.body) !== editor.savedBody();
+        (editor.textarea.current?.value ?? editor.body) !== editor.baseline;
     };
     window.__trackNativeEditorState = read;
     document.addEventListener("compositionstart", start, true);
