@@ -1,6 +1,6 @@
 import { QueryClient, hydrate } from "@tanstack/react-query";
 import { RouterProvider } from "@tanstack/react-router";
-import { render, waitFor } from "@testing-library/react";
+import { render, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { STATIC_MODE } from "./runtime";
 import { queryKeys } from "./queries";
@@ -8,6 +8,15 @@ import { queryKeys } from "./queries";
 // Exercise the real static route tree, reader and Markdown links with both deployment bases:
 // VITE_TRACK_STATIC=1 npm test -- src/entry-server.test.tsx
 const body = "[Open counter](apps/counter/)";
+
+function expectStaticSidebar(container: HTMLElement) {
+  const rail = within(container).getByRole("navigation", { name: "Workspace views" });
+  expect(within(rail).queryByRole("button", { name: "Recently created notes" })).toBeNull();
+  expect(within(rail).queryByRole("link", { name: "Voice input" })).toBeNull();
+  expect(within(rail).getByRole("button", { name: "Search notes" })).toBeTruthy();
+  expect(within(rail).getByRole("button", { name: "Recently opened notes" })).toBeTruthy();
+  expect(within(rail).getByRole("link", { name: "Full graph" })).toBeTruthy();
+}
 vi.mock("./api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./api")>()),
   getSite: async () => ({ root: "static-apps", title: "Help" }),
@@ -35,6 +44,7 @@ describe.skipIf(!STATIC_MODE).each(["/", "/guide/help/"])("static prerender rout
     const { html, state } = await renderPage(route);
     const ssr = document.createElement("div");
     ssr.innerHTML = html;
+    expectStaticSidebar(ssr);
     const href = `${import.meta.env.BASE_URL}apps/counter/`;
     expect(ssr.querySelector(".note-preview a")?.getAttribute("href")).toBe(href);
     expect(ssr.querySelector(".note-preview")?.textContent).toContain("Static apps");
@@ -53,6 +63,7 @@ describe.skipIf(!STATIC_MODE).each(["/", "/guide/help/"])("static prerender rout
     const mounted = render(<AppTree queryClient={client}><RouterProvider router={router} /></AppTree>);
     try {
       await waitFor(() => expect(mounted.container.querySelector(".note-preview a")).toHaveAttribute("href", href));
+      expectStaticSidebar(mounted.container);
       expect(mounted.container.querySelector(".note-preview")?.textContent).toBe(
         ssr.querySelector(".note-preview")?.textContent,
       );
