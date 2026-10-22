@@ -120,7 +120,11 @@ func reindexVault(cfg *config.Config) (map[string]any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reindex: %v", err)
 	}
-	return map[string]any{"indexed": rep.Indexed, "deleted": rep.Deleted, "links": rep.Links}, nil
+	out := map[string]any{"indexed": rep.Indexed, "deleted": rep.Deleted, "links": rep.Links}
+	if rep.Skipped > 0 {
+		out["skipped"] = rep.Skipped
+	}
+	return out, nil
 }
 
 // doctorVault runs the read-only doctor diagnosis for one vault.

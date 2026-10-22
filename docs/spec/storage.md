@@ -169,6 +169,15 @@ A rename rewrites every `[[old title]]` in the vault as part of the operation, s
 The SQLite index is derived state.
 It can be rebuilt from markdown note files and sidecar metadata.
 The indexer scans the top-level `note/` and `journal/` directories only, matching the file-kind rules above.
+Bulk indexing skips invalid note filenames (including sync conflict copies), malformed sidecar or
+legacy metadata, and unsupported metadata versions while continuing with valid files. Each skipped
+file emits a warning to stderr with its path and reason; `track reindex` also includes a `skipped`
+count when nonzero. Conflict copies are never imported automatically. A present note that fails to
+parse keeps any previously indexed row and links until it can be read again; a fresh index omits it.
+Skipped files are not rewritten. `track doctor` provides read-only diagnosis of stray files and
+unreadable sidecars. Filesystem access, directory, database, and metadata write failures remain fatal;
+the lazy absence of `note/` or `journal/` is still allowed. The CLI and web workspace share this policy
+through `Full` and `RefreshIfStale`; an explicit single-note read or update still returns parse errors.
 SQLite `PRAGMA user_version` stores the database schema version and is independent from sidecar metadata versions.
 
 Schema version 10 contains a central `notes` table with each indexed id, file kind, cached sidecar title and creation date, note-file `mtime`, sidecar `meta_mtime`, icon override, the shared reading milestones `seen_at`/`read_at` (sidecar timestamps as unix seconds), and the normalized `flags` (sidecar flags joined with a unit separator), so every listing can badge NEW/read/flags from vault metadata and search can demote `DEPRECATED` notes. The two mtimes let `RefreshIfStale` detect both body changes and sidecar-only changes. `tags` stores the note's tags, `links` stores computed directed links between notes, and `ext_links` stores outgoing cross-vault references as `(source id, vault name, title)` without a target numeric id because ids are vault-local.
