@@ -13,7 +13,10 @@ import (
 
 func fixture(t *testing.T) *config.Config {
 	t.Helper()
-	base := t.TempDir()
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	vault := filepath.Join(base, "vault")
 	if err := os.MkdirAll(filepath.Join(vault, "note"), 0700); err != nil {
 		t.Fatal(err)
@@ -59,6 +62,52 @@ func TestEnsurePinsAndResolves(t *testing.T) {
 	raw, _ := os.ReadFile(e.Path)
 	if string(raw) != "master\n" {
 		t.Fatal("master changed")
+	}
+}
+func TestEnsureCanonicalizesSymlinkedVaultAndViewPrefixes(t *testing.T) {
+	cfg := fixture(t)
+	base := filepath.Dir(cfg.VaultDir)
+	prefix := filepath.Join(t.TempDir(), "linked")
+	if err := os.Symlink(base, prefix); err != nil {
+		t.Fatal(err)
+	}
+	linked := *cfg
+	linked.VaultDir = filepath.Join(prefix, "vault")
+	// The view does not exist yet; only its parent prefix is a symlink, as with /tmp on macOS.
+	t.Setenv(Env, filepath.Join(prefix, "view"))
+	e, err := Ensure(&linked, "note", 123, "Title")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantEditorPath := filepath.Join(base, "view", vaultKey(cfg.VaultDir), "note", "Title--123.md")
+	if e.Path != cfg.NotePath(123) || e.VaultDir != cfg.VaultDir || e.EditorPath != wantEditorPath {
+		t.Fatalf("noncanonical identity %+v; want vault %q and editor path %q", e, cfg.VaultDir, wantEditorPath)
+	}
+	target, err := os.Readlink(e.EditorPath)
+	if err != nil || target != cfg.NotePath(123) {
+		t.Fatalf("alias target %q, %v; want %q", target, err, cfg.NotePath(123))
+	}
+	for _, path := range []string{linked.NotePath(123), e.EditorPath} {
+		resolved, err := Resolve(&linked, path)
+		if err != nil || resolved.ID != 123 || resolved.Path != e.Path || resolved.VaultDir != cfg.VaultDir {
+			t.Fatalf("resolve %q: %+v, %v", path, resolved, err)
+		}
+	}
+	t.Setenv(Env, filepath.Join(base, "view"))
+	next, err := Ensure(cfg, "note", 123, "Renamed")
+	if err != nil || next.EditorPath != e.EditorPath || next.Path != e.Path || next.Title != "Renamed" {
+		t.Fatalf("canonical spelling did not reuse pinned alias: %+v, %v", next, err)
+	}
+	other := *cfg
+	other.VaultDir = filepath.Join(base, "other-vault")
+	if err := os.MkdirAll(filepath.Join(other.VaultDir, "note"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(other.NotePath(123), []byte("other\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Resolve(&other, e.EditorPath); err == nil {
+		t.Fatal("alias accepted for a different vault with the same note ID")
 	}
 }
 func TestReplacedAliasPreserved(t *testing.T) {

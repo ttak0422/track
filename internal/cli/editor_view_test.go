@@ -25,7 +25,7 @@ func editorCLIFile(t *testing.T, vault string, id int64, title string) string {
 	return cfg.NotePath(id)
 }
 func TestEditorPathCanonicalContractAndSafeCheck(t *testing.T) {
-	vault := t.TempDir()
+	vault := canonicalTestPath(t, t.TempDir())
 	path := editorCLIFile(t, vault, 100, "日本語 100% #Title")
 	t.Setenv(editorview.Env, filepath.Join(t.TempDir(), "view"))
 	row, code := runIn(t, vault, "editor-path", "--path", path)
@@ -57,7 +57,7 @@ func TestEditorPathCanonicalContractAndSafeCheck(t *testing.T) {
 	}
 }
 func TestEditorAliasSelectsItsOwnVault(t *testing.T) {
-	a, b := t.TempDir(), t.TempDir()
+	a, b := canonicalTestPath(t, t.TempDir()), canonicalTestPath(t, t.TempDir())
 	editorCLIFile(t, a, 100, "Wrong vault")
 	pathB := editorCLIFile(t, b, 100, "Right vault")
 	t.Setenv(editorview.Env, filepath.Join(t.TempDir(), "view"))
@@ -106,7 +106,7 @@ func TestEditorPathExplicitVaultRejectsOtherAliasAndSourceFormat(t *testing.T) {
 	}
 }
 func TestEditorViewEnumeratesAndKeepsCanonicalPaths(t *testing.T) {
-	vault := t.TempDir()
+	vault := canonicalTestPath(t, t.TempDir())
 	path := editorCLIFile(t, vault, 100, "Title")
 	t.Setenv(editorview.Env, filepath.Join(t.TempDir(), "view"))
 	row, code := runIn(t, vault, "editor-view")
