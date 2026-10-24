@@ -44,6 +44,23 @@ describe("wikiLinks", () => {
 });
 
 describe("remarkWikiLink", () => {
+  it("marks only unaliased ID links for current-title display", () => {
+    const tree = fromMarkdown("[[id:123]] [[work:id:123#Heading]] [[id:123|id:123]] [[123]]");
+    remarkWikiLink()(tree);
+    expect(tree.children[0]).toMatchObject({ children: [
+      { data: { hProperties: { target: "id:123", resolveTitle: true } } },
+      { type: "text" },
+      { data: { hProperties: { target: "work:id:123#Heading", resolveTitle: true } } },
+      { type: "text" },
+      { data: { hProperties: { target: "id:123", display: "id:123" } } },
+      { type: "text" },
+      { data: { hProperties: { target: "123", display: "123" } } },
+    ] });
+    const children = (tree.children[0] as unknown as { children: { data?: { hProperties?: { resolveTitle?: boolean } } }[] }).children;
+    expect(children[4].data?.hProperties?.resolveTitle).toBeUndefined();
+    expect(children[6].data?.hProperties?.resolveTitle).toBeUndefined();
+  });
+
   it("renders nested bracket targets and aliases without truncating their text", () => {
     const tree = fromMarkdown("before [[[test]]] and [[outer [inner [nested]]|alias [here]]] after");
     remarkWikiLink()(tree);

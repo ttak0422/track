@@ -18,7 +18,7 @@ function M.open(offset, template)
       return
    end
    -- A new journal note adds its date as a keyword; the LSP server picks it up on the next request.
-   vim.cmd.edit(vim.fn.fnameescape(data.path))
+   require("track.editor_view").open(data.path)
 end
 
 return M

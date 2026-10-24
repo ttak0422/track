@@ -167,7 +167,7 @@ function M.show()
       local col = vim.fn.virtcol(".")
       for _, node in ipairs(nodes[line] or {}) do
          if node.start_col <= col and col <= node.end_col and node.path and node.path ~= "" then
-            vim.cmd.edit(vim.fn.fnameescape(node.path))
+            require("track.editor_view").open(node.path)
             return
          end
       end

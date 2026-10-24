@@ -11,7 +11,8 @@ local M = {}
 -- Edit the current buffer's note metadata in a popup. The buffer must be a vault note file; the CLI
 -- resolves it via --path and errors otherwise.
 function M.edit()
-   local note_path = vim.api.nvim_buf_get_name(0)
+   local source_buf = vim.api.nvim_get_current_buf()
+   local note_path = vim.api.nvim_buf_get_name(source_buf)
    if note_path == "" then
       vim.notify("track meta: current buffer has no file", vim.log.levels.ERROR)
       return
@@ -65,6 +66,11 @@ function M.edit()
       callback = function()
          -- The buffer text is the document; header lines are YAML comments the CLI ignores. No
          -- client-side parsing — the engine validates and applies the whole document atomically.
+         local safe, problem = require("track.editor_view").validate(source_buf)
+         if not safe then
+            vim.notify(problem, vim.log.levels.ERROR)
+            return
+         end
          local doc = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n") .. "\n"
          local saved, save_err = client.run_json({ "meta", "--path", note_path, "--edit", "-" }, doc)
          if not saved then

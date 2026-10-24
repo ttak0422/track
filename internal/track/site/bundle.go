@@ -29,7 +29,9 @@ import (
 
 // doc is one published note in the bundle.
 type doc struct {
-	id int64
+	id         int64
+	linkFormat string
+	vaultName  string
 	// slug pins the published address; empty derives it from the id (see slugOf).
 	slug     string
 	title    string
@@ -226,8 +228,9 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 	// Dashboard widget data for any ```dashboard blocks in the published bodies: recent-notes titles in
 	// the shared recently-updated-first order, and today's journal name. A static site rarely has a
 	// journal, so the shortcut link may be unresolved — harmless, it just renders as plain text.
-	dashData := dashboard.Data{JournalTitle: time.Now().Format("20060102")}
+	dashData := dashboard.Data{JournalTitle: time.Now().Format("20060102"), NoteIDs: map[string]int64{}}
 	for _, d := range listed {
+		dashData.NoteIDs[d.title] = d.id
 		if kindOf(d) != "journal" && d.title != "" {
 			dashData.RecentTitles = append(dashData.RecentTitles, d.title)
 		}
@@ -393,11 +396,13 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 		body := rewriteAssetRefs(d.body, d.assetSrc, names)
 		// Resolve ```dashboard widget blocks to Markdown (recent/journal/pinned lists) at build time, so
 		// a published home note shows the same landing view the live workspace does.
+		dashData.LinkFormat = d.linkFormat
 		body = dashboard.Resolve(body, dashData)
 		// Then resolve ```viewspec fences to ready-to-draw ```echarts option blocks, and
 		// ```track-query fences to their Markdown result tables, at build time.
 		body = resolveViewSpecBlocks(body, d.dataDir, noteSlug)
-		body = query.ExpandBlocks(body, saved, queryRows, func(id int64) (string, string) { return queryCovers[id], queryIcons[id] })
+		body = query.ExpandBlocks(body, saved, queryRows, func(id int64) (string, string) { return queryCovers[id], queryIcons[id] }, d.linkFormat)
+		body = publishBodyLinks(body, d.linkFormat, d.vaultName)
 		resp := jsonNoteResponse{
 			Note: jsonNoteDetail{
 				// Includes resolve against the published body so their line numbers match what the
@@ -411,7 +416,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 					if !ok {
 						return 0, "", "", "", false
 					}
-					return 0, kindOf(t), rewriteAssetRefs(t.body, t.assetSrc, names), etag(t.body), true
+					return 0, kindOf(t), rewriteAssetRefs(publishBodyLinks(t.body, t.linkFormat, t.vaultName), t.assetSrc, names), etag(t.body), true
 				}),
 				jsonSearchResult: searchResultOf(d, names),
 				CopyPath:         "", // see searchResultOf: the source path is intentionally not published.

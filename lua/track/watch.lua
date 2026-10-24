@@ -90,8 +90,8 @@ function M.setup()
       group = vim.api.nvim_create_augroup(config.options.augroup .. "-watch", { clear = true }),
       callback = function(args)
          -- A note's file is named for its id (<vault>/note/<id>.md), so the buffer names what to skip.
-         if util.vault_of(args.buf) then
-            M.mark(vim.fn.fnamemodify(args.file, ":t:r"))
+         if not vim.b[args.buf].track_editor_conflict and util.vault_of(args.buf) then
+            M.mark(vim.fn.fnamemodify(util.canonical_path(args.buf), ":t:r"))
          end
       end,
    })

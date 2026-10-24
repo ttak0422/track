@@ -14,6 +14,7 @@ import { IconPhotoOff, RailIcon } from "../icons";
 
 interface ViewRow {
   title: string;
+  target?: string;
   cells: string[];
   cover?: string;
   icon?: string;
@@ -66,7 +67,7 @@ function List({ view }: { view: ViewPayload }) {
         return (
           <li className="query-list-item" key={row.title}>
             <span className="query-list-title">
-              <WikiLink target={row.title} display={row.title} />
+              <WikiLink target={row.target || row.title} display={row.title} />
             </span>
             {meta.map(({ column, value }) => (
               <span className="query-list-meta" key={column}>
@@ -192,7 +193,7 @@ function MonthGrid({ month, byDay }: { month: string; byDay: Map<string, ViewRow
               <span className="calendar-day-number">{i + 1}</span>
               {rows.slice(0, CELL_NOTES).map((row) => (
                 <span className="calendar-day-note" key={row.title}>
-                  <WikiLink target={row.title} display={row.title} />
+                  <WikiLink target={row.target || row.title} display={row.title} />
                 </span>
               ))}
               {rows.length > CELL_NOTES ? <span className="calendar-day-more">+{rows.length - CELL_NOTES}</span> : null}
@@ -225,7 +226,7 @@ function CardBody({ row, view, skip }: { row: ViewRow; view: ViewPayload; skip?:
   return (
     <div className="query-card-body">
       <span className={`query-card-title${showTitle ? "" : " query-card-title-hidden"}`}>
-        <WikiLink target={row.title} display={row.title} />
+        <WikiLink target={row.target || row.title} display={row.title} />
       </span>
       {meta.map(({ column, value }) => (
         <span className="query-card-meta" key={column}>

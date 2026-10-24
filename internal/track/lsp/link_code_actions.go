@@ -22,6 +22,17 @@ func (s *Server) codeActions(uri string, rng rangeValue) ([]codeAction, error) {
 	}
 	var actions []codeAction
 	for _, ref := range link.Refs(text) {
+		// An explicit missing ID is not a request to create a title with that spelling.
+		key := ref.Text
+		if self := s.cfg.VaultName; self != "" {
+			key = strings.TrimPrefix(key, self+":")
+		}
+		if _, explicit := link.ExplicitID(key, s.cfg.LinkFormat); explicit {
+			continue
+		}
+		if _, _, qualified := link.SplitVaultRef(ref.Text, s.xv.IsVault); qualified {
+			continue
+		}
 		if _, ok := dict[ref.Text]; ok {
 			continue
 		}
@@ -29,10 +40,14 @@ func (s *Server) codeActions(uri string, rng rangeValue) ([]codeAction, error) {
 			continue
 		}
 		title := ref.Text
+		replacement, ok := refKeyRange(text, ref)
+		if !ok {
+			continue
+		}
 		actions = append(actions, codeAction{
 			Title:   fmt.Sprintf("Create note %q", title),
 			Kind:    protocol.QuickFix,
-			Command: createNoteLSPCommand(title, uri),
+			Command: createNoteLSPCommand(title, uri, replacement),
 		})
 	}
 	if action, ok := s.renameNoteAction(uri, rng); ok {

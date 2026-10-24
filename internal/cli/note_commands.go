@@ -160,6 +160,9 @@ func parentTitleFromPath(cfg *config.Config, path string) string {
 // extraBody is written as the note body without injecting a title heading; it is mutually exclusive
 // with template (callers enforce that). tags are stored on the sidecar metadata.
 func createTitledNote(cfg *config.Config, s *store.Store, noteID int64, title string, template string, extraBody string, tags []string, parent string) (map[string]any, error) {
+	if err := config.ValidateLinkTitle(cfg.LinkFormat, title); err != nil {
+		return nil, err
+	}
 	path := cfg.NotePath(noteID)
 	if _, err := os.Stat(path); err == nil {
 		return nil, fmt.Errorf("note already exists: %s", path)
@@ -507,6 +510,9 @@ func cmdMeta(args []string) int {
 		edited = true
 		if newTitle != "" && newTitle != meta.Title {
 			if _, err := trackrename.Do(cfg, s, noteID, newTitle); err != nil {
+				return fail("%v", err)
+			}
+			if err := config.ValidateLinkTitle(cfg.LinkFormat, newTitle); err != nil {
 				return fail("%v", err)
 			}
 			meta.Title = newTitle

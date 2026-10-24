@@ -53,7 +53,7 @@ function M.open(name)
       vim.notify("track: " .. tostring(err), vim.log.levels.ERROR)
       return
    end
-   vim.cmd.edit(vim.fn.fnameescape(data.path))
+   require("track.editor_view").open(data.path)
 end
 
 function M.create_note(template, title)

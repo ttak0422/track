@@ -113,7 +113,8 @@ export interface JournalResponse {
 // align with the rendered markdown) and baked into the static bundle's note JSON.
 export interface NoteInclude {
   line: number;
-  note_id?: number;
+  note_id?: number | NoteID;
+  vault?: string;
   kind?: string;
   etag?: string;
   title?: string;

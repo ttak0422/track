@@ -24,6 +24,11 @@ end
 -- reloaded to pick up the engine's edit; the render autocmds repaint the decorations from there.
 function M.cycle()
    local buf = vim.api.nvim_get_current_buf()
+   local safe, problem = require("track.editor_view").validate(buf)
+   if not safe then
+      vim.notify(problem, vim.log.levels.ERROR)
+      return
+   end
    local path = vim.api.nvim_buf_get_name(buf)
    if path == "" then
       vim.notify("track: buffer has no file", vim.log.levels.WARN)
