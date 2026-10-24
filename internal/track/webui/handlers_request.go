@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/index"
 	"github.com/ttak0422/track/internal/track/note"
 	"github.com/ttak0422/track/internal/track/request"
@@ -212,6 +213,10 @@ func (s *Server) handleRequestSave(v *vaultView, w http.ResponseWriter, r *http.
 			return
 		}
 		target = tv
+	}
+	if err := config.ValidateLinkTitle(target.cfg.LinkFormat, title); err != nil {
+		writeError(w, err, http.StatusBadRequest)
+		return
 	}
 	// Preconditions and idempotency are checked before any file is written: a replayed save returns
 	// the recorded note, and an unsavable request (not completed, an update, no answer) is refused

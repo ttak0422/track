@@ -1,8 +1,10 @@
 package store
 
 import (
+	"fmt"
 	"strings"
 
+	"github.com/ttak0422/track/internal/track/link"
 	"github.com/ttak0422/track/internal/track/note"
 )
 
@@ -198,10 +200,24 @@ func (s *Store) ReplaceLinks(srcID int64, dstIDs []int64) error {
 }
 
 // ExtRef is one outgoing cross-vault reference: the registered name of the target vault and the
-// title as written after the colon. The target's numeric id is never stored — ids are vault-local.
+// legacy title or explicit ID. TargetID is always scoped by Vault, never global.
 type ExtRef struct {
-	Vault string `json:"vault"`
-	Title string `json:"title"`
+	Vault    string `json:"vault"`
+	Title    string `json:"title,omitempty"`
+	TargetID int64  `json:"target_id,omitempty"`
+}
+
+// NewExtRef classifies a cross-vault key under the source vault's grammar once,
+// at indexing time. A malformed explicit ID is unresolved, never a legacy title.
+func NewExtRef(vault, key, format string) (ExtRef, bool) {
+	id, explicit := link.ExplicitID(key, format)
+	if explicit {
+		if id == 0 {
+			return ExtRef{}, false
+		}
+		return ExtRef{Vault: vault, TargetID: id}, true
+	}
+	return ExtRef{Vault: vault, Title: key}, true
 }
 
 // ReplaceExtLinks sets the outgoing cross-vault references for srcID.
@@ -216,7 +232,7 @@ func (s *Store) ReplaceExtLinks(srcID int64, refs []ExtRef) error {
 		return err
 	}
 	for _, ref := range refs {
-		if _, err := tx.Exec(`INSERT OR IGNORE INTO ext_links (src_id, vault, title) VALUES (?, ?, ?)`, srcID, ref.Vault, ref.Title); err != nil {
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO ext_links (src_id, vault, title, target_id) VALUES (?, ?, ?, ?)`, srcID, ref.Vault, ref.Title, ref.TargetID); err != nil {
 			return err
 		}
 	}
@@ -227,22 +243,26 @@ func (s *Store) ReplaceExtLinks(srcID int64, refs []ExtRef) error {
 // vaults, most recently updated first — the same ordering as Backlinks. A vault may be registered
 // under exactly one name; the slice shape lets a caller pass none (no registration, no matches).
 func (s *Store) ExtBacklinks(vaultNames []string, title string) ([]NoteRef, error) {
+	return s.ExtBacklinksTo(vaultNames, title, 0)
+}
+
+// ExtBacklinksTo unions title and typed-ID backlinks without reinterpreting stored
+// title keys. The target's ID is always paired with its registered vault name.
+func (s *Store) ExtBacklinksTo(vaultNames []string, title string, targetID int64) ([]NoteRef, error) {
 	if len(vaultNames) == 0 {
 		return nil, nil
 	}
-	placeholders := strings.Repeat("?,", len(vaultNames))
-	args := make([]any, 0, len(vaultNames)+1)
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(vaultNames)), ",")
+	args := make([]any, 0, len(vaultNames)+3)
 	for _, name := range vaultNames {
 		args = append(args, name)
 	}
-	args = append(args, title)
+	args = append(args, title, targetID, targetID)
 	rows, err := s.db.Query(
 		`SELECT DISTINCT n.id, n.kind, n.title, n.flags
 		 FROM ext_links e JOIN notes n ON n.id = e.src_id
-		 WHERE e.vault IN (`+placeholders[:len(placeholders)-1]+`) AND e.title = ?
-		 ORDER BY n.mtime DESC, n.id`,
-		args...,
-	)
+		 WHERE e.vault IN (`+placeholders+`) AND ((e.title = ? AND e.target_id = 0) OR (? > 0 AND e.target_id = ?))
+		 ORDER BY n.mtime DESC, n.id`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -255,7 +275,7 @@ func (s *Store) Keywords() ([]Keyword, error) {
 	rows, err := s.db.Query(
 		`SELECT k.term, k.note_id, n.kind, k.kind
 		 FROM keywords k JOIN notes n ON n.id = k.note_id
-		 WHERE n.kind IN ('note', 'journal')`,
+		 WHERE n.kind IN ('note', 'journal') ORDER BY n.id`,
 	)
 	if err != nil {
 		return nil, err
@@ -271,6 +291,61 @@ func (s *Store) Keywords() ([]Keyword, error) {
 		out = append(out, k)
 	}
 	return out, rows.Err()
+}
+
+// LinkKeywords returns the read dictionary for body links. Generated ID keys
+// are separate from titles; callers should keep using Keywords for title completion.
+func (s *Store) LinkKeywords(format string) ([]Keyword, error) {
+	kws, err := s.Keywords()
+	if err != nil || format != link.IDFormat {
+		return kws, err
+	}
+	notes, err := s.AllNotes()
+	if err != nil {
+		return nil, err
+	}
+	// Reject namespace collisions even in long-lived processes whose config was
+	// loaded before a sidecar edit. Never let a title override an explicit ID.
+	for _, k := range kws {
+		if _, explicit := link.ExplicitID(k.Term, format); explicit || strings.Contains(k.Term, ":id:") {
+			return nil, fmt.Errorf("link_format id-v1 reserves id: targets; rename title %q", k.Term)
+		}
+	}
+	for _, n := range notes {
+		if n.FileKind == "note" || n.FileKind == "journal" {
+			kws = append(kws, Keyword{Term: link.IDKey(n.NoteID), NoteID: n.NoteID, FileKind: n.FileKind, Kind: "id"})
+		}
+	}
+	return kws, nil
+}
+
+// ResolveLink resolves a body-link key using the SOURCE vault's link format.
+// An explicit missing/malformed ID never falls back to a title lookup.
+func (s *Store) ResolveLink(key, format string) (NoteRef, bool, error) {
+	id, explicit := link.ExplicitID(key, format)
+	if !explicit {
+		return s.ResolveTerm(key)
+	}
+	// A source opting in must not hijack a pre-existing remote literal title
+	// such as [[work:id:123]]. Report the ambiguity at point of use instead of
+	// requiring every registered vault to be online during local configuration.
+	if literal, found, err := s.ResolveTerm(key); err != nil {
+		return NoteRef{}, false, err
+	} else if found {
+		return NoteRef{}, false, fmt.Errorf("ambiguous explicit ID %q: target vault also has literal title %q on note %d; rename that title before using this ID link", key, literal.Title, literal.NoteID)
+	}
+	if id == 0 {
+		return NoteRef{}, false, nil
+	}
+	var ref NoteRef
+	err := s.db.QueryRow(`SELECT id, kind, title FROM notes WHERE id = ? AND kind IN ('note', 'journal')`, id).Scan(&ref.NoteID, &ref.FileKind, &ref.Title)
+	if isNoRows(err) {
+		return NoteRef{}, false, nil
+	}
+	if err != nil {
+		return NoteRef{}, false, err
+	}
+	return ref, true, nil
 }
 
 // ResolveTerm finds the note a title points to. Duplicate titles resolve to the lowest id — the one
@@ -364,4 +439,19 @@ func (s *Store) mtimeColumn(column string) (map[int64]int64, error) {
 		out[id] = mtime
 	}
 	return out, rows.Err()
+}
+
+// IndexedLinkFormat is the body-link grammar used by the last complete rebuild.
+func (s *Store) IndexedLinkFormat() (string, error) {
+	var format string
+	err := s.db.QueryRow(`SELECT value FROM index_state WHERE key = 'link_format'`).Scan(&format)
+	if isNoRows(err) {
+		return "", nil
+	}
+	return format, err
+}
+
+func (s *Store) SetIndexedLinkFormat(format string) error {
+	_, err := s.db.Exec(`INSERT INTO index_state (key,value) VALUES ('link_format',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, format)
+	return err
 }

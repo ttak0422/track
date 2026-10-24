@@ -18,10 +18,13 @@ import (
 	"time"
 
 	"github.com/ttak0422/track/internal/track/babel"
+	"github.com/ttak0422/track/internal/track/link"
 	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
+	// LinkFormat opts this source vault into explicit ID body links. Empty/title is legacy.
+	LinkFormat        string
 	VaultDir          string
 	DBPath            string
 	Extensions        []string
@@ -177,6 +180,7 @@ type machineFileConfig struct {
 // command values are deliberately excluded: a cloned or synced vault must never decide which commands
 // run on this machine or where its index lives, so those keys are a hard error here.
 type vaultFileConfig struct {
+	LinkFormat        string              `yaml:"link_format"`
 	Extensions        []string            `yaml:"extensions"`
 	DateFormat        string              `yaml:"date_format"`
 	JournalDateFormat string              `yaml:"journal_date_format"`
@@ -311,6 +315,9 @@ func load(fixedVault string) (*Config, error) {
 	if err := validateVaultConfig(vc); err != nil {
 		return nil, err
 	}
+	if err := auditLinkFormat(vault, vc.LinkFormat, registry); err != nil {
+		return nil, err
+	}
 
 	// The index is a derived cache, never a configured file: it lives under the cache dir keyed by the
 	// vault path, so every vault the registry names keeps its own index without anyone naming it.
@@ -379,6 +386,7 @@ func load(fixedVault string) (*Config, error) {
 	}
 
 	return &Config{
+		LinkFormat:        vc.LinkFormat,
 		VaultDir:          vault,
 		DBPath:            db,
 		Extensions:        extensions,
@@ -555,6 +563,11 @@ func CanonicalPath(path string) (string, error) {
 // and a template spec may be a vault-relative path — none of them may carry separators upward, "..",
 // or an absolute root. Environment overrides are machine-local and stay unrestricted.
 func validateVaultConfig(vc vaultFileConfig) error {
+	switch vc.LinkFormat {
+	case "", "title", link.IDFormat:
+	default:
+		return fmt.Errorf("vault config link_format: %q must be title or id-v1", vc.LinkFormat)
+	}
 	for _, ext := range vc.Extensions {
 		if len(ext) < 2 || !strings.HasPrefix(ext, ".") || strings.ContainsAny(ext, `/\`) || strings.Contains(ext, "..") {
 			return fmt.Errorf("vault config extensions: %q is not a plain %q-style extension", ext, ".md")

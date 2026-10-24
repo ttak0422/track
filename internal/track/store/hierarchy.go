@@ -18,7 +18,7 @@ func (s *Store) UpNotes(id int64) ([]NoteRef, error) {
 	rows, err := s.db.Query(
 		`SELECT k.note_id, n.kind, n.title, n.flags
 		 FROM props p
-		 JOIN keywords k ON k.term = p.value
+		 JOIN body_keywords k ON k.term = p.value
 		 JOIN notes n ON n.id = k.note_id
 		 WHERE p.note_id = ? AND p.key = ? AND p.type = ? AND k.note_id != ?
 		   AND n.kind IN ('note', 'journal')
@@ -38,7 +38,7 @@ func (s *Store) ChildNotes(id int64) ([]NoteRef, error) {
 	rows, err := s.db.Query(
 		`SELECT n.id, n.kind, n.title, n.flags
 		 FROM props p
-		 JOIN keywords k ON k.term = p.value AND k.note_id = ?
+		 JOIN body_keywords k ON k.term = p.value AND k.note_id = ?
 		 JOIN notes n ON n.id = p.note_id
 		 WHERE p.key = ? AND p.type = ? AND n.id != ?
 		   AND n.kind IN ('note', 'journal')
@@ -72,7 +72,7 @@ func (s *Store) Hierarchy() ([]*HierarchyNode, error) {
 	rows, err := s.db.Query(
 		`SELECT n.id, n.kind, n.title, n.flags, pn.id, pn.kind, pn.title, pn.flags, min(p.ord)
 		 FROM props p
-		 JOIN keywords k ON k.term = p.value
+		 JOIN body_keywords k ON k.term = p.value
 		 JOIN notes n ON n.id = p.note_id
 		 JOIN notes pn ON pn.id = k.note_id
 		 WHERE p.key = ? AND p.type = ? AND pn.id != n.id

@@ -93,6 +93,9 @@ func (ix *Indexer) Full() (Report, error) {
 			}
 			return rep, err
 		}
+		if err := config.ValidateLinkTitle(ix.cfg.LinkFormat, n.Meta.Title); err != nil {
+			return rep, err
+		}
 		if err := ix.store.UpsertNote(n); err != nil {
 			return rep, err
 		}
@@ -125,6 +128,9 @@ func (ix *Indexer) Full() (Report, error) {
 		rep.Links += countExcludingSelf(targets, n.ID)
 	}
 
+	if err := ix.store.SetIndexedLinkFormat(ix.cfg.LinkFormat); err != nil {
+		return rep, err
+	}
 	return rep, nil
 }
 
@@ -137,6 +143,14 @@ func (ix *Indexer) Full() (Report, error) {
 // change that raised no filesystem notification. Sidecar mtimes are compared only for notes present
 // on disk, so an orphan sidecar (reported by doctor, never moved by a read) cannot re-trigger this.
 func (ix *Indexer) RefreshIfStale() (bool, error) {
+	format, err := ix.store.IndexedLinkFormat()
+	if err != nil {
+		return false, err
+	}
+	if format != ix.cfg.LinkFormat {
+		_, err := ix.Full()
+		return err == nil, err
+	}
 	disk, journals, skipped, err := ix.scanMtimes()
 	if err != nil {
 		return false, err
@@ -280,8 +294,20 @@ func sameMtimes(disk, indexed map[int64]int64) bool {
 // One updates a single note and recomputes its outgoing links.
 // Inbound links from other notes to this one are not refreshed here; run Full for that.
 func (ix *Indexer) One(path string) error {
+	format, err := ix.store.IndexedLinkFormat()
+	if err != nil {
+		return err
+	}
+	if format != ix.cfg.LinkFormat {
+		if _, err := ix.Full(); err != nil {
+			return err
+		}
+	}
 	n, err := note.ParseFile(path, ix.cfg)
 	if err != nil {
+		return err
+	}
+	if err := config.ValidateLinkTitle(ix.cfg.LinkFormat, n.Meta.Title); err != nil {
 		return err
 	}
 	// A track mutation command (new/append/toggle/journal) just wrote this file, so stamp its mtime day
@@ -357,7 +383,7 @@ func (ix *Indexer) ensureDayJournal(mtime int64) error {
 
 // keywordDict loads the auto-link dictionary once as term -> note id, so resolving each [[...]] is an O(1) map lookup.
 func (ix *Indexer) keywordDict() (map[string]int64, error) {
-	kws, err := ix.store.Keywords()
+	kws, err := ix.store.LinkKeywords(ix.cfg.LinkFormat)
 	if err != nil {
 		return nil, err
 	}
@@ -404,8 +430,8 @@ func (ix *Indexer) resolveLinks(body string, dict map[string]int64) ([]int64, []
 	seenExt := make(map[store.ExtRef]bool)
 	for _, ref := range link.Refs(body) {
 		if vault, title, ok := link.SplitVaultRef(ref.Text, isVault); ok {
-			key := store.ExtRef{Vault: vault, Title: title}
-			if !seenExt[key] {
+			key, valid := store.NewExtRef(vault, title, ix.cfg.LinkFormat)
+			if valid && !seenExt[key] {
 				seenExt[key] = true
 				ext = append(ext, key)
 			}

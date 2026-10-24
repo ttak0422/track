@@ -11,9 +11,10 @@ import { pointerCanHover, previewOpenDelay } from "./stack";
 interface WikiLinkProps {
   target: string;
   display: string;
+  resolveTitle?: boolean;
 }
 
-export function WikiLink({ target, display }: WikiLinkProps) {
+export function WikiLink({ target, display, resolveTitle = false }: WikiLinkProps) {
   const linkRef = useRef<HTMLAnchorElement>(null);
   const openTimer = useRef<number | undefined>(undefined);
   // The window this link opened, so leaving the link closes the window it is answerable for and no
@@ -27,6 +28,7 @@ export function WikiLink({ target, display }: WikiLinkProps) {
   const vault = useContext(NoteVaultContext);
   const resolved = useResolveQuery(key, vault);
   const noteID = resolved.data?.found ? resolved.data.note.note_id : undefined;
+  const label = resolveTitle && resolved.data?.found ? resolved.data.note.title : display;
 
   // Only the intent timer is this component's to clean up. A window it opened is the layer's, and
   // closing the preview this link sits in must not take the preview it opened down with it.
@@ -81,11 +83,11 @@ export function WikiLink({ target, display }: WikiLinkProps) {
   }
 
   if (resolved.isPending) {
-    return <span className="wiki-link pending">{display}</span>;
+    return <span className="wiki-link pending">{label}</span>;
   }
 
   if (!noteID) {
-    return <span className="wiki-link unresolved">{display}</span>;
+    return <span className="wiki-link unresolved">{label}</span>;
   }
 
   return (
@@ -103,7 +105,7 @@ export function WikiLink({ target, display }: WikiLinkProps) {
         params={{ noteId: String(noteID) }}
         hash={anchorHash(blockID, headingID)}
       >
-        {display}
+        {label}
       </Link>
     </span>
   );

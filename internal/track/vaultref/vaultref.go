@@ -11,6 +11,7 @@ import (
 	"sort"
 
 	"github.com/ttak0422/track/internal/track/config"
+	"github.com/ttak0422/track/internal/track/link"
 	"github.com/ttak0422/track/internal/track/store"
 )
 
@@ -106,11 +107,17 @@ func (r *Resolver) vaultHandles(name string) (*config.Config, *store.Store, erro
 // Resolve looks (vault, title) up in the target vault's index. found=false means the vault was
 // reachable but holds no such title; an error means the vault itself could not be consulted.
 func (r *Resolver) Resolve(vault, title string) (Resolved, bool, error) {
+	if err := r.cfg.ValidateLinkFormat(); err != nil {
+		return Resolved{}, false, err
+	}
 	cfg, s, err := r.vaultHandles(vault)
 	if err != nil {
 		return Resolved{}, false, err
 	}
-	ref, found, err := s.ResolveTerm(title)
+	if err := cfg.ValidateExplicitTarget(title, r.cfg.LinkFormat); err != nil {
+		return Resolved{}, false, err
+	}
+	ref, found, err := s.ResolveLink(title, r.cfg.LinkFormat)
 	if err != nil || !found {
 		return Resolved{}, false, err
 	}
@@ -151,6 +158,15 @@ func (r *Resolver) Inbound(title string) (refs []ExternalRef, unavailable []Unav
 	if self == "" {
 		return nil, nil
 	}
+	var targetID int64
+	if local, err := store.Open(r.cfg.DBPath); err == nil {
+		if ref, found, err := local.ResolveTerm(title); err == nil && found {
+			if _, unambiguous, err := local.ResolveLink(link.IDKey(ref.NoteID), link.IDFormat); err == nil && unambiguous && r.cfg.ValidateExplicitTarget(link.IDKey(ref.NoteID), link.IDFormat) == nil {
+				targetID = ref.NoteID
+			}
+		}
+		local.Close()
+	}
 	for _, name := range sortedNames(r.cfg.Vaults) {
 		if name == self {
 			continue
@@ -160,7 +176,7 @@ func (r *Resolver) Inbound(title string) (refs []ExternalRef, unavailable []Unav
 			unavailable = append(unavailable, Unavailable{Vault: name, Error: err.Error()})
 			continue
 		}
-		backs, err := s.ExtBacklinks([]string{self}, title)
+		backs, err := s.ExtBacklinksTo([]string{self}, title, targetID)
 		if err != nil {
 			unavailable = append(unavailable, Unavailable{Vault: name, Error: err.Error()})
 			continue

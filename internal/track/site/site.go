@@ -17,6 +17,7 @@ import (
 
 	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/export"
+	"github.com/ttak0422/track/internal/track/link"
 	"github.com/ttak0422/track/internal/track/note"
 	"github.com/ttak0422/track/internal/track/staticapp"
 	"github.com/ttak0422/track/internal/track/store"
@@ -84,7 +85,6 @@ func Build(cfg *config.Config, st *store.Store, opts Options, frontendDir, outDi
 	assetSrc := cfg.AssetsDir()
 	docs := make([]doc, 0, len(ids))
 	upKeys := make([][]string, 0, len(ids))
-	titleID := make(map[string]int64, len(ids))
 	for _, id := range ids {
 		n, err := note.ParseFile(cfg.PathForKind(kinds[id], id), cfg)
 		if err != nil {
@@ -95,38 +95,56 @@ func Build(cfg *config.Config, st *store.Store, opts Options, frontendDir, outDi
 			return Result{}, fmt.Errorf("render note %d: %w", id, err)
 		}
 		props := note.CollectProps(n.Meta, n.Body)
+		keys := []string{noteTitle(n)}
+		if cfg.LinkFormat == link.IDFormat {
+			keys = append(keys, publishedLinkKey(link.IDKey(id), cfg.LinkFormat, cfg.VaultName))
+		}
 		docs = append(docs, doc{
 			id: id,
 			// A note may pin the URL it is already published at (see slugOf).
-			slug:     n.Meta.Slug,
-			title:    noteTitle(n),
-			kind:     n.Kind,
-			tags:     n.Meta.Tags,
-			flags:    n.Meta.Flags,
-			days:     note.ActivityDays(n.Kind, n.Meta),
-			created:  n.Meta.Created,
-			mtime:    n.Mtime,
-			path:     cfg.PathForKind(n.Kind, id),
-			body:     body,
-			keys:     []string{noteTitle(n)},
-			assets:   CollectAssets(n.Body),
-			desc:     n.Meta.Description,
-			image:    strings.TrimPrefix(n.Meta.Image, "assets/"),
-			icon:     cfg.NoteIcon(n.Kind, n.Meta.Tags, n.Meta.Icon),
-			assetSrc: assetSrc,
-			dataDir:  cfg.DataDir(),
-			tasks:    docTasks(n.Body),
-			props:    props,
+			slug:       n.Meta.Slug,
+			title:      noteTitle(n),
+			kind:       n.Kind,
+			tags:       n.Meta.Tags,
+			flags:      n.Meta.Flags,
+			days:       note.ActivityDays(n.Kind, n.Meta),
+			created:    n.Meta.Created,
+			mtime:      n.Mtime,
+			path:       cfg.PathForKind(n.Kind, id),
+			body:       body,
+			keys:       keys,
+			linkFormat: cfg.LinkFormat,
+			vaultName:  cfg.VaultName,
+			assets:     CollectAssets(n.Body),
+			desc:       n.Meta.Description,
+			image:      strings.TrimPrefix(n.Meta.Image, "assets/"),
+			icon:       cfg.NoteIcon(n.Kind, n.Meta.Tags, n.Meta.Icon),
+			assetSrc:   assetSrc,
+			dataDir:    cfg.DataDir(),
+			tasks:      docTasks(publishBodyLinks(n.Body, cfg.LinkFormat, cfg.VaultName)),
+			props:      props,
 		})
 		upKeys = append(upKeys, note.UpTargets(props))
-		titleID[noteTitle(n)] = id
 	}
-	// The "up" relation property resolves by title within the published set (titles are unique in a
-	// vault); a parent outside the set is skipped, like every other out-of-set link.
+	// The "up" relation follows the source vault's link format; parents outside the
+	// published set are skipped, like every other out-of-set link.
 	for i := range docs {
 		for _, key := range upKeys[i] {
-			if pid, ok := titleID[key]; ok {
-				docs[i].up = append(docs[i].up, pid)
+			if name, local, qualified := link.SplitVaultRef(key, func(name string) bool { _, ok := cfg.Vaults[name]; return ok }); qualified {
+				if name != cfg.VaultName {
+					continue
+				}
+				key = local
+			}
+			if ref, found, err := st.ResolveLink(key, cfg.LinkFormat); err != nil {
+				return Result{}, err
+			} else if found && inSet[ref.NoteID] {
+				docs[i].up = append(docs[i].up, ref.NoteID)
+			}
+		}
+		for j := range docs[i].props {
+			if docs[i].props[j].Type == "link" {
+				docs[i].props[j].Value = publishedLinkKey(docs[i].props[j].Value, cfg.LinkFormat, cfg.VaultName)
 			}
 		}
 	}

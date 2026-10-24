@@ -424,6 +424,30 @@ local function register_create_note_command()
          return
       end
       local buf = (ctx and ctx.bufnr) or vim.api.nvim_get_current_buf()
+      local tick = vim.api.nvim_buf_get_changedtick(buf)
+      local replacement = type(arg) == "table" and arg.replacement_range or nil
+      local expected = type(arg) == "table" and arg.expected_text or nil
+      local function replace_created_link(result)
+         if not replacement or type(expected) ~= "string" then
+            return
+         end
+         local target = arg.replacement_kind == "key" and result.link_key or result.link_target
+         if type(target) ~= "string" or target == "" then
+            return
+         end
+         local first, last = replacement.start, replacement["end"]
+         local unchanged = vim.api.nvim_buf_is_valid(buf) and vim.api.nvim_buf_is_loaded(buf)
+            and vim.api.nvim_buf_get_changedtick(buf) == tick
+         local ok, text = false, nil
+         if unchanged and first and last then
+            ok, text = pcall(vim.api.nvim_buf_get_text, buf, first.line, first.character, last.line, last.character, {})
+         end
+         if not ok or table.concat(text, "\n") ~= expected then
+            vim.notify("track: note created; source changed, so its link was left unchanged. Copy the note's ID link to update it safely.", vim.log.levels.WARN)
+            return
+         end
+         vim.api.nvim_buf_set_text(buf, first.line, first.character, last.line, last.character, { target })
+      end
       lsp_client:request("workspace/executeCommand", {
          command = "track.createNote",
          arguments = { { title = title, uri = uri } },
@@ -432,11 +456,14 @@ local function register_create_note_command()
             vim.notify("track: " .. tostring(err.message or err), vim.log.levels.ERROR)
             return
          end
-         if result and result.path then
-            vim.notify("track: created " .. result.path, vim.log.levels.INFO)
-         end
          vim.schedule(function()
-            refresh(buf)
+            if result and result.path then
+               replace_created_link(result)
+               vim.notify("track: created " .. (result.editor_path or result.path), vim.log.levels.INFO)
+            end
+            if vim.api.nvim_buf_is_valid(buf) then
+               refresh(buf)
+            end
          end)
       end, buf)
    end

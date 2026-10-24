@@ -311,14 +311,10 @@ func (s *Server) handleResolve(v *vaultView, w http.ResponseWriter, r *http.Requ
 		writeError(w, errors.New("term is required"), http.StatusBadRequest)
 		return
 	}
-	ref, found, err := v.store.ResolveTerm(term)
+	_, ref, found, err := s.resolveLink(v, term)
 	if err != nil {
 		writeError(w, err, http.StatusInternalServerError)
 		return
-	}
-	if found {
-		ref.Vault = v.label
-		ref.Path = v.cfg.PathForKind(ref.FileKind, ref.NoteID)
 	}
 	writeJSON(w, map[string]any{"found": found, "note": ref})
 }

@@ -8,7 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/index"
+	"github.com/ttak0422/track/internal/track/link"
 	"github.com/ttak0422/track/internal/track/note"
 )
 
@@ -19,16 +21,31 @@ const createNoteCommand = "track.createNote"
 // so it is intentionally absent from ExecuteCommandProvider.
 const renameNoteCommand = "track.renameNote"
 
-func createNoteLSPCommand(title, uri string) *command {
-	arg, _ := json.Marshal(map[string]any{
-		"title": title,
-		"uri":   uri,
-	})
+func createNoteLSPCommand(title, uri string, replacement ...rangeValue) *command {
+	args := map[string]any{"title": title, "uri": uri}
+	if len(replacement) > 0 {
+		args["replacement_range"] = replacement[0]
+		args["expected_text"] = title
+		args["replacement_kind"] = "key"
+	}
+	arg, _ := json.Marshal(args)
 	return &command{
 		Title:     fmt.Sprintf("Create note %q", title),
 		Command:   createNoteCommand,
 		Arguments: []json.RawMessage{arg},
 	}
+}
+
+// Completion has just inserted a bare target; unlike a quickfix's key-only
+// range, replacing this span may safely include a new readable display alias.
+func createNoteCompletionCommand(title, uri string, replacement rangeValue) *command {
+	cmd := createNoteLSPCommand(title, uri)
+	arg, _ := json.Marshal(map[string]any{
+		"title": title, "uri": uri, "replacement_range": replacement,
+		"expected_text": title, "replacement_kind": "target",
+	})
+	cmd.Arguments = []json.RawMessage{arg}
+	return cmd
 }
 
 // renameNoteLSPCommand carries the rename target so the client can prompt (prefilled with title) and
@@ -96,6 +113,9 @@ func (s *Server) createNote(title string) (map[string]any, error) {
 	if title == "" {
 		return nil, fmt.Errorf("note title is required")
 	}
+	if err := config.ValidateLinkTitle(s.cfg.LinkFormat, title); err != nil {
+		return nil, err
+	}
 	dict, err := s.keywordDict()
 	if err != nil {
 		return nil, err
@@ -124,10 +144,14 @@ func (s *Server) createNote(title string) (map[string]any, error) {
 	if err := index.New(s.cfg, s.store).One(path); err != nil {
 		return nil, err
 	}
+	editorPath := s.editorPath(s.cfg, noteID, "note", title)
 	return map[string]any{
-		"id":    noteID,
-		"path":  path,
-		"uri":   uriFromPath(path),
-		"title": title,
+		"link_target": link.NoteTarget(s.cfg.LinkFormat, noteID, title),
+		"link_key":    link.NoteKey(s.cfg.LinkFormat, noteID, title),
+		"editor_path": editorPath,
+		"id":          noteID,
+		"path":        path,
+		"uri":         uriFromPath(editorPath),
+		"title":       title,
 	}, nil
 }

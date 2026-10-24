@@ -80,3 +80,51 @@ func TestOpenEmptyBodyWhenNoCreateBody(t *testing.T) {
 		t.Fatalf("journal with no CreateBody should be empty, got %q", raw)
 	}
 }
+
+func TestOpenStableIDRollupsAreIdempotent(t *testing.T) {
+	cfg := testCfg(t)
+	cfg.LinkFormat = "id-v1"
+	day := time.Date(2026, 6, 22, 9, 0, 0, 0, time.Local)
+	if _, err := Open(cfg, day, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]string{
+		"202606": "- [[id:20260622|20260622]]\n",
+		"2026":   "- [[id:202606|202606]]\n",
+	} {
+		raw, err := os.ReadFile(cfg.JournalPath(name))
+		if err != nil || string(raw) != want {
+			t.Fatalf("summary %s = %q, %v; want %q", name, raw, err, want)
+		}
+	}
+	// Labels are presentation only: an old display label must not cause duplication.
+	month := cfg.JournalPath("202606")
+	if err := os.WriteFile(month, []byte("- [[id:20260622|Monday]]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Open(cfg, day, Options{})
+	if err != nil || len(res.Reindex) != 0 {
+		t.Fatalf("reopen = %+v, %v; want no changes", res, err)
+	}
+}
+
+func TestOptingIntoStableIDsDoesNotDuplicateLegacyRollups(t *testing.T) {
+	cfg := testCfg(t)
+	day := time.Date(2026, 6, 22, 9, 0, 0, 0, time.Local)
+	if _, err := Open(cfg, day, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	cfg.LinkFormat = "id-v1"
+	res, err := Open(cfg, day, Options{})
+	if err != nil || len(res.Reindex) != 0 {
+		t.Fatalf("reopen after opt-in = %+v, %v; want no changes", res, err)
+	}
+	if _, err := Open(cfg, day.AddDate(0, 0, 1), Options{}); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(cfg.JournalPath("202606"))
+	want := "- [[20260622]]\n- [[id:20260623|20260623]]\n"
+	if err != nil || string(raw) != want {
+		t.Fatalf("mixed summary = %q, %v; want %q", raw, err, want)
+	}
+}
