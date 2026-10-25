@@ -113,7 +113,7 @@ web/node_modules/.track-deps-ready: web/package.json web/package-lock.json
 	cd web && npm ci
 	@touch $@
 
-.PHONY: desktop-app desktop-verify desktop-smoke desktop-recovery-smoke desktop-termination-test desktop-clean-termination-test
+.PHONY: desktop-app desktop-verify desktop-speech-test desktop-smoke desktop-recovery-smoke desktop-termination-test desktop-clean-termination-test
 
 DESKTOP_APP ?= build/desktop/Track.app
 DESKTOP_DEVELOPER_DIR ?=
@@ -125,6 +125,9 @@ desktop-app: web/node_modules ## Build the independent unsigned Track.app bundle
 desktop-verify: desktop-app ## Build Track and run Swift + Go regression tests
 	DESKTOP_DEVELOPER_DIR="$(DESKTOP_DEVELOPER_DIR)" DESKTOP_SDKROOT="$(DESKTOP_SDKROOT)" sh scripts/desktop-verify.sh
 	python3 scripts/desktop-shutdown-test.py "$(DESKTOP_APP)/Contents/MacOS/Track"
+
+desktop-speech-test: ## Test native speech in WKWebView with synthetic transcripts and no microphone
+	python3 scripts/desktop-speech-test.py
 
 desktop-smoke: desktop-app ## Exercise the bundled app in WKWebView with an isolated temporary vault
 	DESKTOP_APP="$(DESKTOP_APP)" sh scripts/desktop-smoke.sh

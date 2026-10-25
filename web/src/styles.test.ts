@@ -42,6 +42,18 @@ function mediaBody(query: string): string {
     .join("\n");
 }
 
+describe("draw.io editing dialog", () => {
+  it("uses the viewport without desktop caps and keeps short-window content reachable", () => {
+    const dialog = ruleBody(".drawio-editor-dialog:has(iframe)");
+    expect(dialog).toMatch(/width:\s*90vw/);
+    expect(dialog).toMatch(/height:\s*90dvh/);
+    expect(dialog).not.toMatch(/\d+px/);
+    expect(dialog).toMatch(/overflow:\s*auto/);
+    expect(ruleBody(".drawio-editor-dialog iframe")).toMatch(/flex:\s*1 0 160px/);
+    expect(ruleBody(".drawio-editor-dialog > :not(iframe)")).toMatch(/flex-shrink:\s*0/);
+  });
+});
+
 describe("special-page layering", () => {
   it("keeps tabbar popups above the full-bleed graph view", () => {
     const tabstripZ = zIndex(".tabstrip");

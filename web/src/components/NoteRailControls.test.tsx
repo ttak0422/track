@@ -28,7 +28,6 @@ const noopActions: NoteActions = {
   getBody: () => "# body",
   onMeta: () => {},
   onDelete: () => {},
-  onAgentRequest: () => {},
 };
 
 describe("NoteRailControls", () => {
@@ -104,6 +103,9 @@ describe("NoteRailControls", () => {
     fireEvent.pointerEnter(toggle);
     expect(screen.getByRole("menuitem", { name: "Copy MD" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "Copy for Confluence" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Meta…" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Delete…" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "エージェントに依頼" })).not.toBeInTheDocument();
   });
 
   it("reads the body through the getter, so a keystroke never re-renders the rail", async () => {

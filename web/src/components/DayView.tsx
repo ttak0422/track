@@ -3,6 +3,7 @@ import { openJournal } from "../api";
 import { useAgendaQuery, useDatedTasksQuery, useResolveQuery } from "../queries";
 import { STATIC_MODE } from "../runtime";
 import { useVaultScope } from "../vaultScope";
+import { shiftDay } from "./activityDates";
 
 // DayView is the page a calendar day opens: the notes active that day (the same set the reader's
 // "On this day" aside shows) as a plain list of links. The header offers the day's journal — the live
@@ -42,6 +43,12 @@ export function DayView({ date }: { date: string }) {
       <header className="day-head">
         <h1 className="day-title">{date}</h1>
         <div className="calendar-nav">
+          <button type="button" onClick={() => navigate({ to: "/day/$date", params: { date: shiftDay(date, -1) } })}>
+            Previous day
+          </button>
+          <button type="button" onClick={() => navigate({ to: "/day/$date", params: { date: shiftDay(date, 1) } })}>
+            Next day
+          </button>
           {!STATIC_MODE ? (
             <button type="button" title="Open this day's journal" onClick={openDayJournal}>
               Journal

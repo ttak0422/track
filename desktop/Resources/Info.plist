@@ -26,6 +26,10 @@
 	<string>public.app-category.productivity</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Track uses the microphone when you start voice input to transcribe speech into editable text.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Track uses macOS speech recognition for voice input. Audio may be sent to Apple servers for transcription.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSPrincipalClass</key>

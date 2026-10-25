@@ -16,6 +16,9 @@ import (
 	"github.com/ttak0422/track/internal/track/markdownhandoff"
 )
 
+// defaultWebAddr matches the local workspace listener.
+const defaultWebAddr = "127.0.0.1:8765"
+
 func cmdMarkdown(args []string) int {
 	fs := flag.NewFlagSet("markdown", flag.ContinueOnError)
 	addr := fs.String("addr", defaultWebAddr, "running loopback workspace address")

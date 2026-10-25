@@ -7,7 +7,6 @@ import { useFloating } from "../preview/floatingStore";
 import { STATIC_MODE } from "../../runtime";
 import { copyText } from "../markdown/clipboard";
 import { VoiceIcon } from "./VoiceIcon";
-import { openAgentRequest } from "../AgentRequestPanel";
 import { useSpeechRecognition } from "./useSpeechRecognition";
 import "./voice.css";
 
@@ -102,8 +101,7 @@ export function VoiceView() {
     return () => window.removeEventListener("mouseup", release);
   }, []);
 
-  // Seconds since recording started, for the mic's side. Purely informative:
-  // the restart loop runs unbounded, there is no cap to count down to.
+  // Seconds since recording started, shown beside the mic.
   useEffect(() => {
     if (!recognition.isListening) {
       setElapsed(0);
@@ -406,6 +404,17 @@ export function VoiceView() {
   return (
     <section className="voice-view" aria-label="Voice input">
       <div className={`voice-console${recognition.isListening ? " listening" : ""}`} aria-label="Voice input">
+        {recognition.hasNativeSpeech ? <div className="voice-backend">
+          <label>Recognition <select aria-label="Speech recognition backend" value={recognition.backend}
+            disabled={recognition.isListening} onChange={(event) => recognition.selectBackend(event.target.value as "macos" | "browser")}>
+            <option value="macos">macOS speech (default)</option>
+            <option value="browser" disabled={!recognition.browserSupported}>Browser speech</option>
+          </select></label>
+          <p>{recognition.backend === "macos"
+            ? "Japanese (ja-JP). Audio may be sent to Apple servers. Stops after about one minute; start again to continue."
+            : "Japanese (ja-JP). Your browser’s speech service may process audio remotely."}</p>
+        </div> : null}
+        {recognition.error ? <p className="voice-error" role="alert">{recognition.error}</p> : null}
         <div className="voice-actions">
           <button
             className="voice-mic"
@@ -461,26 +470,6 @@ export function VoiceView() {
           style={{ left: candidatePos.left, top: candidatePos.top }}
         >
           <span className="voice-candidates-title">{titleHits.length + bodyHits.length + pathHits.length > 0 ? "Choose a note" : "No matching note"}</span>
-          {!STATIC_MODE && searchedQuery ? (
-            <div className="voice-agent-actions">
-              <button
-                type="button"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => openAgentRequest({ title: "ライブ入力", quote: searchedQuery })}
-              >
-                説明を依頼
-              </button>
-              <button
-                type="button"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() =>
-                  openAgentRequest({ title: "ライブ入力", quote: searchedQuery, intent: "research" })
-                }
-              >
-                調査を依頼
-              </button>
-            </div>
-          ) : null}
           {titleHits.length > 0 ? <>
             {bodyHits.length + pathHits.length > 0 ? <h3 className="results-group">Titles</h3> : null}
             {titleHits.map((candidate) => <VoiceHitRow key={`t-${candidate.note_id}`} hit={candidate} query={searchedQuery} onOpen={openLink} />)}

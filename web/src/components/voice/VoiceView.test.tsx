@@ -4,7 +4,7 @@ import { APIError } from "../../api";
 import { VoiceView } from "./VoiceView";
 
 const { recognitionState, apiMocks } = vi.hoisted(() => ({
-  recognitionState: { isListening: false, finalText: "", interimText: "" },
+  recognitionState: { isListening: false, finalText: "", interimText: "", hasNativeSpeech: false, backend: "macos", browserSupported: true, error: "" },
   apiMocks: {
     resolveTerm: (...args: unknown[]): Promise<any> => Promise.resolve({ found: false, note: { note_id: "", title: "" }, args }),
     searchNotes: (...args: unknown[]): Promise<any> => Promise.resolve({ results: [], args }),
@@ -28,6 +28,7 @@ vi.mock("./useSpeechRecognition", () => ({
     transcript: recognitionState.finalText + recognitionState.interimText,
     start: vi.fn(),
     stop: stopFn,
+    selectBackend: vi.fn(),
   }),
 }));
 vi.mock("../../api", async (importOriginal) => {
@@ -47,6 +48,10 @@ vi.mock("../preview/floatingStore", () => ({ useFloating: () => ({ open: floatin
 
 function resetAll() {
   recognitionState.isListening = false;
+  recognitionState.hasNativeSpeech = false;
+  recognitionState.backend = "macos";
+  recognitionState.browserSupported = true;
+  recognitionState.error = "";
   recognitionState.finalText = "";
   recognitionState.interimText = "";
   notify.mockClear();
@@ -151,6 +156,8 @@ describe("VoiceView", () => {
     transcript().setSelectionRange(0, 6);
     fireEvent.mouseUp(transcript());
     expect(await screen.findByRole("button", { name: "T1" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "説明を依頼" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "調査を依頼" })).not.toBeInTheDocument();
   });
 
   it("appends the unsaved tail to today's journal when stopping", async () => {
@@ -293,5 +300,42 @@ describe("VoiceView", () => {
     fireEvent.click(create);
     expect(createNoteSpy).not.toHaveBeenCalled();
     expect(notify).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("native voice presentation", () => {
+  it("shows the default, privacy disclosure, unavailable browser choice, and actionable error", () => {
+    resetAll();
+    recognitionState.hasNativeSpeech = true;
+    recognitionState.browserSupported = false;
+    recognitionState.error = "Speech Recognition is restricted on this Mac.";
+    render(<VoiceView />);
+    expect(screen.getByRole("combobox", { name: "Speech recognition backend" })).toHaveValue("macos");
+    expect(screen.getByText(/Audio may be sent to Apple servers/)).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Browser speech" })).toBeDisabled();
+    expect(screen.getByRole("alert")).toHaveTextContent("Speech Recognition is restricted");
+  });
+
+  it("keeps focus, selection and manual edits when Japanese speech finalizes after stopping", () => {
+    resetAll();
+    recognitionState.isListening = true;
+    const view = render(<VoiceView />);
+    const area = transcript();
+    fireEvent.change(area, { target: { value: "手動入力" } });
+    area.focus();
+    area.setSelectionRange(1, 2);
+    fireEvent.select(area);
+    recognitionState.interimText = "日本語";
+    view.rerender(<VoiceView />);
+    expect(area).toHaveFocus();
+    expect([area.selectionStart, area.selectionEnd]).toEqual([1, 2]);
+    recognitionState.interimText = "";
+    recognitionState.finalText = "日本語です";
+    recognitionState.isListening = false;
+    view.rerender(<VoiceView />);
+    expect(area.value).toBe("手動入力\n日本語です\n");
+    expect(area).toHaveFocus();
+    expect([area.selectionStart, area.selectionEnd]).toEqual([1, 2]);
   });
 });
