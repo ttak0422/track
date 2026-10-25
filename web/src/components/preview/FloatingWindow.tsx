@@ -31,12 +31,10 @@ export interface FloatingWindowControls {
   stackOrder: number;
   onActivate: () => void;
   onHold?: () => void;
-  // Called when the pointer leaves the window. A hover preview anchored to a separate element (the graph
-  // canvas) uses this to schedule its close; WikiLink instead closes via its wrapping link span, so it
-  // leaves this undefined.
+  // Leaving the window releases a transient preview after its grace period.
   onLeave?: () => void;
-  // Called once the user actually moves/resizes the preview. Hover previews use this to become sticky
-  // until the page changes or the user closes them.
+  // Called once the user moves/resizes the preview. Note-link previews become kept; graph previews
+  // detach their geometry while remaining transient.
   onDetach?: () => void;
   // Reports the live bounds/collapsed after every drag/resize/collapse, so a hover preview can hand its
   // kept window off to the floating layer at its current geometry.
@@ -191,6 +189,7 @@ export function FloatingWindow({
     event.preventDefault();
     event.stopPropagation();
     onActivate();
+    onHold?.();
     dragRef.current = {
       pointerId: event.pointerId,
       mode,
@@ -227,6 +226,17 @@ export function FloatingWindow({
     dragRef.current = null;
     if (!drag || drag.pointerId !== event.pointerId) return;
     event.currentTarget.releasePointerCapture(event.pointerId);
+    // Pointer capture can deliver the release outside the window without another mouseleave.
+    const rect = asideRef.current?.getBoundingClientRect();
+    if (rect && (event.clientX < rect.left || event.clientX > rect.right ||
+      event.clientY < rect.top || event.clientY > rect.bottom)) onLeave?.();
+  }
+
+  function lostCapture(event: PointerEvent<HTMLElement>) {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    dragRef.current = null;
+    onLeave?.();
   }
 
   return (
@@ -235,8 +245,9 @@ export function FloatingWindow({
       className={`wiki-preview${pinned ? " pinned" : ""}${collapsed ? " collapsed" : ""}${onJump ? " with-jump" : ""}${onSwap ? " with-swap" : ""}`}
       onFocusCapture={onActivate}
       onMouseEnter={onHold}
-      onMouseLeave={onLeave}
+      onMouseLeave={() => { if (!dragRef.current) onLeave?.(); }}
       onPointerDownCapture={onActivate}
+      onLostPointerCapture={lostCapture}
       style={{
         left: bounds.left,
         top: bounds.top,

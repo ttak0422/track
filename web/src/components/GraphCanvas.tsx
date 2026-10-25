@@ -175,6 +175,7 @@ export function GraphCanvas({
 
   useEffect(() => {
     dragRef.current = null;
+    clearHover({ x: 0, y: 0 });
     userAdjustedRef.current = false;
     viewRef.current = fitGraphView(size);
     drawGraph(size);
@@ -606,10 +607,7 @@ export function GraphCanvas({
     dragRef.current = { pointerId: event.pointerId, start: point, last: point, moved: false, node };
     pinnedRef.current = node ?? null;
     // Grabbing/panning dismisses the transient hover preview so it never blocks the drag.
-    if (!decorative && hoverRef.current !== null) {
-      hoverRef.current = null;
-      onHoverRef.current?.(null, { x: event.clientX, y: event.clientY });
-    }
+    clearHover({ x: event.clientX, y: event.clientY });
     if (node) {
       node.fx = node.x;
       node.fy = node.y;
@@ -728,13 +726,16 @@ export function GraphCanvas({
     event.currentTarget.classList.remove("dragging");
   }
 
+  function clearHover(point: Point) {
+    if (hoverRef.current === null) return;
+    hoverRef.current = null;
+    if (canvasRef.current) canvasRef.current.style.cursor = "";
+    if (!decorative) onHoverRef.current?.(null, point);
+    drawGraph(size);
+  }
+
   function pointerLeave(event: PointerEvent<HTMLCanvasElement>) {
-    if (hoverRef.current !== null) {
-      hoverRef.current = null;
-      event.currentTarget.style.cursor = "";
-      if (!decorative) onHoverRef.current?.(null, { x: event.clientX, y: event.clientY });
-      drawGraph(size);
-    }
+    clearHover({ x: event.clientX, y: event.clientY });
   }
 
   // The graph zooms only on ctrl+wheel (trackpad pinch) or shift+wheel; a bare wheel is left to
@@ -747,6 +748,8 @@ export function GraphCanvas({
     const wheel = (event: globalThis.WheelEvent) => {
       if (!isZoomWheel(event)) return;
       event.preventDefault();
+      // Zoom invalidates the node under the pointer, including a pending hover-intent timer.
+      clearHover({ x: event.clientX, y: event.clientY });
       const rect = canvas.getBoundingClientRect();
       const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
       const before = worldPoint(point);
