@@ -41,3 +41,10 @@ export function dateKey(date: Date): string {
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 }
+
+// Parse at local noon and change the calendar date, not elapsed hours across a DST transition.
+export function shiftDay(day: string, delta: number): string {
+  const date = new Date(`${day}T12:00:00`);
+  date.setDate(date.getDate() + delta);
+  return dateKey(date);
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dateKey, monthColumnLabels, weekAlignedDates } from "./activityDates";
+import { dateKey, monthColumnLabels, shiftDay, weekAlignedDates } from "./activityDates";
 
 describe("weekAlignedDates", () => {
   it("starts on a Sunday and ends today, with whole weeks before the current one", () => {
@@ -58,5 +58,26 @@ describe("monthColumnLabels", () => {
 describe("dateKey", () => {
   it("zero-pads the month and day", () => {
     expect(dateKey(new Date(2026, 0, 5))).toBe("2026-01-05");
+  });
+});
+
+describe("shiftDay", () => {
+  it.each([
+    ["2026-07-31", 1, "2026-08-01"],
+    ["2026-08-01", -1, "2026-07-31"],
+    ["2026-12-31", 1, "2027-01-01"],
+    ["2027-01-01", -1, "2026-12-31"],
+    ["2024-02-28", 1, "2024-02-29"],
+    ["2024-02-29", 1, "2024-03-01"],
+    ["2024-03-01", -1, "2024-02-29"],
+    ["2026-03-01", -1, "2026-02-28"],
+    ["2026-03-08", 1, "2026-03-09"],
+    ["2026-03-09", -1, "2026-03-08"],
+    ["2026-11-01", 1, "2026-11-02"],
+    ["2026-11-02", -1, "2026-11-01"],
+    ["2026-10-04", 1, "2026-10-05"],
+    ["2026-10-05", -1, "2026-10-04"],
+  ])("moves %s by %i calendar day", (day, delta, expected) => {
+    expect(shiftDay(day, delta)).toBe(expected);
   });
 });
