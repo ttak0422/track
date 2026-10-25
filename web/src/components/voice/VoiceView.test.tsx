@@ -151,6 +151,8 @@ describe("VoiceView", () => {
     transcript().setSelectionRange(0, 6);
     fireEvent.mouseUp(transcript());
     expect(await screen.findByRole("button", { name: "T1" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "説明を依頼" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "調査を依頼" })).not.toBeInTheDocument();
   });
 
   it("appends the unsaved tail to today's journal when stopping", async () => {

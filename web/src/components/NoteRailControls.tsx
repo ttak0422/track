@@ -42,7 +42,6 @@ export function NoteRailControls() {
         getBody={actions.getBody}
         onMeta={actions.onMeta}
         onDelete={actions.onDelete}
-        onAgentRequest={actions.onAgentRequest ?? (() => {})}
       />
     </>
   );

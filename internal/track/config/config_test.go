@@ -922,3 +922,31 @@ func TestVaultNameSurvivesASymlinkedSelection(t *testing.T) {
 		t.Fatalf("a symlinked spelling of a registered vault should still be that vault, got %q", cfg.VaultName)
 	}
 }
+
+func TestRetiredAgentSettingsRemainAcceptedAndUntouched(t *testing.T) {
+	vault := t.TempDir()
+	path := filepath.Join(t.TempDir(), "config.yml")
+	original := "vault_dir: " + vault + "\nagents:\n  old-agent:\n    name: Old agent\n    operations: [explain, research, update]\n    token: keep-this-credential\n    agmsg:\n      send_script: /must/not/run/send.sh\n      team: old-team\n      sender: track\n      recipient: old-agent\n"
+	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TRACK_CONFIG", path)
+	t.Setenv("TRACK_VAULT", "")
+	t.Setenv("TRACK_CACHE_DIR", t.TempDir())
+	if _, err := Load(); err != nil {
+		t.Fatalf("legacy machine settings prevent startup: %v", err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil || string(raw) != original {
+		t.Fatalf("credentials rewritten: %s %v", raw, err)
+	}
+	if err := os.MkdirAll(filepath.Join(vault, ".track"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(vault, ".track", "config.yml"), []byte("agents: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(); err == nil {
+		t.Fatal("agents became accepted in synced vault config")
+	}
+}

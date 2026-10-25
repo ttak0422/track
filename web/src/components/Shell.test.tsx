@@ -29,5 +29,7 @@ describe("sidebar actions", () => {
     expect(within(rail).queryByRole("button", { name: "Recently created notes" }) !== null).toBe(!STATIC_MODE);
     expect(within(rail).queryByRole("link", { name: "Voice input" }) !== null).toBe(!STATIC_MODE);
     expect(within(rail).getByRole("link", { name: "Full graph" })).toBeTruthy();
+    expect(within(rail).queryByRole("button", { name: "Agent requests" })).toBeNull();
+    expect(container.querySelector(".agent-request-panel")).toBeNull();
   });
 });

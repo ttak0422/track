@@ -21,13 +21,12 @@ import { START_PAGE_ID, STATIC_MODE } from "../runtime";
 import { useReadingKeybindings } from "../keybindings/useReadingKeybindings";
 import { useNativeTabCommands } from "../keybindings/useNativeTabCommands";
 import { NoteControlsProvider, useNoteControls } from "../noteControls";
-import { AgentRequestPanel, openAgentRequest } from "./AgentRequestPanel";
 import { NotificationToast } from "../notifications";
 import { NoteRailControls } from "./NoteRailControls";
 import { RailTip } from "./RailTip";
 import { SearchProvider } from "../searchState";
 import { VaultScopeProvider, useVaultScope } from "../vaultScope";
-import { IconAffiliate, IconFileText, IconCalendar, IconChecklist, IconHistory, IconNotebook, RailIcon } from "./icons";
+import { IconAffiliate, IconFileText, IconCalendar, IconChecklist, IconNotebook, RailIcon } from "./icons";
 import { IconMicrophone } from "@tabler/icons-react";
 
 export function Shell() {
@@ -161,18 +160,6 @@ function ShellView() {
                     </Link>
                   </RailTip>
                 )}
-                {!STATIC_MODE && (
-                  <RailTip label="Agent requests">
-                    <button
-                      className="rail-button"
-                      type="button"
-                      aria-label="Agent requests"
-                      onClick={() => openAgentRequest({ title: "依頼履歴" })}
-                    >
-                      <RailIcon Icon={IconHistory} />
-                    </button>
-                  </RailTip>
-                )}
                 {/* The open note's own controls, below the workspace's views. Absent while no note is
                     open, so the dock keeps carrying nothing but navigation the rest of the time. */}
                 {!STATIC_MODE && <NoteRailControls />}
@@ -198,7 +185,6 @@ function ShellView() {
         {isHero || isGraph || isCalendar || isNote || isMarkdown ? null : <GraphPanel />}
         <FloatingLayer />
         <NotificationToast />
-        <AgentRequestPanel />
         <MobileDock />
       </main>
   );
