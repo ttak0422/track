@@ -173,6 +173,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     private func stopForTermination(_ sender: NSApplication) {
+        coordinator?.speechBridge.cancel()
         if shutdownTestMode {
             shutdownTestStartUptime = ProcessInfo.processInfo.systemUptime
             writeShutdownTestResult(ok: false, error: "waiting for supervised child exit", phase: "stopping")
@@ -196,6 +197,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        coordinator?.speechBridge.cancel()
         if let tabMouseMonitor { NSEvent.removeMonitor(tabMouseMonitor) }
         shutdownTestTask?.cancel()
         supervisor?.stop()
@@ -319,6 +321,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             staticAppsOrigin: URL(string: "http://127.0.0.1:\(workspaceOrigin.port! + 1)")!
         )
         let configuration = WKWebViewConfiguration()
+        coordinator.speechBridge.install(in: configuration)
         installReadingShortcutsMarker(in: configuration, workspaceOrigin: coordinator.workspaceOrigin)
         // The production workspace keeps its tabs and settings at the stable loopback origin across
         // launches. The smoke test is fully isolated from a user's WebKit website data.
@@ -338,6 +341,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
         coordinator.window = nil
         coordinator.webView = webView
+        coordinator.speechBridge.webView = webView
         coordinator.restartFixture = restartFixture
         coordinator.smokeMode = smokeMode && !searchTestMode
         if recoveryTestMode {
@@ -642,6 +646,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var isViewLoaded: Bool { statusView != nil }
 
     private func showStatus() {
+        coordinator?.speechBridge.cancel()
         webView?.isHidden = true
         statusView?.isHidden = false
     }
