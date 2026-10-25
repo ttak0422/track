@@ -102,8 +102,7 @@ export function VoiceView() {
     return () => window.removeEventListener("mouseup", release);
   }, []);
 
-  // Seconds since recording started, for the mic's side. Purely informative:
-  // the restart loop runs unbounded, there is no cap to count down to.
+  // Seconds since recording started, shown beside the mic.
   useEffect(() => {
     if (!recognition.isListening) {
       setElapsed(0);
@@ -406,6 +405,17 @@ export function VoiceView() {
   return (
     <section className="voice-view" aria-label="Voice input">
       <div className={`voice-console${recognition.isListening ? " listening" : ""}`} aria-label="Voice input">
+        {recognition.hasNativeSpeech ? <div className="voice-backend">
+          <label>Recognition <select aria-label="Speech recognition backend" value={recognition.backend}
+            disabled={recognition.isListening} onChange={(event) => recognition.selectBackend(event.target.value as "macos" | "browser")}>
+            <option value="macos">macOS speech (default)</option>
+            <option value="browser" disabled={!recognition.browserSupported}>Browser speech</option>
+          </select></label>
+          <p>{recognition.backend === "macos"
+            ? "Japanese (ja-JP). Audio may be sent to Apple servers. Stops after about one minute; start again to continue."
+            : "Japanese (ja-JP). Your browser’s speech service may process audio remotely."}</p>
+        </div> : null}
+        {recognition.error ? <p className="voice-error" role="alert">{recognition.error}</p> : null}
         <div className="voice-actions">
           <button
             className="voice-mic"

@@ -2,6 +2,13 @@
 /* section label: names the candidate region (variant 6). */
 .voice-candidates-title { color: var(--faint); font: 500 calc(11px * var(--font-scale, 1)) / 1.4 var(--font-mono); letter-spacing: .12em; text-transform: uppercase; }
 .voice-console { width: min(370px, 100%); margin: 36px auto 28px; text-align: center; }
+
+/* Text control, design variant 1. */
+.voice-backend { color: var(--muted); font-size: calc(12px * var(--font-scale, 1)); margin-bottom: 16px; }
+.voice-backend select { border: 0; background: transparent; color: var(--text); font: inherit; padding: 6px; cursor: pointer; }
+.voice-backend select:focus-visible { outline: 1px solid var(--mark); }
+.voice-backend p { line-height: 1.5; }
+
 .voice-actions { display: flex; align-items: center; justify-content: center; margin: 0 0 12px; }
 /* round mic: one control for start and stop. Quiet chip at rest, filled mark
    while recording so the state reads without words. */

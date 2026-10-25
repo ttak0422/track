@@ -23,8 +23,10 @@ struct TrackWebTestRunner {
         await run("bounded force-stop of the owned child") { try await testHungChildIsForceStopped() }
         await run("startup cancellation") { try await testStartupCancellation() }
 
+        await run("native speech lifecycle without audio or OS permission requests") { try await NativeSpeechTests.run() }
+
         if failures == 0 {
-            print("All 14 Track logic regression tests passed.")
+            print("All 15 Track logic regression tests passed.")
         } else {
             fputs("\(failures) Track logic regression test(s) failed.\n", stderr)
             exit(EXIT_FAILURE)
@@ -328,4 +330,112 @@ private struct TestFailure: Error, LocalizedError {
 private enum FakeError: Error, LocalizedError {
     case launchFailed
     var errorDescription: String? { "fixture launch error" }
+}
+
+
+@MainActor
+enum NativeSpeechTests {
+    private struct Failure: Error { let message: String }
+    private static func expect(_ value: @autoclosure () -> Bool, _ message: String) throws {
+        if !value() { throw Failure(message: message) }
+    }
+
+    static func run() async throws {
+        let driver = FakeSpeechDriver()
+        let session = NativeSpeechSession(driver: driver, captureLimit: .seconds(60), finishLimit: .milliseconds(10))
+        var events: [(String, String, String)] = []
+        session.emit = { events.append(($0, $1, $2)) }
+        await session.start(id: "first", locale: "ja-JP").value
+        try expect(driver.locales == ["ja-JP"] && driver.capturing, "Japanese capture did not start")
+        let first = driver.receive!
+        first(.partial("途中"))
+        first(.partial("途中の文"))
+        try expect(events.filter { $0.1 == "partial" }.count == 2, "partial hypotheses were lost")
+        await session.start(id: "busy", locale: "ja-JP").value
+        try expect(driver.starts == 1 && driver.capturing, "concurrent start replaced the live microphone")
+        session.stop(id: "wrong")
+        try expect(driver.capturing, "another owner stopped capture")
+        session.stop(id: "first")
+        session.stop(id: "first")
+        try expect(!driver.capturing && driver.finishes == 1, "stop did not release capture once")
+        first(.partial("late interim"))
+        first(.final("確定"))
+        first(.final("確定"))
+        try expect(events.filter { $0.1 == "final" }.count == 1, "final transcript duplicated")
+        try expect(events.last?.1 == "ended", "final did not end the task")
+        await session.start(id: "restart", locale: "ja-JP").value
+        first(.final("stale"))
+        try expect(driver.capturing && events.last?.1 == "started", "old callback affected restarted task")
+        session.cancel()
+        try expect(!driver.capturing, "closing/unmount cancellation left capture running")
+        let count = events.count
+        driver.receive?(.partial("cancelled"))
+        try expect(events.count == count, "cancelled callback was delivered")
+        print("PASS speech start/stop/final deduplication/restart/concurrent ownership/cancel")
+
+        for reason in ["Microphone denied", "Microphone restricted", "Speech denied", "Speech restricted"] {
+            driver.permissionError = reason
+            let starts = driver.starts
+            await session.start(id: reason, locale: "ja-JP").value
+            try expect(driver.starts == starts && !driver.capturing, "permission failure started capture")
+            try expect(events.suffix(2).first?.2 == reason && events.last?.1 == "ended", "permission error was not surfaced")
+        }
+        driver.permissionError = nil
+        driver.startError = NSError(domain: "Fixture", code: 1, userInfo: [NSLocalizedDescriptionKey: "Unavailable Japanese recognizer"])
+        await session.start(id: "unavailable", locale: "ja-JP").value
+        try expect(!driver.capturing && events.suffix(2).first?.2 == "Unavailable Japanese recognizer", "failed start left resources")
+        driver.startError = nil
+        await session.start(id: "runtime-error", locale: "ja-JP").value
+        driver.receive?(.failure("Network unavailable"))
+        try expect(!driver.capturing && events.last?.1 == "ended", "runtime error left capture active")
+        print("PASS speech permission denied/restricted/unavailable/start and runtime failures")
+
+        await session.start(id: "timeout", locale: "ja-JP").value
+        session.stop(id: "timeout")
+        try await Task.sleep(for: .milliseconds(40))
+        try expect(!driver.capturing && events.last?.1 == "ended" && events.suffix(2).first?.1 == "error", "missing final hung the task")
+        let timed = NativeSpeechSession(driver: driver, captureLimit: .milliseconds(10), finishLimit: .milliseconds(10))
+        await timed.start(id: "limit", locale: "ja-JP").value
+        try await Task.sleep(for: .milliseconds(40))
+        try expect(!driver.capturing, "capture duration limit left the microphone active")
+        print("PASS speech bounded finishing and maximum capture duration")
+
+        let pendingDriver = FakeSpeechDriver()
+        pendingDriver.deferPermission = true
+        let pending = NativeSpeechSession(driver: pendingDriver)
+        let start = pending.start(id: "pending", locale: "ja-JP")
+        while pendingDriver.permissionReply == nil { await Task.yield() }
+        pending.stop(id: "pending")
+        pendingDriver.permissionReply?.resume(returning: nil)
+        await start.value
+        try expect(pendingDriver.starts == 0, "late permission response started a stopped session")
+        print("PASS speech stop while permissions pending")
+    }
+}
+
+@MainActor
+private final class FakeSpeechDriver: SpeechDriver {
+    var permissionError: String?
+    var startError: Error?
+    var deferPermission = false
+    var permissionReply: CheckedContinuation<String?, Never>?
+    var receive: (@MainActor (SpeechUpdate) -> Void)?
+    var locales: [String] = []
+    var capturing = false
+    var starts = 0
+    var finishes = 0
+    func authorize() async -> String? {
+        if deferPermission { return await withCheckedContinuation { permissionReply = $0 } }
+        return permissionError
+    }
+    func start(locale: String, receive: @escaping @MainActor (SpeechUpdate) -> Void) throws {
+        self.receive = receive
+        starts += 1
+        locales.append(locale)
+        capturing = true
+        if let startError { throw startError }
+    }
+    func stopAudio() { capturing = false }
+    func finishAudio() { finishes += 1 }
+    func cancel() { capturing = false }
 }

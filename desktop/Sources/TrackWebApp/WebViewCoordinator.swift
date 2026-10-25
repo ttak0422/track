@@ -22,6 +22,8 @@ final class WebViewCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         super.init()
     }
 
+    lazy var speechBridge = NativeSpeechBridge(origin: workspaceOrigin)
+
     weak var window: NSWindow?
     weak var webView: WKWebView?
     var onConfirmDataLoss: DataLossConfirmation?
@@ -256,6 +258,14 @@ final class WebViewCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
             break
         }
         return nil
+    }
+
+    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        speechBridge.cancel()
+    }
+
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        speechBridge.cancel()
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
