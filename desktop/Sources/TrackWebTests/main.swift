@@ -335,9 +335,8 @@ private enum FakeError: Error, LocalizedError {
 
 @MainActor
 enum NativeSpeechTests {
-    private struct Failure: Error { let message: String }
     private static func expect(_ value: @autoclosure () -> Bool, _ message: String) throws {
-        if !value() { throw Failure(message: message) }
+        if !value() { throw TestFailure(message) }
     }
 
     static func run() async throws {
