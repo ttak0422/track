@@ -1507,10 +1507,16 @@ a.calendar-title:focus-visible {
 
 .day-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 16px;
+}
+
+/* Text controls (variant 1), with room to focus or tap even on an empty day. */
+.day-head .calendar-nav button {
+  min-height: 24px;
 }
 
 .day-title {

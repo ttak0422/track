@@ -67,6 +67,16 @@ describe("DayView", () => {
     expect(getByText("No notes were worked on this day.")).toBeTruthy();
   });
 
+  it("offers adjacent days on an empty day without creating a journal", () => {
+    agendaQuery.current = { ...loadedAgenda, data: { date: "2026-12-31", notes: [] } };
+    const { getByRole } = render(<DayView date="2026-12-31" />);
+    fireEvent.click(getByRole("button", { name: "Next day" }));
+    expect(navigate).toHaveBeenLastCalledWith({ to: "/day/$date", params: { date: "2027-01-01" } });
+    fireEvent.click(getByRole("button", { name: "Previous day" }));
+    expect(navigate).toHaveBeenLastCalledWith({ to: "/day/$date", params: { date: "2026-12-30" } });
+    expect(openJournal).not.toHaveBeenCalled();
+  });
+
   it("opens (creating if needed) the day's journal from the header", async () => {
     openJournal.mockResolvedValue({ note_id: 20260703, created: true });
     const { getByText } = render(<DayView date="2026-07-03" />);
