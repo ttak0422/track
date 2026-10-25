@@ -204,32 +204,25 @@ func TestBuildExpandsSavedQueryFence(t *testing.T) {
 	}
 }
 
-// TestBuildKeepsAgentRegistryOut locks the live-only rule: the static export is built from the same
-// machine config that registers agents (with tokens and agmsg connection settings), and the whole
-// published tree — frontend files and the locked data bundle alike — must carry zero trace of the
-// agent registry. The web API is live-only, so agent data exists on no other surface.
-func TestBuildKeepsAgentRegistryOut(t *testing.T) {
+// TestBuildKeepsRequestHistoryOut protects archived answers from static publication.
+func TestBuildKeepsRequestHistoryOut(t *testing.T) {
 	cfg, s := vaultStore(t)
-	cfg.Agents = map[string]config.AgentConfig{
-		"research-assistant": {
-			Name:       "Research Assistant",
-			Operations: []string{"research", "explain"},
-			Token:      "token-research-9876",
-			Agmsg: &config.AgmsgConfig{
-				SendScript: "/opt/agmsg/send.sh",
-				Team:       "team-a",
-				Sender:     "track-web",
-				Recipient:  "ra@agmsg.local",
-			},
-		},
+	history := []byte(`{"version":1,"id":"old","status":"completed","instruction":"private-request-9876","result":{"answer_markdown":"private-answer-9876"}}`)
+	if err := os.MkdirAll(cfg.RequestsDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	historyPath := filepath.Join(cfg.RequestsDir(), "old.json")
+	if err := os.WriteFile(historyPath, history, 0o600); err != nil {
+		t.Fatal(err)
 	}
 	writeVaultNoteMeta(t, cfg, 100, "# Welcome\n", note.Metadata{Title: "Welcome"})
 	out := buildAll(t, cfg, s, 100)
 
-	forbidden := []string{
-		"research-assistant", "Research Assistant", "research", "explain",
-		"token-research-9876", "/opt/agmsg/send.sh", "team-a", "ra@agmsg.local",
+	forbidden := []string{"private-request-9876", "private-answer-9876"}
+	if raw, err := os.ReadFile(historyPath); err != nil || !bytes.Equal(raw, history) {
+		t.Fatalf("publication changed request history: %s, %v", raw, err)
 	}
+
 	if err := filepath.WalkDir(out, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
