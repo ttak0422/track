@@ -213,3 +213,29 @@ describe("GraphCanvas node painting", () => {
     root.removeProperty("--text");
   });
 });
+
+
+describe("GraphCanvas hover release", () => {
+  it("releases hover on zoom and on graph drag without navigating", async () => {
+    const onHover = vi.fn();
+    const onSelect = vi.fn();
+    const { container } = render(<GraphCanvas graph={{
+      center_id: "center", nodes: [{ note_id: "center", title: "Center", file_kind: "note", center: true }], edges: [],
+    }} onSelect={onSelect} onHover={onHover} resetToken={0} />);
+    const canvas = container.querySelector("canvas")!;
+    canvas.setPointerCapture = vi.fn();
+    canvas.releasePointerCapture = vi.fn();
+    await waitFor(() => expect(canvas.style.visibility).not.toBe("hidden"));
+    fireEvent.pointerMove(canvas, { clientX: 0, clientY: 0 });
+    expect(onHover).toHaveBeenLastCalledWith("center", { x: 0, y: 0 });
+    fireEvent.wheel(canvas, { clientX: 0, clientY: 0, deltaY: 100, ctrlKey: true });
+    expect(onHover).toHaveBeenLastCalledWith(null, { x: 0, y: 0 });
+    fireEvent.pointerMove(canvas, { clientX: 0, clientY: 0 });
+    expect(onHover).toHaveBeenLastCalledWith("center", { x: 0, y: 0 });
+    fireEvent.pointerDown(canvas, { pointerId: 1, clientX: 0, clientY: 0 });
+    expect(onHover).toHaveBeenLastCalledWith(null, { x: 0, y: 0 });
+    fireEvent.pointerMove(canvas, { pointerId: 1, clientX: 80, clientY: 80 });
+    fireEvent.pointerUp(canvas, { pointerId: 1, clientX: 80, clientY: 80 });
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+});

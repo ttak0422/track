@@ -31,7 +31,9 @@ relationship between windows.
 
 - `FloatingProvider` gains a **transient** window: one the pointer opened and the pointer can take
   away. It closes once the pointer has left both its opener and the window itself; dragging,
-  resizing, or pinning settles it. `pinned` keeps its old meaning — surviving navigation.
+  resizing, or pinning settles it. Graph-node previews are the exception: moving/resizing detaches
+  their geometry but leaves them transient, and only an explicit pin keeps them. `pinned` keeps its
+  old meaning — surviving navigation.
 - The hover lifecycle (`hold`, `scheduleClose`, `settle`) lives in the provider, because both the
   opener and the window drive it, and because a window has to outlive an opener that is unmounted
   while the pointer rests on it.

@@ -224,3 +224,51 @@ describe("transient windows", () => {
     expect(result.current.windows[0].anchor).toEqual(moved);
   });
 });
+
+
+describe("preview origin and deduplication", () => {
+  beforeEach(() => { routerMock.pathname = "/graph"; vi.useFakeTimers(); });
+  afterEach(() => vi.useRealTimers());
+
+  it.each(["link", "kept", "pinned"])("graph hover preserves an existing %s window", (source) => {
+    const { result } = renderHook(() => useFloating(), { wrapper });
+    act(() => result.current.open({ kind: "note", noteID: "1" }, bounds, false,
+      { transient: source === "link", pinned: source === "pinned" }));
+    const id = result.current.windows[0].id;
+    act(() => result.current.open({ kind: "note", noteID: "1" }, bounds, false,
+      { transient: true, origin: "graph" }));
+    expect(result.current.windows).toHaveLength(1);
+    expect(result.current.windows[0].origin).toBeUndefined();
+    expect(result.current.windows[0].pinned).toBe(source === "pinned");
+    expect(result.current.windows[0].transient).toBe(source === "link");
+    act(() => result.current.settle(id));
+    act(() => result.current.scheduleClose(id));
+    act(() => vi.advanceTimersByTime(previewCloseDelay));
+    expect(result.current.windows).toHaveLength(1);
+  });
+
+  it("a note link takes over a transient graph window and keeps normal drag behavior", () => {
+    const { result } = renderHook(() => useFloating(), { wrapper });
+    act(() => result.current.open({ kind: "note", noteID: "1" }, bounds, false,
+      { transient: true, origin: "graph" }));
+    const id = result.current.windows[0].id;
+    act(() => result.current.open({ kind: "note", noteID: "1" }, bounds, false, { transient: true }));
+    expect(result.current.windows).toHaveLength(1);
+    expect(result.current.windows[0].origin).toBeUndefined();
+    act(() => result.current.settle(id));
+    act(() => result.current.scheduleClose(id));
+    act(() => vi.advanceTimersByTime(previewCloseDelay));
+    expect(result.current.windows).toHaveLength(1);
+  });
+
+  it("an explicit swap clears graph origin and keeps the replacement", () => {
+    const { result } = renderHook(() => useFloating(), { wrapper });
+    act(() => result.current.open({ kind: "note", noteID: "1" }, bounds, false,
+      { transient: true, origin: "graph" }));
+    const id = result.current.windows[0].id;
+    act(() => result.current.replace(id, { kind: "note", noteID: "2" }, { pinned: true }));
+    expect(result.current.windows[0].origin).toBeUndefined();
+    act(() => result.current.setPinned(id, false));
+    expect(result.current.windows[0].transient).toBe(false);
+  });
+});

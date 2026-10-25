@@ -93,7 +93,7 @@ describe("GraphFullView hover preview", () => {
       { kind: "note", noteID: "a" },
       expect.anything(),
       false,
-      { transient: true, anchor: { linkLeft: 10, linkRight: 10, linkTop: 10, linkBottom: 10 } },
+      { transient: true, origin: "graph", anchor: { linkLeft: 10, linkRight: 10, linkTop: 10, linkBottom: 10 } },
     );
   });
 
@@ -129,8 +129,7 @@ describe("GraphFullView hover preview", () => {
     expect(floating.hold).toHaveBeenCalledWith("win-1");
   });
 
-  // A different node is a different window: the layer holds both, ordered by whichever was opened
-  // last, instead of one replacing the other.
+  // A different node releases the old preview before opening the new one.
   it("opens a second window for a second node", () => {
     const { container } = render(<GraphFullView />);
     click(container, "hover-a");
@@ -139,6 +138,7 @@ describe("GraphFullView hover preview", () => {
 
     click(container, "hover-b");
     act(() => vi.advanceTimersByTime(previewOpenDelay + 10));
+    expect(floating.scheduleClose).toHaveBeenCalledWith("win-1");
     expect(floating.open).toHaveBeenCalledTimes(2);
     expect(floating.open).toHaveBeenLastCalledWith(
       { kind: "note", noteID: "b" },

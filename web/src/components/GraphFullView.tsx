@@ -16,9 +16,8 @@ interface Point {
   y: number;
 }
 
-// GraphFullView draws the whole graph filling the reader. Nodes follow the same popup model as wiki
-// links on a note page: hovering a node shows a transient preview, dragging it makes the preview stick,
-// pinning promotes it to the floating layer, and clicking the node navigates to it. It lives in an
+// GraphFullView draws the whole graph filling the reader. Hovering a node opens a transient preview;
+// only an explicit pin keeps it. Clicking the node navigates to it. It lives in an
 // ordinary "Graph" tab, so it carries only the canvas and a bottom-right reset control.
 export function GraphFullView() {
   // The whole graph follows the working vault: with a scope selected the view draws that vault's
@@ -47,7 +46,11 @@ export function GraphFullView() {
   const pendingRef = useRef<{ noteID: NoteID; anchor: PreviewAnchor } | null>(null);
   const openedRef = useRef<string | null>(null);
 
-  useEffect(() => () => cancelOpen(), []);
+  const scheduleWindowClose = floating.scheduleClose;
+  useEffect(() => () => {
+    cancelOpen();
+    if (openedRef.current) scheduleWindowClose(openedRef.current);
+  }, [scope, scheduleWindowClose]);
 
   function cancelOpen() {
     if (openTimer.current !== undefined) {
@@ -78,13 +81,17 @@ export function GraphFullView() {
     // A touch drag across the canvas reports hovers the whole way; on a pointer that cannot hover the
     // node is opened by the tap that navigates to it, not by a window (see pointerCanHover).
     if (!pointerCanHover()) return;
-    holdPreview();
     // Already showing this node: hold it where it is rather than chasing the cursor. Asked of the
     // layer, not of a local flag, so a window the reader closed can be hovered open again.
     const shown = floating.windows.find((win) => win.id === openedRef.current);
-    if (shown && shown.content.kind === "note" && shown.content.noteID === noteID) return;
+    if (shown && shown.content.kind === "note" && shown.content.noteID === noteID) {
+      cancelOpen();
+      holdPreview();
+      return;
+    }
+    // A new node releases the old window before replacing its handle, including A → B with no gap.
+    scheduleClose();
     pendingRef.current = { noteID, anchor: graphPointAnchor(point) };
-    if (openTimer.current !== undefined) return;
     openTimer.current = window.setTimeout(() => {
       openTimer.current = undefined;
       const pending = pendingRef.current;
@@ -93,7 +100,7 @@ export function GraphFullView() {
         { kind: "note", noteID: pending.noteID },
         initialPreviewBounds(pending.anchor),
         false,
-        { transient: true, anchor: pending.anchor },
+        { transient: true, origin: "graph", anchor: pending.anchor },
       );
     }, previewOpenDelay);
   }
@@ -129,7 +136,7 @@ export function GraphFullView() {
           type="button"
           aria-label="Reset graph view"
           title="Reset graph view"
-          onClick={() => setResetToken((token) => token + 1)}
+          onClick={() => { scheduleClose(); setResetToken((token) => token + 1); }}
         >
           <RailIcon Icon={IconRotate2} size={15} />
         </button>

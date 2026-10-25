@@ -25,8 +25,10 @@ export interface FloatingWin {
   // Pinned windows persist across navigation; unpinned ones are dropped when the route changes.
   pinned: boolean;
   // A transient window belongs to the pointer that opened it: it closes once the pointer has left
-  // both its opener and the window itself. Dragging, resizing, or pinning settles it for good.
+  // both its opener and the window itself. Note-link previews settle on drag/resize; graph previews
+  // stay transient until explicitly pinned.
   transient: boolean;
+  origin?: "graph";
   // Where the opener sits. A still-transient window re-places itself here on a fresh hover; a
   // settled one keeps wherever the user put it.
   anchor?: PreviewAnchor;
@@ -35,6 +37,7 @@ export interface FloatingWin {
 export interface OpenOptions {
   pinned?: boolean;
   transient?: boolean;
+  origin?: "graph";
   anchor?: PreviewAnchor;
 }
 
@@ -130,6 +133,9 @@ export function FloatingProvider({ children }: { children: ReactNode }) {
                   // Anything opened as a keeper settles the window; a fresh hover leaves a settled
                   // one settled, and re-places one that is still transient.
                   transient: w.transient && options.transient === true,
+                  // A note link can take over a transient graph preview; graph hover never takes
+                  // ownership of an existing note-link or explicitly kept window.
+                  origin: w.transient && options.origin !== "graph" ? undefined : w.origin,
                   anchor: w.transient ? (options.anchor ?? w.anchor) : w.anchor,
                 }
               : w,
@@ -151,6 +157,7 @@ export function FloatingProvider({ children }: { children: ReactNode }) {
           initialCollapsed,
           pinned: options.pinned === true,
           transient: options.transient === true,
+          origin: options.origin,
           anchor: options.anchor,
         },
       ]);
@@ -165,7 +172,9 @@ export function FloatingProvider({ children }: { children: ReactNode }) {
       setWindows((current) =>
         // Pinning is a keeper's gesture: it settles the window as well, so the pointer moving on
         // cannot take away what the reader just asked to keep.
-        current.map((w) => (w.id === id ? { ...w, pinned, transient: pinned ? false : w.transient } : w)),
+        current.map((w) => (w.id === id
+          ? { ...w, pinned, transient: pinned ? false : w.origin === "graph" || w.transient }
+          : w)),
       );
     },
     [clearCloseTimer],
@@ -188,7 +197,7 @@ export function FloatingProvider({ children }: { children: ReactNode }) {
         setWindows((current) =>
           current.map((w) =>
             w.id === existing.id
-              ? { ...w, pinned: w.pinned || options.pinned === true, transient: false }
+              ? { ...w, pinned: w.pinned || options.pinned === true, transient: false, origin: undefined }
               : w,
           ),
         );
@@ -205,6 +214,7 @@ export function FloatingProvider({ children }: { children: ReactNode }) {
                 content,
                 pinned: w.pinned || options.pinned === true,
                 transient: false,
+                origin: undefined,
                 anchor: undefined,
               }
             : w,
@@ -238,7 +248,9 @@ export function FloatingProvider({ children }: { children: ReactNode }) {
   const settle = useCallback<FloatingApi["settle"]>(
     (id) => {
       clearCloseTimer(id);
-      setWindows((current) => current.map((w) => (w.id === id ? { ...w, transient: false } : w)));
+      setWindows((current) => current.map((w) => (w.id === id
+        ? { ...w, transient: w.origin === "graph" && !w.pinned, anchor: w.origin === "graph" ? undefined : w.anchor }
+        : w)));
     },
     [clearCloseTimer],
   );
