@@ -20,7 +20,7 @@
     "@vitejs/plugin-react": "6.0.2",
     "budoux": "0.8.4",
     "d3-force": "3.0.0",
-    "dompurify": "3.4.16",
+    "dompurify": "3.4.17",
     "echarts": "^6.1.0",
     "katex": "^0.18.2",
     "langium": "3.5.0",
