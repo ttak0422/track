@@ -22,6 +22,9 @@ type Result struct {
 // index, backlink rewrite in referencing note files, sidecar title write, and a full reindex. It is shared by `track rename` and the metadata-document apply path (`track meta
 // --edit`, the web meta editor). Renaming to the current title is a no-op.
 func Do(cfg *config.Config, s *store.Store, noteID int64, to string) (Result, error) {
+	if err := config.ValidateLinkTitle(cfg.LinkFormat, to); err != nil {
+		return Result{}, err
+	}
 	meta, found, err := note.ReadMetadata(cfg.MetadataPath(noteID))
 	if err != nil {
 		return Result{}, fmt.Errorf("read metadata: %w", err)
@@ -55,6 +58,10 @@ func Do(cfg *config.Config, s *store.Store, noteID int64, to string) (Result, er
 		raw, err := os.ReadFile(srcPath)
 		if err != nil {
 			return Result{}, fmt.Errorf("read backlink %d: %w", src.NoteID, err)
+		}
+		// Explicit ID references keep their target and display alias unchanged on a title rename.
+		if _, explicit := link.ExplicitID(oldTitle, cfg.LinkFormat); explicit {
+			continue
 		}
 		rewritten, n := link.ReplaceRefKey(string(raw), oldTitle, to)
 		if n == 0 {

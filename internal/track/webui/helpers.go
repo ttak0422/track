@@ -82,7 +82,9 @@ func (v *vaultView) dashboardData() dashboard.Data {
 	}
 	sortRefs(refs)
 	titles := make([]string, 0, len(refs))
+	ids := make(map[string]int64, len(refs))
 	for _, r := range refs {
+		ids[r.Title] = r.NoteID
 		if r.FileKind == config.KindJournal {
 			continue // the recent widget lists real notes, not the auto-created daily journals
 		}
@@ -91,6 +93,8 @@ func (v *vaultView) dashboardData() dashboard.Data {
 		}
 	}
 	return dashboard.Data{
+		LinkFormat:   v.cfg.LinkFormat,
+		NoteIDs:      ids,
 		RecentTitles: titles,
 		JournalTitle: localDate(time.Now()).Format(v.cfg.JournalDateFormat),
 	}

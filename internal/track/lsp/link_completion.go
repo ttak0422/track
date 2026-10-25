@@ -12,6 +12,9 @@ import (
 // Existing candidates come from the same dictionary that resolves links. If the typed target has no
 // matching keyword, an extra item lets the client create a note from that input.
 func (s *Server) completion(uri string, pos position) ([]completionItem, error) {
+	if err := s.cfg.ValidateLinkFormat(); err != nil {
+		return nil, err
+	}
 	if !s.inVault(uri) {
 		return []completionItem{}, nil
 	}
@@ -39,7 +42,7 @@ func (s *Server) completion(uri string, pos position) ([]completionItem, error) 
 	if vault, _, ok := splitVaultPrefix(ctx.Target, s.xv.IsVault); ok {
 		return s.crossVaultCompletion(ctx, vault), nil
 	}
-	currentID, hasCurrentID := noteIDFromURI(uri)
+	currentID, hasCurrentID := s.noteIDFromURI(uri)
 	kws, err := s.store.Keywords()
 	if err != nil {
 		return nil, err
@@ -55,20 +58,23 @@ func (s *Server) completion(uri string, pos position) ([]completionItem, error) 
 		if hasCurrentID && kw.NoteID == currentID {
 			continue
 		}
+		target := link.NoteTarget(s.cfg.LinkFormat, kw.NoteID, kw.Term)
 		items = append(items, completionItem{
 			Label:      kw.Term,
 			Kind:       protocol.ReferenceCompletion,
 			Detail:     kw.Kind,
-			InsertText: kw.Term,
-			TextEdit:   completionTextEdit(ctx, kw.Term),
+			InsertText: target,
+			FilterText: kw.Term,
+			TextEdit:   completionTextEdit(ctx, target),
 		})
 		// Once the user has started typing a note name, surface that note's headings as full
 		// [[note##heading]] anchors next to the bare note, so jumping to a section needs no extra "#".
 		if prefixMatch && kw.Kind == "title" {
-			items = append(items, s.headingAnchorItems(ctx, kw.Term, s.notePath(kw.FileKind, kw.NoteID))...)
+			items = append(items, s.headingAnchorItems(ctx, kw.Term, kw.NoteID, s.notePath(kw.FileKind, kw.NoteID))...)
 		}
 	}
-	if ctx.Target != "" && !hasPrefixMatch {
+	_, explicitID := link.ExplicitID(ctx.Target, s.cfg.LinkFormat)
+	if ctx.Target != "" && !hasPrefixMatch && !explicitID {
 		items = append(items, createNoteCompletionItem(uri, ctx))
 	}
 	return items, nil
@@ -77,7 +83,7 @@ func (s *Server) completion(uri string, pos position) ([]completionItem, error) 
 // headingAnchorItems offers a note's headings as full "note##heading" anchor completions for the
 // pre-"#" stage, where the user has typed (part of) the note name but no "#" yet. A note whose body
 // cannot be read (e.g. not yet on disk) contributes nothing.
-func (s *Server) headingAnchorItems(ctx openLinkContext, term, path string) []completionItem {
+func (s *Server) headingAnchorItems(ctx openLinkContext, term string, id int64, path string) []completionItem {
 	body, err := s.documentText(uriFromPath(path))
 	if err != nil {
 		return nil
@@ -85,18 +91,19 @@ func (s *Server) headingAnchorItems(ctx openLinkContext, term, path string) []co
 	var items []completionItem
 	seen := map[string]bool{}
 	for _, h := range link.Headings(body) {
-		target := term + strings.Repeat("#", h.Level) + h.Text
+		target := link.AnchoredNoteTarget(s.cfg.LinkFormat, id, term, strings.Repeat("#", h.Level)+h.Text)
+		label := term + strings.Repeat("#", h.Level) + h.Text
 		// Duplicate headings resolve to their first occurrence, so later twins are unreachable noise.
 		if seen[target] {
 			continue
 		}
 		seen[target] = true
 		items = append(items, completionItem{
-			Label:      target,
+			Label:      label,
 			Kind:       protocol.ReferenceCompletion,
 			Detail:     fmt.Sprintf("h%d", h.Level),
 			InsertText: target,
-			FilterText: target,
+			FilterText: label,
 			TextEdit:   completionTextEdit(ctx, target),
 		})
 	}
@@ -111,15 +118,32 @@ func (s *Server) headingCompletion(ctx openLinkContext) ([]completionItem, error
 	if key == "" {
 		return []completionItem{}, nil
 	}
-	dict, err := s.keywordDict()
-	if err != nil {
-		return nil, err
+	var id int64
+	var title, path, vault string
+	if res, name, _, state := s.resolveQualified(key); state != notQualified {
+		if state != crossResolved {
+			return []completionItem{}, nil
+		}
+		id, title, path, vault = res.NoteID, res.Title, res.Path, name
+	} else {
+		dict, err := s.keywordDict()
+		if err != nil {
+			return nil, err
+		}
+		kw, ok := dict[key]
+		if !ok {
+			return []completionItem{}, nil
+		}
+		id, title, path = kw.NoteID, kw.Term, s.notePath(kw.FileKind, kw.NoteID)
+		localKey := key
+		if self := s.cfg.VaultName; self != "" {
+			localKey = strings.TrimPrefix(localKey, self+":")
+		}
+		if resolved, found, err := s.store.ResolveLink(localKey, s.cfg.LinkFormat); err == nil && found {
+			title = resolved.Title
+		}
 	}
-	kw, ok := dict[key]
-	if !ok {
-		return []completionItem{}, nil
-	}
-	text, err := s.documentText(uriFromPath(s.notePath(kw.FileKind, kw.NoteID)))
+	text, err := s.documentText(uriFromPath(path))
 	if err != nil {
 		return nil, err
 	}
@@ -139,6 +163,12 @@ func (s *Server) headingCompletion(ctx openLinkContext) ([]completionItem, error
 		}
 		seen[h.Text] = true
 		target := key + strings.Repeat("#", level) + h.Text
+		if s.cfg.LinkFormat == link.IDFormat {
+			target = link.AnchoredNoteTarget(s.cfg.LinkFormat, id, title, strings.Repeat("#", level)+h.Text)
+			if vault != "" {
+				target = vault + ":" + target
+			}
+		}
 		items = append(items, completionItem{
 			Label:      h.Text,
 			Kind:       protocol.ReferenceCompletion,
@@ -244,6 +274,6 @@ func createNoteCompletionItem(uri string, ctx openLinkContext) completionItem {
 		FilterText: ctx.Target,
 		SortText:   ctx.Target,
 		TextEdit:   completionTextEdit(ctx, ctx.Target),
-		Command:    createNoteLSPCommand(ctx.Target, uri),
+		Command:    createNoteCompletionCommand(ctx.Target, uri, newRange(ctx.Line, ctx.ReplaceStart, ctx.Line, ctx.ReplaceStart+len(ctx.Target))),
 	}
 }

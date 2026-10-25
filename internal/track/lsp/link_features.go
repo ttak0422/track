@@ -17,7 +17,7 @@ func (s *Server) documentLinks(uri string) ([]documentLink, error) {
 	if err != nil {
 		return nil, err
 	}
-	currentID, hasCurrentID := noteIDFromURI(uri)
+	currentID, hasCurrentID := s.noteIDFromURI(uri)
 	dict, err := s.keywordDict()
 	if err != nil {
 		return nil, err
@@ -27,7 +27,7 @@ func (s *Server) documentLinks(uri string) ([]documentLink, error) {
 		// The qualifier gate runs before the local dictionary, mirroring the indexer.
 		if res, _, _, state := s.resolveQualified(ref.Text); state != notQualified {
 			if state == crossResolved {
-				target := protocol.URI(uriFromPath(res.Path))
+				target := protocol.URI(s.uriForPath(res.Path))
 				links = append(links, documentLink{
 					Range:   newRange(ref.Line, ref.StartByte, ref.Line, ref.EndByte),
 					Target:  &target,
@@ -44,7 +44,7 @@ func (s *Server) documentLinks(uri string) ([]documentLink, error) {
 		if hasCurrentID && kw.NoteID == currentID && ref.Heading == "" {
 			continue
 		}
-		target := protocol.URI(uriFromPath(s.notePath(kw.FileKind, kw.NoteID)))
+		target := protocol.URI(s.uriForPath(s.notePath(kw.FileKind, kw.NoteID)))
 		links = append(links, documentLink{
 			Range:   newRange(ref.Line, ref.StartByte, ref.Line, ref.EndByte),
 			Target:  &target,
@@ -61,7 +61,7 @@ func (s *Server) backlinks(uri string) ([]backlink, error) {
 	if !s.inVault(uri) {
 		return []backlink{}, nil
 	}
-	currentID, ok := noteIDFromURI(uri)
+	currentID, ok := s.noteIDFromURI(uri)
 	if !ok {
 		return []backlink{}, nil
 	}
@@ -76,7 +76,7 @@ func (s *Server) outgoingLinks(uri string) ([]outgoingLink, error) {
 	if err != nil {
 		return nil, err
 	}
-	currentID, hasCurrentID := noteIDFromURI(uri)
+	currentID, hasCurrentID := s.noteIDFromURI(uri)
 	dict, err := s.keywordDict()
 	if err != nil {
 		return nil, err
@@ -96,11 +96,15 @@ func (s *Server) outgoingLinks(uri string) ([]outgoingLink, error) {
 			preview = strings.TrimSpace(lines[ref.Line])
 		}
 		targetPath := s.notePath(kw.FileKind, kw.NoteID)
+		title := kw.Term
+		if resolved, found, err := s.store.ResolveLink(ref.Text, s.cfg.LinkFormat); err == nil && found {
+			title = resolved.Title
+		}
 		out = append(out, outgoingLink{
 			NoteID:  kw.NoteID,
-			URI:     uriFromPath(targetPath),
+			URI:     s.uriForPath(targetPath),
 			Path:    targetPath,
-			Title:   kw.Term,
+			Title:   title,
 			Range:   newRange(ref.Line, ref.OpenByte, ref.Line, ref.CloseByte),
 			Preview: preview,
 		})
@@ -111,8 +115,42 @@ func (s *Server) outgoingLinks(uri string) ([]outgoingLink, error) {
 	return out, nil
 }
 
+// backlinkSources includes open notes even when their unsaved text has added a new reference.
+// The durable index remains a view of disk; the actual link occurrences are filtered from current text.
+func (s *Server) backlinkSources(id int64) ([]store.NoteRef, error) {
+	sources, err := s.store.Backlinks(id)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[int64]bool{}
+	for _, src := range sources {
+		seen[src.NoteID] = true
+	}
+	for uri := range s.docs {
+		path, err := s.canonicalDocumentPath(uri)
+		if err != nil {
+			continue
+		}
+		sourceID, err := note.IDFromPath(path)
+		if err != nil || seen[sourceID] {
+			continue
+		}
+		kind, ok := s.cfg.KindFromPath(path)
+		if !ok {
+			continue
+		}
+		title := ""
+		if meta, _, err := note.ReadMetadata(s.cfg.MetadataPath(sourceID)); err == nil {
+			title = meta.Title
+		}
+		sources = append(sources, store.NoteRef{NoteID: sourceID, FileKind: kind, Title: title})
+		seen[sourceID] = true
+	}
+	return sources, nil
+}
+
 func (s *Server) backlinksTo(noteID int64) ([]backlink, error) {
-	sources, err := s.store.Backlinks(noteID)
+	sources, err := s.backlinkSources(noteID)
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +162,7 @@ func (s *Server) backlinksTo(noteID int64) ([]backlink, error) {
 	var out []backlink
 	for _, source := range sources {
 		sourcePath := s.notePath(source.FileKind, source.NoteID)
-		sourceURI := uriFromPath(sourcePath)
+		sourceURI := s.uriForPath(sourcePath)
 		text, err := s.documentText(sourceURI)
 		if err != nil {
 			return nil, err
@@ -183,7 +221,7 @@ func (s *Server) references(uri string, pos position) ([]location, error) {
 func (s *Server) referenceTarget(uri string, pos position) (int64, bool, error) {
 	text, err := s.documentText(uri)
 	if err != nil {
-		currentID, ok := noteIDFromURI(uri)
+		currentID, ok := s.noteIDFromURI(uri)
 		if ok {
 			return currentID, true, nil
 		}
@@ -200,12 +238,12 @@ func (s *Server) referenceTarget(uri string, pos position) (int64, bool, error) 
 		kw, ok := dict[ref.Text]
 		return kw.NoteID, ok, nil
 	}
-	currentID, ok := noteIDFromURI(uri)
+	currentID, ok := s.noteIDFromURI(uri)
 	return currentID, ok, nil
 }
 
 func (s *Server) refreshDocumentLinks(uri string) error {
-	srcID, ok := noteIDFromURI(uri)
+	srcID, ok := s.noteIDFromURI(uri)
 	if !ok {
 		return nil
 	}
@@ -226,7 +264,10 @@ func (s *Server) refreshDocumentLinks(uri string) error {
 		// never local links. The active vault's own name is not a qualifier (IsVault), so it falls
 		// through to the dictionary below and writes a plain links row.
 		if vault, title, ok := link.SplitVaultRef(ref.Text, s.xv.IsVault); ok {
-			key := store.ExtRef{Vault: vault, Title: title}
+			key, valid := store.NewExtRef(vault, title, s.cfg.LinkFormat)
+			if !valid {
+				continue
+			}
 			if !seenExt[key] {
 				seenExt[key] = true
 				ext = append(ext, key)
@@ -254,7 +295,7 @@ func (s *Server) definition(uri string, pos position) (*location, error) {
 	if err != nil {
 		return nil, err
 	}
-	currentID, hasCurrentID := noteIDFromURI(uri)
+	currentID, hasCurrentID := s.noteIDFromURI(uri)
 	dict, err := s.keywordDict()
 	if err != nil {
 		return nil, err
@@ -280,7 +321,7 @@ func (s *Server) definition(uri string, pos position) (*location, error) {
 				}
 			}
 			return &location{
-				URI:   protocol.DocumentURI(uriFromPath(res.Path)),
+				URI:   protocol.DocumentURI(s.uriForPath(res.Path)),
 				Range: newRange(line, 0, line, 0),
 			}, nil
 		}
@@ -305,7 +346,7 @@ func (s *Server) definition(uri string, pos position) (*location, error) {
 			}
 		}
 		return &location{
-			URI:   protocol.DocumentURI(uriFromPath(s.notePath(kw.FileKind, kw.NoteID))),
+			URI:   protocol.DocumentURI(s.uriForPath(s.notePath(kw.FileKind, kw.NoteID))),
 			Range: newRange(line, 0, line, 0),
 		}, nil
 	}
@@ -316,7 +357,7 @@ func (s *Server) definition(uri string, pos position) (*location, error) {
 // It reads the target's current text (open buffer or disk) and returns the first heading whose
 // level and text match. The boolean is false when the note has no such heading.
 func (s *Server) headingLine(path string, level int, heading string) (int, bool) {
-	text, err := s.documentText(uriFromPath(path))
+	text, err := s.documentText(s.uriForPath(path))
 	if err != nil {
 		return 0, false
 	}
@@ -325,7 +366,7 @@ func (s *Server) headingLine(path string, level int, heading string) (int, bool)
 
 // blockLine resolves a [[note#^id]] block anchor to the marked block's first line in the target note.
 func (s *Server) blockLine(path, id string) (int, bool) {
-	text, err := s.documentText(uriFromPath(path))
+	text, err := s.documentText(s.uriForPath(path))
 	if err != nil {
 		return 0, false
 	}
@@ -359,7 +400,10 @@ func includeBangPos(text string, ref link.Ref, pos position) bool {
 
 // keywordDict loads the auto-link dictionary keyed by term, so resolving each [[...]] is an O(1) lookup.
 func (s *Server) keywordDict() (map[string]store.Keyword, error) {
-	kws, err := s.store.Keywords()
+	if err := s.cfg.ValidateLinkFormat(); err != nil {
+		return nil, err
+	}
+	kws, err := s.store.LinkKeywords(s.cfg.LinkFormat)
 	if err != nil {
 		return nil, err
 	}
@@ -394,5 +438,9 @@ func noteIDFromURI(uri string) (int64, bool) {
 }
 
 func (s *Server) notePath(kind string, id int64) string {
-	return s.cfg.PathForKind(kind, id)
+	title := ""
+	if meta, _, err := note.ReadMetadata(s.cfg.MetadataPath(id)); err == nil {
+		title = meta.Title
+	}
+	return s.editorPath(s.cfg, id, kind, title)
 }

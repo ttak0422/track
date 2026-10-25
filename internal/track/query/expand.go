@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/ttak0422/track/internal/track/babel"
+	"github.com/ttak0422/track/internal/track/link"
 )
 
 // FenceLang is the fence language that marks an embedded query (```track-query ... ```), mirroring
@@ -20,16 +21,17 @@ const FenceLang = "track-query"
 // whose body is the laid-out View JSON the frontend draws. A bad query is replaced by an inline error
 // plus the original expression, so the note still renders and the typo is visible at the block position.
 // saved supplies named queries for "saved: <name>" bodies; rows is the query domain; meta supplies a
-// note's cover image and icon for gallery cards (nil = neither).
-func ExpandBlocks(body string, saved map[string]string, rows []NoteRow, meta func(noteID int64) (cover, icon string)) string {
-	return ExpandBlocksWithResolver(body, saved, rows, meta, nil)
+// note's cover image and icon for gallery cards (nil = neither). An optional linkFormat
+// opts generated links into the source vault's format; omitting it preserves title links.
+func ExpandBlocks(body string, saved map[string]string, rows []NoteRow, meta func(noteID int64) (cover, icon string), linkFormat ...string) string {
+	return ExpandBlocksWithResolver(body, saved, rows, meta, nil, linkFormat...)
 }
 
 // ExpandBlocksWithResolver expands every fenced query block like ExpandBlocks, resolving body
 // conditions through resolve — the store-backed FTS5 path of the live workspace. With a nil
 // resolver, body conditions match the rows' own Body text (the static export, which already holds
 // every published body in memory).
-func ExpandBlocksWithResolver(body string, saved map[string]string, rows []NoteRow, meta func(noteID int64) (cover, icon string), resolve BodyResolver) string {
+func ExpandBlocksWithResolver(body string, saved map[string]string, rows []NoteRow, meta func(noteID int64) (cover, icon string), resolve BodyResolver, linkFormat ...string) string {
 	return babel.ReplaceBlocks(body, FenceLang, func(b babel.Block) []string {
 		expr, err := ResolveSaved(b.Body, saved)
 		if err == nil {
@@ -38,7 +40,7 @@ func ExpandBlocksWithResolver(body string, saved map[string]string, rows []NoteR
 				var res Result
 				if res, err = RunWithBody(q, rows, resolve); err == nil {
 					var lines []string
-					if lines, err = resultLines(b, res, meta); err == nil {
+					if lines, err = resultLines(b, res, meta, firstLinkFormat(linkFormat)); err == nil {
 						return lines
 					}
 				}
@@ -51,16 +53,16 @@ func ExpandBlocksWithResolver(body string, saved map[string]string, rows []NoteR
 // resultLines renders one evaluated block per its :layout header argument. An empty result renders
 // as the table path's "no results" text in every layout — an empty board or month grid would just
 // look broken.
-func resultLines(b babel.Block, res Result, meta func(int64) (string, string)) ([]string, error) {
+func resultLines(b babel.Block, res Result, meta func(int64) (string, string), linkFormat string) ([]string, error) {
 	layout := headerArg(b, "layout")
 	showTitle, err := titleVisibility(layout, headerArg(b, "title"))
 	if err != nil {
 		return nil, err
 	}
 	if layout == "" || layout == "table" || len(res.Rows) == 0 {
-		return strings.Split(Markdown(res), "\n"), nil
+		return strings.Split(Markdown(res, linkFormat), "\n"), nil
 	}
-	v, err := BuildView(layout, headerArg(b, "by"), res, meta, ViewOptions{ShowTitle: showTitle})
+	v, err := BuildView(layout, headerArg(b, "by"), res, meta, ViewOptions{ShowTitle: showTitle, LinkFormat: linkFormat})
 	if err != nil {
 		return nil, err
 	}
@@ -112,11 +114,13 @@ func ResolveSaved(body string, saved map[string]string) (string, error) {
 	return "", fmt.Errorf("no saved query %q (config queries:)", name)
 }
 
-// Markdown renders a result as a GFM table. The title column links each note as [[Title]], which
+// Markdown renders a result as a GFM table. The optional linkFormat selects stable ID links;
+// without it, the title column links each note as [[Title]], which
 // every rendering surface already resolves like any other wiki link; other cells are plain text. A
 // props.<name> column shows just <name> in the header — the props. prefix disambiguates the query,
 // not the reader's table.
-func Markdown(res Result) string {
+func Markdown(res Result, linkFormat ...string) string {
+	format := firstLinkFormat(linkFormat)
 	if len(res.Rows) == 0 {
 		return "_No results._"
 	}
@@ -130,9 +134,15 @@ func Markdown(res Result) string {
 	for _, row := range res.Rows {
 		cells := escapeCells(row.Cells)
 		for i, col := range res.Columns {
-			// A title carrying a pipe keeps its escaped plain cell: raw it would split the table,
-			// and inside [[…]] a pipe reads as the alias separator, so it cannot be a wiki link.
-			if col == "title" && row.Title != "" && !strings.Contains(row.Title, "|") {
+			if col != "title" || row.Title == "" {
+				continue
+			}
+			if format == link.IDFormat {
+				// A raw alias separator would split a GFM table cell. The renderer resolves
+				// this unaliased ID link's current title without changing its stable target.
+				cells[i] = "[[" + link.IDKey(row.NoteID) + "]]"
+			} else if !strings.Contains(row.Title, "|") {
+				// Legacy title links cannot represent a pipe in their resolution key.
 				cells[i] = "[[" + row.Title + "]]"
 			}
 		}
@@ -149,4 +159,12 @@ func escapeCells(cells []string) []string {
 		out[i] = strings.ReplaceAll(c, "|", "\\|")
 	}
 	return out
+}
+
+// An omitted format preserves the title-link output of existing callers.
+func firstLinkFormat(formats []string) string {
+	if len(formats) > 0 {
+		return formats[0]
+	}
+	return ""
 }

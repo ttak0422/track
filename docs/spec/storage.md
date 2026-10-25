@@ -111,13 +111,37 @@ Two variables sit outside the rule because neither names a key: `TRACK_CONFIG` i
 
 There is no key for the database path itself. The index is derived from the vault path (`<cache-dir>/<vault-key>/index.db`), so relocating it means moving the whole cache with `cache_dir`/`TRACK_CACHE_DIR` — a single named file could not serve the vaults a registry holds.
 
-Cross-vault references (`[[vault:title]]`, ADR 0053) live in each vault's own index as `ext_links` rows keyed by `(vault name, title)` — the target's numeric id is never stored, because ids are vault-local. Inbound cross-vault backlinks are answered by scanning the other registered vaults' databases for rows naming this vault.
+Cross-vault references live in each source vault's own index as `ext_links` rows. Legacy title targets use `(vault name, title)`; explicit ID targets in `id-v1` use `(vault name, target_id)` with an empty title. An ID is never treated as globally unique: its vault namespace remains part of every external edge. Inbound cross-vault backlinks scan the other registered vaults' databases for rows naming this vault and either its note title or its typed ID.
 
 Configuration ownership is split (ADR 0050): the machine config file can also set `cache_dir` and the local web workspace's `web.theme`/`web.colors_path` (see [web.md](web.md)); everything about note semantics — `extensions`, `date_format`, `journal_date_format`, and the rest — lives in the vault config `<vault>/.track/config.yml`. Both files reject keys that belong to the other, so a synced vault can never redirect where this machine reads and writes. Environment values override the matching file values, but normal configuration should live in the files.
 
 The vault path is canonicalized (symlinks resolved, made absolute) before use. A symlinked vault — for example `~/track` pointing at a cloud-synced `~/OneDrive/track` — therefore resolves to one stable path, so the `<vault-key>` cache key stays the same no matter which path the CLI is invoked through.
 
 ## Note Metadata
+
+### Editor views are not vault storage
+
+`TRACK_EDITOR_VIEW` optionally names an absolute machine-local directory outside known
+vault and sync roots. `track editor-view` builds readable symlinks there; `track editor-path`
+returns a canonical `path` and separate `editor_path`. A versioned private manifest owns
+the mapping. Alias filenames are pinned, including across title changes; there is no
+automatic retitling, cleanup or copy-back. They are neither indexed notes nor metadata,
+and must not be synced, snapshotted or used as durable body-link targets. See the
+Searching notes help page for setup, save guards and unsupported-writer limitations.
+
+Naming version 1 preserves authored Unicode without normalization. It replaces control
+characters, Unicode format characters and `/\<>:"|?*` with `_`, trims surrounding
+whitespace and trailing dots/spaces, substitutes `Untitled` when empty, and prefixes
+leading-dot or Windows device names with `_`. Only the title is truncated, at a UTF-8
+boundary, to keep the full `--<id><extension>` suffix within a 240-byte component and
+3,800-byte complete-path budget. Vault and kind directories separate namespaces;
+manifest ownership and filesystem checks reject unexpected occupants rather than
+shortening IDs or overwriting paths. Known sync-directory components are rejected,
+but choosing a genuinely nonsynced location remains the operator's responsibility.
+
+`link_format: id-v1` is a separate vault-owned opt-in for stable-ID body references;
+the default remains title-based. It does not change the canonical filename or sidecar
+identity. See [links.md](links.md) for the namespace and compatibility contract.
 
 Metadata is separate from the markdown note body. Paths are derived from file kind and id rather than stored in the SQLite cache. A regular note, a journal, and a template use these forms:
 
@@ -169,9 +193,18 @@ A rename rewrites every `[[old title]]` in the vault as part of the operation, s
 The SQLite index is derived state.
 It can be rebuilt from markdown note files and sidecar metadata.
 The indexer scans the top-level `note/` and `journal/` directories only, matching the file-kind rules above.
+Bulk indexing skips invalid note filenames (including sync conflict copies), malformed sidecar or
+legacy metadata, and unsupported metadata versions while continuing with valid files. Each skipped
+file emits a warning to stderr with its path and reason; `track reindex` also includes a `skipped`
+count when nonzero. Conflict copies are never imported automatically. A present note that fails to
+parse keeps any previously indexed row and links until it can be read again; a fresh index omits it.
+Skipped files are not rewritten. `track doctor` provides read-only diagnosis of stray files and
+unreadable sidecars. Filesystem access, directory, database, and metadata write failures remain fatal;
+the lazy absence of `note/` or `journal/` is still allowed. The CLI and web workspace share this policy
+through `Full` and `RefreshIfStale`; an explicit single-note read or update still returns parse errors.
 SQLite `PRAGMA user_version` stores the database schema version and is independent from sidecar metadata versions.
 
-Schema version 10 contains a central `notes` table with each indexed id, file kind, cached sidecar title and creation date, note-file `mtime`, sidecar `meta_mtime`, icon override, the shared reading milestones `seen_at`/`read_at` (sidecar timestamps as unix seconds), and the normalized `flags` (sidecar flags joined with a unit separator), so every listing can badge NEW/read/flags from vault metadata and search can demote `DEPRECATED` notes. The two mtimes let `RefreshIfStale` detect both body changes and sidecar-only changes. `tags` stores the note's tags, `links` stores computed directed links between notes, and `ext_links` stores outgoing cross-vault references as `(source id, vault name, title)` without a target numeric id because ids are vault-local.
+Schema version 11 contains a central `notes` table with each indexed id, file kind, cached sidecar title and creation date, note-file `mtime`, sidecar `meta_mtime`, icon override, the shared reading milestones `seen_at`/`read_at` (sidecar timestamps as unix seconds), and the normalized `flags` (sidecar flags joined with a unit separator), so every listing can badge NEW/read/flags from vault metadata and search can demote `DEPRECATED` notes. The two mtimes let `RefreshIfStale` detect both body changes and sidecar-only changes. `tags` stores the note's tags, `links` stores computed directed links between notes, and `ext_links` stores outgoing cross-vault references with a vault namespace and separate title/typed-ID target fields. `index_state` records the source link format, so changing `link_format` invalidates computed edges even if body mtimes are unchanged. The `body_keywords` view adds typed keys only in `id-v1`; title uniqueness checks continue to use the unchanged title dictionary.
 
 `note_days` stores the local activity days for each non-journal note, mirrored from sidecar `days` and falling back to `created` for older sidecars. `tasks` stores one row per parsed checkbox line, including its fixed state, terminal flag, priority, scheduling, due, completion, and text fields. `props` stores flattened typed properties from sidecars and inline `key::` body fields; list values retain their order.
 

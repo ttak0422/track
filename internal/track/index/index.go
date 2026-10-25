@@ -2,8 +2,8 @@
 package index
 
 import (
+	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -36,6 +36,7 @@ type Report struct {
 	Indexed int `json:"indexed"`
 	Deleted int `json:"deleted"`
 	Links   int `json:"links"`
+	Skipped int `json:"skipped,omitempty"`
 }
 
 // Full re-parses every note in the vault, reconciles deletions, and recomputes the entire link graph.
@@ -65,15 +66,34 @@ func (ix *Indexer) Full() (Report, error) {
 	// small cases reconciling: `track rm` of a vault's last file leaves a zero scan over a rowful DB.
 	// ponytail: zero-scan guard only; a partial sync gap still reconciles (rows self-heal on the next
 	// refresh) — add a fractional threshold if that ever bites.
-	if len(paths) == 0 && len(existing) >= emptyScanGuardMin {
+	validPaths := 0
+	for _, p := range paths {
+		if _, err := note.IDFromPath(p); err == nil {
+			validPaths++
+		}
+	}
+	if validPaths == 0 && len(existing) >= emptyScanGuardMin {
 		return rep, fmt.Errorf("no note files found under %s but the index lists %d notes; refusing to reconcile deletions (vault unmounted or unreadable?) — if the notes really are gone, run 'track reindex'", ix.cfg.VaultDir, len(existing))
 	}
 
 	notes := make([]*note.Note, 0, len(paths))
 	seen := make(map[int64]bool, len(paths))
 	for _, p := range paths {
+		// A present but malformed note must not be reconciled as a deletion.
+		if id, err := note.IDFromPath(p); err == nil {
+			seen[id] = true
+		}
 		n, err := note.ParseFile(p, ix.cfg)
 		if err != nil {
+			var invalid *note.ParseError
+			if errors.As(err, &invalid) {
+				warnSkipped(invalid)
+				rep.Skipped++
+				continue
+			}
+			return rep, err
+		}
+		if err := config.ValidateLinkTitle(ix.cfg.LinkFormat, n.Meta.Title); err != nil {
 			return rep, err
 		}
 		if err := ix.store.UpsertNote(n); err != nil {
@@ -108,6 +128,9 @@ func (ix *Indexer) Full() (Report, error) {
 		rep.Links += countExcludingSelf(targets, n.ID)
 	}
 
+	if err := ix.store.SetIndexedLinkFormat(ix.cfg.LinkFormat); err != nil {
+		return rep, err
+	}
 	return rep, nil
 }
 
@@ -120,7 +143,15 @@ func (ix *Indexer) Full() (Report, error) {
 // change that raised no filesystem notification. Sidecar mtimes are compared only for notes present
 // on disk, so an orphan sidecar (reported by doctor, never moved by a read) cannot re-trigger this.
 func (ix *Indexer) RefreshIfStale() (bool, error) {
-	disk, journals, err := ix.scanMtimes()
+	format, err := ix.store.IndexedLinkFormat()
+	if err != nil {
+		return false, err
+	}
+	if format != ix.cfg.LinkFormat {
+		_, err := ix.Full()
+		return err == nil, err
+	}
+	disk, journals, skipped, err := ix.scanMtimes()
 	if err != nil {
 		return false, err
 	}
@@ -138,6 +169,10 @@ func (ix *Indexer) RefreshIfStale() (bool, error) {
 			return false, err
 		}
 		if sameMtimes(metaDisk, metaIndexed) {
+			// Conflict copies do not change indexed ids or mtimes, but must still be visible.
+			for _, invalid := range skipped {
+				warnSkipped(invalid)
+			}
 			return false, nil
 		}
 	}
@@ -177,6 +212,10 @@ func (ix *Indexer) recordActivity(ids map[int64]int64) error {
 		path := ix.cfg.MetadataPath(id)
 		meta, found, err := note.ReadMetadata(path)
 		if err != nil {
+			var invalid *note.ParseError
+			if errors.As(err, &invalid) {
+				continue // Full reports this file's parse failure in deterministic path order.
+			}
 			return err
 		}
 		if !found {
@@ -210,45 +249,34 @@ func (ix *Indexer) scanMetaMtimes(disk map[int64]int64) map[int64]int64 {
 // scanMtimes maps note id -> file mtime (Unix seconds) for every note/journal file, mirroring how
 // UpsertNote records mtime. Files whose basename is not a numeric note id are skipped, matching the ids
 // the indexer assigns; reading mtimes never parses a file.
-func (ix *Indexer) scanMtimes() (map[int64]int64, map[int64]bool, error) {
+func (ix *Indexer) scanMtimes() (map[int64]int64, map[int64]bool, []*note.ParseError, error) {
 	out := map[int64]int64{}
 	journals := map[int64]bool{}
-	for _, root := range []string{ix.cfg.NoteDir(), ix.cfg.JournalDir()} {
-		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-			if err != nil {
-				if d == nil {
-					return nil // note/journal dir may not exist yet
-				}
-				return err
-			}
-			if d.IsDir() {
-				if path != root {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			if !slices.Contains(ix.cfg.Extensions, filepath.Ext(path)) {
-				return nil
-			}
-			id, err := note.IDFromPath(path)
-			if err != nil {
-				return nil // not an indexed note id
-			}
-			info, err := d.Info()
-			if err != nil {
-				return err
-			}
-			out[id] = info.ModTime().Unix()
-			if root == ix.cfg.JournalDir() {
-				journals[id] = true
-			}
-			return nil
-		})
+	var skipped []*note.ParseError
+	paths, err := ix.scanFiles()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	for _, path := range paths {
+		id, err := note.IDFromPath(path)
 		if err != nil {
-			return nil, nil, err
+			skipped = append(skipped, &note.ParseError{Path: path, Err: fmt.Errorf("invalid note filename (expected a numeric id): %w", err)})
+			continue
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		out[id] = info.ModTime().Unix()
+		if filepath.Dir(path) == ix.cfg.JournalDir() {
+			journals[id] = true
 		}
 	}
-	return out, journals, nil
+	return out, journals, skipped, nil
+}
+
+func warnSkipped(err *note.ParseError) {
+	fmt.Fprintf(os.Stderr, "track: warning: skipping %q: %v; run 'track doctor' to inspect vault files\n", err.Path, err.Err)
 }
 
 func sameMtimes(disk, indexed map[int64]int64) bool {
@@ -266,8 +294,20 @@ func sameMtimes(disk, indexed map[int64]int64) bool {
 // One updates a single note and recomputes its outgoing links.
 // Inbound links from other notes to this one are not refreshed here; run Full for that.
 func (ix *Indexer) One(path string) error {
+	format, err := ix.store.IndexedLinkFormat()
+	if err != nil {
+		return err
+	}
+	if format != ix.cfg.LinkFormat {
+		if _, err := ix.Full(); err != nil {
+			return err
+		}
+	}
 	n, err := note.ParseFile(path, ix.cfg)
 	if err != nil {
+		return err
+	}
+	if err := config.ValidateLinkTitle(ix.cfg.LinkFormat, n.Meta.Title); err != nil {
 		return err
 	}
 	// A track mutation command (new/append/toggle/journal) just wrote this file, so stamp its mtime day
@@ -343,7 +383,7 @@ func (ix *Indexer) ensureDayJournal(mtime int64) error {
 
 // keywordDict loads the auto-link dictionary once as term -> note id, so resolving each [[...]] is an O(1) map lookup.
 func (ix *Indexer) keywordDict() (map[string]int64, error) {
-	kws, err := ix.store.Keywords()
+	kws, err := ix.store.LinkKeywords(ix.cfg.LinkFormat)
 	if err != nil {
 		return nil, err
 	}
@@ -390,8 +430,8 @@ func (ix *Indexer) resolveLinks(body string, dict map[string]int64) ([]int64, []
 	seenExt := make(map[store.ExtRef]bool)
 	for _, ref := range link.Refs(body) {
 		if vault, title, ok := link.SplitVaultRef(ref.Text, isVault); ok {
-			key := store.ExtRef{Vault: vault, Title: title}
-			if !seenExt[key] {
+			key, valid := store.NewExtRef(vault, title, ix.cfg.LinkFormat)
+			if valid && !seenExt[key] {
 				seenExt[key] = true
 				ext = append(ext, key)
 			}
@@ -410,26 +450,17 @@ func (ix *Indexer) resolveLinks(body string, dict map[string]int64) ([]int64, []
 func (ix *Indexer) scanFiles() ([]string, error) {
 	var out []string
 	for _, root := range []string{ix.cfg.NoteDir(), ix.cfg.JournalDir()} {
-		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-			if err != nil {
-				if d == nil {
-					return nil // note/journal dir may not exist yet
-				}
-				return err
-			}
-			if d.IsDir() {
-				if path != root {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			if slices.Contains(ix.cfg.Extensions, filepath.Ext(path)) {
-				out = append(out, path)
-			}
-			return nil
-		})
+		entries, err := os.ReadDir(root)
 		if err != nil {
+			if os.IsNotExist(err) {
+				continue // note/journal dir may not exist yet
+			}
 			return nil, err
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() && slices.Contains(ix.cfg.Extensions, filepath.Ext(entry.Name())) {
+				out = append(out, filepath.Join(root, entry.Name()))
+			}
 		}
 	}
 	slices.Sort(out)

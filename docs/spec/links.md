@@ -94,6 +94,38 @@ depth limits) is that surface's presentation choice.
 
 ## Resolution
 
+### Explicit ID targets (opt-in)
+
+The source vault's `.track/config.yml` may set `link_format: id-v1`; absent or `title`
+keeps the legacy title-only contract. The new mode accepts `[[id:<positive-id>|label]]`
+and `[[<registered-vault>:id:<positive-id>|label]]`, composed with the existing heading,
+block and include syntax. IDs must use canonical decimal spelling without a leading
+zero and fit a positive int64. The kind is looked up in the target vault's note index.
+Equal numeric IDs in different vaults are unrelated. The target vault's link format
+governs its own body, not how another source vault addresses its IDs.
+
+Bare numeric targets remain title keys. An explicitly typed malformed or missing ID
+never falls back to a title or another vault. Existing title references still resolve
+in ID mode. The `id` registry name and titles beginning `id:` or containing `:id:` are
+rejected only for the opted-in mode, including when later filesystem changes introduce
+them. At resolution time a typed target that also matches a literal title in the addressed
+vault is rejected as ambiguous, preventing old cross-vault title links from silently
+changing identity. Unavailable remote targets do not make unrelated local editing
+unavailable. This is conservative namespace protection, not automatic conversion.
+
+Generated references use typed IDs with safe optional title labels in ID mode; display
+and completion search stay title-based. An explicit label is preserved on title rename.
+Titles containing wiki delimiters may be omitted from a generated label rather than
+inserted unsafely. Title uniqueness remains a separate existing rule. External URLs,
+assets and ordinary Markdown links are not rewritten. No bulk migration is provided.
+
+The rebuildable index records which link format produced its graph so a configuration
+change requires reindexing even if body/sidecar mtimes did not change. Cross-vault ID
+references are represented separately from legacy title references. Consumers must not
+infer body syntax from numeric graph IDs, CLI `--id`, published slugs or editor aliases.
+
+### Legacy title targets
+
 The target (the inner text before any `|`) resolves against the keyword dictionary by **exact match**:
 
 - each non-empty note `title`

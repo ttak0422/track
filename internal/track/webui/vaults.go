@@ -133,6 +133,10 @@ func (s *Server) withVault(fn vaultHandler) http.HandlerFunc {
 			writeError(w, err, http.StatusBadRequest)
 			return
 		}
+		if err := v.cfg.ValidateLinkFormat(); err != nil {
+			writeError(w, err, http.StatusConflict)
+			return
+		}
 		fn(v, w, r)
 	}
 }

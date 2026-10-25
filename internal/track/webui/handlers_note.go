@@ -57,6 +57,10 @@ func (s *Server) postNote(v *vaultView, w http.ResponseWriter, r *http.Request) 
 		writeError(w, errors.New("title is required"), http.StatusBadRequest)
 		return
 	}
+	if err := config.ValidateLinkTitle(v.cfg.LinkFormat, title); err != nil {
+		writeError(w, err, http.StatusBadRequest)
+		return
+	}
 	if _, found, err := v.store.ResolveTerm(title); err != nil {
 		writeError(w, err, http.StatusInternalServerError)
 		return
@@ -254,7 +258,7 @@ func (s *Server) getNote(v *vaultView, w http.ResponseWriter, r *http.Request) {
 	// edges keyed by this note's title (ADR 0053). They are in those vaults' indexes, so they are a
 	// separate lookup; a vault that cannot be consulted is reported, because a missing backlink must
 	// stay distinguishable from a missing vault. The CLI's `track backlinks` answers the same way.
-	if external, unavailable, ok := s.externalBacklinks(v, ref.Title); ok {
+	if external, unavailable, ok := s.externalBacklinks(v, ref.NoteID, ref.Title); ok {
 		out["external"] = external
 		out["unavailable"] = unavailable
 	}
@@ -265,7 +269,7 @@ func (s *Server) getNote(v *vaultView, w http.ResponseWriter, r *http.Request) {
 // ok=false when the workspace serves no registry and the question cannot arise. It reads through the
 // server's own views rather than opening each vault per request the way the one-shot CLI does: this
 // runs on every note open, and the handles are already here.
-func (s *Server) externalBacklinks(v *vaultView, title string) ([]vaultref.ExternalRef, []vaultInfo, bool) {
+func (s *Server) externalBacklinks(v *vaultView, id int64, title string) ([]vaultref.ExternalRef, []vaultInfo, bool) {
 	if len(v.cfg.Vaults) == 0 || title == "" {
 		return nil, nil, false
 	}
@@ -276,6 +280,10 @@ func (s *Server) externalBacklinks(v *vaultView, title string) ([]vaultref.Exter
 		// Unregistered: no other vault has a name to refer to this one by. Returning here also keeps a
 		// plain single-vault note open off servedViews, which stats every registered vault.
 		return external, []vaultInfo{}, true
+	}
+	// A typed backlink must obey the same ambiguity guard as forward resolution.
+	if _, unambiguous, err := v.store.ResolveLink(link.IDKey(id), link.IDFormat); err != nil || !unambiguous || v.cfg.ValidateExplicitTarget(link.IDKey(id), link.IDFormat) != nil {
+		id = 0
 	}
 	views, unavailable := s.servedViews()
 	if unavailable == nil {
@@ -290,7 +298,7 @@ func (s *Server) externalBacklinks(v *vaultView, title string) ([]vaultref.Exter
 		// invisible here for as long as the workspace runs. refresh throttles per vault and takes that
 		// vault's reindex lock, so the extra call costs nothing on a warm index.
 		s.refresh(other)
-		backs, err := other.store.ExtBacklinks([]string{v.name}, title)
+		backs, err := other.store.ExtBacklinksTo([]string{v.name}, title, id)
 		if err != nil {
 			unavailable = append(unavailable, vaultInfo{Name: other.name, Path: other.cfg.VaultDirDisplay, Error: err.Error()})
 			continue
@@ -506,6 +514,10 @@ func (s *Server) handleNoteMeta(v *vaultView, w http.ResponseWriter, r *http.Req
 		// write; an empty title means "leave the title unchanged".
 		newTitle := strings.TrimSpace(doc.Title)
 		if newTitle != "" {
+			if err := config.ValidateLinkTitle(v.cfg.LinkFormat, newTitle); err != nil {
+				writeError(w, err, http.StatusBadRequest)
+				return
+			}
 			if other, ok, err := v.store.ResolveTerm(newTitle); err != nil {
 				writeError(w, err, http.StatusInternalServerError)
 				return
@@ -645,7 +657,7 @@ func (s *Server) handleRender(v *vaultView, w http.ResponseWriter, r *http.Reque
 			markdown = query.ExpandBlocksWithResolver(markdown, v.cfg.Queries, rows, func(id int64) (string, string) {
 				meta, _, _ := note.ReadMetadata(v.cfg.MetadataPath(id))
 				return meta.Image, v.cfg.NoteIcon(kinds[id], meta.Tags, meta.Icon)
-			}, query.StoreBodyResolver(v.cfg, v.store, len(rows)))
+			}, query.StoreBodyResolver(v.cfg, v.store, len(rows)), v.cfg.LinkFormat)
 		}
 	}
 	// Includes resolve against the rendered markdown (what the frontend draws), so their line
@@ -654,28 +666,8 @@ func (s *Server) handleRender(v *vaultView, w http.ResponseWriter, r *http.Reque
 	writeJSON(w, map[string]any{
 		"markdown":      markdown,
 		"drawio_fences": drawioFences,
-		"includes":      link.ResolveIncludes(markdown, v.loadRenderedNote),
+		"includes":      s.resolveIncludes(v, markdown),
 	})
-}
-
-// loadRenderedNote resolves a link key to a note and returns its web-rendered body, for include
-// resolution. Any failure (unknown key, unreadable file, render error) reads as "not found" — the
-// include renders as unresolved rather than surfacing a partial embed.
-func (v *vaultView) loadRenderedNote(key string) (int64, string, string, string, bool) {
-	ref, found, err := v.store.ResolveTerm(key)
-	if err != nil || !found {
-		return 0, "", "", "", false
-	}
-	raw, err := os.ReadFile(v.cfg.PathForKind(ref.FileKind, ref.NoteID))
-	if err != nil {
-		return 0, "", "", "", false
-	}
-	body, _, _ := note.SplitLegacyFootmatter(string(raw))
-	markdown, err := export.WebBody(body)
-	if err != nil {
-		return 0, "", "", "", false
-	}
-	return ref.NoteID, ref.FileKind, markdown, note.ContentETag(raw), true
 }
 
 // handleViewSpec resolves a fenced ```viewspec block (a View Spec JSON) to its ECharts option JSON,

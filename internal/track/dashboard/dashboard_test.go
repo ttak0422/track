@@ -59,3 +59,26 @@ func TestResolveBadYAMLKeepsSource(t *testing.T) {
 		t.Errorf("a malformed block should surface an inline error:\n%s", got)
 	}
 }
+
+func TestResolveStableIDsUsesKnownIdentities(t *testing.T) {
+	body := "```dashboard\nrecent: 2\njournal: true\npinned:\n  - Guide\n  - Unknown\n  - '42'\n```"
+	data := Data{
+		RecentTitles: []string{"Alpha", "Beta"},
+		JournalTitle: "20260711",
+		LinkFormat:   "id-v1",
+		NoteIDs: map[string]int64{
+			"Alpha": 1, "Beta": 2, "Guide": 3, "20260711": 20260711, "42": 99,
+		},
+	}
+	got := Resolve(body, data)
+	for _, want := range []string{"[[id:1|Alpha]]", "[[id:2|Beta]]", "[[id:3|Guide]]", "[[id:20260711|20260711]]", "[[Unknown]]", "[[id:99|42]]"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("stable dashboard missing %q:\n%s", want, got)
+		}
+	}
+	data.LinkFormat = ""
+	got = Resolve(body, data)
+	if strings.Contains(got, "id:") || !strings.Contains(got, "[[42]]") {
+		t.Fatalf("legacy dashboard changed output:\n%s", got)
+	}
+}
