@@ -501,7 +501,8 @@ export function renderMarkdown(body: string, vault = ""): Promise<RenderResponse
   if (STATIC_MODE) {
     return Promise.resolve({ markdown: body });
   }
-  return api<RenderResponse>(`/api/render${vaultParams(vault, "?")}`, { method: "POST", body: { body } });
+  return api<RenderResponse>(`/api/render${vaultParams(vault, "?")}`, { method: "POST", body: { body } })
+    .then((rendered) => ({ ...rendered, sourceBody: body }));
 }
 
 // renderViewSpec asks the server to resolve a fenced ```viewspec block (View Spec JSON) to its

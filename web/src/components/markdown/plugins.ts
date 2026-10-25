@@ -173,7 +173,7 @@ export function remarkWikiLink() {
         const display = link.alias || target;
         replacement.push({
           type: "wikilink",
-          data: { hName: "wikilink", hProperties: { target, display } },
+          data: { hName: "wikilink", hProperties: { target, display, ...(!link.alias && /^(?:[a-z0-9-]+:)?id:/.test(target) ? { resolveTitle: true } : {}) } },
           children: [],
         });
         last = link.end;

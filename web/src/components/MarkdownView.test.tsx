@@ -941,6 +941,20 @@ describe("MarkdownView", () => {
     expect(container.textContent).not.toContain(":only-contents");
   });
 
+  it("uses a cross-vault include's scope for assets and source tasks", async () => {
+    getNote.mockClear();
+    const { container } = renderWithQuery(
+      <FloatingProvider>
+        <MarkdownView vault="main" markdown="![[work:id:42|Excerpt]]" includes={[{
+          line: 0, note_id: "work~42", vault: "work", title: "work:id:42", caption: "Excerpt",
+          source_line: 0, lines: ["![Cover](assets/cover.png)"],
+        }]} />
+      </FloatingProvider>,
+    );
+    expect(container.querySelector('img[alt="Cover"]')?.getAttribute("src")).toBe("/api/asset?kind=note&name=cover.png&vault=work");
+    await waitFor(() => expect(getNote).toHaveBeenCalledWith("work~42"));
+  });
+
   it("writes an embedded task back to the note that owns it, at its own line", async () => {
     // The excerpt starts at the source note's line 10 (0-based source_line 9), so its first line
     // is that file's line 10 — not line 1 of the host note.
@@ -1029,4 +1043,35 @@ describe("MarkdownView", () => {
       'unresolved note "Nope"',
     );
   });
+});
+
+it("offers editing only for the exact draw.io render capability, including duplicate XML", () => {
+  const xml = "<mxfile />";
+  const first = { id: "track-drawio-first", start_line: 0, end_line: 2, xml };
+  const second = { id: "track-drawio-second", start_line: 4, end_line: 6, xml };
+  const open = vi.fn();
+  render(<MarkdownView markdown={`\`\`\`drawio ${first.id}\n${xml}\n\`\`\`\n\n\`\`\`drawio ${second.id}\n${xml}\n\`\`\`\n\n\`\`\`drawio\n${xml}\n\`\`\`\n`} drawioEditing={{ fences: [first, second], open }} />);
+  const buttons = screen.getAllByRole("button", { name: "Edit draw.io diagram" });
+  expect(buttons).toHaveLength(2);
+  fireEvent.click(buttons[1]);
+  expect(open).toHaveBeenCalledExactlyOnceWith(second);
+});
+
+it("leaves draw.io read-only without a live draft capability or for mismatched source", () => {
+  const fence = { id: "track-drawio-test", start_line: 0, end_line: 2, xml: "<mxfile />" };
+  const view = render(<MarkdownView markdown={`\`\`\`drawio ${fence.id}\n<mxfile />\n\`\`\``} />);
+  expect(screen.queryByRole("button", { name: "Edit draw.io diagram" })).toBeNull();
+  view.rerender(<MarkdownView markdown={`\`\`\`drawio ${fence.id}\n<mxfile name="other" />\n\`\`\``} drawioEditing={{ fences: [fence], open: vi.fn() }} />);
+  expect(screen.queryByRole("button", { name: "Edit draw.io diagram" })).toBeNull();
+});
+
+it("does not inherit a parent diagram-edit capability inside an included note", () => {
+  const fence = { id: "track-drawio-parent", start_line: 0, end_line: 2, xml: "<mxfile />" };
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<QueryClientProvider client={client}><FloatingProvider>
+    <MarkdownView markdown="![[Included]]\n" includes={[{ line: 0, note_id: 100, caption: "Included", title: "Included", kind: "note", lines: `\`\`\`drawio ${fence.id}\n<mxfile />\n\`\`\``.split("\n") }]}
+      drawioEditing={{ fences: [fence], open: vi.fn() }} />
+  </FloatingProvider></QueryClientProvider>);
+  expect(screen.getByRole("img", { name: "draw.io diagram" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Edit draw.io diagram" })).toBeNull();
 });

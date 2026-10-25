@@ -20,6 +20,11 @@ func Run(args []string) int {
 	if !ok {
 		return 1
 	}
+	var editorErr error
+	args, editorErr = canonicalEditorArgs(args)
+	if editorErr != nil {
+		return fail("%v", editorErr)
+	}
 	// File-based tangle and Markdown handoff do not consult machine or vault configuration.
 	if (len(args) == 0 || args[0] != "markdown") && (len(args) < 2 || args[0] != "babel" || args[1] != "tangle") {
 		applyPathVault(args)
@@ -49,6 +54,10 @@ func Run(args []string) int {
 		return cmdFmt(rest)
 	case "new":
 		return cmdNew(rest)
+	case "editor-path":
+		return cmdEditorPath(rest)
+	case "editor-view":
+		return cmdEditorView(rest)
 	case "open":
 		return cmdOpen(rest)
 	case "journal":
@@ -149,6 +158,8 @@ reindex, doctor and refresh-all back to one vault: with a registry they cover ev
 and TRACK_VAULT does not scope them.
 
 Usage:
+  track editor-path --path P [--check]  resolve a readable editor path; --check never creates aliases (JSON)
+  track editor-view                    build pinned aliases under TRACK_EDITOR_VIEW (JSON)
   track vault list                      list registered vaults, marking the active one (JSON)
   track vault current                   print the active vault's name (empty when unregistered) and path (JSON)
   track vault which <name>              resolve a registered vault name to its path (JSON)

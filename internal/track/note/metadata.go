@@ -56,10 +56,10 @@ func ReadMetadata(path string) (meta Metadata, found bool, err error) {
 		return Metadata{}, false, err
 	}
 	if err := yaml.Unmarshal(raw, &meta); err != nil {
-		return Metadata{}, true, err
+		return Metadata{}, true, &ParseError{Path: path, Err: err}
 	}
 	if !supportedVersion(meta.Version) {
-		return Metadata{}, true, fmt.Errorf("unsupported metadata version %d in %s", meta.Version, path)
+		return Metadata{}, true, &ParseError{Path: path, Err: fmt.Errorf("unsupported metadata version %d", meta.Version)}
 	}
 	return meta, true, nil
 }
@@ -232,6 +232,9 @@ func ParseLegacyMetadata(yamlText string) (Metadata, error) {
 	}
 	if meta.Version == 0 {
 		meta.Version = CurrentMetadataVersion
+	}
+	if !supportedVersion(meta.Version) {
+		return Metadata{}, fmt.Errorf("unsupported metadata version %d", meta.Version)
 	}
 	return meta, nil
 }

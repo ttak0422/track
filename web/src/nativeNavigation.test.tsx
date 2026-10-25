@@ -3,11 +3,11 @@ import { useEffect, useRef } from "react";
 import { describe, expect, it } from "vitest";
 import { useNativeEditorState, useNativeWorkspaceState } from "./nativeNavigation";
 
-function Editor({ body = "saved", saved = "saved", pending = false, deleted = false }) {
+function Editor({ body = "saved", saved = "saved", pending = false, deleted = false, auxiliaryDirty = false }) {
   const textarea = useRef<HTMLTextAreaElement>(null);
   const baseline = useRef(saved);
   baseline.current = saved;
-  useNativeEditorState({ body, textarea, savedBody: () => baseline.current, pending, isDeleted: () => deleted });
+  useNativeEditorState({ body, textarea, savedBody: () => baseline.current, pending, auxiliaryDirty, isDeleted: () => deleted });
   return <textarea aria-label="Draft" ref={textarea} defaultValue={body} />;
 }
 
@@ -61,6 +61,12 @@ describe("native editor navigation state", () => {
     (screen.getByRole("textbox") as HTMLTextAreaElement).value = "newer draft";
     view.rerender(<Editor body="newer draft" saved="draft" />);
     expect(state()).toBe(true);
+  });
+  it("protects unapplied diagrams independently of the saved body", () => {
+    const view = render(<Editor auxiliaryDirty />);
+    expect(state()).toBe(true);
+    view.rerender(<Editor />);
+    expect(state()).toBe(false);
   });
   it("permits leaving after confirmed deletion", () => {
     render(<Editor body="draft" deleted />);

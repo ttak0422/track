@@ -39,6 +39,11 @@ type MoveResult struct {
 // preferring a duplicate to lost text.
 func Move(srcCfg, dstCfg *config.Config, srcStore *store.Store, srcPath, dstName string, policy LinkPolicy) (MoveResult, error) {
 	var res MoveResult
+	// Moving between title and ID namespaces would silently reinterpret body targets.
+	// Refuse before any index or file write rather than enabling or migrating a vault.
+	if (srcCfg.LinkFormat == link.IDFormat) != (dstCfg.LinkFormat == link.IDFormat) {
+		return res, fmt.Errorf("source and destination link_format must match before moving a note (configure both as title or both as id-v1)")
+	}
 	if policy != RefuseBrokenLinks && policy != UnlinkBrokenLinks && policy != QualifyBrokenLinks {
 		return res, fmt.Errorf("unknown broken-link policy %q", policy)
 	}
@@ -65,6 +70,9 @@ func Move(srcCfg, dstCfg *config.Config, srcStore *store.Store, srcPath, dstName
 	if err != nil {
 		return res, fmt.Errorf("read metadata: %w", err)
 	}
+	if err := config.ValidateLinkTitle(dstCfg.LinkFormat, meta.Title); err != nil {
+		return res, err
+	}
 	res.NoteID, res.Title = noteID, meta.Title
 
 	kind, ok := srcCfg.KindFromPath(srcPath)
@@ -86,9 +94,26 @@ func Move(srcCfg, dstCfg *config.Config, srcStore *store.Store, srcPath, dstName
 		return res, fmt.Errorf("destination vault %q already has title %q on note %d", dstName, meta.Title, existingID)
 	}
 
+	// A qualified self-link follows the moved note; other source-qualified IDs
+	// stay qualified to the source. A same numeric ID in the destination is never
+	// evidence of the same note because IDs are vault-local.
+	if srcCfg.LinkFormat == link.IDFormat && srcCfg.VaultName != "" {
+		rewritten, _ := link.ReplaceRefKey(string(body), srcCfg.VaultName+":"+link.IDKey(noteID), link.IDKey(noteID))
+		body = []byte(rewritten)
+	}
 	var unresolved []string
 	unresolvedSet := map[string]bool{}
 	for _, ref := range link.Refs(string(body)) {
+		if targetID, explicit := link.ExplicitID(ref.Text, srcCfg.LinkFormat); explicit {
+			if targetID == noteID {
+				continue
+			}
+			if !unresolvedSet[ref.Text] {
+				unresolvedSet[ref.Text] = true
+				unresolved = append(unresolved, ref.Text)
+			}
+			continue
+		}
 		if _, _, qualified := link.SplitVaultRef(ref.Text, func(name string) bool {
 			_, exists := srcCfg.Vaults[name]
 			return exists
@@ -184,6 +209,15 @@ func Move(srcCfg, dstCfg *config.Config, srcStore *store.Store, srcPath, dstName
 			return res, fmt.Errorf("read backlink %d: %w", src.NoteID, err)
 		}
 		rewritten, n := link.ReplaceRefKey(string(raw), meta.Title, dstName+":"+meta.Title)
+		if srcCfg.LinkFormat == link.IDFormat {
+			var idCount int
+			rewritten, idCount = link.ReplaceRefKey(rewritten, link.IDKey(noteID), dstName+":"+link.IDKey(noteID))
+			n += idCount
+			if srcCfg.VaultName != "" {
+				rewritten, idCount = link.ReplaceRefKey(rewritten, srcCfg.VaultName+":"+link.IDKey(noteID), dstName+":"+link.IDKey(noteID))
+				n += idCount
+			}
+		}
 		if n == 0 {
 			continue
 		}

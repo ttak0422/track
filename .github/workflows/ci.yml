@@ -88,6 +88,14 @@ jobs:
       - name: Web tests
         run: nix develop --command bash -euo pipefail -c 'cd web && npm ci && npm test'
 
+      - name: Neovim readable editor view E2E
+        timeout-minutes: 3
+        run: nix run .#test-nvim -- --headless '+luafile scripts/e2e/nvim_editor_view.lua'
+
+      - name: Neovim editor view save guard E2E
+        timeout-minutes: 2
+        run: nix run .#test-nvim -- --headless -u NONE -i NONE -l scripts/e2e/nvim_editor_view_guard.lua
+
       - name: Neovim action-link E2E
         run: |
           export TRACK_VAULT="$(mktemp -d)"
@@ -182,6 +190,18 @@ jobs:
           printf 'vault_dir: %s\ncache_dir: %s\n' "$TRACK_VAULT" "$TRACK_CACHE_DIR" > "$TRACK_CONFIG"
           nix run .#test-nvim -- --headless '+lua local ok, err = pcall(dofile, "scripts/e2e/nvim_markdown.lua"); if not ok then print(err); vim.cmd("cquit 1") end'
 
+      - name: Neovim web stop E2E
+        run: |
+          fixture="$(mktemp -d)"
+          trap 'rm -rf "$fixture"' EXIT
+          export TRACK_WEB_STOP_FIXTURE="$fixture"
+          export TRACK_VAULT="$fixture/vault"
+          export TRACK_CACHE_DIR="$fixture/cache"
+          export TRACK_CONFIG="$fixture/config.yml"
+          mkdir -p "$TRACK_VAULT"
+          printf 'vault_dir: %s\ncache_dir: %s\n' "$TRACK_VAULT" "$TRACK_CACHE_DIR" > "$TRACK_CONFIG"
+          nix run .#test-nvim -- --headless '+lua local ok, err = pcall(dofile, "scripts/e2e/nvim_web_stop.lua"); if not ok then print(err); vim.cmd("cquit 1") end'
+
       - name: Neovim task conceal E2E
         run: |
           export TRACK_VAULT="$(mktemp -d)"
@@ -251,6 +271,7 @@ jobs:
       - name: WKWebView smoke and server recovery
         timeout-minutes: 5
         run: |
+          python3 scripts/drawio-layout-smoke.py
           python3 scripts/desktop-smoke.py build/desktop/Track.app/Contents/MacOS/Track
           python3 scripts/desktop-smoke.py build/desktop/Track.app/Contents/MacOS/Track --recovery-test
           python3 scripts/desktop-editor-recovery.py build/desktop/Track.app/Contents/Resources/track

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useVisible } from "../../hooks/useVisible";
 import { CodeBlock } from "./CodeBlock";
 import { loadDrawioViewer } from "./drawioViewer";
+import { fitDrawioViewport } from "./drawioViewport";
 
 interface DrawioDiagramProps {
   text: string;
@@ -27,6 +28,7 @@ export function DrawioDiagram({ text }: DrawioDiagramProps) {
   useEffect(() => {
     if (!visible) return;
     let cancelled = false;
+    let dispose: (() => void) | undefined;
     setState("loading");
 
     const root = parsedRoot(text);
@@ -44,8 +46,15 @@ export function DrawioDiagram({ text }: DrawioDiagramProps) {
         // The viewer reads its diagram and options from data-mxgraph. The host deliberately does
         // NOT carry the "mxgraph" class the script auto-scans for, so this stays the only render.
         // No toolbar and no lightbox links: a note diagram is a static figure.
-        host.dataset.mxgraph = JSON.stringify({ xml: text, page: 0, nav: false, toolbar: null });
-        viewer.createViewerForElement(host);
+        host.style.width = "100%";
+        host.dataset.mxgraph = JSON.stringify({
+          xml: text, page: 0, nav: false, toolbar: null,
+          resize: false, "auto-fit": false, "allow-zoom-out": false,
+        });
+        viewer.createViewerForElement(host, (instance) => {
+          dispose = fitDrawioViewport(host, instance);
+          if (cancelled) dispose();
+        });
         setState("ready");
       })
       .catch((error: unknown) => {
@@ -56,6 +65,7 @@ export function DrawioDiagram({ text }: DrawioDiagramProps) {
 
     return () => {
       cancelled = true;
+      dispose?.();
     };
   }, [text, visible]);
 

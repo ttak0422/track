@@ -113,7 +113,8 @@ export interface JournalResponse {
 // align with the rendered markdown) and baked into the static bundle's note JSON.
 export interface NoteInclude {
   line: number;
-  note_id?: number;
+  note_id?: number | NoteID;
+  vault?: string;
   kind?: string;
   etag?: string;
   title?: string;
@@ -414,7 +415,17 @@ export interface OgpResponse {
   site_name?: string;
 }
 
+export interface DrawioFence {
+  id: string;
+  start_line: number;
+  end_line: number;
+  xml: string;
+}
+
 export interface RenderResponse {
+  // Attached by the client to bind debounced/placeholder renders to their exact draft.
+  sourceBody?: string;
+  drawio_fences?: DrawioFence[];
   markdown: string;
   includes?: NoteInclude[];
 }

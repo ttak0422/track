@@ -3,6 +3,7 @@
 package note
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -14,6 +15,16 @@ import (
 	"github.com/ttak0422/track/internal/track/dispatch"
 	"github.com/ttak0422/track/internal/track/task"
 )
+
+// ParseError identifies invalid file data, which a bulk index may skip. Filesystem and
+// write errors stay distinct so an inaccessible vault is never mistaken for bad content.
+type ParseError struct {
+	Path string
+	Err  error
+}
+
+func (e *ParseError) Error() string { return fmt.Sprintf("%s: %v", e.Path, e.Err) }
+func (e *ParseError) Unwrap() error { return e.Err }
 
 // Metadata is the structured data stored beside a note under .track/notes.
 // Created is kept as a string so YAML round-trips it verbatim instead of reformatting a time.Time.
@@ -98,15 +109,15 @@ var MetadataKeyOrder = []string{
 // content. A note's title comes from the sidecar and changes only through the create/rename commands,
 // never by editing a body heading, so the body may contain any headings (including a leading H1).
 func ParseFile(path string, c *config.Config) (*Note, error) {
+	id, err := IDFromPath(path)
+	if err != nil {
+		return nil, &ParseError{Path: path, Err: fmt.Errorf("invalid note filename (expected a numeric id): %w", err)}
+	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 	info, err := os.Stat(path)
-	if err != nil {
-		return nil, err
-	}
-	id, err := IDFromPath(path)
 	if err != nil {
 		return nil, err
 	}
@@ -125,7 +136,7 @@ func ParseFile(path string, c *config.Config) (*Note, error) {
 	if !found && hasLegacy {
 		meta, err = ParseLegacyMetadata(legacy)
 		if err != nil {
-			return nil, err
+			return nil, &ParseError{Path: path, Err: fmt.Errorf("invalid legacy metadata: %w", err)}
 		}
 		metadataSource = true
 	}

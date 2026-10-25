@@ -214,6 +214,13 @@ excluded, so an undo never restores or removes attachments.
 
 `track reindex --full` rebuilds the cache index from the on-disk notes and sidecars; it reconciles deletions silently. Reconciling — here and when a read command self-heals a stale index — touches only index rows: the sidecar of a note missing from disk stays in place as an `orphan_sidecar` for doctor to report. Only explicit commands move files (`track rm` to trash, `doctor --fix` to restore).
 
+Invalid note filenames (such as `100 (conflicted copy).md` or `100-DESKTOP-ABC.md`) and invalid metadata
+are skipped per file during bulk indexing, with path/reason warnings on stderr. `reindex` adds a
+nonzero `skipped` count to its JSON result; valid files still index and remain searchable. Read-time
+refreshes and the web watcher use the same policy. Existing cached data for a present but
+unparseable note is retained; explicit `reindex` starts from a fresh cache and omits it. Files remain
+untouched, and filesystem/directory access and database failures still fail the operation.
+
 `track doctor` is a read-only health check that never changes files. It reports vault/sidecar divergence — the kind a cloud sync (e.g. OneDrive) can introduce — as a JSON `issues` array, with `ok: true` when clean. Issue kinds: `missing_sidecar`, `orphan_sidecar`, `stray_file` (e.g. a conflict copy that breaks the `<id>.md` naming rule), `stray_sidecar` (the same copy made of a `.track/notes/<id>.yaml` sidecar), `unreadable_sidecar`, `duplicate_title`, `property_violation` (a note property breaks the configured schema), and `shadowed_title` (a title is captured by a registered vault qualifier). Finding issues is not an error, so it still exits 0; only real failures use the `{"error":...}`/exit 1 contract. Run it before a `reindex --full` if you suspect a partially synced vault, so an orphan sidecar is not mistaken for a delete.
 
 `track doctor --fix` repairs only the file divergences whose intended restore is unambiguous: it writes a fresh `Untitled N` sidecar for a `missing_sidecar`, recreates an empty markdown for an `orphan_sidecar`, keeps the lowest id and renumbers the rest for a `duplicate_title`, and imports a `stray_file` as a new note with a fresh id and title. It reports an `unreadable_sidecar` under `skipped` rather than guessing at its contents, and likewise skips a `stray_sidecar` because choosing between conflicted metadata files is the user's call. `property_violation` and `shadowed_title` are also reported under `skipped`: the intended property value, note rename, or vault rename is a human decision. The response carries `changed`, `fixed`, and `skipped`.

@@ -7,7 +7,9 @@ local M = {}
 
 local job_id
 local running_addr
+local running_env
 local stopping = false
+local stop_pending = false
 local autostop_registered = false
 local readiness_token = 0
 local uv = vim.uv or vim.loop
@@ -16,6 +18,31 @@ local pending_follow_buf
 
 local function is_running()
    return job_id ~= nil and vim.fn.jobwait({ job_id }, 0)[1] == -1
+end
+
+local function clear_follow()
+   if follow_timer then
+      follow_timer:stop()
+      follow_timer:close()
+      follow_timer = nil
+   end
+   pending_follow_buf = nil
+end
+
+local function release_job(id)
+   if id ~= job_id then return end
+   job_id = nil
+   running_addr = nil
+   running_env = nil
+   readiness_token = readiness_token + 1
+   stopping = false
+   clear_follow()
+end
+
+local function server_env()
+   local env = vim.fn.environ()
+   env.TRACK_VAULT = config.options.vault_dir
+   return env
 end
 
 local function normalize_path(path)
@@ -39,7 +66,7 @@ local function follow_state(buf)
    if not vault then
       return nil
    end
-   local path = uv.fs_realpath(name) or normalize_path(name)
+   local path = require("track.util").canonical_path(buf)
    vault = normalize_path(vault)
    path = normalize_path(path)
 
@@ -247,7 +274,7 @@ local function register_autostop()
    })
 end
 
-local function parse_addr(args)
+local function parse_addr(args, command)
    args = args or {}
    if #args == 0 then
       return config.options.web_addr
@@ -258,10 +285,15 @@ local function parse_addr(args)
    if #args == 2 and args[1] == "--addr" then
       return args[2]
    end
-   return nil, "usage: :Track web [addr] or :Track web --addr addr"
+   command = command or "web"
+   return nil, "usage: :Track " .. command .. " [addr] or :Track " .. command .. " --addr addr"
 end
 
 function M.open(args, ready)
+   if stop_pending then
+      vim.notify("track web is stopping; run :Track web again after it finishes", vim.log.levels.WARN)
+      return
+   end
    local addr, err = parse_addr(args)
    if not addr then
       vim.notify("track: " .. err, vim.log.levels.ERROR)
@@ -279,12 +311,11 @@ function M.open(args, ready)
    register_autostop()
 
    local cmd = { client.bin(), "web", "--addr", addr }
-   local env = {
-      TRACK_VAULT = config.options.vault_dir,
-   }
+   local env = server_env()
    stopping = false
    job_id = vim.fn.jobstart(cmd, {
       env = env,
+      clear_env = true,
       stdout_buffered = false,
       stderr_buffered = false,
       on_stdout = function(_, data)
@@ -296,10 +327,7 @@ function M.open(args, ready)
       on_exit = function(id, code)
          if id ~= job_id then return end
          local stopped = stopping
-         job_id = nil
-         running_addr = nil
-         readiness_token = readiness_token + 1
-         stopping = false
+         release_job(id)
          if code ~= 0 and not stopped then
             vim.schedule(function()
                vim.notify("track web exited with code " .. tostring(code), vim.log.levels.ERROR)
@@ -310,15 +338,66 @@ function M.open(args, ready)
 
    if job_id <= 0 then
       local failed = job_id
-      job_id = nil
-      running_addr = nil
-      readiness_token = readiness_token + 1
+      release_job(job_id)
       vim.notify("track: failed to start web server job (" .. tostring(failed) .. ")", vim.log.levels.ERROR)
       return
    end
 
    running_addr = addr
+   running_env = env
    wait_until_ready(addr, url, ready)
+end
+
+function M.stop(args)
+   args = args or {}
+   local addr, err = parse_addr(args, "webStop")
+   if not addr then
+      vim.notify("track: " .. err, vim.log.levels.ERROR)
+      return
+   end
+   if stop_pending then
+      vim.notify("track web stop is already in progress", vim.log.levels.INFO)
+      return
+   end
+   if #args == 0 and is_running() then addr = running_addr end
+   local owned = is_running() and running_addr == addr and job_id or nil
+   local env = owned and running_env or server_env()
+   stop_pending = true
+   if owned then
+      stopping = true
+      readiness_token = readiness_token + 1
+      clear_follow()
+   end
+   local function finish(result)
+      vim.schedule(function()
+         stop_pending = false
+         local ok, data = pcall(vim.json.decode, result.stdout or "")
+         if result.code ~= 0 or not ok or type(data) ~= "table" or type(data.stopped) ~= "boolean" or data.error then
+            if owned == job_id then stopping = false end
+            local reason = ok and type(data) == "table" and data.error or result.stderr
+            if not reason or reason == "" then reason = "invalid stop response" end
+            vim.notify("track web stop failed: " .. tostring(reason), vim.log.levels.ERROR)
+            return
+         end
+         if owned and owned == job_id then
+            -- The CLI may return just before Neovim receives the process exit. Do not drop a live
+            -- handle on a failed/missing PID lease, or clear a different job from a late callback.
+            local status = vim.fn.jobwait({ owned }, data.stopped and 1000 or 0)[1]
+            if status == -1 then
+               stopping = false
+               vim.notify("track web is still running at " .. addr .. "; the CLI did not stop its job", vim.log.levels.ERROR)
+               return
+            end
+            release_job(owned)
+         end
+         vim.notify(data.stopped and ("track web stopped: http://" .. addr)
+            or ("track web has no managed server at http://" .. addr), vim.log.levels.INFO)
+      end)
+   end
+   local ok, failure = pcall(function()
+      vim.system({ client.bin(), "web", "stop", "--addr", addr }, { text = true, env = env, clear_env = true }, finish)
+   end)
+   if not ok then finish({ code = -1, stderr = tostring(failure) }) end
 end
 
 -- Arguments stay an argv array all the way to the CLI. No filename is interpolated into a shell,
@@ -385,7 +464,7 @@ function M.markdown()
 end
 
 function M.publish_follow(buf)
-   if not is_running() then
+   if stopping or stop_pending or not is_running() then
       return
    end
    pending_follow_buf = buf or vim.api.nvim_get_current_buf()
@@ -394,10 +473,11 @@ function M.publish_follow(buf)
    else
       follow_timer = uv.new_timer()
    end
+   local owner = job_id
    follow_timer:start(80, 0, function()
       local target = pending_follow_buf
       vim.schedule(function()
-         if not is_running() then
+         if owner ~= job_id or stopping or stop_pending or not is_running() then
             return
          end
          local state = follow_state(target)

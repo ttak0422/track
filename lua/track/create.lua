@@ -32,7 +32,7 @@ function M.create(title, template, parent_path)
       return
    end
 
-   vim.cmd.edit(vim.fn.fnameescape(data.path))
+   require("track.editor_view").open(data.path)
 end
 
 -- prompt asks for a title (prefilled with `default`, e.g. the word under the cursor) and creates a note from it.

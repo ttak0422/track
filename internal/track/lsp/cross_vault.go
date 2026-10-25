@@ -3,6 +3,7 @@ package lsp
 import (
 	"strings"
 
+	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/link"
 	"github.com/ttak0422/track/internal/track/vaultref"
 	protocol "typefox.dev/lsp"
@@ -37,6 +38,9 @@ func (s *Server) resolveQualified(key string) (res vaultref.Resolved, vault stri
 	if !found {
 		return vaultref.Resolved{}, vault, "", crossMissing
 	}
+	if cfg, err := config.LoadAt(s.cfg.Vaults[vault]); err == nil {
+		resolved.Path = s.editorPath(cfg, resolved.NoteID, resolved.FileKind, resolved.Title)
+	}
 	return resolved, vault, "", crossResolved
 }
 
@@ -61,13 +65,14 @@ func (s *Server) crossVaultCompletion(ctx openLinkContext, vault string) []compl
 	}
 	items := make([]completionItem, 0, len(kws))
 	for _, kw := range kws {
-		target := vault + ":" + kw.Term
+		label := vault + ":" + kw.Term
+		target := vault + ":" + link.NoteTarget(s.cfg.LinkFormat, kw.NoteID, kw.Term)
 		items = append(items, completionItem{
-			Label:      target,
+			Label:      label,
 			Kind:       protocol.ReferenceCompletion,
 			Detail:     "vault " + vault,
 			InsertText: target,
-			FilterText: target,
+			FilterText: label,
 			TextEdit:   completionTextEdit(ctx, target),
 		})
 	}

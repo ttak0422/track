@@ -110,7 +110,7 @@ function ShellView() {
                   </Link>
                 </RailTip>
                 <SidebarSearch />
-                <SidebarNew />
+                {!STATIC_MODE && <SidebarNew />}
                 <SidebarHistory />
                 {!STATIC_MODE && (
                   <RailTip label="Markdown viewer">
@@ -154,11 +154,13 @@ function ShellView() {
                     <RailIcon Icon={IconAffiliate} />
                   </Link>
                 </RailTip>
-                <RailTip label="Voice input">
-                  <Link className="rail-button" to="/voice" aria-label="Voice input">
-                    <RailIcon Icon={IconMicrophone} />
-                  </Link>
-                </RailTip>
+                {!STATIC_MODE && (
+                  <RailTip label="Voice input">
+                    <Link className="rail-button" to="/voice" aria-label="Voice input">
+                      <RailIcon Icon={IconMicrophone} />
+                    </Link>
+                  </RailTip>
+                )}
                 {!STATIC_MODE && (
                   <RailTip label="Agent requests">
                     <button

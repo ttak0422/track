@@ -148,6 +148,14 @@ function M.setup()
       require("track.telescope").search_body({ query = opts.args })
    end, { nargs = "*", desc = "Search note bodies with Telescope" })
 
+   register("files", function()
+      require("track.telescope").files()
+   end, { desc = "Find readable editor-view files with Telescope" })
+
+   register("copy_link", function()
+      require("track.editor_view").copy_link()
+   end, { desc = "Copy the current note wikilink using the vault link format" })
+
    register("follow", function()
       require("track.follow").follow()
    end, { desc = "Follow the track link under the cursor" })
@@ -187,6 +195,10 @@ function M.setup()
    register("web", function(opts)
       require("track.web").open(opts.fargs)
    end, { nargs = "*", desc = "Start the local web workspace and open it in a browser" })
+
+   register("webStop", function(opts)
+      require("track.web").stop(opts.fargs)
+   end, { nargs = "*", desc = "Stop the local web workspace using its CLI PID record" })
 
    register("markdown", function()
       require("track.web").markdown()

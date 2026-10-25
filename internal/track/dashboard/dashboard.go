@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/ttak0422/track/internal/track/babel"
+	"github.com/ttak0422/track/internal/track/link"
 	"gopkg.in/yaml.v3"
 )
 
@@ -30,6 +31,10 @@ type Data struct {
 	// JournalTitle is today's journal note title (its date-addressed name), for the journal shortcut.
 	// Empty disables the shortcut even when a block requests it.
 	JournalTitle string
+	// LinkFormat opts generated links into the source vault's format. NoteIDs maps known
+	// titles to identities, including pinned titles. Missing entries remain title links.
+	LinkFormat string
+	NoteIDs    map[string]int64
 }
 
 // config is one dashboard block's YAML body. Every field is optional; an empty block renders nothing.
@@ -81,17 +86,17 @@ func render(cfg config, data Data) string {
 		if len(titles) > cfg.Recent {
 			titles = titles[:cfg.Recent]
 		}
-		writeWidget(&b, "Recent notes", titles, "No recent notes.")
+		writeWidget(&b, "Recent notes", titles, "No recent notes.", data)
 	}
 	if cfg.Journal {
 		var items []string
 		if data.JournalTitle != "" {
 			items = []string{data.JournalTitle}
 		}
-		writeWidget(&b, "Today's journal", items, "No journal yet.")
+		writeWidget(&b, "Today's journal", items, "No journal yet.", data)
 	}
 	if len(cfg.Pinned) > 0 {
-		writeWidget(&b, "Pinned", cfg.Pinned, "")
+		writeWidget(&b, "Pinned", cfg.Pinned, "", data)
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -99,7 +104,7 @@ func render(cfg config, data Data) string {
 // writeWidget appends one widget: a bold label, then a [[link]] per title, or an empty-state line when
 // there are none (skipped when empty is ""). Blank-line separation keeps each widget its own Markdown
 // block so headings and lists render cleanly.
-func writeWidget(b *strings.Builder, label string, titles []string, empty string) {
+func writeWidget(b *strings.Builder, label string, titles []string, empty string, data Data) {
 	fmt.Fprintf(b, "**%s**\n\n", label)
 	if len(titles) == 0 {
 		if empty != "" {
@@ -111,6 +116,9 @@ func writeWidget(b *strings.Builder, label string, titles []string, empty string
 		t = strings.TrimSpace(t)
 		if t == "" {
 			continue
+		}
+		if id, known := data.NoteIDs[t]; known && id > 0 {
+			t = link.NoteTarget(data.LinkFormat, id, t)
 		}
 		fmt.Fprintf(b, "- [[%s]]\n", t)
 	}

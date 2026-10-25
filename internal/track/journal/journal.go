@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ttak0422/track/internal/track/config"
+	"github.com/ttak0422/track/internal/track/link"
 	"github.com/ttak0422/track/internal/track/note"
 )
 
@@ -102,7 +103,7 @@ func Open(cfg *config.Config, day time.Time, opts Options) (Result, error) {
 }
 
 // ensureSummary makes sure the summary journal note named `name` exists and lists `childTerm` as a
-// `[[childTerm]]` bullet. It is idempotent: an existing link is left untouched. It returns the summary
+// wiki-link bullet. It is idempotent: an existing link is left untouched. It returns the summary
 // path when the file changed (and so needs reindexing), or "" when nothing changed.
 func ensureSummary(cfg *config.Config, name, childTerm, date, kindTag string) (string, error) {
 	noteID, err := note.IDFromName(name)
@@ -121,7 +122,11 @@ func ensureSummary(cfg *config.Config, name, childTerm, date, kindTag string) (s
 		return "", err
 	}
 
-	link := "[[" + childTerm + "]]"
+	childID, err := note.IDFromName(childTerm)
+	if err != nil {
+		return "", err
+	}
+	childLink := "[[" + link.NoteTarget(cfg.LinkFormat, childID, childTerm) + "]]"
 	changed := false
 	if !exists {
 		if err := os.MkdirAll(cfg.JournalDir(), 0o755); err != nil {
@@ -129,11 +134,11 @@ func ensureSummary(cfg *config.Config, name, childTerm, date, kindTag string) (s
 		}
 		changed = true
 	}
-	if !strings.Contains(body, link) {
+	if !hasSummaryLink(body, childTerm, childID, cfg.LinkFormat) {
 		if body != "" && !strings.HasSuffix(body, "\n") {
 			body += "\n"
 		}
-		body += "- " + link + "\n"
+		body += "- " + childLink + "\n"
 		changed = true
 	}
 	if !changed {
@@ -152,6 +157,20 @@ func ensureSummary(cfg *config.Config, name, childTerm, date, kindTag string) (s
 		}
 	}
 	return path, nil
+}
+
+// hasSummaryLink recognizes both legacy title links and, in opted-in vaults, stable ID
+// links. Aliases do not affect identity, and enabling ID links never rewrites old entries.
+func hasSummaryLink(body, title string, id int64, format string) bool {
+	for _, ref := range link.Refs(body) {
+		if ref.Text == title {
+			return true
+		}
+		if targetID, explicit := link.ExplicitID(ref.Text, format); explicit && targetID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func startOfDay(t time.Time) time.Time {

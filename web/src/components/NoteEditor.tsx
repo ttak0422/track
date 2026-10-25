@@ -1,5 +1,8 @@
 import { useBlocker, useNavigate } from "@tanstack/react-router";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { DrawioEditorDialog } from "./DrawioEditorDialog";
+import { replaceDrawioFence } from "./markdown/drawioEditing";
+import type { DrawioFence } from "../types";
 import { LineHint } from "./LineHint";
 import { MarkdownView } from "./MarkdownView";
 import { TaskBoardContext } from "./markdown/context";
@@ -55,6 +58,11 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
   // adopts it once it arrives — unchanged behavior.
   const cachedNote = noteQuery.data?.note;
   const [body, setBody] = useState(() => cachedNote?.body ?? "");
+  const [diagram, setDiagram] = useState<{ id: string; noteID: NoteID; source: string; fence: DrawioFence } | null>(null);
+  // Updated during render so even a message arriving before effects cannot act
+  // on a previous route or on a superseded draft.
+  const currentDraft = useRef({ noteID, body, diagram });
+  currentDraft.current = { noteID, body, diagram };
   // Mode and follow are drawn in the floating rail (NoteRailControls), so their state sits above both
   // views rather than here. setActions is how this note tells the rail what it can act on.
   const {
@@ -101,6 +109,7 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
     textarea: textareaRef,
     savedBody: () => loadedRef.current.body,
     pending: saveNote.isPending,
+    auxiliaryDirty: diagram !== null,
     isDeleted: () => deletedRef.current,
   });
 
@@ -197,7 +206,8 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
     const switchedNote = noteID !== loadedRef.current.noteID;
     const discardedUnsavedEdit =
       switchedNote && body !== loadedRef.current.body;
-    if (switchedNote || body === loadedRef.current.body) {
+    if (switchedNote || (body === loadedRef.current.body && !diagram)) {
+      if (switchedNote) setDiagram(null);
       loadedRef.current = { noteID, body: incoming.body, etag: incoming.etag };
       tasksRef.current = { tasks: incoming.tasks ?? { items: [] }, etag: incoming.etag };
       setBody(incoming.body);
@@ -205,9 +215,10 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
         setEditorMode("preview");
       }
     }
-  }, [noteID, noteQuery.data?.note.etag]);
+  }, [noteID, noteQuery.data?.note.etag, diagram]);
 
   const dirty = body !== loadedRef.current.body;
+  const protectedDraft = dirty || diagram !== null;
   // Memoized so a disk refresh (which swaps only tasksRef.current) does not re-render the controls:
   // the value identity is what the consumers re-render on, and noteID is the only part of it that
   // changes their rendered output (the inert/read-only blanking while the buffer is dirty).
@@ -223,7 +234,7 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
         return false;
       return !window.confirm(unsavedChangesMessage);
     },
-    enableBeforeUnload: () => dirty && !deletedRef.current,
+    enableBeforeUnload: () => protectedDraft && !deletedRef.current,
   });
 
   // The tab bar owns the note's title and unsaved-edit indicator (the reader no longer renders its own
@@ -234,8 +245,8 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
   }, [noteID, noteTitle, setTabTitle]);
 
   useEffect(() => {
-    setTabDirty(dirty ? noteID : null);
-  }, [dirty, noteID, setTabDirty]);
+    setTabDirty(protectedDraft ? noteID : null);
+  }, [protectedDraft, noteID, setTabDirty]);
 
   // Leaving the reader entirely (home/graph) drops the dirty marker; a closed tab discards its edits.
   useEffect(() => () => setTabDirty(null), [setTabDirty]);
@@ -369,7 +380,7 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!dirty || saveNote.isPending) return;
+    if (!dirty || saveNote.isPending || diagram) return;
     try {
       const response = await saveNote.mutateAsync({
         body,
@@ -402,6 +413,25 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
       className={`note-reader${editorMode === "split" ? " note-reader-split" : ""}`}
     >
 
+      {diagram && diagram.noteID === noteID ? (
+        <DrawioEditorDialog key={diagram.id} xml={diagram.fence.xml}
+          onClose={() => {
+            if (currentDraft.current.diagram?.id !== diagram.id) return;
+            currentDraft.current = { ...currentDraft.current, diagram: null };
+            setDiagram(null);
+          }}
+          onApply={(xml) => {
+            const current = currentDraft.current;
+            if (current.noteID !== diagram.noteID || current.diagram?.id !== diagram.id) return false;
+            const next = replaceDrawioFence(current.body, diagram.source, diagram.fence, xml);
+            if (next === null) return false;
+            currentDraft.current = { noteID, body: next, diagram: null };
+            setBody(next);
+            setDiagram(null);
+            setEditorMode("split");
+            return true;
+          }} />
+      ) : null}
       {metaOpen ? (
         <NoteMetaDialog noteID={noteID} onClose={() => setMetaOpen(false)} />
       ) : null}
@@ -523,6 +553,10 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
                         vault={noteVault}
                         includes={renderQuery.data?.includes}
                         copyPath={note.copy_path}
+                        drawioEditing={renderQuery.data?.sourceBody === body && loadedRef.current.noteID === noteID && !saveNote.isPending ? {
+                          fences: renderQuery.data.drawio_fences ?? [],
+                          open: (fence) => setDiagram({ id: crypto.randomUUID(), noteID, source: body, fence }),
+                        } : null}
                       />
                     </TaskBoardContext.Provider>
                   )}
@@ -545,7 +579,7 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
                 <button
                   className="primary-button"
                   type="submit"
-                  disabled={!dirty || saveNote.isPending}
+                  disabled={!dirty || saveNote.isPending || diagram !== null}
                 >
                   {saveNote.isPending ? "Saving..." : "Save"}
                 </button>
