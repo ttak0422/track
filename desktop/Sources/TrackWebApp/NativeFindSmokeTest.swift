@@ -21,6 +21,13 @@ final class NativeFindSmokeTest {
     func run(menuConfigured: Bool) async -> [String: Any] {
         checks["menuConfigured"] = menuConfigured
         do {
+            try require(try await pageBool("""
+            (() => {
+              window.__trackReadingRestores = 0;
+              window.addEventListener('track:restore-reading-focus', () => window.__trackReadingRestores++);
+              return window.__trackNativeReading === true;
+            })()
+            """), "nativeReadingMarker")
             try require(dispatch(.showFindInterface), "commandFDispatched")
             try await waitUntil { self.bar().map { !$0.isHidden && $0.frame.height > 0 } == true }
             try require(true, "nativeFindUIVisible")
@@ -83,15 +90,43 @@ final class NativeFindSmokeTest {
             fieldEditor.doCommand(by: #selector(NSResponder.cancelOperation(_:)))
             try await waitUntil { self.bar()?.isHidden == true }
             try require(true, "escapeCloses")
+            try await readingRestored(count: 1)
+            try require(window.firstResponder === webView, "escapeRestoresWebResponder")
+            try require(true, "escapeRequestsReadingFocus")
             try require(dispatch(.showFindInterface), "reopenDispatched")
             try await waitUntil { self.bar().map { !$0.isHidden && $0.frame.height > 0 } == true }
             try require((window.firstResponder as? NSTextView)?.string == "日本語検索", "reopenPreservesQuery")
             _ = try await selection(matching: "日本語検索")
             try require(true, "reopenFinds")
+            func done(in view: NSView) -> NSButton? {
+                if let button = view as? NSButton, button.title == "Done" { return button }
+                return view.subviews.compactMap { done(in: $0) }.first
+            }
+            guard let button = bar().flatMap({ done(in: $0) }) else { throw Failure("Find Done button missing") }
+            button.performClick(nil)
+            try await readingRestored(count: 2)
+            try require(bar()?.isHidden == true && window.firstResponder === webView, "doneRequestsReadingFocus")
         } catch {
             return report(error: String(describing: error))
         }
         return report(error: nil)
+    }
+
+    private func readingRestored(count: Int) async throws {
+        for _ in 0..<80 {
+            if try await pageBool("window.__trackReadingRestores === \(count) && window.getSelection().isCollapsed") { return }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        throw Failure("Find dismissal did not request reading focus after clearing selection")
+    }
+
+    private func pageBool(_ script: String) async throws -> Bool {
+        try await withCheckedThrowingContinuation { continuation in
+            webView.evaluateJavaScript(script) { value, error in
+                if let error { continuation.resume(throwing: error) }
+                else { continuation.resume(returning: value as? Bool == true) }
+            }
+        }
     }
 
     private func enter(_ query: String) throws {

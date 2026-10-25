@@ -68,7 +68,9 @@ launches; production behavior still routes only eligible user-initiated external
 The focused `search-smoke.py` test launches the SwiftPM executable in an isolated mode without Go and
 enters English and Japanese queries through the native field editor, then verifies actual selected
 page text and painted highlight pixels, next/previous movement and wrapping, no-match/clear feedback,
-Escape/reopen behavior, and the window's native-tabbing policy. It never calls the search API directly. Build through the
+Escape/reopen behavior, Escape/Done requests to restore reading focus after selection clearing, and
+the window's native-tabbing policy. This fixture checks the native-to-page request; the web tests
+cover the reading hook and workspace-search focus transitions. It never calls the search API directly. Build through the
 desktop toolchain helper, then run it:
 
 ```sh
@@ -135,7 +137,9 @@ results within its timeout. GUI failures are not skipped or treated as successfu
   its titled workspace window; content extends through the hidden native titlebar region.
 - In a focused note Preview reading area, `j`/`k` scroll and `Tab`/`Shift+Tab` cycle open note
   tabs. Click ordinary preview text to focus the area; `Escape` returns Tab to normal focus
-  navigation. Editing, interactive controls, IME, and open overlays keep their keys. A document-start,
+  navigation. Dismissing workspace search or choosing a result restores Preview reading focus;
+  closing the in-page Find bar also restores it after clearing the match selection. Surviving input
+  focus is preserved. Editing, interactive controls, IME, and open overlays keep their keys. A document-start,
   main-frame-only boolean marker enables this context on the exact workspace origin; it adds no
   native message bridge and is absent from static apps and embedded pages. The same frontend in a
   normal browser keeps its ordinary keyboard behavior. See the help vault's **Web workspace** page.

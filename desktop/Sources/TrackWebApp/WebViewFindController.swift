@@ -105,8 +105,18 @@ final class WebViewFindController: NSObject, NSSearchFieldDelegate {
         generation += 1
         visible = false
         onVisibilityChange?(false)
-        clearSelection()
         if let webView { webView.window?.makeFirstResponder(webView) }
+        let request = generation
+        clearSelection { [weak self] in
+            guard let self, self.generation == request, !self.visible,
+                  let webView = self.webView, webView.window?.firstResponder === webView else { return }
+            // Restoring the native responder alone does not restore the page's reading context.
+            webView.evaluateJavaScript("""
+            if (window.__trackNativeReading === true) {
+              window.dispatchEvent(new Event('track:restore-reading-focus'));
+            }
+            """)
+        }
     }
 
     private func search(backwards: Bool, restart: Bool) {

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { isTypingTarget, keys } from "../keys";
+import { requestReadingFocus } from "../keybindings/useReadingKeybindings";
 import { SearchPanel } from "./SearchPanel";
 import { IconSearch, RailIcon } from "./icons";
 
@@ -11,6 +12,7 @@ export function SidebarSearch() {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
+  const choseResult = useRef(false);
 
   useEffect(() => {
     function onOpenKey(event: KeyboardEvent) {
@@ -30,6 +32,7 @@ export function SidebarSearch() {
 
   useEffect(() => {
     if (!open) return;
+    choseResult.current = false;
 
     function onPointerDown(event: MouseEvent) {
       if (
@@ -47,6 +50,8 @@ export function SidebarSearch() {
     return () => {
       document.removeEventListener("mousedown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
+      // Passive cleanup runs after the palette and its input have left the DOM.
+      requestReadingFocus(choseResult.current);
     };
   }, [open]);
 
@@ -72,7 +77,7 @@ export function SidebarSearch() {
                   closes, same as clicking anywhere else outside. */}
               <div className="search-backdrop" onMouseDown={() => setOpen(false)} />
               <div className="search-popup" role="dialog" aria-label="Search notes">
-                <SearchPanel autoFocus onNavigate={() => setOpen(false)} />
+                <SearchPanel autoFocus onNavigate={() => { choseResult.current = true; setOpen(false); }} />
               </div>
             </div>,
             document.body,

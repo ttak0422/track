@@ -75,6 +75,10 @@ def main() -> None:
                 "noMatchClearsSelection": "a missing query clears the old selection",
                 "clearResetsFeedback": "clearing the field resets match feedback",
                 "escapeCloses": "Escape closes the find bar",
+                "nativeReadingMarker": "the workspace has its native reading marker",
+                "escapeRestoresWebResponder": "Escape restores the WebView native responder",
+                "escapeRequestsReadingFocus": "Escape requests reading focus after clearing selection",
+                "doneRequestsReadingFocus": "Done restores the responder and requests reading focus on repeated search",
                 "reopenPreservesQuery": "reopening preserves the query and focuses the field",
                 "reopenFinds": "reopening restores a real page match",
             }.items()
@@ -86,7 +90,7 @@ def main() -> None:
             details = "; ".join(f"FAIL {name}" for name in failures)
             raise SystemExit(f"WKWebView search smoke failed: {details}; report={json.dumps(report, ensure_ascii=False)}")
 
-        print("WKWebView search smoke passed: typed English/Japanese queries, painted selection, next/previous movement and wrapping, no-match, clear, Escape/reopen, and window policy verified.")
+        print("WKWebView search smoke passed: typed English/Japanese queries, painted selection, next/previous movement and wrapping, no-match, clear, Escape/reopen, Escape/Done reading-focus requests after selection clearing, and window policy verified.")
 
 
 if __name__ == "__main__":
