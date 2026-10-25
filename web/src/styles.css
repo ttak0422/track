@@ -5701,9 +5701,16 @@ textarea.modal-input:focus-visible {
 .drawio-editor-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .drawio-editor-dialog h3, .drawio-editor-dialog p { margin: 0; }
 .drawio-editor-dialog p { font-size: calc(13px * var(--font-scale, 1)); }
-.drawio-editor-dialog iframe { width: 100%; flex: 1; min-height: 160px; border: 1px solid var(--line); background: var(--panel); }
+.drawio-editor-dialog iframe { width: 100%; flex: 1 0 160px; min-height: 160px; border: 1px solid var(--line); background: var(--panel); }
 
-.drawio-editor-dialog:has(iframe) { width: min(1440px, 96vw); height: min(1000px, 94vh); }
+.drawio-editor-dialog:has(iframe) {
+  width: 90vw;
+  height: 90vh;
+  height: 90dvh;
+  max-height: 90dvh;
+  overflow: auto;
+}
+.drawio-editor-dialog > :not(iframe) { flex-shrink: 0; }
 /* Text control (variant 1). */
 .drawio-editor-button {
   align-self: flex-start;
