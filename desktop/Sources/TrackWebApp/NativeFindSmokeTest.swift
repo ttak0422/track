@@ -28,19 +28,37 @@ final class NativeFindSmokeTest {
               return window.__trackNativeReading === true;
             })()
             """), "nativeReadingMarker")
+            let originalFrame = webView.frame
+            try require(try await pageBool("window.__tabBeforeFind = document.querySelector('.tabstrip').getBoundingClientRect().top; true"), "tabPositionCaptured")
             try require(dispatch(.showFindInterface), "commandFDispatched")
             try await waitUntil { self.bar().map { !$0.isHidden && $0.frame.height > 0 } == true }
             try require(true, "nativeFindUIVisible")
+            let tabUnmoved = try await pageBool("document.querySelector('.tabstrip').getBoundingClientRect().top === window.__tabBeforeFind")
+            try require(webView.frame == originalFrame && tabUnmoved, "findDoesNotMoveTabbar")
+            let originalSize = window.contentView!.bounds.size
+            window.setContentSize(NSSize(width: 800, height: 560))
+            window.contentView?.layoutSubtreeIfNeeded()
+            try await waitUntil { self.webView.frame.size == self.window.contentView?.bounds.size }
+            try require(bar().map { $0.frame.minX >= 0 && $0.frame.maxX <= 800 && $0.frame.maxY <= 560 - 33 } == true, "findResizeKeepsTabTargets")
+            window.setContentSize(originalSize)
+            window.contentView?.layoutSubtreeIfNeeded()
+            try await waitUntil { self.webView.frame == originalFrame }
             let before = try await snapshot()
             try enter("TrackSearchSmokeMarker")
             let first = try await selection(matching: "TrackSearchSmokeMarker")
             try require(first.id == "english-first", "queryEnteredThroughField")
             try require(true, "queryMatched")
             try require(true, "selectionTextMatches")
+            try require(try await pageBool("CSS.highlights.get('track-find-all').size === 2 && CSS.highlights.get('track-find-current').size === 1", isolated: true), "allMatchesHighlighted")
             // The page is static and both occurrences are above the fold. A pixel change confined
             // to the selected text proves that a highlight is painted while the search field owns focus.
             let after = try await snapshot()
             try require(highlightChanged(before: before, after: after, selection: first), "visibleHighlight")
+            let other = try await readSelection(allIndex: 1)
+            try require(highlightChanged(before: before, after: after, selection: other), "otherMatchPainted")
+            let activePixels = after.colorAt(x: Int((first.x + first.width / 2) * Double(after.pixelsWide) / Double(webView.bounds.width)), y: Int((first.y + 1) * Double(after.pixelsHigh) / Double(webView.bounds.height)))
+            let otherPixels = after.colorAt(x: Int((other.x + other.width / 2) * Double(after.pixelsWide) / Double(webView.bounds.width)), y: Int((other.y + 1) * Double(after.pixelsHigh) / Double(webView.bounds.height)))
+            try require(activePixels != nil && otherPixels != nil && activePixels != otherPixels, "currentMatchDistinct")
             try require(dispatch(.nextMatch), "nextShortcutDispatched")
             let second = try await selection(matching: "TrackSearchSmokeMarker", id: "english-second")
             try require(second.id != first.id, "nextMoved")
@@ -59,11 +77,20 @@ final class NativeFindSmokeTest {
             editingField.insertText("Marker", replacementRange: editingField.selectedRange())
             _ = try await selection(matching: "TrackSearchSmokeMarker", id: "english-first")
             try require(true, "incrementalQueryMatched")
+            editingField.selectAll(nil)
+            editingField.setMarkedText("UncommittedNativeFind", selectedRange: NSRange(location: 0, length: 0), replacementRange: editingField.selectedRange())
+            try require(editingField.hasMarkedText(), "nativeIMECompositionStarted")
+            try await Task.sleep(for: .milliseconds(400))
+            let duringComposition = try await readSelection()
+            try require(duringComposition.text == "TrackSearchSmokeMarker", "nativeIMEKeepsCommittedMatches")
+            editingField.unmarkText()
+            try enter("TrackSearchSmokeMarker")
+            _ = try await selection(matching: "TrackSearchSmokeMarker", id: "english-first")
             // A late no-match callback must not overwrite a newer successful query.
             try enter("NoSuchTrackSearchSmokeText")
             try enter("TrackSearchSmokeMarker")
             _ = try await selection(matching: "TrackSearchSmokeMarker", id: "english-first")
-            try await waitUntil { self.statusText() == "Match found" }
+            try await waitUntil { self.statusText() == "1 of 2" }
             try require(true, "newestQueryWins")
 
             try enter("日本語検索")
@@ -76,14 +103,37 @@ final class NativeFindSmokeTest {
             _ = try await selection(matching: "日本語検索", id: "japanese-first")
             try require(true, "japanesePreviousMoved")
 
+            try require(try await pageBool("""
+            (() => { const range = document.createRange(); range.selectNodeContents(document.getElementById('ordinary-selection'));
+              const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range); return true; })()
+            """), "ordinarySelectionCreated")
             try enter("NoSuchTrackSearchSmokeText")
             try await waitUntil { self.statusText() == "No matches" }
             let noMatch = try await readSelection()
             try require(noMatch.text.isEmpty, "noMatchClearsSelection")
+            try require(try await pageBool("window.getSelection().toString() === 'Ordinary selection stays intact.'"), "ordinarySelectionPreserved")
+            try require(try await pageBool("CSS.highlights.get('track-find-all').size === 0", isolated: true), "noMatchClearsHighlights")
             try require(true, "noMatchFeedback")
             try enter("")
             try await waitUntil { self.statusText() == "" }
             try require(true, "clearResetsFeedback")
+            try require(try await pageBool("CSS.highlights.size === 0", isolated: true), "clearRemovesHighlights")
+            try enter("FarOffscreenMarker")
+            _ = try await selection(matching: "FarOffscreenMarker", id: "far")
+            try require(try await pageBool("""
+            (() => { const state = globalThis.__trackPageFind.snapshot();
+              return state.y >= 33 && state.y + state.height <= innerHeight; })()
+            """, isolated: true), "navigationScrollsMatchIntoView")
+            try require(try await pageBool("document.documentElement.style.colorScheme = 'dark'; true"), "darkThemeApplied")
+            try enter("TrackSearchSmokeMarker")
+            _ = try await selection(matching: "TrackSearchSmokeMarker", id: "english-first")
+            let darkBefore = try await snapshot()
+            try require(try await pageBool("getComputedStyle(document.documentElement).colorScheme === 'dark'"), "darkThemeMatches")
+            try enter("")
+            try await waitUntil { self.statusText() == "" }
+            let darkClear = try await snapshot()
+            try require(highlightChanged(before: darkClear, after: darkBefore, selection: first), "darkHighlightsPainted")
+            try require(try await pageBool("window.getSelection().removeAllRanges(); true"), "selectionReleasedForReading")
             try enter("日本語検索")
             _ = try await selection(matching: "日本語検索", id: "japanese-first")
             guard let fieldEditor = window.firstResponder as? NSTextView else { throw Failure("Find field lost focus") }
@@ -106,6 +156,7 @@ final class NativeFindSmokeTest {
             button.performClick(nil)
             try await readingRestored(count: 2)
             try require(bar()?.isHidden == true && window.firstResponder === webView, "doneRequestsReadingFocus")
+            try require(webView.frame == originalFrame, "closingFindKeepsViewport")
         } catch {
             return report(error: String(describing: error))
         }
@@ -120,11 +171,13 @@ final class NativeFindSmokeTest {
         throw Failure("Find dismissal did not request reading focus after clearing selection")
     }
 
-    private func pageBool(_ script: String) async throws -> Bool {
+    private func pageBool(_ script: String, isolated: Bool = false) async throws -> Bool {
         try await withCheckedThrowingContinuation { continuation in
-            webView.evaluateJavaScript(script) { value, error in
-                if let error { continuation.resume(throwing: error) }
-                else { continuation.resume(returning: value as? Bool == true) }
+            webView.evaluateJavaScript(script, in: nil, in: isolated ? .defaultClient : .page) { result in
+                switch result {
+                case .success(let value): continuation.resume(returning: value as? Bool == true)
+                case .failure(let error): continuation.resume(throwing: error)
+                }
             }
         }
     }
@@ -147,19 +200,22 @@ final class NativeFindSmokeTest {
         throw Failure("Find field did not select \(text)\(id.map { " in \($0)" } ?? "")")
     }
 
-    private func readSelection() async throws -> Selection {
-        let script = """
-        (() => {
-          const selection = window.getSelection();
-          const rect = selection?.rangeCount ? selection.getRangeAt(0).getBoundingClientRect() : null;
-          return { text: selection?.toString() || '', id: selection?.anchorNode?.parentElement?.id || '',
-            x: rect?.x || 0, y: rect?.y || 0, width: rect?.width || 0, height: rect?.height || 0 };
-        })()
-        """
+    private func readSelection(allIndex: Int? = nil) async throws -> Selection {
+        let script: String
+        if let allIndex {
+            script = """
+            (() => { const range = Array.from(CSS.highlights.get('track-find-all'))[\(allIndex)]; const rect = range.getBoundingClientRect();
+              return { text: range.toString(), id: range.startContainer.parentElement.id, x: rect.x, y: rect.y, width: rect.width, height: rect.height }; })()
+            """
+        } else {
+            script = "globalThis.__trackPageFind?.snapshot() || {}"
+        }
         return try await withCheckedThrowingContinuation { continuation in
-            webView.evaluateJavaScript(script) { value, error in
-                if let error { continuation.resume(throwing: error) }
-                else { continuation.resume(returning: Selection(value)) }
+            webView.evaluateJavaScript(script, in: nil, in: .defaultClient) { result in
+                switch result {
+                case .success(let value): continuation.resume(returning: Selection(value))
+                case .failure(let error): continuation.resume(throwing: error)
+                }
             }
         }
     }

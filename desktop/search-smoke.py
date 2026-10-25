@@ -56,10 +56,22 @@ def main() -> None:
                 "menuConfigured": "Edit > Find contains the native actions and shortcuts",
                 "commandFDispatched": "Cmd+F dispatches",
                 "nativeFindUIVisible": "Cmd+F opens a visible native find bar",
-                "queryEnteredThroughField": "typing in the real find field selects the first result",
+                "queryEnteredThroughField": "typing in the real find field activates the first result",
                 "queryMatched": "the typed English query matches",
-                "selectionTextMatches": "the selected page text matches the query",
-                "visibleHighlight": "the selected text is visibly highlighted while the field has focus",
+                "selectionTextMatches": "the current match text matches the query",
+                "findDoesNotMoveTabbar": "opening Find preserves WebView and tabbar geometry",
+                "allMatchesHighlighted": "all matches have ranges and exactly one is current",
+                "otherMatchPainted": "a noncurrent match is visibly painted",
+                "currentMatchDistinct": "the current match is painted in a distinct color",
+                "ordinarySelectionPreserved": "ordinary page selection survives Find",
+                "noMatchClearsHighlights": "a missing query removes stale highlights",
+                "clearRemovesHighlights": "clearing the query removes both highlight sets",
+                "navigationScrollsMatchIntoView": "Find scrolls the current range into view",
+                "darkHighlightsPainted": "matches are visibly painted in dark theme",
+                "closingFindKeepsViewport": "closing Find preserves viewport geometry",
+                "findResizeKeepsTabTargets": "resizing keeps Find below the tabstrip and inside the window",
+                "nativeIMEKeepsCommittedMatches": "uncommitted IME text never replaces committed matches",
+                "visibleHighlight": "the current match is visibly highlighted while the field has focus",
                 "nextShortcutDispatched": "Cmd+G dispatches Find Next",
                 "nextMoved": "Cmd+G moves to a different result",
                 "previousShortcutDispatched": "Shift+Cmd+G dispatches Find Previous",
@@ -72,7 +84,7 @@ def main() -> None:
                 "japaneseNextMoved": "Find Next moves between Japanese results",
                 "japanesePreviousMoved": "Find Previous moves between Japanese results",
                 "noMatchFeedback": "a missing query displays No matches",
-                "noMatchClearsSelection": "a missing query clears the old selection",
+                "noMatchClearsSelection": "a missing query clears the old current match",
                 "clearResetsFeedback": "clearing the field resets match feedback",
                 "escapeCloses": "Escape closes the find bar",
                 "nativeReadingMarker": "the workspace has its native reading marker",
@@ -90,7 +102,7 @@ def main() -> None:
             details = "; ".join(f"FAIL {name}" for name in failures)
             raise SystemExit(f"WKWebView search smoke failed: {details}; report={json.dumps(report, ensure_ascii=False)}")
 
-        print("WKWebView search smoke passed: typed English/Japanese queries, painted selection, next/previous movement and wrapping, no-match, clear, Escape/reopen, Escape/Done reading-focus requests after selection clearing, and window policy verified.")
+        print("WKWebView search smoke passed: typed English/Japanese queries, painted selection, next/previous movement and wrapping, no-match, clear, Escape/reopen, all/current match colors, preserved selection, stable tabbar geometry, dark theme, and Escape/Done reading-focus requests, and window policy verified.")
 
 
 if __name__ == "__main__":

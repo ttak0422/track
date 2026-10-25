@@ -372,6 +372,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         textFinder.onVisibilityChange = { [weak root] visible in
             root?.isFindBarVisible = visible
         }
+        textFinder.onLayoutChange = { [weak root] inset in root?.findBarTopInset = inset }
         self.textFinder = textFinder
         findBarContainerView = root
 
@@ -431,13 +432,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         let marker = "TrackSearchSmokeMarker"
         let html = """
         <!doctype html><html><head><meta charset="utf-8">
-        <style>body { font: 24px system-ui; margin: 40px; background: white; color: black; }</style>
-        </head><body><main>
+        <style>:root { color-scheme: light; --panel: light-dark(white, #191c1e); --text: light-dark(#1a1a18, #e9e9e4);
+          --panel-soft: light-dark(#f3f2ee, #212528); --mark: light-dark(#c13a1e, #f4785e); }
+          body { font: 24px system-ui; margin: 40px; background: var(--panel); color: var(--text); }
+          .tabstrip { position: fixed; top: 0; left: 0; height: 33px; width: 100%; background: var(--panel); }
+        </style>
+        </head><body><div class="tabstrip">Fixture tabs</div><main>
         <p id="english-first">First \(marker) occurrence.</p>
         <p id="english-second">Second \(marker) occurrence.</p>
         <p id="japanese-first">最初の日本語検索です。</p>
         <p id="japanese-second">次の日本語検索です。</p>
         <p hidden>Hidden \(marker) 日本語検索</p>
+        <p id="ordinary-selection">Ordinary selection stays intact.</p>
+        <p id="far" style="margin-top:2000px">FarOffscreenMarker</p>
         </main></body></html>
         """
         webView.loadHTMLString(html, baseURL: URL(string: "http://127.0.0.1:18765/"))
@@ -947,6 +954,9 @@ private final class SearchFindBarContainerView: NSView {
             needsLayout = true
         }
     }
+    var findBarTopInset: CGFloat = 44 {
+        didSet { needsLayout = true; layoutSubtreeIfNeeded() }
+    }
     var isFindBarVisible = false {
         didSet {
             needsLayout = true
@@ -965,14 +975,14 @@ private final class SearchFindBarContainerView: NSView {
 
     override func layout() {
         super.layout()
-        let findBarHeight = isFindBarVisible ? (findBarView?.frame.height ?? 0) : 0
-        contentHost.frame = NSRect(x: 0, y: 0, width: bounds.width, height: max(0, bounds.height - findBarHeight))
+        // Find floats over the page; the tabstrip and reader retain their exact viewport geometry.
+        contentHost.frame = bounds
         if let findBarView {
             findBarView.isHidden = !isFindBarVisible
             findBarView.frame = NSRect(
-                x: 0,
-                y: contentHost.frame.maxY,
-                width: bounds.width,
+                x: max(8, bounds.width - 372),
+                y: max(0, bounds.height - findBarTopInset - findBarView.frame.height),
+                width: min(360, bounds.width - 16),
                 height: findBarView.frame.height
             )
         }
