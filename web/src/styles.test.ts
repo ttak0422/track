@@ -402,32 +402,27 @@ describe("modal layout stability", () => {
 });
 
 describe("sidebar at short viewport heights", () => {
-  it("hangs the dock from a fixed anchor, so an added entry does not move the rest", () => {
+  it("centers the dock in the full viewport rather than below the tab row", () => {
     const sidebar = ruleBody(".sidebar");
-
-    // Centring is what made the top edge a function of the dock's own height.
-    expect(sidebar).not.toMatch(/align-items:\s*center/);
-    expect(sidebar).toMatch(/align-items:\s*flex-start/);
-    expect(ruleBody(":root")).toMatch(/--rail-anchor:\s*max\(/);
+    expect(sidebar).toMatch(/top:\s*0/);
+    expect(sidebar).toMatch(/bottom:\s*0/);
+    expect(sidebar).toMatch(/align-items:\s*center/);
+    expect(sidebar).toMatch(/pointer-events:\s*none/);
+    expect(ruleBody(".activity-rail")).toMatch(/pointer-events:\s*auto/);
   });
 
-  it("keeps the anchor clear of the tab row", () => {
-    const reservedTabRow = Number(ruleBody(".reader-pane").match(/padding-top:\s*(\d+)px/)?.[1]);
-    const anchorFloor = Number(ruleBody(":root").match(/--rail-anchor:\s*max\((\d+)px/)?.[1]);
-
-    expect(reservedTabRow).toBeGreaterThan(0);
-    expect(anchorFloor).toBeGreaterThanOrEqual(reservedTabRow + 8);
+  it("caps the centered rail symmetrically below the measured tab strip", () => {
+    expect(ruleBody(".workspace")).toMatch(/--rail-clearance:\s*calc\(var\(--tabstrip-bottom, 33px\) \+ 8px\)/);
+    expect(ruleBody(".activity-rail")).toMatch(/max-height:\s*calc\(100dvh - 2 \* var\(--rail-clearance\)\)/);
+    expect(ruleBody(".rail-scroll")).toMatch(/min-height:\s*0/);
+    expect(ruleBody(".rail-scroll")).toMatch(/overflow-y:\s*auto/);
   });
 
-  // The guides in the empty state point at the rail's buttons. They line up only while both hang from
-  // the same place — they drifted once already, when the dock stopped being centred and the guides
-  // were left centred. One anchor, read by both.
-  it("hangs the empty state's guides from the rail's own anchor", () => {
-    expect(ruleBody(":root")).toMatch(/--rail-anchor:/);
-    expect(ruleBody(".sidebar")).toMatch(/top:\s*var\(--rail-anchor\)/);
-    expect(ruleBody(".empty-guides")).toMatch(/top:\s*calc\(var\(--rail-anchor\)/);
-    // Centring is what broke it before: the guides must not re-acquire a centre of their own.
-    expect(ruleBody(".empty-guides")).not.toMatch(/translate:/);
+  it("centers the empty state's guides with the rail and preserves its row rhythm", () => {
+    expect(ruleBody(".empty-guides")).toMatch(/top:\s*50dvh/);
+    expect(ruleBody(".empty-guides")).toMatch(/translate:\s*0 -50%/);
+    expect(ruleBody(".empty-guides")).toMatch(/max-height:\s*calc\(100dvh - 2 \* var\(--rail-clearance\) - 2px\)/);
+    expect(ruleBody(".empty-guide")).toMatch(/flex:\s*none/);
   });
 
   it("keeps Settings outside the scrolling group so it remains reachable", () => {
