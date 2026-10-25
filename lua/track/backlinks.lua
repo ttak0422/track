@@ -23,10 +23,15 @@ end
 -- window shows in place of the filename, so the opaque epoch path (note/<epoch>.md) stays hidden while
 -- `filename` still drives the jump.
 local function qf_item(backlink)
+   local path, err = require("track.editor_view").preferred(backlink.path)
+   if not path then
+      vim.notify("track: " .. tostring(err), vim.log.levels.ERROR)
+      return nil
+   end
    local range = backlink.range or {}
    local start = range.start or {}
    return {
-      filename = backlink.path,
+      filename = path,
       module = backlink_title(backlink),
       lnum = (start.line or 0) + 1,
       col = (start.character or 0) + 1,

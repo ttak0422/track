@@ -66,7 +66,7 @@ local function follow_state(buf)
    if not vault then
       return nil
    end
-   local path = uv.fs_realpath(name) or normalize_path(name)
+   local path = require("track.util").canonical_path(buf)
    vault = normalize_path(vault)
    path = normalize_path(path)
 

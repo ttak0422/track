@@ -15,16 +15,22 @@ import (
 	"syscall"
 
 	"github.com/ttak0422/track/internal/track/config"
+	"github.com/ttak0422/track/internal/track/editorview"
 	"github.com/ttak0422/track/internal/track/index"
+	"github.com/ttak0422/track/internal/track/note"
 	"github.com/ttak0422/track/internal/track/store"
 	"github.com/ttak0422/track/internal/track/vaultref"
 	protocol "typefox.dev/lsp"
 )
 
 type Server struct {
-	cfg   *config.Config
-	store *store.Store
-	docs  map[string]string
+	cfg             *config.Config
+	store           *store.Store
+	docs            map[string]string
+	versions        map[string]int32
+	docPaths        map[string]string
+	pendingWarnings []rpcMessage
+	warned          map[string]bool
 	// xv resolves cross-vault [[vault:title]] references, lazily opening and caching the other
 	// registered vaults' configs and stores for the server's lifetime.
 	xv *vaultref.Resolver
@@ -45,7 +51,7 @@ func Run(in io.Reader, out io.Writer) error {
 }
 
 func NewServer(cfg *config.Config, s *store.Store) *Server {
-	return &Server{cfg: cfg, store: s, docs: map[string]string{}, xv: vaultref.New(cfg)}
+	return &Server{cfg: cfg, store: s, docs: map[string]string{}, versions: map[string]int32{}, docPaths: map[string]string{}, warned: map[string]bool{}, xv: vaultref.New(cfg)}
 }
 
 func (s *Server) Serve(in io.Reader, out io.Writer) error {
@@ -63,6 +69,8 @@ func (s *Server) Serve(in io.Reader, out io.Writer) error {
 		}
 		if msg.ID == nil {
 			notifications := s.handleNotification(msg)
+			notifications = append(notifications, s.pendingWarnings...)
+			s.pendingWarnings = nil
 			for _, notification := range notifications {
 				if err := writeMessage(out, notification); err != nil {
 					if isDisconnect(err) {
@@ -74,6 +82,12 @@ func (s *Server) Serve(in io.Reader, out io.Writer) error {
 			continue
 		}
 		resp := s.handleRequest(msg)
+		for _, warning := range s.pendingWarnings {
+			if err := writeMessage(out, warning); err != nil {
+				return err
+			}
+		}
+		s.pendingWarnings = nil
 		if err := writeMessage(out, resp); err != nil {
 			if isDisconnect(err) {
 				return nil
@@ -93,14 +107,32 @@ func isDisconnect(err error) bool {
 		errors.Is(err, syscall.EPIPE)
 }
 
+// The protocol library normalizes DocumentURI percent escapes during unmarshal. Preserve the
+// actual client spelling at the document-ownership boundary before using its typed params.
+func rawTextDocumentURI(params json.RawMessage, fallback string) string {
+	var raw struct {
+		TextDocument struct {
+			URI string `json:"uri"`
+		} `json:"textDocument"`
+	}
+	if json.Unmarshal(params, &raw) == nil && raw.TextDocument.URI != "" {
+		return raw.TextDocument.URI
+	}
+	return fallback
+}
+
 func (s *Server) handleNotification(msg rpcMessage) []rpcMessage {
 	switch msg.Method {
 	case "initialized":
 	case "textDocument/didOpen":
 		var p didOpenParams
 		if json.Unmarshal(msg.Params, &p) == nil {
-			uri := string(p.TextDocument.URI)
+			uri := rawTextDocumentURI(msg.Params, string(p.TextDocument.URI))
 			s.docs[uri] = p.TextDocument.Text
+			s.versions[uri] = p.TextDocument.Version
+			if _, err := s.documentOwner(uri); err != nil {
+				return s.identityWarning(err)
+			}
 			if notification, err := s.publishDiagnostics(uri); err == nil {
 				return []rpcMessage{notification}
 			}
@@ -108,8 +140,15 @@ func (s *Server) handleNotification(msg rpcMessage) []rpcMessage {
 	case "textDocument/didChange":
 		var p didChangeParams
 		if json.Unmarshal(msg.Params, &p) == nil && len(p.ContentChanges) > 0 {
-			uri := string(p.TextDocument.URI)
+			uri := rawTextDocumentURI(msg.Params, string(p.TextDocument.URI))
+			if previous := s.versions[uri]; previous > 0 && p.TextDocument.Version <= previous {
+				return nil
+			}
+			s.versions[uri] = p.TextDocument.Version
 			s.docs[uri] = p.ContentChanges[len(p.ContentChanges)-1].Text
+			if _, err := s.documentOwner(uri); err != nil {
+				return s.identityWarning(err)
+			}
 			if notification, err := s.publishDiagnostics(uri); err == nil {
 				return []rpcMessage{notification}
 			}
@@ -117,13 +156,23 @@ func (s *Server) handleNotification(msg rpcMessage) []rpcMessage {
 	case "textDocument/didSave":
 		var p didSaveParams
 		if json.Unmarshal(msg.Params, &p) == nil {
-			uri := string(p.TextDocument.URI)
+			uri := rawTextDocumentURI(msg.Params, string(p.TextDocument.URI))
+			if _, err := s.documentOwner(uri); err != nil {
+				return s.identityWarning(err)
+			}
 			if p.Text != nil {
 				s.docs[uri] = *p.Text
 			}
 			if s.inVault(uri) {
-				if path, err := pathFromURI(uri); err == nil {
-					_ = index.New(s.cfg, s.store).One(path)
+				if path, err := s.canonicalDocumentPath(uri); err == nil {
+					if _, err := editorview.Resolve(s.cfg, path); err != nil {
+						return s.identityWarning(err)
+					}
+					if err := index.New(s.cfg, s.store).One(path); err != nil {
+						return s.identityWarning(err)
+					}
+				} else {
+					return s.identityWarning(err)
 				}
 			}
 			if notification, err := s.publishDiagnostics(uri); err == nil {
@@ -133,8 +182,10 @@ func (s *Server) handleNotification(msg rpcMessage) []rpcMessage {
 	case "textDocument/didClose":
 		var p didCloseParams
 		if json.Unmarshal(msg.Params, &p) == nil {
-			uri := string(p.TextDocument.URI)
+			uri := rawTextDocumentURI(msg.Params, string(p.TextDocument.URI))
 			delete(s.docs, uri)
+			delete(s.versions, uri)
+			delete(s.docPaths, uri)
 			if s.inVault(uri) {
 				notification, err := newNotification("textDocument/publishDiagnostics", publishDiagnosticsParams{
 					URI:         documentURI(uri),
@@ -320,18 +371,126 @@ func (s *Server) refreshIndex() {
 }
 
 func (s *Server) documentText(uri string) (string, error) {
-	if text, ok := s.docs[uri]; ok {
-		return text, nil
-	}
-	path, err := pathFromURI(uri)
+	owner, err := s.documentOwner(uri)
 	if err != nil {
 		return "", err
+	}
+	if owner != "" {
+		return s.docs[owner], nil
+	}
+	path, err := s.canonicalDocumentPath(uri)
+	if err != nil {
+		// Cross-vault navigation is read-only here; resolve its approved alias against its own manifest.
+		path, err = pathFromURI(uri)
+		if err != nil {
+			return "", err
+		}
+		if editorview.IsViewPath(path) {
+			_, entry, e := editorview.Discover(path)
+			if e != nil {
+				return "", e
+			}
+			path = entry.Path
+		}
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return "", err
 	}
 	return string(raw), nil
+}
+
+// documentOwner joins aliases and canonical URIs by stable identity while retaining the URI the
+// client actually opened. Two independent buffers are a conflict, never last-notification-wins.
+func (s *Server) documentOwner(uri string) (string, error) {
+	path, err := s.canonicalDocumentPath(uri)
+	if err != nil {
+		if path, e := pathFromURI(uri); e == nil && editorview.IsViewPath(path) {
+			// An outgoing cross-vault location has its own approved manifest, not this server's.
+			// It is read-only here; that vault's own LSP client owns any open editing buffer.
+			if cfg, _, discoveryErr := editorview.Discover(path); discoveryErr == nil && cfg.VaultDir != s.cfg.VaultDir {
+				return "", nil
+			}
+			return "", err
+		}
+		if _, pinned := s.docPaths[uri]; pinned {
+			return "", err
+		}
+		if _, open := s.docs[uri]; open {
+			return uri, nil
+		}
+		return "", nil
+	}
+	owner := ""
+	for candidate := range s.docs {
+		candidatePath, e := s.canonicalDocumentPath(candidate)
+		if pinned, ok := s.docPaths[candidate]; ok {
+			if pinned == path && (e != nil || candidatePath != pinned) {
+				return "", fmt.Errorf("open buffer's canonical identity is unavailable or changed: %s", candidate)
+			}
+		} else if e == nil {
+			s.docPaths[candidate] = candidatePath
+		}
+		if e != nil || candidatePath != path {
+			continue
+		}
+		if owner != "" && owner != candidate {
+			return "", fmt.Errorf("note is open under multiple URIs; close one buffer before editing: %s and %s", owner, candidate)
+		}
+		owner = candidate
+	}
+	return owner, nil
+}
+
+func (s *Server) identityWarning(err error) []rpcMessage {
+	notification, e := newNotification("window/showMessage", map[string]any{"type": 1, "message": "track: " + err.Error()})
+	if e != nil {
+		return nil
+	}
+	return []rpcMessage{notification}
+}
+
+// preferredPath does not canonicalize an open buffer's displayed URI.
+// uriForPath preserves the exact client's spelling (including percent-escape casing), not only
+// the decoded pathname, when addressing an open document.
+func (s *Server) uriForPath(path string) string {
+	uri := uriFromPath(path)
+	if owner, err := s.documentOwner(uri); err == nil && owner != "" {
+		return owner
+	}
+	return uri
+}
+
+func (s *Server) preferredPath(path string) string {
+	if owner, err := s.documentOwner(uriFromPath(path)); err == nil && owner != "" {
+		if opened, err := pathFromURI(owner); err == nil {
+			return opened
+		}
+	}
+	return path
+}
+
+func (s *Server) editorPath(cfg *config.Config, id int64, kind, title string) string {
+	path := cfg.PathForKind(kind, id)
+	if cfg.VaultDir == s.cfg.VaultDir {
+		if owner, err := s.documentOwner(uriFromPath(path)); err == nil && owner != "" {
+			if opened, err := pathFromURI(owner); err == nil {
+				return opened
+			}
+		}
+	}
+	if editorview.Enabled() {
+		if entry, err := editorview.Ensure(cfg, kind, id, title); err == nil {
+			return entry.EditorPath
+		} else {
+			message := "readable editor path unavailable; using canonical path: " + err.Error()
+			if !s.warned[message] {
+				s.warned[message] = true
+				s.pendingWarnings = append(s.pendingWarnings, s.identityWarning(errors.New(message))...)
+			}
+		}
+	}
+	return path
 }
 
 func readMessage(r *bufio.Reader) (rpcMessage, error) {
@@ -388,14 +547,13 @@ func pathFromURI(raw string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if u.Scheme != "file" {
+	if u.Scheme != "file" || (u.Host != "" && u.Host != "localhost") {
 		return "", fmt.Errorf("unsupported uri scheme %q", u.Scheme)
 	}
-	path, err := url.PathUnescape(u.Path)
-	if err != nil {
-		return "", err
+	if !filepath.IsAbs(u.Path) {
+		return "", fmt.Errorf("file URI must use an absolute path")
 	}
-	return filepath.Clean(path), nil
+	return filepath.Clean(u.Path), nil
 }
 
 func uriFromPath(path string) string {
@@ -408,36 +566,60 @@ func uriFromPath(path string) string {
 // to files that are not track notes (this repo's own README, docs under .track, scratch files
 // elsewhere). Feature handlers gate on this so those buffers get no links, completion, or actions.
 func (s *Server) inVault(uri string) bool {
+	_, err := s.canonicalDocumentPath(uri)
+	return err == nil
+}
+
+func (s *Server) canonicalDocumentPath(uri string) (string, error) {
 	path, err := pathFromURI(uri)
 	if err != nil {
-		return false
+		return "", err
 	}
 	if !slices.Contains(s.cfg.Extensions, filepath.Ext(path)) {
-		return false
+		return "", fmt.Errorf("unsupported note extension")
 	}
-	vaultDir := canonicalPath(s.cfg.VaultDir)
-	path = canonicalPath(path)
-	rel, err := filepath.Rel(vaultDir, path)
-	if err != nil {
-		return false
+	if editorview.IsViewPath(path) {
+		entry, err := editorview.Resolve(s.cfg, path)
+		return entry.Path, err
 	}
-	// rel escaping the vault starts with ".." (or is exactly ".."); anything else is inside it.
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return false
+	// Ordinary canonical paths may name an unsaved/new buffer. Only the vault prefix may be a
+	// symlink; nonnumeric title aliases are accepted exclusively through the view manifest above.
+	if _, err := note.IDFromPath(path); err != nil {
+		return "", err
 	}
-	rel = filepath.Clean(rel)
-	parts := strings.Split(rel, string(filepath.Separator))
-	if len(parts) != 2 || (parts[0] != config.KindNote && parts[0] != config.KindJournal) {
-		return false
+	kind := filepath.Base(filepath.Dir(path))
+	if kind != config.KindNote && kind != config.KindJournal {
+		return "", fmt.Errorf("not a canonical vault note")
 	}
-	// Exclude track-owned hidden directories such as .track, matching the indexer's scan rules.
-	for _, part := range strings.Split(filepath.Dir(rel), string(filepath.Separator)) {
-		if part != "." && strings.HasPrefix(part, ".") {
-			return false
+	vault := canonicalPath(s.cfg.VaultDir)
+	if canonicalPath(filepath.Dir(filepath.Dir(path))) != vault {
+		return "", fmt.Errorf("not a canonical vault note")
+	}
+	if info, err := os.Lstat(filepath.Dir(path)); err == nil {
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("canonical note kind directory must not be a symlink")
 		}
+	} else if !os.IsNotExist(err) {
+		return "", err
 	}
-	_, ok := noteIDFromURI(uri)
-	return ok
+	if info, err := os.Lstat(path); err == nil {
+		if !info.Mode().IsRegular() {
+			return "", fmt.Errorf("canonical note must be a regular file, not a symlink")
+		}
+	} else if !os.IsNotExist(err) {
+		return "", err
+	}
+	path = filepath.Join(vault, kind, filepath.Base(path))
+	return path, nil
+}
+
+func (s *Server) noteIDFromURI(uri string) (int64, bool) {
+	path, err := s.canonicalDocumentPath(uri)
+	if err != nil {
+		return 0, false
+	}
+	id, err := note.IDFromPath(path)
+	return id, err == nil
 }
 
 func canonicalPath(path string) string {

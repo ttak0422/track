@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/ttak0422/track/internal/track/link"
 )
 
 // ViewFenceLang is the fence language ExpandBlocks emits for a non-table layout: the body is a
@@ -15,8 +17,8 @@ import (
 const ViewFenceLang = "track-view"
 
 // View is a laid-out query result: the rows of a Result distributed into named groups, ready to be
-// marshaled into a ```track-view fence. Rows link by title (never by internal note id), so a
-// published view exposes exactly what a published table does.
+// marshaled into a ```track-view fence. Rows retain a display title and, when opted in,
+// carry a separate stable target. Static exports must map those targets to their public keys.
 type View struct {
 	Layout    string      `json:"layout"` // "list", "board", "gallery", or "calendar"
 	ShowTitle bool        `json:"showTitle"`
@@ -30,6 +32,8 @@ type View struct {
 // callers retain the existing card presentation.
 type ViewOptions struct {
 	ShowTitle bool
+	// LinkFormat selects the source vault's generated link format. Empty preserves title links.
+	LinkFormat string
 }
 
 // ViewGroup is one lane of a view: a board column (Name is the grouping value), a calendar day
@@ -39,15 +43,17 @@ type ViewGroup struct {
 	Rows []ViewRow `json:"rows"`
 }
 
-// ViewRow is one note on a card: its title (the link target), the query's cells, and — in a gallery —
+// ViewRow is one note on a card: its display title, optional stable link target, the query's cells,
+// and — in a gallery —
 // its cover image reference ("assets/<file>", already in the form the rendering surface serves) plus
 // its resolved icon, the cover's stand-in: most notes never set an image, so a card without one
 // shows the note's icon instead of a blank placeholder.
 type ViewRow struct {
-	Title string   `json:"title"`
-	Cells []string `json:"cells"`
-	Cover string   `json:"cover,omitempty"`
-	Icon  string   `json:"icon,omitempty"`
+	Title  string   `json:"title"`
+	Target string   `json:"target,omitempty"`
+	Cells  []string `json:"cells"`
+	Cover  string   `json:"cover,omitempty"`
+	Icon   string   `json:"icon,omitempty"`
 }
 
 // dayPrefix matches the YYYY-MM-DD day a calendar cell is placed on; a datetime value places on its
@@ -72,7 +78,7 @@ func BuildView(layout, by string, res Result, meta func(noteID int64) (cover, ic
 	if layout == "gallery" {
 		rows := make([]ViewRow, 0, len(res.Rows))
 		for _, r := range res.Rows {
-			row := ViewRow{Title: r.Title, Cells: r.Cells}
+			row := viewRow(r, viewOptions.LinkFormat)
 			if meta != nil {
 				row.Cover, row.Icon = meta(r.NoteID)
 			}
@@ -84,7 +90,7 @@ func BuildView(layout, by string, res Result, meta func(noteID int64) (cover, ic
 	if layout == "list" {
 		rows := make([]ViewRow, 0, len(res.Rows))
 		for _, r := range res.Rows {
-			rows = append(rows, ViewRow{Title: r.Title, Cells: r.Cells})
+			rows = append(rows, viewRow(r, viewOptions.LinkFormat))
 		}
 		v.Groups = append(v.Groups, ViewGroup{Rows: rows})
 		return v, nil
@@ -97,9 +103,9 @@ func BuildView(layout, by string, res Result, meta func(noteID int64) (cover, ic
 	v.Key = displayKey(res.Columns[idx])
 	switch layout {
 	case "board":
-		v.Groups = boardGroups(res, idx)
+		v.Groups = boardGroups(res, idx, viewOptions.LinkFormat)
 	case "calendar":
-		v.Groups = calendarGroups(res, idx)
+		v.Groups = calendarGroups(res, idx, viewOptions.LinkFormat)
 	default:
 		return View{}, fmt.Errorf("unknown layout %q (table, list, board, gallery, calendar)", layout)
 	}
@@ -127,20 +133,20 @@ func keyColumn(columns []string, by string) (int, error) {
 
 // boardGroups lanes rows by their grouping cell, lanes ordered by first appearance (so SORT orders
 // the lanes too). Rows without a value gather in a trailing "(no <key>)" lane.
-func boardGroups(res Result, idx int) []ViewGroup {
+func boardGroups(res Result, idx int, linkFormat string) []ViewGroup {
 	order := []string{}
 	byName := map[string][]ViewRow{}
 	var missing []ViewRow
 	for _, r := range res.Rows {
 		name := strings.TrimSpace(r.Cells[idx])
 		if name == "" {
-			missing = append(missing, ViewRow{Title: r.Title, Cells: r.Cells})
+			missing = append(missing, viewRow(r, linkFormat))
 			continue
 		}
 		if _, ok := byName[name]; !ok {
 			order = append(order, name)
 		}
-		byName[name] = append(byName[name], ViewRow{Title: r.Title, Cells: r.Cells})
+		byName[name] = append(byName[name], viewRow(r, linkFormat))
 	}
 	groups := make([]ViewGroup, 0, len(order)+1)
 	for _, name := range order {
@@ -154,7 +160,7 @@ func boardGroups(res Result, idx int) []ViewGroup {
 
 // calendarGroups buckets rows onto days by the leading YYYY-MM-DD of their date cell, days ascending
 // (ISO days sort chronologically as text). Undated rows stay off the grid.
-func calendarGroups(res Result, idx int) []ViewGroup {
+func calendarGroups(res Result, idx int, linkFormat string) []ViewGroup {
 	days := []string{}
 	byDay := map[string][]ViewRow{}
 	for _, r := range res.Rows {
@@ -165,7 +171,7 @@ func calendarGroups(res Result, idx int) []ViewGroup {
 		if _, ok := byDay[day]; !ok {
 			days = append(days, day)
 		}
-		byDay[day] = append(byDay[day], ViewRow{Title: r.Title, Cells: r.Cells})
+		byDay[day] = append(byDay[day], viewRow(r, linkFormat))
 	}
 	sort.Strings(days)
 	groups := make([]ViewGroup, 0, len(days))
@@ -173,4 +179,12 @@ func calendarGroups(res Result, idx int) []ViewGroup {
 		groups = append(groups, ViewGroup{Name: day, Rows: byDay[day]})
 	}
 	return groups
+}
+
+func viewRow(r Row, format string) ViewRow {
+	row := ViewRow{Title: r.Title, Cells: r.Cells}
+	if format == link.IDFormat {
+		row.Target = link.IDKey(r.NoteID)
+	}
+	return row
 }

@@ -23,7 +23,12 @@ end
 -- request fetches the notes active on the current daily journal's date. When
 -- invoked outside a daily journal, it creates today's journal first.
 function M.request(cb)
-   local path = vim.api.nvim_buf_get_name(vim.api.nvim_get_current_buf())
+   local safe, err = require("track.editor_view").validate()
+   if not safe then
+      vim.notify(err, vim.log.levels.ERROR)
+      return
+   end
+   local path = require("track.util").canonical_path(vim.api.nvim_get_current_buf())
    local date = M.date_from_path(path)
    if not date then
       local journal, err = client.run_json({ "journal" })
@@ -43,8 +48,13 @@ function M.request(cb)
 end
 
 local function qf_item(note)
+   local path, err = require("track.editor_view").preferred(note.path)
+   if not path then
+      vim.notify("track: " .. tostring(err), vim.log.levels.ERROR)
+      return nil
+   end
    return {
-      filename = note.path,
+      filename = path,
       module = note_title(note),
       lnum = 1,
       col = 1,

@@ -207,3 +207,15 @@ func TestExportBracketedWikiTitles(t *testing.T) {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 }
+
+func TestExportStableIDsUseDisplayOnlyAndKeepExternalURLs(t *testing.T) {
+	body := "[[id:200#Heading|Readable]] [[work:id:200#^block|External note]] [[200]] [web](https://example.com/id:200)\n"
+	got := exportMarkdown(t, &note.Note{ID: 1, Body: body}, Options{}).Markdown
+	want := "Readable External note 200 [web](https://example.com/id:200)\n"
+	if got != want {
+		t.Fatalf("got %q; want %q", got, want)
+	}
+	if got := renderWeb(t, body); got != body {
+		t.Fatalf("web changed stable targets: %q", got)
+	}
+}

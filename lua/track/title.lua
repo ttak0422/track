@@ -86,7 +86,7 @@ function M.setup()
       group = group,
       pattern = "*.md",
       callback = function(ev)
-         if not titles[ev.buf] then
+         if vim.b[ev.buf].track_editor_conflict or not titles[ev.buf] then
             return
          end
          local title = fetch_title(vim.api.nvim_buf_get_name(ev.buf))

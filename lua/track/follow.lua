@@ -74,7 +74,9 @@ local function open_item(ctx, item)
       return
    end
    local function edit()
-      vim.cmd("keepalt edit " .. vim.fn.fnameescape(item.filename))
+      if not require("track.editor_view").open(item.filename, { keepalt = true }) then
+         return
+      end
       if item.lnum then
          pcall(vim.api.nvim_win_set_cursor, 0, { item.lnum, item.col or 0 })
       end
@@ -108,7 +110,7 @@ local function open_markdown_target(ctx, target)
       return
    end
 
-   local dir = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(ctx.buf), ":h")
+   local dir = vim.fn.fnamemodify(require("track.util").canonical_path(ctx.buf), ":h")
    -- A bare domain such as example.com or example.com/path: treat as https unless a file of that name
    -- sits next to the note (so links to local files keep working).
    if target:match("^[%w-]+%.[%w.-]+") and not target:match("%s") then

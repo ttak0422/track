@@ -6,8 +6,7 @@ package store
 // landed independently as "4", so any existing v4 database is missing one of them.
 // 6: notes.meta_mtime records the sidecar file's mtime so RefreshIfStale also detects sidecar-only
 // changes (a tag or title edit synced from another machine never touches the note body's mtime).
-// 7: ext_links records outgoing cross-vault references ([[vault:title]]) as (vault, title) string
-// keys — never the target's numeric id, which belongs to the other vault's namespace.
+// 7: ext_links records outgoing cross-vault references ([[vault:title]]) as (vault, title) string keys.
 // 8: the embeddings table is gone with the semantic related-notes feature (ADR 0056); the schema is
 // rebuilt rather than migrated, so the bump is what drops it from an existing database.
 // 9: notes.seen_at / notes.read_at carry the shared reading milestones (sidecar seen_at/read_at as
@@ -15,12 +14,15 @@ package store
 // localStorage state.
 // 10: notes.flags carries the note's normalized flags (sidecar flags joined with char(31)), so search
 // can demote DEPRECATED notes and every listing can badge them from vault metadata.
-const schemaVersion = 10
+// 11: index_state records link format; ext_links separates typed IDs from legacy titles.
+const schemaVersion = 11
 
 // schemaSQL defines a rebuildable SQLite index, not the primary source of truth.
 // Notes and sidecar metadata on disk are authoritative; this database caches keyword rows and computed links for fast lookup.
 // notes.mtime stores the note file's last modification time as a Unix timestamp; RefreshIfStale compares it against disk to detect external changes.
 const schemaSQL = `
+CREATE TABLE index_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+
 CREATE TABLE notes (
   id         INTEGER PRIMARY KEY,
   kind       TEXT NOT NULL DEFAULT 'note',
@@ -49,17 +51,17 @@ CREATE TABLE links (
 );
 CREATE INDEX idx_links_dst ON links(dst_id);
 
--- ext_links holds outgoing cross-vault references ([[vault:title]]) by (vault name, title) string
--- key. The target's numeric id is deliberately absent: ids are vault-local, so a cross-vault edge
--- must never carry one. Inbound cross-vault backlinks are found by scanning other vaults' DBs for
--- rows naming this vault.
+-- ext_links keeps legacy title keys and explicit target IDs separate. Every target
+-- ID is scoped by vault; changing a source config cannot reinterpret an existing row.
 CREATE TABLE ext_links (
   src_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
   vault  TEXT NOT NULL,
-  title  TEXT NOT NULL,
-  PRIMARY KEY (src_id, vault, title)
+  title  TEXT NOT NULL DEFAULT '',
+  target_id INTEGER NOT NULL DEFAULT 0,
+  CHECK ((target_id = 0) OR (target_id > 0 AND title = '')),
+  PRIMARY KEY (src_id, vault, title, target_id)
 );
-CREATE INDEX idx_ext_links_target ON ext_links(vault, title);
+CREATE INDEX idx_ext_links_target ON ext_links(vault, title, target_id);
 
 CREATE TABLE note_days (
   note_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
@@ -99,6 +101,14 @@ CREATE INDEX idx_props_key ON props(key, value);
 
 CREATE VIEW keywords AS
   SELECT title AS term, id AS note_id, 'title' AS kind FROM notes WHERE title <> '';
+
+-- Typed keys are an additional body-link grammar, not title aliases. Keep the
+-- title dictionary unchanged for uniqueness checks, searches and legacy callers.
+CREATE VIEW body_keywords AS
+  SELECT term, note_id, kind FROM keywords
+  UNION ALL
+  SELECT 'id:' || id AS term, id AS note_id, 'id' AS kind FROM notes
+  WHERE (SELECT value FROM index_state WHERE key = 'link_format') = 'id-v1';
 
 -- Full-text body index. rowid is the note id; body is the same text the indexer parses
 -- (legacy footmatter stripped, code fences kept). The trigram tokenizer gives case-insensitive

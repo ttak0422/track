@@ -1,6 +1,7 @@
 package lsp
 
 import (
+	"github.com/ttak0422/track/internal/track/config"
 	"os"
 	"strings"
 
@@ -16,7 +17,15 @@ func (s *Server) rename(uri string, pos position, newName string) (*workspaceEdi
 	if !s.inVault(uri) {
 		return nil, nil
 	}
+	for opened := range s.docs {
+		if _, err := s.documentOwner(opened); err != nil {
+			return nil, err
+		}
+	}
 	newName = strings.TrimSpace(newName)
+	if err := config.ValidateLinkTitle(s.cfg.LinkFormat, newName); err != nil {
+		return nil, err
+	}
 	if newName == "" {
 		return nil, nil
 	}
@@ -35,7 +44,7 @@ func (s *Server) rename(uri string, pos position, newName string) (*workspaceEdi
 
 	changes := map[documentURI][]textEdit{}
 
-	backlinks, err := s.store.Backlinks(targetID)
+	backlinks, err := s.backlinkSources(targetID)
 	if err != nil {
 		return nil, err
 	}
@@ -45,7 +54,12 @@ func (s *Server) rename(uri string, pos position, newName string) (*workspaceEdi
 		if err != nil {
 			continue
 		}
-		if _, open := s.docs[srcURI]; open {
+		owner, err := s.documentOwner(srcURI)
+		if err != nil {
+			return nil, err
+		}
+		if owner != "" {
+			srcURI = owner
 			// The editor owns this buffer (it may hold unsaved edits), so hand it a workspace edit
 			// rather than writing the file ourselves. didSave will reindex it once the user saves.
 			for _, ref := range link.Refs(text) {
@@ -67,7 +81,7 @@ func (s *Server) rename(uri string, pos position, newName string) (*workspaceEdi
 		if n == 0 {
 			continue
 		}
-		path, err := pathFromURI(srcURI)
+		path, err := s.canonicalDocumentPath(srcURI)
 		if err != nil {
 			continue
 		}
@@ -114,11 +128,22 @@ func (s *Server) renameTarget(uri string, pos position) (id int64, oldTitle stri
 		if !found {
 			return 0, "", false, nil // unresolved link: nothing to rename
 		}
-		return kw.NoteID, ref.Text, true, nil
+		key := ref.Text
+		if self := s.xv.SelfName(); self != "" {
+			key = strings.TrimPrefix(key, self+":")
+		}
+		target, found, err := s.store.ResolveLink(key, s.cfg.LinkFormat)
+		if err != nil {
+			return 0, "", false, err
+		}
+		if found {
+			return kw.NoteID, target.Title, true, nil
+		}
+		return 0, "", false, nil
 	}
 
 	// Not on a link: rename the current note's metadata title.
-	currentID, ok := noteIDFromURI(uri)
+	currentID, ok := s.noteIDFromURI(uri)
 	if !ok {
 		return 0, "", false, nil
 	}

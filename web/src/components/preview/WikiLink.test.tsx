@@ -40,7 +40,7 @@ vi.mock("@tanstack/react-router", () => ({
 
 vi.mock("../../queries", () => ({
   useResolveQuery: (term: string) => ({
-    data: term ? { found: true, note: { note_id: 1 } } : undefined,
+    data: term ? { found: true, note: { note_id: 1, title: "Current title" } } : undefined,
     isPending: false,
   }),
   useNoteQuery: () => ({
@@ -57,6 +57,15 @@ vi.mock("../markdown/clipboard", () => ({ copyText }));
 function preview(container: HTMLElement) {
   return container.querySelector(".wiki-preview");
 }
+
+describe("WikiLink stable labels", () => {
+  it("uses the current title only for an unaliased ID link", () => {
+    const { container } = renderWithFloating(
+      <><WikiLink target="id:1" display="id:1" resolveTitle /><WikiLink target="id:1" display="Old title" /></>,
+    );
+    expect([...container.querySelectorAll("a.wiki-link")].map((node) => node.textContent)).toEqual(["Current title", "Old title"]);
+  });
+});
 
 describe("WikiLink hover intent", () => {
   beforeEach(() => {

@@ -941,6 +941,20 @@ describe("MarkdownView", () => {
     expect(container.textContent).not.toContain(":only-contents");
   });
 
+  it("uses a cross-vault include's scope for assets and source tasks", async () => {
+    getNote.mockClear();
+    const { container } = renderWithQuery(
+      <FloatingProvider>
+        <MarkdownView vault="main" markdown="![[work:id:42|Excerpt]]" includes={[{
+          line: 0, note_id: "work~42", vault: "work", title: "work:id:42", caption: "Excerpt",
+          source_line: 0, lines: ["![Cover](assets/cover.png)"],
+        }]} />
+      </FloatingProvider>,
+    );
+    expect(container.querySelector('img[alt="Cover"]')?.getAttribute("src")).toBe("/api/asset?kind=note&name=cover.png&vault=work");
+    await waitFor(() => expect(getNote).toHaveBeenCalledWith("work~42"));
+  });
+
   it("writes an embedded task back to the note that owns it, at its own line", async () => {
     // The excerpt starts at the source note's line 10 (0-based source_line 9), so its first line
     // is that file's line 10 — not line 1 of the host note.

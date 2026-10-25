@@ -1,6 +1,7 @@
 -- Telescope-backed note search.
 
 local client = require("track.client")
+local editor_view = require("track.editor_view")
 
 local M = {}
 
@@ -62,7 +63,11 @@ end
 -- grep previewer scrolls to and highlights; nil means no known location, which
 -- leaves the preview at the top of the file. Opening jumps via value.line instead.
 local function base_entry(result, lnum)
-   local path = result.path or ""
+   local path, err = editor_view.preferred(result.path or "")
+   if not path then
+      vim.notify("track: " .. tostring(err), vim.log.levels.ERROR)
+      return nil
+   end
    return {
       value = result,
       path = path,
@@ -80,6 +85,9 @@ local function make_entry_maker(telescope, scope)
          -- Title hits carry no matched line, so no lnum: the preview shows the top
          -- of the note instead of pointlessly highlighting line 1.
          local entry = base_entry(result, nil)
+         if not entry then
+            return nil
+         end
          entry.display = result_title(result)
          entry.ordinal = entry.display
          return entry
@@ -95,6 +103,9 @@ local function make_entry_maker(telescope, scope)
       -- query terms" — treated like a title hit (no jump) rather than faked as line 1.
       local line = (result.line and result.line > 0) and result.line or nil
       local entry = base_entry(result, line)
+      if not entry then
+         return nil
+      end
       local title = result_title(result)
       local snippet = result.snippet or ""
       entry.display = function()
@@ -107,11 +118,27 @@ end
 
 -- Open the note backing `selection`, jumping to its matched line when present.
 local function open_note(selection)
-   vim.cmd.edit(vim.fn.fnameescape(selection.value.path))
+   if not editor_view.open(selection.value.path) then
+      return
+   end
    local line = selection.value.line
    if line and line > 0 then
       pcall(vim.api.nvim_win_set_cursor, 0, { line, 0 })
       vim.cmd("normal! zz")
+   end
+end
+
+local function copy_mapping(telescope, map, source_path)
+   if not map then
+      return
+   end
+   for _, mode in ipairs({ "i", "n" }) do
+      map(mode, "<C-y>", function()
+         local selection = telescope.action_state.get_selected_entry()
+         if selection and selection.value and selection.value.path then
+            editor_view.copy_link(selection.value.path, source_path)
+         end
+      end)
    end
 end
 
@@ -160,10 +187,15 @@ local function make_backlink_entry(telescope)
       local line = (start.line or 0) + 1
       local title = backlink_title(backlink)
       local preview = backlink.preview or ""
+      local path, err = editor_view.preferred(backlink.path)
+      if not path then
+         vim.notify("track: " .. tostring(err), vim.log.levels.ERROR)
+         return nil
+      end
       return {
          value = { path = backlink.path, line = line },
-         path = backlink.path,
-         filename = backlink.path,
+         path = path,
+         filename = path,
          lnum = line,
          display = function()
             return displayer({ title, { preview, "Comment" } })
@@ -175,7 +207,11 @@ end
 
 local function make_template_entry(template)
    local name = template.name or ("#" .. tostring(template.id or "?"))
-   local path = template.path or ""
+   local path, err = editor_view.preferred(template.path or "")
+   if not path then
+      vim.notify("track: " .. tostring(err), vim.log.levels.ERROR)
+      return nil
+   end
    return {
       value = template,
       display = name,
@@ -188,7 +224,11 @@ end
 
 local function make_note_entry(note)
    local title = result_title(note)
-   local path = note.path or ""
+   local path, err = editor_view.preferred(note.path or "")
+   if not path then
+      vim.notify("track: " .. tostring(err), vim.log.levels.ERROR)
+      return nil
+   end
    return {
       value = note,
       display = title,
@@ -201,6 +241,7 @@ end
 
 local function pick(scope, opts)
    opts = opts or {}
+   local source_path = editor_view.current_source()
    local telescope = load_telescope()
    if not telescope then
       return
@@ -241,7 +282,8 @@ local function pick(scope, opts)
          -- a long note; file_previewer never jumps. Entries without an lnum (title
          -- scope, the line-0 sentinel) preview from the top as before.
          previewer = telescope.conf.grep_previewer(picker_opts),
-         attach_mappings = function(prompt_bufnr)
+         attach_mappings = function(prompt_bufnr, map)
+            copy_mapping(telescope, map, source_path)
             -- <CR> opens the highlighted note, or creates one titled with the prompt when the
             -- search finds nothing. Creation lives on <CR> alone so list navigation never
             -- creates a note by accident.
@@ -266,6 +308,7 @@ end
 -- with the matched line as context. The epoch filename stays hidden in the entry value.
 function M.backlinks(opts)
    opts = opts or {}
+   local source_path = editor_view.current_source()
    local telescope = load_telescope()
    if not telescope then
       return
@@ -288,7 +331,8 @@ function M.backlinks(opts)
             -- Backlink entries know their referencing line; the grep previewer
             -- scrolls to it and highlights it, like the body-search picker.
             previewer = telescope.conf.grep_previewer(picker_opts),
-            attach_mappings = function(prompt_bufnr)
+            attach_mappings = function(prompt_bufnr, map)
+               copy_mapping(telescope, map, source_path)
                telescope.actions.select_default:replace(function()
                   open_selection(telescope, prompt_bufnr)
                end)
@@ -304,6 +348,7 @@ end
 -- the same <CR> flow as other track pickers.
 function M.on_this_day(opts)
    opts = opts or {}
+   local source_path = editor_view.current_source()
    local telescope = load_telescope()
    if not telescope then
       return
@@ -324,7 +369,8 @@ function M.on_this_day(opts)
             }),
             sorter = telescope.conf.generic_sorter(picker_opts),
             previewer = telescope.conf.file_previewer(picker_opts),
-            attach_mappings = function(prompt_bufnr)
+            attach_mappings = function(prompt_bufnr, map)
+               copy_mapping(telescope, map, source_path)
                telescope.actions.select_default:replace(function()
                   open_selection(telescope, prompt_bufnr)
                end)
@@ -337,6 +383,7 @@ end
 
 function M.search_templates(opts)
    opts = opts or {}
+   local source_path = editor_view.current_source()
    local telescope = load_telescope()
    if not telescope then
       return
@@ -360,7 +407,8 @@ function M.search_templates(opts)
          }),
          sorter = telescope.conf.generic_sorter(picker_opts),
          previewer = telescope.conf.file_previewer(picker_opts),
-         attach_mappings = function(prompt_bufnr)
+         attach_mappings = function(prompt_bufnr, map)
+            copy_mapping(telescope, map, source_path)
             telescope.actions.select_default:replace(function()
                open_selection(telescope, prompt_bufnr)
             end)
@@ -368,6 +416,43 @@ function M.search_templates(opts)
          end,
       })
       :find()
+end
+
+-- Use this, or editor_view.generic_files(), when a generic file picker should see title names.
+-- follow is required for finders that otherwise omit symlinked files. The view is never a vault.
+function M.files(opts)
+   local picker_opts, err = editor_view.generic_files(opts)
+   if not picker_opts then
+      vim.notify("track: " .. tostring(err), vim.log.levels.ERROR)
+      return
+   end
+   local telescope = load_telescope()
+   local ok, builtin = pcall(require, "telescope.builtin")
+   if not telescope or not ok then
+      return
+   end
+   local user_mappings = picker_opts.attach_mappings
+   picker_opts.attach_mappings = function(prompt_bufnr, map)
+      if user_mappings and user_mappings(prompt_bufnr, map) == false then
+         return false
+      end
+      telescope.actions.select_default:replace(function()
+         local selection = telescope.action_state.get_selected_entry()
+         telescope.actions.close(prompt_bufnr)
+         if not selection then
+            return
+         end
+         local path = selection.path or selection.filename or selection.value
+         if type(path) == "string" then
+            if path:sub(1, 1) ~= "/" then
+               path = picker_opts.cwd .. "/" .. path
+            end
+            editor_view.open(path)
+         end
+      end)
+      return true
+   end
+   builtin.find_files(picker_opts)
 end
 
 return M

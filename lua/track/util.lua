@@ -21,8 +21,12 @@ local uv = vim.uv or vim.loop
 -- Both the per-vault LSP (one client per vault, rooted at its own directory) and the web follow
 -- publisher (which must name the vault its cursor is in) resolve a buffer's vault through this, so
 -- they can never disagree about which vault a buffer belongs to.
+function M.canonical_path(buf)
+   return require("track.editor_view").canonical_path(vim.api.nvim_buf_get_name(buf or 0))
+end
+
 function M.vault_of(buf)
-   local name = vim.api.nvim_buf_get_name(buf)
+   local name = M.canonical_path(buf)
    if name == "" then
       return nil
    end
