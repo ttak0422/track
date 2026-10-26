@@ -48,7 +48,7 @@ the tool-neutral workflow reference is [docs/spec/agent-workflows.md](docs/spec/
 
 Note bodies are plain `.md` files, but their metadata (title, tags, created date, Babel results) lives in sidecar files under `.track/notes/`.
 The `.track/` directory is **authoritative** and cannot be fully rebuilt from the note bodies, so back it up and keep it in version control, just as you would `.git`.
-The SQLite index is a disposable cache outside the vault. `track reindex --full` deletes the cache database and rebuilds it from note files and sidecar metadata.
+The SQLite index is a disposable cache outside the vault. `track reindex --full` resets the cache schema in place and rebuilds it from note files and sidecar metadata, without unlinking databases held open by other Track processes.
 See [docs/spec/storage.md](docs/spec/storage.md) for details.
 
 ## Platform support

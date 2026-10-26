@@ -2251,9 +2251,9 @@ func TestMetaEditAppliesDocumentAndRenames(t *testing.T) {
 // openDB opens the index database runIn's TRACK_CACHE_DIR produced for this vault.
 func openDB(t *testing.T, vault string) *sql.DB {
 	t.Helper()
-	matches, err := filepath.Glob(filepath.Join(vault, ".test-cache", "*", "index.db"))
+	matches, err := filepath.Glob(filepath.Join(vault, ".test-cache", "*", "index-v"+strconv.Itoa(config.IndexSchemaVersion)+".db"))
 	if err != nil || len(matches) != 1 {
-		t.Fatalf("locate index.db: matches=%v err=%v", matches, err)
+		t.Fatalf("locate versioned index: matches=%v err=%v", matches, err)
 	}
 	db, err := sql.Open("sqlite", matches[0])
 	if err != nil {

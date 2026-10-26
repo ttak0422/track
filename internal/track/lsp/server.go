@@ -46,6 +46,9 @@ func Run(in io.Reader, out io.Writer) error {
 		return err
 	}
 	defer s.Close()
+	if _, err := index.New(cfg, s).EnsureInitialized(); err != nil {
+		return fmt.Errorf("initialize index: %w", err)
+	}
 
 	return NewServer(cfg, s).Serve(in, out)
 }

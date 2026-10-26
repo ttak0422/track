@@ -116,6 +116,21 @@ func (s *Server) withVault(fn vaultHandler) http.HandlerFunc {
 			writeError(w, err, http.StatusConflict)
 			return
 		}
+		// Mutations also need the complete dictionary before checking title
+		// uniqueness, including a lazily opened secondary vault after an upgrade.
+		if v.store != nil { // file-only handlers may be served without an index
+			v.reindexMu.Lock()
+			var initialized bool
+			initialized, err = index.New(v.cfg, v.store).EnsureInitialized()
+			v.reindexMu.Unlock()
+			if initialized {
+				s.events.broadcastChange()
+			}
+		}
+		if err != nil {
+			writeError(w, fmt.Errorf("initialize index: %w", err), http.StatusInternalServerError)
+			return
+		}
 		fn(v, w, r)
 	}
 }

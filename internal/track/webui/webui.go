@@ -305,7 +305,7 @@ var (
 )
 
 // cacheDirFor returns the directory that holds a vault's derived caches. The index DB lives at
-// <cacheDir>/<vaultKey>/index.db (config.go resolves cacheDir the same way, then keys the DB by the
+// <cacheDir>/<vaultKey>/index-v<schema>.db (config.go resolves cacheDir the same way, then keys the DB by the
 // vault path), so the cache dir is the DB path's parent's parent. The PID files for track web live
 // here too, so both `track web` and `track web stop` agree on where to look.
 func cacheDirFor(cfg *config.Config) string {

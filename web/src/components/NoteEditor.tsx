@@ -47,6 +47,7 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
     setTitle: setTabTitle,
     setDirty: setTabDirty,
     close: closeTab,
+    activeID,
   } = useTabs();
   const navigate = useNavigate();
   // For a journal, surface the notes worked on that day. The day comes from the journal id (yyyyMMdd).
@@ -335,19 +336,30 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
     });
   }
 
-  if (noteQuery.isPending) {
-    return <LoadingIndicator label="Loading note" />;
-  }
+  const loadError = noteQuery.isError ? (
+    <div className="note-error" role="alert">
+      <p className="error">{noteQuery.error.message}</p>
+      {noteQuery.data ? (
+        <p className="muted">Could not refresh this note. Showing the last loaded version; unsaved edits are kept.</p>
+      ) : null}
+      <button type="button" className="note-recovery-action" disabled={noteQuery.isFetching}
+        onClick={() => { void noteQuery.refetch({ cancelRefetch: false }); }}>
+        {noteQuery.isFetching ? "Retrying…" : "Retry"}
+      </button>
+    </div>
+  ) : null;
 
-  if (noteQuery.isError) {
-    // The note may be gone (deleted via the CLI/Neovim, or a stale tab restored from localStorage). We
-    // cannot tell a 404 from a transient error here, so leave the tab in place but offer to close it —
-    // otherwise a tab with no resolvable title is awkward to dismiss from the strip alone.
+  if (!noteQuery.data) {
+    // A failed first load has no content to retain. The live home note is not a tab, so closing its
+    // id would do nothing; leave it for the empty workspace instead, keeping navigation guards.
     return (
-      <div className="note-error">
-        <p className="error">{noteQuery.error.message}</p>
-        <button type="button" onClick={() => closeTab(noteID)}>
-          Close tab
+      <div>
+        {noteQuery.isPending ? <LoadingIndicator label="Loading note" /> : loadError}
+        <button type="button" className="note-recovery-action" onClick={() => {
+          if (activeID === noteID) closeTab(noteID);
+          else void navigate({ to: "/empty" });
+        }}>
+          {activeID === noteID ? "Close tab" : "Go to workspace"}
         </button>
       </div>
     );
@@ -473,6 +485,7 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
       {/* Same shape as the static reader: the rail rules dock .note-aside from inside .note-layout. */}
       <div className="note-layout">
         <div className="note-main">
+          {loadError}
           <NoteBreadcrumbs trail={data.trail ?? []} />
           {/* Properties are read-only here: sidecar values are edited via `track meta --set`, inline
             fields by editing the body itself. */}

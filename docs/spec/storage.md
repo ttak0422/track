@@ -96,10 +96,10 @@ A vault checked into a repository or published wants both off. Journals are crea
 The rebuildable SQLite index is a cache outside the vault. By default it lives under the platform user cache directory:
 
 ```text
-<user-cache>/track/<vault-key>/index.db
+<user-cache>/track/<vault-key>/index-v<schema>.db
 ```
 
-`TRACK_CACHE_DIR` overrides the `track` cache directory for tests and one-off runs. The CLI is the only resolver of the cache location: frontends (the Neovim plugin, the web workspace) never compute or export their own cache directory, so every process that opens a vault lands on the same physical `index.db`.
+`TRACK_CACHE_DIR` overrides the `track` cache directory for tests and one-off runs. The CLI is the only resolver of the cache location: frontends (the Neovim plugin, the web workspace) never compute or export their own cache directory, so processes with the same index schema share one physical database. The filename includes the SQLite schema version (currently `index-v11.db`): an older CLI rebuilding its unversioned `index.db` or another schema version cannot replace a live native/web server's cache. Older cache files are left untouched; the new version builds its own index from the authoritative vault files.
 
 Every configuration key can be overridden from the environment by one rule: `TRACK_` plus the key in upper snake case. `TRACK_CACHE_DIR` sets `cache_dir`, `TRACK_GEN_KEEP` sets `gen_keep`, `TRACK_CAPTURE_INBOX` sets `capture_inbox`, and `TRACK_VAULTS_<NAME>` sets one entry of the `vaults:` registry. Each variable sets exactly the thing it names — a `TRACK_VAULTS_` entry adds one vault, or replaces the same-named one, and never displaces the rest of the registry. The rule spans both config files, which works because their key namespaces are disjoint by construction: a key in the wrong file is a hard error (ADR 0050).
 
@@ -109,7 +109,7 @@ This is how a checkout carries a vault. The registry is machine state and a sync
 
 Two variables sit outside the rule because neither names a key: `TRACK_CONFIG` is the config file itself, and `TRACK_VAULT` selects the active vault by path.
 
-There is no key for the database path itself. The index is derived from the vault path (`<cache-dir>/<vault-key>/index.db`), so relocating it means moving the whole cache with `cache_dir`/`TRACK_CACHE_DIR` — a single named file could not serve the vaults a registry holds.
+There is no key for the database path itself. The index is derived from the vault path (`<cache-dir>/<vault-key>/index-v<schema>.db`), so relocating it means moving the whole cache with `cache_dir`/`TRACK_CACHE_DIR` — a single named file could not serve the vaults a registry holds.
 
 Cross-vault references live in each source vault's own index as `ext_links` rows. Legacy title targets use `(vault name, title)`; explicit ID targets in `id-v1` use `(vault name, target_id)` with an empty title. An ID is never treated as globally unique: its vault namespace remains part of every external edge. Inbound cross-vault backlinks scan the other registered vaults' databases for rows naming this vault and either its note title or its typed ID.
 
@@ -212,9 +212,9 @@ The `keywords` view exposes non-empty note titles for keyword resolution and lin
 
 The exact columns, indexes, foreign keys, and virtual-table definition live in [`internal/track/store/schema.go`](../../internal/track/store/schema.go). Keeping the specification at the model level avoids duplicating that DDL here.
 
-The index uses WAL mode and foreign keys, and sets no busy timeout: a database locked by another process fails fast instead of queueing. Note paths are never cached — they are derived from file kind plus note id — but note bodies are cached in `notes_fts` for body search; terms too short to form a trigram fall back to a per-file scan.
+The index uses WAL mode and foreign keys on every pooled connection, with a five-second busy timeout so concurrent openers and writers can wait for the current transaction. Note paths are never cached — they are derived from file kind plus note id — but note bodies are cached in `notes_fts` for body search; terms too short to form a trigram fall back to a per-file scan.
 
-Because the index is a rebuildable cache, a schema bump needs no migration: when `Open` finds an older `user_version`, it drops the existing tables and views and re-applies the schema in place. The emptied store is repopulated by the next `RefreshIfStale` → full reindex, which reparses every note and sidecar.
+Because the index is a rebuildable cache, a schema bump normally selects a fresh versioned filename and needs no migration. For a directly opened older database, when `Open` finds an older `user_version`, it drops the existing tables and views and re-applies the schema in place. Before an index-dependent CLI, LSP or web operation uses a fresh cache, initialization checks for the completed `index_state.link_format` row and performs a full rebuild when it is absent. Cold builders serialize through a schema-scoped initialization lock. This also finishes an interrupted initial build without stamping historical notes as newly edited. Later `RefreshIfStale` calls reconcile changes normally.
 
 ## Deletion
 
@@ -229,7 +229,7 @@ Run `track doctor` when a vault may be only partially synced: it reports orphan 
 The vault and cache hold two very different kinds of data:
 
 - `.track/notes/<id>.yaml` are the **authoritative** per-note metadata sidecars. The markdown body is content only; `title`, `tags`, `created`, `days`, and Babel block results live in the sidecar and cannot be reconstructed from the `.md` file.
-- The SQLite index under the cache directory is **rebuildable**. The notes on disk are the source of truth; `track reindex --full` deletes the cache database and regenerates it from them. Deleting it is safe.
+- The SQLite index under the cache directory is **rebuildable**. The notes on disk are the source of truth; `track reindex --full` resets the schema in a SQLite write transaction and regenerates its rows from them. It never unlinks the database, WAL or SHM while other processes may hold connections open. Existing readers retain their WAL snapshot and see the new schema after their transaction ends. A newer-than-supported schema is refused rather than downgraded. Manual cache removal requires first stopping every Track process using that cache; never remove `.track/` from the vault.
 
 Deleting `.track/notes/` is therefore irrecoverable data loss. Treat it like `.git`: keep it under version control and back it up alongside the note bodies.
 

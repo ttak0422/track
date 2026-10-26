@@ -1,5 +1,7 @@
 package store
 
+import "github.com/ttak0422/track/internal/track/config"
+
 // schemaVersion is bumped whenever the DDL below changes in a way that requires a rebuild.
 // The schema is applied once when the database is fresh.
 // 5: both the tasks table (task states) and the embeddings table (similar-notes) are present; each
@@ -15,7 +17,7 @@ package store
 // 10: notes.flags carries the note's normalized flags (sidecar flags joined with char(31)), so search
 // can demote DEPRECATED notes and every listing can badge them from vault metadata.
 // 11: index_state records link format; ext_links separates typed IDs from legacy titles.
-const schemaVersion = 11
+const schemaVersion = config.IndexSchemaVersion
 
 // schemaSQL defines a rebuildable SQLite index, not the primary source of truth.
 // Notes and sidecar metadata on disk are authoritative; this database caches keyword rows and computed links for fast lookup.

@@ -5087,6 +5087,24 @@ textarea.modal-input:focus-visible {
   color: var(--danger);
 }
 
+/* Text controls (design variant 1): recovery stays on the note surface, not in a modal. */
+.note-recovery-action {
+  border: 0;
+  border-radius: 0;
+  padding: 4px 0;
+  background: transparent;
+  color: var(--muted);
+}
+
+.note-recovery-action:hover,
+.note-recovery-action:focus-visible {
+  color: var(--text);
+}
+
+.note-recovery-action:disabled {
+  cursor: default;
+}
+
 /* Floating layer: a toast reports something that already happened, so for the seconds it is up it
    must clear the workspace rather than be covered by it. It is the one floating layer that gives up
    its shadow — the countdown bar underneath says what the shadow would only imply — and the one

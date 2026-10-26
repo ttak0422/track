@@ -127,7 +127,7 @@ func TestMoveRefusesUnresolvedDestinationLinksBeforeWriting(t *testing.T) {
 		"new", "--id", "100", "--title", "Post", "--body", "see [[Secret]]"); code != 0 {
 		t.Fatal("create source note failed")
 	}
-	indexesBefore, err := filepath.Glob(filepath.Join(cache, "*", "index.db"))
+	indexesBefore, err := filepath.Glob(filepath.Join(cache, "*", "index-v*.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestMoveRefusesUnresolvedDestinationLinksBeforeWriting(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(home, "note", "100.md")); err != nil {
 		t.Fatalf("preflight failure must leave source in place: %v", err)
 	}
-	indexesAfter, err := filepath.Glob(filepath.Join(cache, "*", "index.db"))
+	indexesAfter, err := filepath.Glob(filepath.Join(cache, "*", "index-v*.db"))
 	if err != nil || len(indexesAfter) != len(indexesBefore) {
 		t.Fatalf("preflight failure must not create a destination index: before=%v after=%v err=%v", indexesBefore, indexesAfter, err)
 	}
