@@ -49,7 +49,7 @@ func TestLoadUsesConfigFileVault(t *testing.T) {
 	if cfg.VaultDir != wantVault {
 		t.Fatalf("VaultDir = %q, want %q", cfg.VaultDir, wantVault)
 	}
-	wantDB := filepath.Join(cache, vaultCacheKey(wantVault), "index.db")
+	wantDB := filepath.Join(cache, vaultCacheKey(wantVault), indexDBName())
 	if cfg.DBPath != wantDB {
 		t.Fatalf("DBPath = %q, want %q", cfg.DBPath, wantDB)
 	}
@@ -82,7 +82,7 @@ func TestLoadCanonicalizesSymlinkVault(t *testing.T) {
 	if cfg.VaultDir != wantVault {
 		t.Fatalf("VaultDir = %q, want %q", cfg.VaultDir, wantVault)
 	}
-	wantDB := filepath.Join(cache, vaultCacheKey(wantVault), "index.db")
+	wantDB := filepath.Join(cache, vaultCacheKey(wantVault), indexDBName())
 	if cfg.DBPath != wantDB {
 		t.Fatalf("DBPath = %q, want %q", cfg.DBPath, wantDB)
 	}
@@ -106,7 +106,7 @@ func TestLoadUsesExplicitTrackVault(t *testing.T) {
 	if cfg.VaultDir != wantVault {
 		t.Fatalf("VaultDir = %q, want %q", cfg.VaultDir, wantVault)
 	}
-	wantDB := filepath.Join(cache, vaultCacheKey(wantVault), "index.db")
+	wantDB := filepath.Join(cache, vaultCacheKey(wantVault), indexDBName())
 	if cfg.DBPath != wantDB {
 		t.Fatalf("DBPath = %q, want %q", cfg.DBPath, wantDB)
 	}

@@ -116,6 +116,9 @@ func (s *Server) createNote(title string) (map[string]any, error) {
 	if err := config.ValidateLinkTitle(s.cfg.LinkFormat, title); err != nil {
 		return nil, err
 	}
+	if _, err := index.New(s.cfg, s.store).EnsureInitialized(); err != nil {
+		return nil, fmt.Errorf("initialize index: %w", err)
+	}
 	dict, err := s.keywordDict()
 	if err != nil {
 		return nil, err

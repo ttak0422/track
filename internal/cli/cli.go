@@ -9,6 +9,7 @@ import (
 	"os"
 
 	"github.com/ttak0422/track/internal/track/config"
+	"github.com/ttak0422/track/internal/track/index"
 	"github.com/ttak0422/track/internal/track/store"
 )
 
@@ -373,6 +374,12 @@ func open() (*config.Config, *store.Store, error) {
 	s, err := store.Open(cfg.DBPath)
 	if err != nil {
 		return nil, nil, err
+	}
+	// A schema-versioned cache starts empty after an upgrade. Populate it before
+	// resolution or uniqueness checks can mistake existing notes for new titles.
+	if _, err := index.New(cfg, s).EnsureInitialized(); err != nil {
+		s.Close()
+		return nil, nil, fmt.Errorf("initialize index: %w", err)
 	}
 	return cfg, s, nil
 }

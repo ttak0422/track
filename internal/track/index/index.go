@@ -143,6 +143,9 @@ func (ix *Indexer) Full() (Report, error) {
 // change that raised no filesystem notification. Sidecar mtimes are compared only for notes present
 // on disk, so an orphan sidecar (reported by doctor, never moved by a read) cannot re-trigger this.
 func (ix *Indexer) RefreshIfStale() (bool, error) {
+	if initialized, err := ix.EnsureInitialized(); initialized || err != nil {
+		return initialized, err
+	}
 	format, err := ix.store.IndexedLinkFormat()
 	if err != nil {
 		return false, err
@@ -294,6 +297,9 @@ func sameMtimes(disk, indexed map[int64]int64) bool {
 // One updates a single note and recomputes its outgoing links.
 // Inbound links from other notes to this one are not refreshed here; run Full for that.
 func (ix *Indexer) One(path string) error {
+	if _, err := ix.EnsureInitialized(); err != nil {
+		return err
+	}
 	format, err := ix.store.IndexedLinkFormat()
 	if err != nil {
 		return err

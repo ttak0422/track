@@ -82,6 +82,11 @@ func TestAPIHandlers(t *testing.T) {
 	if err := s.ReplaceLinks(100, []int64{200}); err != nil {
 		t.Fatal(err)
 	}
+	// This manually seeded fixture represents a complete cache, not an
+	// interrupted build requiring bootstrap from its intentionally different sidecars.
+	if err := s.SetIndexedLinkFormat(cfg.LinkFormat); err != nil {
+		t.Fatal(err)
+	}
 
 	server := httptest.NewServer(New(cfg, s).Handler())
 	t.Cleanup(server.Close)

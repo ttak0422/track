@@ -22,6 +22,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// IndexSchemaVersion namespaces the disposable database filename as well as the
+// schema. Bump it when internal/track/store/schema.go changes incompatibly: an
+// older CLI must not replace the cache held open by a newer web/native server.
+const IndexSchemaVersion = 11
+
+func indexDBName() string { return fmt.Sprintf("index-v%d.db", IndexSchemaVersion) }
+
 type Config struct {
 	// LinkFormat opts this source vault into explicit ID body links. Empty/title is legacy.
 	LinkFormat        string
@@ -304,7 +311,7 @@ func load(fixedVault string) (*Config, error) {
 		}
 		cacheDir = filepath.Join(userCache, "track")
 	}
-	db := filepath.Join(expandHome(cacheDir), vaultCacheKey(vault), "index.db")
+	db := filepath.Join(expandHome(cacheDir), vaultCacheKey(vault), indexDBName())
 
 	extensions := vc.Extensions
 	if len(extensions) == 0 {
