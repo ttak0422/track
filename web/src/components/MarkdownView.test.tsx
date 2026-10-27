@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { MarkdownView } from "./MarkdownView";
@@ -194,6 +194,138 @@ describe("MarkdownView", () => {
     fireEvent(document, new Event("selectionchange"));
     fireEvent.click(screen.getByRole("button", { name: "Copy range" }));
     await waitFor(() => expect(copyText).toHaveBeenCalledWith("notes/project.md:1"));
+  });
+
+  it.each(["window", "document", "nested reader", "note content"] as const)(
+    "dismisses the selection popup on %s scroll without reviving the unchanged selection",
+    (target) => {
+      const { container } = render(
+        <div data-testid="reader-scroll">
+          <MarkdownView copyPath="notes/project.md" markdown="single line" />
+        </div>,
+      );
+      const paragraph = container.querySelector("p")!;
+      const text = paragraph.firstChild!;
+      const selection = window.getSelection()!;
+      selection.setBaseAndExtent(text, 0, text, 6);
+      fireEvent(document, new Event("selectionchange"));
+      expect(container.querySelectorAll(".selection-copy button")).toHaveLength(3);
+
+      const scrollTarget = target === "window" ? window : target === "document" ? document :
+        target === "nested reader" ? screen.getByTestId("reader-scroll") : paragraph;
+      // Native element scroll events do not bubble; the listener must capture them.
+      fireEvent(scrollTarget, new Event("scroll", { bubbles: false }));
+      expect(container.querySelector(".selection-copy")).toBeNull();
+      expect(selection.toString()).toBe("single");
+      fireEvent(window, new Event("resize"));
+      fireEvent(document, new Event("selectionchange"));
+      expect(container.querySelector(".selection-copy")).toBeNull();
+    },
+  );
+
+  it("keeps the popup for wheel input that does not actually scroll", () => {
+    const { container } = render(<MarkdownView copyPath="notes/project.md" markdown="single line" />);
+    const text = container.querySelector("p")!.firstChild!;
+    window.getSelection()!.setBaseAndExtent(text, 0, text, 6);
+    fireEvent(document, new Event("selectionchange"));
+    fireEvent.wheel(container, { deltaY: 100 });
+    expect(screen.getByRole("button", { name: "Copy range" })).toBeInTheDocument();
+  });
+
+  it("reopens for a changed selection on the same source line and for a cleared/reselected range", async () => {
+    copyText.mockReset();
+    copyText.mockResolvedValue(true);
+    const { container } = render(<MarkdownView copyPath="notes/project.md" markdown="single line" />);
+    const text = container.querySelector("p")!.firstChild!;
+    const selection = window.getSelection()!;
+    selection.setBaseAndExtent(text, 0, text, 6);
+    fireEvent(document, new Event("selectionchange"));
+    fireEvent.scroll(window);
+
+    // Source line 1 is still selected, but these are fresh DOM endpoints (including backwards drag).
+    selection.setBaseAndExtent(text, 11, text, 7);
+    fireEvent(document, new Event("selectionchange"));
+    expect(screen.getByRole("button", { name: "Copy range" })).toBeInTheDocument();
+    fireEvent.scroll(window);
+    expect(container.querySelector(".selection-copy")).toBeNull();
+
+    selection.removeAllRanges();
+    fireEvent(document, new Event("selectionchange"));
+    selection.setBaseAndExtent(text, 11, text, 7);
+    fireEvent(document, new Event("selectionchange"));
+    fireEvent.click(screen.getByRole("button", { name: "Copy range" }));
+    await waitFor(() => expect(copyText).toHaveBeenCalledWith("notes/project.md:1"));
+    expect(await screen.findByRole("button", { name: "Copied" })).toBeInTheDocument();
+  });
+
+  it("removes the capture listener when source copy is disabled and when the view unmounts", () => {
+    const added = vi.spyOn(window, "addEventListener");
+    const removed = vi.spyOn(window, "removeEventListener");
+    try {
+      const view = render(<MarkdownView copyPath="notes/project.md" markdown="single line" />);
+      const listener = added.mock.calls.find(([type]) => type === "scroll")![1];
+      expect(added).toHaveBeenCalledWith("scroll", listener, true);
+      view.rerender(<MarkdownView markdown="single line" />);
+      expect(removed).toHaveBeenCalledWith("scroll", listener, true);
+
+      added.mockClear();
+      removed.mockClear();
+      view.rerender(<MarkdownView copyPath="notes/project.md" markdown="single line" />);
+      const nextListener = added.mock.calls.find(([type]) => type === "scroll")![1];
+      expect(nextListener).not.toBe(listener);
+      view.unmount();
+      expect(removed).toHaveBeenCalledWith("scroll", nextListener, true);
+    } finally {
+      added.mockRestore();
+      removed.mockRestore();
+    }
+  });
+
+  it("ignores a pending copy's completion after scrolling and selecting again", async () => {
+    copyText.mockReset();
+    let finishCopy!: (success: boolean) => void;
+    copyText.mockReturnValue(new Promise<boolean>((resolve) => { finishCopy = resolve; }));
+    vi.useFakeTimers();
+    try {
+      const { container } = render(<MarkdownView copyPath="notes/project.md" markdown="single line" />);
+      const text = container.querySelector("p")!.firstChild!;
+      const selection = window.getSelection()!;
+      selection.setBaseAndExtent(text, 0, text, 6);
+      fireEvent(document, new Event("selectionchange"));
+      fireEvent.click(screen.getByRole("button", { name: "Copy range" }));
+      expect(copyText).toHaveBeenCalledWith("notes/project.md:1");
+      fireEvent.scroll(window);
+      expect(container.querySelector(".selection-copy")).toBeNull();
+
+      selection.setBaseAndExtent(text, 7, text, 11);
+      fireEvent(document, new Event("selectionchange"));
+      await act(async () => { finishCopy(true); });
+      act(() => { vi.advanceTimersByTime(1500); });
+      expect(screen.getByRole("button", { name: "Copy range" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Copied" })).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("still lets a fresh selection retry a failed copy after scrolling", async () => {
+    copyText.mockReset();
+    copyText.mockResolvedValueOnce(false).mockResolvedValue(true);
+    const { container } = render(<MarkdownView copyPath="notes/project.md" markdown="single line" />);
+    const text = container.querySelector("p")!.firstChild!;
+    const selection = window.getSelection()!;
+    selection.setBaseAndExtent(text, 0, text, 6);
+    fireEvent(document, new Event("selectionchange"));
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Copy markdown" })); });
+    expect(screen.getByRole("button", { name: "Copy markdown" })).toBeInTheDocument();
+
+    fireEvent.scroll(window);
+    selection.setBaseAndExtent(text, 7, text, 11);
+    fireEvent(document, new Event("selectionchange"));
+    fireEvent.click(screen.getByRole("button", { name: "Copy markdown" }));
+    expect(await screen.findByRole("button", { name: "Copied" })).toBeInTheDocument();
+    expect(copyText).toHaveBeenCalledTimes(2);
+    expect(copyText).toHaveBeenLastCalledWith("single line");
   });
 
   it("copies the selected lines' markdown source from the copy markdown action", async () => {
