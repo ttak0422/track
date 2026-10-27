@@ -107,6 +107,31 @@ describe("reading focus after workspace search", () => {
     press(input, "j");
     expect(scrollBy).not.toHaveBeenCalled();
   });
+  it.each(["input", "textarea", "contenteditable"])("returns to the original %s on dismissal but to the reader after choosing a result", async (kind) => {
+    const { reader, scrollBy, history } = await setup();
+    const input = kind === "input" ? screen.getByLabelText("Other input") : document.createElement(kind === "textarea" ? "textarea" : "div");
+    if (kind !== "input") {
+      if (kind === "contenteditable") {
+        input.setAttribute("contenteditable", "true");
+        input.tabIndex = 0;
+        Object.defineProperty(input, "isContentEditable", { value: true }); // jsdom lacks this browser property.
+      }
+      document.body.append(input);
+    }
+    input.focus();
+    fireEvent.keyDown(input, { key: "p", metaKey: true });
+    press(screen.getByRole("searchbox"), "Escape");
+    expect(input).toHaveFocus();
+    press(input, "j");
+    press(input, "k");
+    expect(scrollBy).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: "p", metaKey: true });
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "a" } });
+    fireEvent.click(await screen.findByRole("link", { name: /^Beta/ }));
+    await waitFor(() => expect(history.location.pathname).toBe("/notes/b"));
+    expect(reader).toHaveFocus();
+    if (kind !== "input") input.remove();
+  });
   it("leaves browser focus behavior unchanged", async () => {
     delete window.__trackNativeReading;
     const { reader, scrollBy } = await setup();
