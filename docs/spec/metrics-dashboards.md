@@ -30,8 +30,7 @@ changes get separate names and panels, with explicit percent versus percentage-p
 metadata distinguishes market observations from actual sector observations. A collector's fetch rate
 is not the observation/publication rate. Unknown financial coverage remains the producer's concern.
 
-React Query keys include vault, definition and selected period. Data events invalidate dashboard and
-View Spec queries; stream open/reconnect does the same to recover writes missed during disconnection.
+React Query keys include vault, definition and selected period. Data events cancel in-flight dashboard and View Spec requests before invalidating their queries; stream open/reconnect does the same. This replaces an initial response captured before the event, rather than letting it consume the refresh and leave stale data indefinitely.
 EChartsBlock owns chart instances, legend selection, resize observers, provenance clicks and unmount
 disposal. `gridPos.x/w` use 24 columns; y orders panels, while fixed y/h geometry and drag editing are
 not supported. Narrow surfaces stack panels. Period/legend selections are transient view state.

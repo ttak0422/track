@@ -42,8 +42,11 @@ export function useLiveEvents() {
         window.clearTimeout(dataTimer);
       }
       dataTimer = window.setTimeout(() => {
-        void queryClient.invalidateQueries({ queryKey: ["viewspec"] });
-        void queryClient.invalidateQueries({ queryKey: ["metrics-dashboard"] });
+        // Cancel first so a pending initial response cannot absorb this invalidation.
+        for (const prefix of ["viewspec", "metrics-dashboard"]) {
+          const queryKey = [prefix];
+          void queryClient.cancelQueries({ queryKey }).then(() => queryClient.invalidateQueries({ queryKey }));
+        }
       }, 150);
     }
     const source = new EventSource("/api/events");
