@@ -1,16 +1,19 @@
 import { Link, useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
 import { openJournal } from "../api";
 import { useAgendaQuery, useDatedTasksQuery, useResolveQuery } from "../queries";
 import { STATIC_MODE } from "../runtime";
 import { useVaultScope } from "../vaultScope";
 import { shiftDay } from "./activityDates";
 import { CalendarEventsPanel } from "./CalendarEventsPanel";
+import { CalendarAgendaFilter, type AgendaContent } from "./CalendarAgendaFilter";
 
 // DayView is the page a calendar day opens: the notes active that day (the same set the reader's
 // "On this day" aside shows) as a plain list of links. The header offers the day's journal — the live
 // workspace opens (creating if needed) it like the activity heatmap does; the static site links it only
 // when the journal is published.
 export function DayView({ date }: { date: string }) {
+  const [content, setContent] = useState<AgendaContent>("all");
   const valid = /^\d{4}-\d{2}-\d{2}$/.test(date);
   const agendaQuery = useAgendaQuery(date, "", { enabled: valid });
   const tasksQuery = useDatedTasksQuery();
@@ -61,7 +64,10 @@ export function DayView({ date }: { date: string }) {
           ) : null}
         </div>
       </header>
-      <CalendarEventsPanel days={[date]} defaultDate={date} />
+      <CalendarAgendaFilter value={content} onChange={setContent} />
+      <div hidden={content === "tasks"}>
+        <CalendarEventsPanel days={[date]} defaultDate={date} />
+      </div>
       {agendaQuery.isPending ? <p className="muted">Loading...</p> : null}
       {agendaQuery.isError ? <p className="error">{agendaQuery.error.message}</p> : null}
       {agendaQuery.data ? (
@@ -82,27 +88,32 @@ export function DayView({ date }: { date: string }) {
           </div>
         )
       ) : null}
-      {dayTasks.length > 0 ? (
-        <section className="day-tasks">
-          <h2>Tasks</h2>
-          <div className="backlink-list day-list">
-            {dayTasks.map((task) => (
-              <Link
-                className="backlink day-task"
-                key={`${task.note_id}:${task.line}`}
-                to="/notes/$noteId"
-                params={{ noteId: String(task.note_id) }}
-              >
-                {/* The marker says which date put the task on this day: due reads as a deadline, so
-                    it carries the same "!" the task table's due column uses. */}
-                <span className="day-task-mark">{task.due === date ? "!" : "▷"}</span>
-                {task.text}
-                <span className="day-task-note">{task.title}</span>
-              </Link>
-            ))}
-          </div>
-        </section>
-      ) : null}
+      <div hidden={content === "events"}>
+        {tasksQuery.isPending ? <p className="muted" role="status">Loading tasks...</p> : null}
+        {tasksQuery.isError ? <p className="error" role="alert">Could not load tasks: {tasksQuery.error.message}</p> : null}
+        {tasksQuery.data ? (
+          <section className="day-tasks">
+            <h2>Tasks</h2>
+            {dayTasks.length === 0 ? <p className="muted">No dated tasks on this day.</p> : null}
+            <div className="backlink-list day-list">
+              {dayTasks.map((task) => (
+                <Link
+                  className="backlink day-task"
+                  key={`${task.note_id}:${task.line}`}
+                  to="/notes/$noteId"
+                  params={{ noteId: String(task.note_id) }}
+                >
+                  {/* The marker says which date put the task on this day: due reads as a deadline, so
+                      it carries the same "!" the task table's due column uses. */}
+                  <span className="day-task-mark">{task.due === date ? "!" : "▷"}</span>
+                  {task.text}
+                  <span className="day-task-note">{task.title}</span>
+                </Link>
+              ))}
+            </div>
+          </section>
+        ) : null}
+      </div>
     </div>
   );
 }

@@ -5,6 +5,7 @@ import type { NoteID, SearchResult, TaskRow } from "../types";
 import { dueBar } from "./calendarTasks";
 import { CalendarAgenda } from "./CalendarAgenda";
 import { CalendarEventsPanel } from "./CalendarEventsPanel";
+import { CalendarAgendaFilter, type AgendaContent } from "./CalendarAgendaFilter";
 import { useCalendarEventsQuery } from "../calendarEventQueries";
 import { eventOnDay } from "../calendarEvents";
 import { useVaultScope } from "../vaultScope";
@@ -33,6 +34,7 @@ export function CalendarFullView() {
   const eventsQuery = useCalendarEventsQuery(scope);
   const [month, setMonth] = useState(startOfCurrentMonth);
   const [view, setView] = useState<"month" | "day" | "week">("month");
+  const [content, setContent] = useState<AgendaContent>("all");
   const [todayKey, setTodayKey] = useState(() => dateKey(new Date()));
   const [offset, setOffset] = useState(0);
   // Relative views follow local midnight, including when a sleeping window returns.
@@ -123,10 +125,15 @@ export function CalendarFullView() {
               <button type="button" onClick={() => setOffset(offset + (view === "week" ? 7 : 1))}>Next {view}</button>
             </div>
           </header>
-          <CalendarEventsPanel days={agendaDays} defaultDate={selectedDay} />
-          {tasksQuery.isPending ? <p className="muted" role="status">Loading tasks...</p> : null}
-          {tasksQuery.isError ? <p className="error" role="alert">Could not load tasks: {tasksQuery.error.message}</p> : null}
-          {tasksQuery.data ? <CalendarAgenda tasks={tasksQuery.data.tasks} days={agendaDays} today={todayKey} /> : null}
+          <CalendarAgendaFilter value={content} onChange={setContent} />
+          <div hidden={content === "tasks"}>
+            <CalendarEventsPanel days={agendaDays} defaultDate={selectedDay} />
+          </div>
+          <div hidden={content === "events"}>
+            {tasksQuery.isPending ? <p className="muted" role="status">Loading tasks...</p> : null}
+            {tasksQuery.isError ? <p className="error" role="alert">Could not load tasks: {tasksQuery.error.message}</p> : null}
+            {tasksQuery.data ? <CalendarAgenda tasks={tasksQuery.data.tasks} days={agendaDays} today={todayKey} /> : null}
+          </div>
         </>
       ) : <>
       <header className="calendar-head">

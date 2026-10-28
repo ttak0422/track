@@ -357,6 +357,15 @@ exports; the published task agenda remains read-only. Event queries refresh afte
 every 30 seconds for external CLI or sync changes. All-day ranges use civil dates; timed day
 membership uses device-local boundaries while labels show the event's named zone.
 
+Live Today/Tomorrow/This week and day pages offer a view-only All/Events/Tasks content filter.
+The default is All. Selection is local to the mounted Calendar or day screen and remains through
+its date/period navigation; reload or opening another screen resets it. Hidden agenda sections
+remain mounted so event editor state is not discarded. The filter does not change task states,
+dates, event persistence, activity-note links, or Journal actions. Date pages report task loading,
+errors, and an empty dated-task result explicitly. Buttons expose pressed state and a visible
+check mark, with standard Tab/Enter/Space operation. Static exports omit the filter and retain
+their read-only task snapshot; events remain unpublished.
+
 `/tasks` lists the vault's open work — every task whose state is not a terminal one, dated or not —
 reached from the sidebar rail. The order is the engine's: `[#A]` before `[#B]` before unprioritized,
 ties broken by deadline. A row marks what put it where it is (its priority, else `!` for a deadline
