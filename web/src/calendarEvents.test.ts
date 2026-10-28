@@ -26,6 +26,10 @@ describe("calendar events", () => {
     }
   });
 
+  it("labels all-day ranges independently of locally skipped civil dates", () => {
+    expect(eventTimeLabel({ ...sampleEvent, start: "2011-12-29", end: "2011-12-31" })).toBe("All day · 2011-12-29 – 2011-12-30");
+  });
+
   it("formats the event's named zone instead of the device zone", () => {
     expect(eventLocalParts("2026-10-28T15:00:45Z", "Asia/Tokyo")).toEqual({ date: "2026-10-29", time: "00:00:45" });
   });

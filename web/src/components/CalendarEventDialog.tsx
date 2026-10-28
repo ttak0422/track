@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { eventFields, eventLocalParts, type CalendarEvent, type CalendarEventFields, type CalendarEventWrite } from "../calendarEvents";
+import { eventFields, eventLocalParts, shiftCivilDay, type CalendarEvent, type CalendarEventFields, type CalendarEventWrite } from "../calendarEvents";
 import { useSaveCalendarEvent } from "../calendarEventQueries";
 import type { SearchResult } from "../types";
-import { shiftDay } from "./activityDates";
 
 interface Props {
   vault: string;
@@ -22,7 +21,7 @@ export function CalendarEventDialog({ vault, date, event, notes, onSaved, onClos
   const save = useSaveCalendarEvent(vault);
   const zone = event?.time_zone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
   const initialStart = event && !event.all_day ? eventLocalParts(event.start, zone) : { date: event?.start ?? date, time: "09:00" };
-  const initialEnd = event && !event.all_day ? eventLocalParts(event.end, zone) : { date: event ? shiftDay(event.end, -1) : date, time: "10:00" };
+  const initialEnd = event && !event.all_day ? eventLocalParts(event.end, zone) : { date: event ? shiftCivilDay(event.end, -1) : date, time: "10:00" };
   const [title, setTitle] = useState(event?.title ?? "");
   const [allDay, setAllDay] = useState(event?.all_day ?? true);
   const [startDate, setStartDate] = useState(initialStart.date);
@@ -63,7 +62,7 @@ export function CalendarEventDialog({ vault, date, event, notes, onSaved, onClos
     const fields: CalendarEventFields = deleted && event ? { ...eventFields(event), deleted: true } : {
       title: title.trim(), all_day: allDay,
       start: allDay ? startDate : unchangedStart ? event!.start : localTime(startDate, startTime, startOffset),
-      end: allDay ? shiftDay(endDate, 1) : unchangedEnd ? event!.end : localTime(endDate, endTime, endOffset),
+      end: allDay ? shiftCivilDay(endDate, 1) : unchangedEnd ? event!.end : localTime(endDate, endTime, endOffset),
       time_zone: allDay ? "" : timeZone.trim(), description, location, url: url.trim(), note_id: noteID, status, deleted,
     };
     // Keep the same operation for an unchanged retry after an uncertain network response.

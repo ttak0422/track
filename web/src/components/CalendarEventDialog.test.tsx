@@ -10,6 +10,17 @@ const event: CalendarEvent = { version: 1, id: "123e4567-e89b-42d3-a456-42661417
 beforeEach(() => { mutation.mutateAsync.mockReset(); mutation.isPending = false; });
 
 describe("event editor", () => {
+  it("preserves all-day dates on title-only edits across a locally skipped day", async () => {
+    const skipped = { ...event, start: "2011-12-29", end: "2011-12-31" };
+    mutation.mutateAsync.mockResolvedValue({ event: skipped });
+    const onSaved = vi.fn();
+    const { getByLabelText, getByRole } = render(<CalendarEventDialog vault="" date="2011-12-29" event={skipped} notes={[]} onSaved={onSaved} onClose={() => {}} />);
+    expect((getByLabelText("Last day") as HTMLInputElement).value).toBe("2011-12-30");
+    fireEvent.change(getByLabelText("Title"), { target: { value: "Revised title" } });
+    fireEvent.click(getByRole("button", { name: "Save event" }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(mutation.mutateAsync.mock.calls[0][0].request).toMatchObject({ start: skipped.start, end: skipped.end });
+  });
   it("converts an inclusive last day to an exclusive date and blocks double submission", async () => {
     let resolve!: (value: unknown) => void;
     mutation.mutateAsync.mockImplementation(() => new Promise((done) => { resolve = done; }));

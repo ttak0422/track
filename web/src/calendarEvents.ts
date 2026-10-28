@@ -1,7 +1,6 @@
 import { api } from "./api";
 import { STATIC_MODE } from "./runtime";
 import { split, vaultParams } from "./vaultId";
-import { shiftDay } from "./components/activityDates";
 
 export interface CalendarEventFields {
   title: string;
@@ -80,9 +79,17 @@ export function eventLocalParts(value: string, zone: string): { date: string; ti
   return { date: `${part("year").padStart(4, "0")}-${part("month")}-${part("day")}`, time: `${part("hour")}:${part("minute")}:${part("second")}` };
 }
 
+// UTC is only the arithmetic coordinate here: civil dates must retain even days
+// skipped by a device's time zone, such as 2011-12-30 in Pacific/Apia.
+export function shiftCivilDay(day: string, amount: number): string {
+  const date = new Date(`${day}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + amount);
+  return `${String(date.getUTCFullYear()).padStart(4, "0")}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
+}
+
 export function eventTimeLabel(event: CalendarEvent): string {
   if (event.all_day) {
-    const last = shiftDay(event.end, -1);
+    const last = shiftCivilDay(event.end, -1);
     return `All day · ${event.start}${last === event.start ? "" : ` – ${last}`}`;
   }
   const start = eventLocalParts(event.start, event.time_zone);
