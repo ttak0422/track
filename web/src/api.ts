@@ -602,3 +602,16 @@ function localGraph(graph: Graph, noteID: NoteID): Graph {
     edges: graph.edges.filter((e) => keep.has(e.source_id) && keep.has(e.target_id)),
   };
 }
+
+export interface MetricsDashboardResponse {
+  title: string;
+  panels: { title: string; unit?: string; x: number; width: number; source: string;
+    latest_observation?: string; data_updated_at?: string; points: number; missing: number;
+    gaps: {time: string; entity: string; reason: string}[]; series: Record<string, string>[]; echarts: Record<string, unknown> }[];
+}
+export function renderMetricsDashboard(text: string, days: number, vault = ""): Promise<MetricsDashboardResponse> {
+  const dashboard: unknown = JSON.parse(text);
+  return api<MetricsDashboardResponse>(`/api/metrics-dashboard${vaultParams(vault, "?")}`, {
+    method: "POST", body: { dashboard, days },
+  });
+}

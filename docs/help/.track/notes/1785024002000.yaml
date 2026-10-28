@@ -3,6 +3,8 @@ title: Charts
 tags:
 - help/visualization/charts
 created: '2026-07-26'
+days:
+- '2026-10-29'
 image: assets/cover-charts.svg
 props:
   section: visualization

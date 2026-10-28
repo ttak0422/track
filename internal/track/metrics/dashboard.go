@@ -45,7 +45,14 @@ type grafanaFieldDefaults struct {
 	Thresholds *grafanaThresholds `json:"thresholds"`
 }
 
+type grafanaGridPos struct {
+	X int `json:"x"`
+	Y int `json:"y"`
+	W int `json:"w"`
+}
+
 type grafanaPanel struct {
+	GridPos     *grafanaGridPos    `json:"gridPos"`
 	Type        string             `json:"type"`
 	Title       string             `json:"title"`
 	Targets     []grafanaTarget    `json:"targets"`
@@ -106,6 +113,10 @@ func ResolveDashboard(data []byte, dataDir string) (string, int, error) {
 }
 
 func resolvePanel(p grafanaPanel, dataDir string) (string, error) {
+	return resolvePanelSpec(p, dataDir, false)
+}
+
+func resolvePanelSpec(p grafanaPanel, dataDir string, live bool) (string, error) {
 	type ySeries struct {
 		Field string `json:"field"`
 		Title string `json:"title,omitempty"`
@@ -200,19 +211,27 @@ func resolvePanel(p grafanaPanel, dataDir string) (string, error) {
 	if len(files) > 1 {
 		return "", fmt.Errorf("one spec reads one file: panel %q targets span %d files", p.Title, len(files))
 	}
-	if len(folded) > 1 {
+	if len(folded) > 1 && !live {
 		return "", fmt.Errorf("panel %q matches %d series names; split the targets across panels", p.Title, len(folded))
 	}
 	file := seriesList[0].file
 	family := seriesList[0].name
 	multi := len(entities) > 1
-	ys := make([]ySeries, len(seriesList))
-	for i, s := range seriesList {
-		ys[i] = ySeries{Field: "value", Title: s.title}
-		if multi && i > 0 {
-			// Under a color split y[0] shares the chart's mark while every extra
-			// channel is an explicit series that needs its own mark override.
-			ys[i].Mark = "line"
+	ys := []ySeries{{Field: "value", Title: seriesList[0].title}}
+	filters := []filterCond{{Field: "name", Op: "eq", Value: family}}
+	if !multi {
+		filters = append(filters, filterCond{Field: "entity", Op: "eq", Value: seriesList[0].entity})
+	}
+	rows, err := loadMetricFile(dataDir, file)
+	if err != nil {
+		return "", err
+	}
+	excluded := map[string]bool{}
+	for _, row := range rows {
+		entity, _ := row.String("entity")
+		if multi && !entities[entity] && !excluded[entity] {
+			filters = append(filters, filterCond{Field: "entity", Op: "ne", Value: entity})
+			excluded[entity] = true
 		}
 	}
 	spec := map[string]any{
@@ -220,9 +239,7 @@ func resolvePanel(p grafanaPanel, dataDir string) (string, error) {
 		"title":   strings.TrimSpace(p.Title),
 		"mark":    "line",
 		"data":    map[string]any{"source": file, "kind": "metric"},
-		"filter": map[string]any{"all": []filterCond{
-			{Field: "name", Op: "eq", Value: family},
-		}},
+		"filter":  map[string]any{"all": filters},
 		"encoding": map[string]any{
 			"x": map[string]any{"field": "time"},
 			"y": ys,
@@ -262,11 +279,19 @@ func trimFloat(v float64) string {
 }
 
 func isBareFilename(s string) bool {
-	return s != "" && s == filepath.Base(s) && !strings.Contains(s, `\`)
+	return s != "" && s != "." && s != ".." && s == filepath.Base(s) && !strings.Contains(s, `\`)
 }
 
-func loadMetricFile(dataDir, file string) ([]dataset.Record, error) {
-	f, err := os.Open(filepath.Join(dataDir, file))
+func readMetricRecords(dataDir, file string) ([]dataset.Record, error) {
+	if !isBareFilename(file) {
+		return nil, fmt.Errorf("data source must be a bare filename")
+	}
+	root, err := os.OpenRoot(dataDir)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	f, err := root.Open(file)
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", file, err)
 	}
@@ -274,6 +299,14 @@ func loadMetricFile(dataDir, file string) ([]dataset.Record, error) {
 	rows, err := dataset.ReadJSONL(f)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", file, err)
+	}
+	return rows, nil
+}
+
+func loadMetricFile(dataDir, file string) ([]dataset.Record, error) {
+	rows, err := readMetricRecords(dataDir, file)
+	if err != nil {
+		return nil, err
 	}
 	// Keep only metric-shaped rows; other kinds never enter a panel query.
 	var out []dataset.Record

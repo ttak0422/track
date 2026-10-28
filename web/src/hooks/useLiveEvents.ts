@@ -43,12 +43,13 @@ export function useLiveEvents() {
       }
       dataTimer = window.setTimeout(() => {
         void queryClient.invalidateQueries({ queryKey: ["viewspec"] });
+        void queryClient.invalidateQueries({ queryKey: ["metrics-dashboard"] });
       }, 150);
     }
     const source = new EventSource("/api/events");
     // Events are not replayed. Refresh on connection/reconnection to cover changes in the gap,
     // including an initial list request that began before the stream subscribed.
-    source.addEventListener("open", scheduleInvalidation);
+    source.addEventListener("open", () => { scheduleInvalidation(); scheduleDataInvalidation(); });
     source.addEventListener("change", scheduleInvalidation);
     source.addEventListener("data", scheduleDataInvalidation);
     return () => {

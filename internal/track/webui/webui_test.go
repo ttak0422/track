@@ -1974,3 +1974,36 @@ func TestNoteMetaRejectsJournalRenameBeforeEditing(t *testing.T) {
 		t.Fatalf("rejected journal rename changed metadata: status %d, %s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestMetricsDashboardEndpoint(t *testing.T) {
+	server, cfg := putNoteSetup(t, 100, "Metrics", "body\n")
+	os.MkdirAll(cfg.DataDir(), 0755)
+	os.WriteFile(filepath.Join(cfg.DataDir(), "test.jsonl"), []byte("{\"name\":\"m\",\"entity\":\"A\",\"time\":\"2026-10-01\",\"value\":0}\n"), 0600)
+	dashboard := json.RawMessage(`{"title":"Saved","panels":[{"title":"Zero","type":"timeseries","datasource":{"type":"track","uid":"test.jsonl"},"targets":[{"expr":"m"}]}]}`)
+	for _, test := range []struct {
+		days int
+		code int
+	}{{0, 200}, {-1, 400}, {36501, 400}} {
+		body, _ := json.Marshal(map[string]any{"dashboard": dashboard, "days": test.days})
+		response, err := http.Post(server.URL+"/api/metrics-dashboard", "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		content, _ := io.ReadAll(response.Body)
+		response.Body.Close()
+		if response.StatusCode != test.code {
+			t.Fatalf("days %d: %d %s", test.days, response.StatusCode, content)
+		}
+		if test.code == 200 && (!bytes.Contains(content, []byte(`"points":1`)) || !bytes.Contains(content, []byte(`"title":"Saved"`))) {
+			t.Fatalf("response: %s", content)
+		}
+	}
+	response, err := http.Get(server.URL + "/api/metrics-dashboard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("GET: %d", response.StatusCode)
+	}
+}

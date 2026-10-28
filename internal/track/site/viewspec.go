@@ -2,7 +2,9 @@ package site
 
 import (
 	"encoding/json"
+	"github.com/ttak0422/track/internal/track/metrics"
 	"strings"
+	"time"
 
 	"github.com/ttak0422/track/internal/track/babel"
 	"github.com/ttak0422/track/internal/track/render"
@@ -74,4 +76,18 @@ func rewriteNoteValues(v any, noteSlug func(string) (string, bool)) {
 			rewriteNoteValues(child, noteSlug)
 		}
 	}
+}
+
+func resolveMetricsDashboardBlocks(body, dataDir string, noteSlug func(string) (string, bool)) string {
+	return babel.ReplaceBlocks(body, "metrics-dashboard", func(b babel.Block) []string {
+		view, err := metrics.RenderDashboard([]byte(b.Body), dataDir, time.Time{})
+		if err != nil {
+			return []string{"> Metrics dashboard error: " + err.Error(), "", "```json", b.Body, "```"}
+		}
+		for i := range view.Panels {
+			view.Panels[i].ECharts = json.RawMessage(rewriteNoteRefs(string(view.Panels[i].ECharts), noteSlug))
+		}
+		raw, _ := json.Marshal(view)
+		return []string{"```metrics-snapshot", string(raw), "```"}
+	})
 }

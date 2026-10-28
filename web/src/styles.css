@@ -5742,3 +5742,24 @@ textarea.modal-input:focus-visible {
 }
 .drawio-editor-button:hover, .drawio-editor-button:focus-visible { color: var(--text); }
 .drawio-editor-button:disabled { cursor: default; color: var(--faint); }
+
+/* Dashboard controls use design variant 1 (text control); panels share the reading sheet. */
+.markdown-view > .metrics-dashboard, .markdown-view > .grafana-frame { max-width: none; width: 100%; }
+.metrics-dashboard-controls { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; margin: 12px 0; }
+.metrics-dashboard-controls button, .metrics-dashboard-controls select {
+  color: var(--muted); background: transparent; border: 0; border-radius: 0;
+  font: inherit; cursor: pointer; padding: 4px 0;
+}
+.metrics-dashboard-controls button:hover, .metrics-dashboard-controls button:focus-visible,
+.metrics-dashboard-controls select:focus-visible { color: var(--text); }
+.metrics-dashboard-controls select option { background: var(--panel); }
+.metrics-dashboard-controls button:disabled { cursor: default; color: var(--faint); }
+.metrics-dashboard-grid { display: grid; grid-template-columns: repeat(24, minmax(0, 1fr)); gap: 20px 12px; }
+.metrics-dashboard-panel { min-width: 0; }
+.metrics-dashboard-meta { font-size: calc(13px * var(--font-scale, 1)); color: var(--muted); overflow-wrap: anywhere; }
+.grafana-frame iframe { width: 100%; height: 600px; border: 1px solid var(--line); border-radius: var(--radius); }
+@media (max-width: 700px) { .metrics-dashboard-panel { grid-column: 1 / -1 !important; } }
+
+.metrics-dashboard-meta dl { margin: 8px 0; }
+.metrics-dashboard-meta dl > div { display: grid; grid-template-columns: minmax(6em, 1fr) 3fr; gap: 12px; }
+.metrics-dashboard-meta dd { margin: 0; white-space: pre-wrap; }
