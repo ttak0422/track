@@ -441,7 +441,7 @@ function IncludeEmbed({ include }: { include: NoteInclude }) {
           lineOffset: offset,
         }}
       >
-        <MarkdownView markdown={include.lines.join("\n")} kind={include.kind ?? "note"} vault={vault} />
+        <MarkdownView markdown={include.lines.join("\n")} kind={include.kind ?? "note"} vault={vault} noteId={String(include.note_id ?? include.title ?? include.caption)} />
       </TaskBoardContext.Provider>
       {(include.bad_options ?? []).map((bad) => (
         <div key={bad} className="note-include-warning">
