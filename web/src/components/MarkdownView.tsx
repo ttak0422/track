@@ -148,15 +148,38 @@ function VaultMarkdownView({
       setCopyRange(null);
       return;
     }
+    // Keep the native selection (and ordinary keyboard copy), but do not revive a dismissed popup
+    // on resize or a queued selectionchange for the same text. Snapshot endpoints, not the live
+    // Range or source lines: a fresh selection within the same paragraph must still work.
+    let dismissedSelection: Pick<Range, "startContainer" | "startOffset" | "endContainer" | "endOffset"> | null = null;
+    const dismissOnScroll = () => {
+      const selection = window.getSelection();
+      const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+      dismissedSelection = range ? {
+        startContainer: range.startContainer,
+        startOffset: range.startOffset,
+        endContainer: range.endContainer,
+        endOffset: range.endOffset,
+      } : null;
+      setCopyRange(null);
+    };
     const updateSelection = () => {
       const selection = window.getSelection();
       const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
       const root = markdownRef.current;
       const resolved = root ? resolveCopyLineRange(root, selection) : null;
       if (!resolved || !range) {
+        dismissedSelection = null;
         setCopyRange(null);
         return;
       }
+      if (
+        dismissedSelection?.startContainer === range.startContainer &&
+        dismissedSelection.startOffset === range.startOffset &&
+        dismissedSelection.endContainer === range.endContainer &&
+        dismissedSelection.endOffset === range.endOffset
+      ) return;
+      dismissedSelection = null;
       const rect =
         typeof range.getBoundingClientRect === "function" ? range.getBoundingClientRect() : undefined;
       if (!rect) {
@@ -179,10 +202,14 @@ function VaultMarkdownView({
     };
     document.addEventListener("selectionchange", updateSelection);
     window.addEventListener("resize", updateSelection);
+    // Element scroll events do not bubble. Capture also catches the reader/preview's nested
+    // scroll containers, in both the browser workspace and the native WKWebView shell.
+    window.addEventListener("scroll", dismissOnScroll, true);
     updateSelection();
     return () => {
       document.removeEventListener("selectionchange", updateSelection);
       window.removeEventListener("resize", updateSelection);
+      window.removeEventListener("scroll", dismissOnScroll, true);
     };
   }, [copyPath]);
 
@@ -291,6 +318,7 @@ function SelectionCopyPopover({
   onDone: () => void;
 }) {
   const [copied, setCopied] = useState<SelectionCopyAction | null>(null);
+  const active = useRef(true);
   const resetTimer = useRef<number | undefined>(undefined);
   const panel = useRef<HTMLDivElement>(null);
   // The panel is centred on the selection (translateX(-50%)), and the caller hands it that centre
@@ -303,15 +331,18 @@ function SelectionCopyPopover({
     setLeft(Math.min(Math.max(style.left, inset), Math.max(inset, window.innerWidth - inset)));
   }, [style.left]);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    active.current = true;
+    return () => {
+      active.current = false;
       if (resetTimer.current !== undefined) window.clearTimeout(resetTimer.current);
-    },
-    [],
-  );
+    };
+  }, []);
 
   async function copy(action: SelectionCopyAction, write: () => Promise<boolean>) {
-    if (!(await write())) return;
+    // Scrolling can dismiss this panel while the clipboard or rich renderer is still pending.
+    // A late completion must not schedule onDone against a newer selection's popup.
+    if (!(await write()) || !active.current) return;
     setCopied(action);
     if (resetTimer.current !== undefined) window.clearTimeout(resetTimer.current);
     // The popup acts on one selection and is done after it copies, so it confirms and then leaves.
