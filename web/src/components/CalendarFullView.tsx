@@ -1,8 +1,11 @@
 import { Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useDatedTasksQuery, useNotesQuery } from "../queries";
 import type { NoteID, SearchResult, TaskRow } from "../types";
 import { dueBar } from "./calendarTasks";
+import { CalendarAgenda } from "./CalendarAgenda";
+import { calendarWeek } from "./calendarPlanningTasks";
+import { dateKey, shiftDay } from "./activityDates";
 import { IconChevronLeft, IconChevronRight, RailIcon } from "./icons";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -20,9 +23,24 @@ const CELL_TASKS = 3;
 // endpoint of its own — and no journals — to work.
 export function CalendarFullView() {
   const notesQuery = useNotesQuery();
-  // The calendar never waits on this: a pending or failed listing just means no task counts.
+  // Month activity remains usable while tasks load; the agenda reports task loading/errors directly.
   const tasksQuery = useDatedTasksQuery();
   const [month, setMonth] = useState(startOfCurrentMonth);
+  const [view, setView] = useState<"month" | "day" | "week">("month");
+  const [todayKey, setTodayKey] = useState(() => dateKey(new Date()));
+  const [offset, setOffset] = useState(0);
+  // Relative views follow local midnight, including when a sleeping window returns.
+  useEffect(() => {
+    const refresh = () => setTodayKey(dateKey(new Date()));
+    const now = new Date();
+    const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    const timer = window.setTimeout(refresh, midnight.getTime() - now.getTime() + 50);
+    window.addEventListener("focus", refresh);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [todayKey]);
 
   // day (YYYY-MM-DD) → notes active that day, kept in the listing's order — most recently updated
   // first, the one order every note-list surface shares — so a cell's visible titles read the same as
@@ -68,7 +86,6 @@ export function CalendarFullView() {
   const daysInMonth = new Date(year, monthNo, 0).getDate();
   // `month` is the 1st, so its weekday is the number of leading blank cells (weeks start on Sunday).
   const leadingBlanks = month.getDay();
-  const todayKey = dateKey(new Date());
   const monthLabel = `${year} / ${pad2(monthNo)}`;
   const monthNoteID = journals.get(`${year}${pad2(monthNo)}`);
 
@@ -76,8 +93,35 @@ export function CalendarFullView() {
     setMonth((current) => new Date(current.getFullYear(), current.getMonth() + delta, 1));
   }
 
+  const selectedDay = shiftDay(todayKey, offset);
+  const agendaDays = view === "week" ? calendarWeek(selectedDay) : [selectedDay];
+  function openAgenda(mode: "day" | "week", dayOffset: number) {
+    setOffset(dayOffset);
+    setView(mode);
+  }
+
   return (
     <div className="calendar-full" aria-label="Calendar">
+      <nav className="calendar-nav calendar-views" aria-label="Calendar views">
+        <button type="button" aria-pressed={view === "month"} onClick={() => setView("month")}>Month</button>
+        <button type="button" aria-pressed={view === "day" && offset === 0} onClick={() => openAgenda("day", 0)}>Today</button>
+        <button type="button" aria-pressed={view === "day" && offset === 1} onClick={() => openAgenda("day", 1)}>Tomorrow</button>
+        <button type="button" aria-pressed={view === "week" && offset === 0} onClick={() => openAgenda("week", 0)}>This week</button>
+      </nav>
+      {view !== "month" ? (
+        <>
+          <header className="calendar-head">
+            <h1 className="calendar-title">{agendaDays[0]}{view === "week" ? ` – ${agendaDays[6]}` : ""}</h1>
+            <div className="calendar-nav">
+              <button type="button" onClick={() => setOffset(offset - (view === "week" ? 7 : 1))}>Previous {view}</button>
+              <button type="button" onClick={() => setOffset(offset + (view === "week" ? 7 : 1))}>Next {view}</button>
+            </div>
+          </header>
+          {tasksQuery.isPending ? <p className="muted" role="status">Loading tasks...</p> : null}
+          {tasksQuery.isError ? <p className="error" role="alert">Could not load tasks: {tasksQuery.error.message}</p> : null}
+          {tasksQuery.data ? <CalendarAgenda tasks={tasksQuery.data.tasks} days={agendaDays} today={todayKey} /> : null}
+        </>
+      ) : <>
       <header className="calendar-head">
         {monthNoteID !== undefined ? (
           <Link
@@ -96,7 +140,7 @@ export function CalendarFullView() {
             <RailIcon Icon={IconChevronLeft} size={14} />
           </button>
           <button type="button" onClick={() => setMonth(startOfCurrentMonth())}>
-            Today
+            Current month
           </button>
           <button type="button" aria-label="Next month" title="Next month" onClick={() => shiftMonth(1)}>
             <RailIcon Icon={IconChevronRight} size={14} />
@@ -105,6 +149,7 @@ export function CalendarFullView() {
       </header>
       {notesQuery.isPending ? <p className="muted">Loading calendar...</p> : null}
       {notesQuery.isError ? <p className="error">{notesQuery.error.message}</p> : null}
+      {tasksQuery.isError ? <p className="error" role="alert">Could not load tasks: {tasksQuery.error.message}</p> : null}
       {notesQuery.data ? (
         <div className="calendar-grid">
           {WEEKDAYS.map((day) => (
@@ -197,6 +242,7 @@ export function CalendarFullView() {
           })}
         </div>
       ) : null}
+      </>}
     </div>
   );
 }
@@ -204,10 +250,6 @@ export function CalendarFullView() {
 function startOfCurrentMonth(): Date {
   const now = new Date();
   return new Date(now.getFullYear(), now.getMonth(), 1);
-}
-
-function dateKey(date: Date): string {
-  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
 }
 
 function pad2(n: number): string {

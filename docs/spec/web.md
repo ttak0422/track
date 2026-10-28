@@ -339,6 +339,15 @@ like the repo help docs — the calendar and day pages are absent from the outpu
 
 ## Tasks view
 
+Calendar also offers Today, Tomorrow, and This week task agendas. They use the dated listing,
+exclude terminal tasks, preserve WAITING, and label scheduled and deadline dates separately.
+Weeks start Sunday, matching the month grid; dates are local calendar dates and relative views
+refresh at midnight and on window focus. Previous/next navigation moves by one day or week.
+Overdue deadlines appear separately only when the range contains today. A task can appear there
+as a reminder and on its actual day without date mutation. Undated tasks remain in their notes.
+The month grid and day pages retain historical semantics. Published calendar sites use the same
+dated snapshot; no new API or write path is added.
+
 `/tasks` lists the vault's open work — every task whose state is not a terminal one, dated or not —
 reached from the sidebar rail. The order is the engine's: `[#A]` before `[#B]` before unprioritized,
 ties broken by deadline. A row marks what put it where it is (its priority, else `!` for a deadline
