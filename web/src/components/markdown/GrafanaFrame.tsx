@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useContext, useState } from "react";
 import { CodeBlock } from "./CodeBlock";
+import { NoteIdentityContext } from "./context";
 
 // A note cannot authorize a network connection. Each mounted frame starts stopped; the reader
 // explicitly admits its exact origin. Same-origin and loopback frames never receive script+origin.
@@ -18,6 +19,11 @@ export function grafanaURL(value: unknown, appOrigin = window.location.origin): 
 }
 
 export function GrafanaFrame({ text }: { text: string }) {
+  const documentIdentity = useContext(NoteIdentityContext);
+  return <GrafanaSession key={JSON.stringify([documentIdentity, text])} text={text} />;
+}
+
+function GrafanaSession({ text }: { text: string }) {
   let config: { url?: unknown; title?: unknown } = {};
   try { config = JSON.parse(text) ?? {}; } catch { /* source fallback below */ }
   const url = grafanaURL(config.url);

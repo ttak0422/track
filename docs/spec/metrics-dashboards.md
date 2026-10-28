@@ -47,7 +47,7 @@ A `grafana` fence contains `{title,url}` for an external HTTPS classic dashboard
 separate from the local subset renderer. The frontend checks scheme, path, exact app origin,
 credentials, fragments, loopback hosts and query keys before offering a one-mount reader admission
 for that exact URL/origin. No request/iframe exists before the click. Changing the definition or
-navigating away removes admission; disconnect removes the iframe and reconnect replaces it.
+navigating away removes admission; disconnect removes the iframe and reconnect replaces it. Admission is keyed by the document/vault identity tree and fence text, so cached note switches and included-note changes cannot carry a live frame into another document.
 
 The frame sandbox admits scripts and same-origin for Grafana's own API/storage, but neither top
 navigation, popups, forms, downloads nor a native bridge. Same-origin and loopback starting URLs are

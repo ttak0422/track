@@ -33,5 +33,7 @@ describe("Grafana frame", () => {
     fireEvent.click(screen.getByRole("button", {name:/Load Grafana/}));
     rerender(<GrafanaFrame text={JSON.stringify({url:"https://other.test/d/x/x"})} />);
     expect(container.querySelector("iframe")).toBeNull();
+    rerender(<GrafanaFrame text={JSON.stringify({url})} />);
+    expect(container.querySelector("iframe")).toBeNull();
   });
 });

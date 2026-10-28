@@ -1207,3 +1207,22 @@ it("does not inherit a parent diagram-edit capability inside an included note", 
   expect(screen.getByRole("img", { name: "draw.io diagram" })).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Edit draw.io diagram" })).toBeNull();
 });
+
+it("clears Grafana admission on warm note and vault switches with identical fences", () => {
+  const markdown = '```grafana\n{"title":"Operations","url":"https://grafana.example.test/d/ops/operations"}\n```';
+  const view = (noteId: string, vault: string) => <MarkdownView markdown={markdown} noteId={noteId} vault={vault} />;
+  const { container, rerender } = render(view("A", "main"));
+  fireEvent.click(screen.getByRole("button", { name: /Load Grafana from/ }));
+  const first = container.querySelector("iframe");
+  expect(first).not.toBeNull();
+  rerender(view("A", "main"));
+  expect(container.querySelector("iframe")).toBe(first);
+  rerender(view("B", "main"));
+  expect(container.querySelector("iframe")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: /Load Grafana from/ }));
+  rerender(view("A", "main"));
+  expect(container.querySelector("iframe")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: /Load Grafana from/ }));
+  rerender(view("A", "other"));
+  expect(container.querySelector("iframe")).toBeNull();
+});
