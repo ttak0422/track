@@ -131,6 +131,7 @@ func resolvePanelSpec(p grafanaPanel, dataDir string, live bool) (string, error)
 		Op    string `json:"op"`
 		Value string `json:"value"`
 	}
+	var sourceFile string
 	for _, t := range p.Targets {
 		if _, err := ParseQuery(t.Expr); err != nil {
 			return "", fmt.Errorf("target %q: %w (expr is a metric name plus = matchers only)", t.Expr, err)
@@ -146,6 +147,10 @@ func resolvePanelSpec(p grafanaPanel, dataDir string, live bool) (string, error)
 			}
 			return "", fmt.Errorf("target %q: datasource must be {\"type\":\"track\",\"uid\":\"<data/ filename>\"}, got %s", t.Expr, got)
 		}
+		if sourceFile != "" && ds.UID != sourceFile {
+			return "", fmt.Errorf("one spec reads one file: panel %q targets reference different files", p.Title)
+		}
+		sourceFile = ds.UID
 		if _, err := loadMetricFile(dataDir, ds.UID); err != nil {
 			return "", err
 		}
@@ -200,16 +205,11 @@ func resolvePanelSpec(p grafanaPanel, dataDir string, live bool) (string, error)
 	if len(seriesList) == 0 {
 		return "", seriesListErr(p)
 	}
-	files := map[string]bool{}
 	folded := map[string]bool{}
 	entities := map[string]bool{}
 	for _, s := range seriesList {
-		files[s.file] = true
 		folded[s.name] = true
 		entities[s.entity] = true
-	}
-	if len(files) > 1 {
-		return "", fmt.Errorf("one spec reads one file: panel %q targets span %d files", p.Title, len(files))
 	}
 	if len(folded) > 1 && !live {
 		return "", fmt.Errorf("panel %q matches %d series names; split the targets across panels", p.Title, len(folded))

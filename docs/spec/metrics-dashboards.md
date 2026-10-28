@@ -25,7 +25,7 @@ this is not an intraday measurement. When every selected observation is date-onl
 date-only. Mixed timestamps are ordered as UTC instants. Original supplied timestamps, precision and
 timezone metadata remain available in series metadata and point details.
 
-Panel targets must select one data file. The live renderer accepts multiple folded metric names/labels, and rejects mixed record units. The legacy CLI importer still requires a single folded metric name. Different levels/differences/relative
+Panel targets must select one data file. Every declared target binding is checked before matching observations, including targets with no current matches; a missing target is never filled from another source. The live renderer accepts multiple folded metric names/labels, and rejects mixed record units. The legacy CLI importer still requires a single folded metric name. Different levels/differences/relative
 changes get separate names and panels, with explicit percent versus percentage-point units. Scope
 metadata distinguishes market observations from actual sector observations. A collector's fetch rate
 is not the observation/publication rate. Unknown financial coverage remains the producer's concern.

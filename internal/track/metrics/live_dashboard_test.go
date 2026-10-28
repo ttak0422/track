@@ -188,3 +188,29 @@ func TestLiveDashboardInfersUnitFromRecords(t *testing.T) {
 		t.Fatalf("unit: %+v %v", view, err)
 	}
 }
+
+func TestDashboardRejectsUnmatchedForeignDatasource(t *testing.T) {
+	dir := t.TempDir()
+	a := `{"name":"m","time":"2026-10-01","value":1,"unit":"count"}
+{"name":"n","time":"2026-10-01","value":999,"unit":"count"}
+`
+	b := `{"name":"other","time":"2026-10-01","value":2,"unit":"count"}
+`
+	for file, body := range map[string]string{"a.jsonl": a, "b.jsonl": b} {
+		if err := os.WriteFile(filepath.Join(dir, file), []byte(body), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	raw := `{"title":"Bindings","panels":[{"title":"Samples","type":"timeseries","datasource":{"type":"track","uid":"a.jsonl"},"targets":[{"expr":"m"},{"expr":"n","datasource":{"type":"track","uid":"b.jsonl"}}]}]}`
+	if _, err := RenderDashboard([]byte(raw), dir, time.Time{}); err == nil {
+		t.Fatal("unmatched foreign target read the other source without a binding error")
+	}
+	if _, _, err := ResolveDashboard([]byte(raw), dir); err == nil {
+		t.Fatal("importer accepted mixed bindings when one target has no matching observations")
+	}
+	sameFile := strings.ReplaceAll(raw, "b.jsonl", "a.jsonl")
+	view, err := RenderDashboard([]byte(sameFile), dir, time.Time{})
+	if err != nil || len(view.Panels) != 1 || view.Panels[0].Points != 2 {
+		t.Fatalf("same-file bindings: %d panels, error %v", len(view.Panels), err)
+	}
+}
