@@ -35,6 +35,7 @@ and exits after checking that the Go child has already been reaped. The separate
 | Save pending against a SIGSTOP'd server | Cancel keeps draft; resume completes Save; next Quit is clean |
 | IME compositionstart before the buffer changes | Cancel protects composition; compositionend restores clean state |
 | Dirty note with two tabs open | Cancel and Save preserve the active draft; clean tabs do not mask it |
+| Open event editor: window Close / Cmd-Q, then Cancel | One warning; draft remains, cancelling editor makes the next termination clean |
 
 Native confirmation buttons are activated through their real AppKit controls. Editor actions use
 DOM buttons and native textarea setters with bubbling input events, without React internals or a
@@ -54,6 +55,11 @@ Unknown pages, voice input, open dialogs and focused embedded frames remain cons
 An unavailable probe cannot establish a clean editor, so it still warns after a bounded timeout.
 The read-only state probe does not add a native command or message bridge. The native Cancel
 button leaves the existing web Save action available; this change adds no new save workflow.
+
+`web/src/nativeEventNavigation.test.tsx` runs the literal production native probe against the
+real event dialog and workspace capability: untouched/edited, pending/failed save, cancellation,
+and successful-save closure. Native `<dialog open>` and explicit ARIA dialogs both stay
+conservative. This contract does not add a Web router or browser beforeunload event-draft guard.
 
 Run `web/src/nativeNavigation.test.tsx` for pending/failed saves, current DOM text, a newer edit
 arriving during a save, deletion and mount/unmount behavior. Also run

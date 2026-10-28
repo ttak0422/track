@@ -21,7 +21,8 @@ spec.loader.exec_module(recovery)
 SCENARIOS = ['clean-close', 'clean-quit', 'clean-os', 'empty-close', 'saved-quit', 'multi-clean',
              'dirty-cancel-save', 'dirty-discard', 'dirty-os-cancel', 'initial-os',
              'timeout-cancel', 'probe-error-cancel', 'unknown-cancel', 'stopped-child-quit', 'startup-os', 'pending-cancel', 'ime-cancel', 'dirty-multi-cancel', 'dirty-cancel-close', 'clean-edit-quit',
-             'tab-close-clean', 'dirty-tab-cancel', 'dirty-tab-discard']
+             'tab-close-clean', 'dirty-tab-cancel', 'dirty-tab-discard',
+             'event-cancel-close', 'event-cancel-quit', 'event-discard']
 
 
 def main():
