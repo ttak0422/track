@@ -16,7 +16,7 @@ export function CalendarAgenda({ tasks, days, today }: { tasks: TaskRow[]; days:
       ) : null}
       {agenda.days.map(({ day, tasks: dayTasks }) => (
         <section className="day-tasks" aria-label={`Tasks on ${day}`} key={day}>
-          <h2><Link to="/day/$date" params={{ date: day }}>{day}</Link>{day === today ? " · Today" : ""}</h2>
+          <h2>{STATIC_MODE ? day : <Link to="/day/$date" params={{ date: day }}>{day}</Link>}{day === today ? " · Today" : ""}</h2>
           {dayTasks.length ? <TaskLinks tasks={dayTasks} /> : <p className="muted">No open tasks scheduled or due.</p>}
         </section>
       ))}
