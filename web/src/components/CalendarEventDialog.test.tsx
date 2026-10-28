@@ -1,5 +1,5 @@
 import { act, fireEvent, render, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CalendarEventDialog } from "./CalendarEventDialog";
 import type { CalendarEvent } from "../calendarEvents";
 
@@ -8,8 +8,38 @@ vi.mock("../calendarEventQueries", () => ({ useSaveCalendarEvent: () => mutation
 const event: CalendarEvent = { version: 1, id: "123e4567-e89b-42d3-a456-426614174000", revision: 4, title: "Review", all_day: true, start: "2026-10-28", end: "2026-10-31", time_zone: "", description: "Source", location: "Desk", url: "", note_id: "", status: "confirmed", deleted: false, updated_at: "2026-10-28T10:00:00Z" };
 
 beforeEach(() => { mutation.mutateAsync.mockReset(); mutation.isPending = false; });
+afterEach(() => vi.restoreAllMocks());
 
 describe("event editor", () => {
+  it("refuses a new unsupported zone before writing and keeps the input", () => {
+    const { getByLabelText, getByRole } = render(<CalendarEventDialog vault="" date="2026-10-28" notes={[]} onSaved={() => {}} onClose={() => {}} />);
+    fireEvent.change(getByLabelText("Title"), { target: { value: "Unsupported zone" } });
+    fireEvent.click(getByLabelText("All day"));
+    fireEvent.change(getByLabelText("Time zone"), { target: { value: "Factory" } });
+    fireEvent.click(getByRole("button", { name: "Save event" }));
+    expect(getByRole("alert").textContent).toContain("unavailable in this browser");
+    expect((getByLabelText("Time zone") as HTMLInputElement).value).toBe("Factory");
+    expect(mutation.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("opens an unsupported stored zone safely and preserves precise instants on unrelated edits", async () => {
+    const unsupported = { ...event, all_day: false, start: "2026-10-28T12:00:45.123-03:00", end: "2026-10-28T13:00:45.456-03:00", time_zone: "America/Coyhaique" };
+    const formatter = Intl.DateTimeFormat;
+    // A legitimate IANA name can be newer than a browser's ICU database.
+    vi.spyOn(Intl, "DateTimeFormat").mockImplementation(function (...args: Parameters<typeof Intl.DateTimeFormat>) {
+      if (args[1]?.timeZone === unsupported.time_zone) throw new RangeError("Unsupported zone in older browser");
+      return new formatter(...args);
+    });
+    mutation.mutateAsync.mockResolvedValue({ event: unsupported });
+    const onSaved = vi.fn();
+    const { getByLabelText, getByRole } = render(<CalendarEventDialog vault="" date="2026-10-28" event={unsupported} notes={[]} onSaved={onSaved} onClose={() => {}} />);
+    expect(getByRole("alert").textContent).toContain("Showing the saved local clock and UTC offsets");
+    expect((getByLabelText("Start time") as HTMLInputElement).value).toBe("12:00:45");
+    fireEvent.change(getByLabelText("Title"), { target: { value: "Revised title" } });
+    fireEvent.click(getByRole("button", { name: "Save event" }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(mutation.mutateAsync.mock.calls[0][0].request).toMatchObject({ start: unsupported.start, end: unsupported.end, time_zone: unsupported.time_zone });
+  });
   it("preserves all-day dates on title-only edits across a locally skipped day", async () => {
     const skipped = { ...event, start: "2011-12-29", end: "2011-12-31" };
     mutation.mutateAsync.mockResolvedValue({ event: skipped });

@@ -38,3 +38,11 @@ it("does not mount event data or registration controls on a published site", () 
   const { container } = render(<CalendarEventsPanel days={["2026-10-28"]} defaultDate="2026-10-28" />);
   expect(container).toBeEmptyDOMElement();
 });
+
+it("keeps unsupported-zone events visible and editable without breaking the panel", () => {
+  state.rows = [{ ...event, title: "Unsupported zone", deleted: false, all_day: false, start: "2026-10-28T12:00:00Z", end: "2026-10-28T13:00:00Z", time_zone: "Factory" }];
+  const { getByRole, getByText } = render(<CalendarEventsPanel days={["2026-10-28", "2026-10-29"]} defaultDate="2026-10-28" />);
+  expect(getByText(/Time zone “Factory” is unavailable in this browser/)).toBeInTheDocument();
+  fireEvent.click(getByRole("button", { name: "Edit Unsupported zone" }));
+  expect(dialog.mock.calls.at(-1)?.[0]).toMatchObject({ event: state.rows[0] });
+});

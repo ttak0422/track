@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { eventFields, eventLocalParts, shiftCivilDay, type CalendarEvent, type CalendarEventFields, type CalendarEventWrite } from "../calendarEvents";
+import { browserSupportsTimeZone, eventFields, eventLocalParts, shiftCivilDay, type CalendarEvent, type CalendarEventFields, type CalendarEventWrite } from "../calendarEvents";
 import { useSaveCalendarEvent } from "../calendarEventQueries";
 import type { SearchResult } from "../types";
 
@@ -20,8 +20,8 @@ export function CalendarEventDialog({ vault, date, event, notes, onSaved, onClos
   const attempt = useRef<{ fingerprint: string; operation: string } | null>(null);
   const save = useSaveCalendarEvent(vault);
   const zone = event?.time_zone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  const initialStart = event && !event.all_day ? eventLocalParts(event.start, zone) : { date: event?.start ?? date, time: "09:00" };
-  const initialEnd = event && !event.all_day ? eventLocalParts(event.end, zone) : { date: event ? shiftCivilDay(event.end, -1) : date, time: "10:00" };
+  const initialStart: ReturnType<typeof eventLocalParts> = event && !event.all_day ? eventLocalParts(event.start, zone) : { date: event?.start ?? date, time: "09:00" };
+  const initialEnd: ReturnType<typeof eventLocalParts> = event && !event.all_day ? eventLocalParts(event.end, zone) : { date: event ? shiftCivilDay(event.end, -1) : date, time: "10:00" };
   const [title, setTitle] = useState(event?.title ?? "");
   const [allDay, setAllDay] = useState(event?.all_day ?? true);
   const [startDate, setStartDate] = useState(initialStart.date);
@@ -59,6 +59,10 @@ export function CalendarEventDialog({ vault, date, event, notes, onSaved, onClos
     const localTime = (date: string, time: string, offset: string) => `${date}T${time.length === 5 ? `${time}:00` : time}${offset}`;
     const unchangedStart = event && !event.all_day && startDate === initialStart.date && startTime === initialStart.time && timeZone === zone && startOffset === initialStartOffset;
     const unchangedEnd = event && !event.all_day && endDate === initialEnd.date && endTime === initialEnd.time && timeZone === zone && endOffset === initialEndOffset;
+    if (!deleted && !allDay && (!unchangedStart || !unchangedEnd) && !browserSupportsTimeZone(timeZone.trim())) {
+      setError(`Time zone “${timeZone.trim()}” is unavailable in this browser. Choose a supported IANA time zone before changing dates or times.`);
+      return;
+    }
     const fields: CalendarEventFields = deleted && event ? { ...eventFields(event), deleted: true } : {
       title: title.trim(), all_day: allDay,
       start: allDay ? startDate : unchangedStart ? event!.start : localTime(startDate, startTime, startOffset),
@@ -84,6 +88,8 @@ export function CalendarEventDialog({ vault, date, event, notes, onSaved, onClos
   return <dialog ref={dialog} className="modal-card calendar-event-dialog" aria-labelledby="calendar-event-title"
     onCancel={(e) => { e.preventDefault(); close(); }}>
     <h3 id="calendar-event-title">{event ? "Edit event" : "New event"}</h3>
+    {event && !event.all_day && (initialStart.timeZoneUnavailable || initialEnd.timeZoneUnavailable) ?
+      <p role="alert">Time zone “{zone}” is unavailable in this browser. Showing the saved local clock and UTC offsets. Choose a supported IANA time zone to change dates or times; other edits preserve the saved timestamps.</p> : null}
     <form onSubmit={(e) => { e.preventDefault(); void submit(); }}>
       <fieldset disabled={save.isPending}>
         <label className="modal-field">Title<input ref={titleInput} className="modal-input" required maxLength={256} value={title} onChange={(e) => setTitle(e.target.value)} /></label>

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { calendarEventOrder, eventLocalParts, eventOnDay, eventTimeLabel, saveCalendarEvent, type CalendarEvent } from "./calendarEvents";
+import { browserSupportsTimeZone, calendarEventOrder, eventLocalParts, eventOnDay, eventTimeLabel, saveCalendarEvent, type CalendarEvent } from "./calendarEvents";
 
 export const sampleEvent: CalendarEvent = {
   version: 1, id: "123e4567-e89b-42d3-a456-426614174000", revision: 2, title: "Review", all_day: true,
@@ -32,6 +32,15 @@ describe("calendar events", () => {
 
   it("formats the event's named zone instead of the device zone", () => {
     expect(eventLocalParts("2026-10-28T15:00:45Z", "Asia/Tokyo")).toEqual({ date: "2026-10-29", time: "00:00:45" });
+  });
+
+  it("shows saved offsets with a warning instead of crashing on an unsupported zone", () => {
+    const start = "2026-10-28T12:00:00Z";
+    const end = "2026-10-28T13:00:00Z";
+    expect(browserSupportsTimeZone("Factory")).toBe(false);
+    expect(browserSupportsTimeZone("US/Eastern")).toBe(true);
+    expect(eventLocalParts(start, "Factory")).toEqual({ date: "2026-10-28", time: "12:00:00", timeZoneUnavailable: true });
+    expect(eventTimeLabel({ ...sampleEvent, all_day: false, start, end, time_zone: "Factory" })).toBe(`${start} – ${end} · Time zone “Factory” is unavailable in this browser.`);
   });
 
   it("writes to the selected vault and strips the related note's qualified id", async () => {

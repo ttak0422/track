@@ -90,6 +90,35 @@ func TestTimedDSTAndOffsets(t *testing.T) {
 	}
 }
 
+func TestStableZoneIdentifiers(t *testing.T) {
+	for _, zone := range []string{"localtime", "posixrules", "Factory", "posix/America/New_York", "right/America/New_York"} {
+		t.Run(zone, func(t *testing.T) {
+			f := Fields{Title: "Host zone", TimeZone: zone, Start: "2026-10-28T12:00", End: "2026-10-28T13:00"}
+			cfg := &config.Config{VaultDir: t.TempDir()}
+			if _, err := Save(cfg, testID, request(f, 0, testOp)); !errors.Is(err, ErrValidation) {
+				t.Fatalf("saved unstable zone %q: %v", zone, err)
+			}
+			if _, err := Get(cfg, testID); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("invalid event persisted: %v", err)
+			}
+		})
+	}
+	for _, zone := range []string{"UTC", "GMT", "Etc/GMT+5", "US/Eastern", "Asia/Calcutta", "Japan", "Canada/Eastern"} {
+		t.Run(zone, func(t *testing.T) {
+			f := Fields{Title: "IANA alias", TimeZone: zone, Start: "2026-10-28T12:00", End: "2026-10-28T13:00"}
+			cfg := &config.Config{VaultDir: t.TempDir()}
+			saved, err := Save(cfg, testID, request(f, 0, testOp))
+			if err != nil {
+				t.Fatal(err)
+			}
+			loaded, err := Get(cfg, testID)
+			if err != nil || loaded != saved || loaded.TimeZone != zone {
+				t.Fatalf("alias roundtrip: %+v %v", loaded, err)
+			}
+		})
+	}
+}
+
 func TestLifecycleConflictAndRetry(t *testing.T) {
 	cfg := &config.Config{VaultDir: t.TempDir()}
 	if events, err := List(cfg, false); err != nil || len(events) != 0 {

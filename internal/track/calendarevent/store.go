@@ -82,7 +82,9 @@ func eventRoot(cfg *config.Config, create bool) (*os.Root, error) {
 
 func read(root *os.Root, id string) (record, error) {
 	var r record
-	file, err := root.OpenFile(id+".json", os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	// Check the opened inode without waiting for a FIFO's writer. Lstat before
+	// opening would leave a replacement race between the check and the open.
+	file, err := root.OpenFile(id+".json", os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if errors.Is(err, os.ErrNotExist) {
 		return r, ErrNotFound
 	}

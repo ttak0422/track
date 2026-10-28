@@ -71,12 +71,23 @@ export function eventOnDay(event: CalendarEvent, day: string): boolean {
   return new Date(event.start) < end && new Date(event.end) > start;
 }
 
-export function eventLocalParts(value: string, zone: string): { date: string; time: string } {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
-  }).formatToParts(new Date(value));
-  const part = (name: string) => parts.find((item) => item.type === name)?.value ?? "";
-  return { date: `${part("year").padStart(4, "0")}-${part("month")}-${part("day")}`, time: `${part("hour")}:${part("minute")}:${part("second")}` };
+export function browserSupportsTimeZone(zone: string): boolean {
+  try { new Intl.DateTimeFormat("en", { timeZone: zone }); return true; }
+  catch { return false; }
+}
+
+export function eventLocalParts(value: string, zone: string): { date: string; time: string; timeZoneUnavailable?: boolean } {
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+    }).formatToParts(new Date(value));
+    const part = (name: string) => parts.find((item) => item.type === name)?.value ?? "";
+    return { date: `${part("year").padStart(4, "0")}-${part("month")}-${part("day")}`, time: `${part("hour")}:${part("minute")}:${part("second")}` };
+  } catch {
+    // Saved RFC3339 values already carry the authored local clock and offset.
+    // Keep those values visible if this browser's zone database cannot format it.
+    return { date: value.slice(0, 10), time: value.slice(11, 19), timeZoneUnavailable: true };
+  }
 }
 
 // UTC is only the arithmetic coordinate here: civil dates must retain even days
@@ -94,6 +105,9 @@ export function eventTimeLabel(event: CalendarEvent): string {
   }
   const start = eventLocalParts(event.start, event.time_zone);
   const end = eventLocalParts(event.end, event.time_zone);
+  if (start.timeZoneUnavailable || end.timeZoneUnavailable) {
+    return `${event.start} – ${event.end} · Time zone “${event.time_zone}” is unavailable in this browser.`;
+  }
   return `${start.date} ${start.time} – ${end.date} ${end.time} · ${event.time_zone}`;
 }
 

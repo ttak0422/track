@@ -28,6 +28,16 @@ it atomically, and syncs the directory. Readers see one complete revision. The e
 symlinks in the event directories, record files, and lock file; filesystem access stays anchored to
 the selected vault. Malformed, unsupported-version, or noncanonical records cause an explicit error,
 including in lists, rather than disappearing as an empty calendar. A corrupt record is never overwritten.
+Record opens are nonblocking before checking the opened descriptor's regular-file type, so a
+named pipe cannot stall readers or a save while holding its exclusive lock.
+
+Accepted zone identifiers come from the pinned Go toolchain's bundled IANA data, including
+legacy aliases, with the `Factory` placeholder excluded. Regenerate `zones.txt` with
+`go generate ./internal/track/calendarevent` when upgrading Go. Host-only names (`Local`,
+`localtime`, `posixrules`, `posix/…`, `right/…`) are not event identities. The browser also checks
+its own `Intl.DateTimeFormat` support when authoring time changes; older browsers may lack newer
+IANA names. Unsupported stored zones show their original RFC3339 timestamps and a warning;
+unrelated edits preserve those instants rather than silently converting them to another zone.
 
 The lock serializes cooperating processes on one filesystem. It does not provide a distributed lock
 between machines independently writing copies of a synchronized vault; concurrent sync conflicts

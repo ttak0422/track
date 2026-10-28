@@ -127,6 +127,9 @@ func Normalize(f Fields) (Fields, error) {
 	if f.TimeZone == "" || f.TimeZone == "Local" {
 		return f, invalid("time_zone must be an explicit IANA time zone")
 	}
+	if !eventZones[f.TimeZone] {
+		return f, invalid("unknown IANA time_zone %q (host-specific and placeholder zones are not supported)", f.TimeZone)
+	}
 	loc, err := time.LoadLocation(f.TimeZone)
 	if err != nil {
 		return f, invalid("unknown IANA time_zone %q", f.TimeZone)
