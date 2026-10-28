@@ -20,6 +20,11 @@ metrics, resamples a publication or turns an absent week into an observed zero. 
 are parsed and normalized for chronological display. Latest observation is independent of the chosen
 period; an empty period explicitly reports no observations while retaining that freshness reference.
 
+Date-only observations use UTC midnight as a reference for ordering and the rolling-period cutoff;
+this is not an intraday measurement. When every selected observation is date-only, axis labels stay
+date-only. Mixed timestamps are ordered as UTC instants. Original supplied timestamps, precision and
+timezone metadata remain available in series metadata and point details.
+
 Panel targets must select one data file. The live renderer accepts multiple folded metric names/labels, and rejects mixed record units. The legacy CLI importer still requires a single folded metric name. Different levels/differences/relative
 changes get separate names and panels, with explicit percent versus percentage-point units. Scope
 metadata distinguishes market observations from actual sector observations. A collector's fetch rate

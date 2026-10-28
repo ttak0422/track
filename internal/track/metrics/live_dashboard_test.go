@@ -42,6 +42,10 @@ func TestLiveDashboardBindingsGapsAndPeriod(t *testing.T) {
 	if err := json.Unmarshal(p.ECharts, &option); err != nil {
 		t.Fatal(err)
 	}
+	axis := option["xAxis"].(map[string]any)["data"].([]any)
+	if axis[0] != "2026-10-01" || axis[2] != "2026-10-15" {
+		t.Fatalf("date-only precision lost: %v", axis)
+	}
 	series := option["series"].([]any)
 	if len(series) != 1 {
 		t.Fatalf("series = %v", series)
@@ -143,8 +147,8 @@ func TestLiveDashboardFoldedLabelsAndNestedProvenance(t *testing.T) {
 
 func TestLiveDashboardOrdersAcrossSeriesAndTimezones(t *testing.T) {
 	dir := t.TempDir()
-	rows := `{"name":"level","entity":"A","time":"2026-10-02T00:00:00Z","value":2}
-{"name":"level","entity":"B","time":"2026-10-01T00:30:00+01:00","value":1}
+	rows := `{"name":"level","entity":"A","time":"2026-10-01T13:00:00+09:00","value":2}
+{"name":"level","entity":"A","time":"2026-10-01T05:00:00Z","value":1}
 {"name":"level","entity":"A","time":"2026-10-01","value":3}
 `
 	if err := os.WriteFile(filepath.Join(dir, "sectors.jsonl"), []byte(rows), 0600); err != nil {
@@ -163,7 +167,10 @@ func TestLiveDashboardOrdersAcrossSeriesAndTimezones(t *testing.T) {
 	if err := json.Unmarshal(view.Panels[0].ECharts, &option); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"2026-09-30T23:30:00.000000000Z", "2026-10-01T00:00:00.000000000Z", "2026-10-02T00:00:00.000000000Z"}
+	if !strings.Contains(string(view.Panels[0].ECharts), "2026-10-01T13:00:00+09:00") {
+		t.Fatal("original offset timestamp missing from tooltip")
+	}
+	want := []string{"2026-10-01T00:00:00.000000000Z", "2026-10-01T04:00:00.000000000Z", "2026-10-01T05:00:00.000000000Z"}
 	if len(option.XAxis.Data) != len(want) {
 		t.Fatalf("axis = %v", option.XAxis.Data)
 	}

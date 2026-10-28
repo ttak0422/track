@@ -140,7 +140,7 @@ func RenderDashboard(raw []byte, dataDir string, since time.Time) (DashboardView
 					units[unit] = true
 				}
 				key := name + "\x00" + entity
-				summary := map[string]string{"name": name, "metric": name, "entity": entity}
+				summary := map[string]string{"name": name, "metric": name, "entity": entity, "time": stamp}
 
 				for field, value := range row {
 					if field == "name" || field == "entity" || field == "time" || field == "value" || field == "version" || value == nil {
@@ -176,6 +176,7 @@ func RenderDashboard(raw []byte, dataDir string, since time.Time) (DashboardView
 				for k, v := range labels {
 					title = strings.ReplaceAll(title, "{{"+k+"}}", v)
 				}
+				copy["_track_observed_time"] = stamp
 				copy["time"] = at.UTC().Format("2006-01-02T15:04:05.000000000Z")
 				if len(stamp) != len("2006-01-02") {
 					dateOnly = false
@@ -231,7 +232,7 @@ func RenderDashboard(raw []byte, dataDir string, since time.Time) (DashboardView
 			spec.Encoding.Y[0].Domain = []float64{*p.FieldConfig.Defaults.Min, *p.FieldConfig.Defaults.Max}
 		}
 		spec.Encoding.Color = &viewspec.Channel{Field: "_track_series", Type: viewspec.Nominal}
-		spec.Encoding.Detail = []viewspec.Channel{{Field: "unit", Title: "Unit"}, {Field: "missing_reason", Title: "Missing reason"}, {Field: "available_at", Title: "Available at"}, {Field: "fetched_at", Title: "Fetched at"}, {Field: "url", Title: "Source"}}
+		spec.Encoding.Detail = []viewspec.Channel{{Field: "_track_observed_time", Title: "Observation time as supplied"}, {Field: "unit", Title: "Unit"}, {Field: "missing_reason", Title: "Missing reason"}, {Field: "available_at", Title: "Available at"}, {Field: "fetched_at", Title: "Fetched at"}, {Field: "url", Title: "Source"}}
 		for _, field := range []string{"frequency", "publication_frequency", "scope", "source", "asof", "revision", "detail", "provider", "definition"} {
 			spec.Encoding.Detail = append(spec.Encoding.Detail, viewspec.Channel{Field: field, Title: field})
 		}
