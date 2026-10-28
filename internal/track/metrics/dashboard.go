@@ -282,29 +282,33 @@ func isBareFilename(s string) bool {
 	return s != "" && s != "." && s != ".." && s == filepath.Base(s) && !strings.Contains(s, `\`)
 }
 
-func readMetricRecords(dataDir, file string) ([]dataset.Record, error) {
+func readMetricRecords(dataDir, file string) ([]dataset.Record, os.FileInfo, error) {
 	if !isBareFilename(file) {
-		return nil, fmt.Errorf("data source must be a bare filename")
+		return nil, nil, fmt.Errorf("data source must be a bare filename")
 	}
 	root, err := os.OpenRoot(dataDir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer root.Close()
 	f, err := root.Open(file)
 	if err != nil {
-		return nil, fmt.Errorf("open %s: %w", file, err)
+		return nil, nil, fmt.Errorf("open %s: %w", file, err)
 	}
 	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, nil, err
+	}
 	rows, err := dataset.ReadJSONL(f)
 	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", file, err)
+		return nil, nil, fmt.Errorf("read %s: %w", file, err)
 	}
-	return rows, nil
+	return rows, info, nil
 }
 
 func loadMetricFile(dataDir, file string) ([]dataset.Record, error) {
-	rows, err := readMetricRecords(dataDir, file)
+	rows, _, err := readMetricRecords(dataDir, file)
 	if err != nil {
 		return nil, err
 	}

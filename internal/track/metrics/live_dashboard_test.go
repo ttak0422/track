@@ -32,7 +32,7 @@ func TestLiveDashboardBindingsGapsAndPeriod(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := view.Panels[0]
-	if p.Points != 3 || p.Missing != 1 || p.Width != 12 || p.LatestObservation != "2026-10-15" {
+	if p.DataUpdatedAt == "" || p.Points != 3 || p.Missing != 1 || p.Width != 12 || p.LatestObservation != "2026-10-15" {
 		t.Fatalf("panel = %+v", p)
 	}
 	if len(p.Series) != 1 || p.Series[0]["frequency"] != "weekly" || p.Series[0]["revision"] != "second" {

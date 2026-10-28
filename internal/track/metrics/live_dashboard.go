@@ -3,8 +3,6 @@ package metrics
 import (
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -88,7 +86,7 @@ func RenderDashboard(raw []byte, dataDir string, since time.Time) (DashboardView
 			return DashboardView{}, err
 		}
 		file := spec.Data.Source
-		rows, err := readMetricRecords(dataDir, file)
+		rows, info, err := readMetricRecords(dataDir, file)
 		if err != nil {
 			return DashboardView{}, err
 		}
@@ -103,9 +101,7 @@ func RenderDashboard(raw []byte, dataDir string, since time.Time) (DashboardView
 			}
 			panel.X, panel.Width = g.X, g.W
 		}
-		if info, err := os.Stat(filepath.Join(dataDir, file)); err == nil {
-			panel.DataUpdatedAt = info.ModTime().UTC().Format(time.RFC3339)
-		}
+		panel.DataUpdatedAt = info.ModTime().UTC().Format(time.RFC3339)
 		selected := []dataset.Record{}
 		summaries := map[string]map[string]string{}
 		summaryTimes := map[string]time.Time{}
