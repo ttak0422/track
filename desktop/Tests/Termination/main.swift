@@ -53,9 +53,14 @@ final class TerminationHarness: NSObject, NSApplicationDelegate {
         }
         RunLoop.main.add(timer!, forMode: .common)
         RunLoop.main.add(timer!, forMode: .modalPanel)
-        Task { @MainActor in
-            do { try await run() }
-            catch { finish(error: String(describing: error)) }
+        if scenario == "startup-os" {
+            // Request before yielding to server-readiness tasks and the first document load.
+            requestTermination()
+        } else {
+            Task { @MainActor in
+                do { try await run() }
+                catch { finish(error: String(describing: error)) }
+            }
         }
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(25))
@@ -95,7 +100,7 @@ final class TerminationHarness: NSObject, NSApplicationDelegate {
     }
 
     func run() async throws {
-        if scenario == "initial-os" || scenario == "startup-os" {
+        if scenario == "initial-os" {
             perform(#selector(requestTermination), with: nil, afterDelay: 0)
             return
         }
