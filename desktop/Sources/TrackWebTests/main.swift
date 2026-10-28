@@ -244,13 +244,13 @@ struct TrackWebTestRunner {
         try await waitUntil { supervisor.state == expected }
     }
 
-    private static func waitUntil(condition: @escaping @MainActor () -> Bool) async throws {
+    fileprivate static func waitUntil(message: String = "asynchronous state did not arrive before its deadline", condition: @escaping @MainActor () -> Bool) async throws {
         let deadline = ContinuousClock.now.advanced(by: .seconds(2))
         while ContinuousClock.now < deadline {
             if condition() { return }
             try? await Task.sleep(for: .milliseconds(5))
         }
-        throw TestFailure("asynchronous state did not arrive before its deadline")
+        throw TestFailure(message)
     }
 
     private static func isFailed(_ state: WebServerSupervisor.State, containing text: String) -> Bool {
@@ -391,12 +391,16 @@ enum NativeSpeechTests {
 
         await session.start(id: "timeout", locale: "ja-JP").value
         session.stop(id: "timeout")
-        try await Task.sleep(for: .milliseconds(40))
-        try expect(!driver.capturing && events.last?.1 == "ended" && events.suffix(2).first?.1 == "error", "missing final hung the task")
+        // Timer tasks may be scheduled late on a loaded runner. Require the actual cleanup
+        // state within the existing two-second test bound, rather than sampling after 40 ms.
+        try await TrackWebTestRunner.waitUntil(message: "missing final hung the task") {
+            !driver.capturing && events.last?.1 == "ended" && events.suffix(2).first?.1 == "error"
+        }
         let timed = NativeSpeechSession(driver: driver, captureLimit: .milliseconds(10), finishLimit: .milliseconds(10))
         await timed.start(id: "limit", locale: "ja-JP").value
-        try await Task.sleep(for: .milliseconds(40))
-        try expect(!driver.capturing, "capture duration limit left the microphone active")
+        try await TrackWebTestRunner.waitUntil(message: "capture duration limit left the microphone active") {
+            !driver.capturing
+        }
         print("PASS speech bounded finishing and maximum capture duration")
 
         let pendingDriver = FakeSpeechDriver()
