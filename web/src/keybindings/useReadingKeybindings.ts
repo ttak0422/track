@@ -17,14 +17,23 @@ export function nativeReadingEnabled(): boolean {
   return !STATIC_MODE && typeof window !== "undefined" && window.__trackNativeReading === true;
 }
 
+export function requestReadingFocus(afterNavigation = false): void {
+  window.dispatchEvent(new CustomEvent("track:restore-reading-focus", { detail: afterNavigation }));
+}
+
 export function useReadingKeybindings(readerRef: RefObject<HTMLElement | null>, reading: boolean): boolean {
   const native = nativeReadingEnabled();
   const enabled = native && reading;
   const { tabs, activeID } = useTabs();
   const navigate = useNavigate();
   const cycleRef = useRef(new TabCycle());
+  const restorePending = useRef(false);
   const current = useRef({ tabs, activeID, enabled, navigate });
   current.current = { tabs, activeID, enabled, navigate };
+
+  useEffect(() => {
+    if (enabled && restorePending.current) requestReadingFocus();
+  }, [enabled, activeID]);
 
   useEffect(() => {
     if (!enabled) cycleRef.current.reset();
@@ -81,10 +90,20 @@ export function useReadingKeybindings(readerRef: RefObject<HTMLElement | null>, 
       reader.focus({ preventScroll: true });
     };
     const focus = () => { released = false; cycle.reset(); };
+    const restore = (event: Event) => {
+      restorePending.current = event instanceof CustomEvent && event.detail === true && !current.current.enabled;
+      // Search may have removed its focused field. Never take focus from a surviving control.
+      if (!current.current.enabled || composing || hasReadingOverlay(document) ||
+          (document.activeElement !== document.body && document.activeElement !== reader) ||
+          !window.getSelection()?.isCollapsed) return;
+      released = false;
+      reader.focus({ preventScroll: true });
+    };
     const compositionStart = () => { composing = true; };
     const compositionEnd = () => { composing = false; };
     reader.addEventListener("focus", focus);
     reader.addEventListener("blur", focus);
+    window.addEventListener("track:restore-reading-focus", restore);
     document.addEventListener("keydown", keydown);
     document.addEventListener("click", click);
     document.addEventListener("compositionstart", compositionStart, true);
@@ -92,6 +111,7 @@ export function useReadingKeybindings(readerRef: RefObject<HTMLElement | null>, 
     return () => {
       reader.removeEventListener("focus", focus);
       reader.removeEventListener("blur", focus);
+      window.removeEventListener("track:restore-reading-focus", restore);
       document.removeEventListener("keydown", keydown);
       document.removeEventListener("click", click);
       document.removeEventListener("compositionstart", compositionStart, true);

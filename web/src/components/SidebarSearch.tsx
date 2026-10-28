@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { isTypingTarget, keys } from "../keys";
+import { nativeReadingEnabled, requestReadingFocus } from "../keybindings/useReadingKeybindings";
+import { hasReadingOverlay } from "../keybindings/readingContext";
 import { SearchPanel } from "./SearchPanel";
 import { IconSearch, RailIcon } from "./icons";
 
@@ -11,6 +13,8 @@ export function SidebarSearch() {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
+  const choseResult = useRef(false);
+  const previousTypingFocus = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     function onOpenKey(event: KeyboardEvent) {
@@ -22,6 +26,8 @@ export function SidebarSearch() {
         keys.openSearchChord(event) || (keys.openSearch(event) && !isTypingTarget(event.target));
       if (!opens) return;
       event.preventDefault();
+      const active = document.activeElement;
+      previousTypingFocus.current = nativeReadingEnabled() && active instanceof HTMLElement && isTypingTarget(active) ? active : null;
       setOpen(true);
     }
     document.addEventListener("keydown", onOpenKey);
@@ -30,6 +36,7 @@ export function SidebarSearch() {
 
   useEffect(() => {
     if (!open) return;
+    choseResult.current = false;
 
     function onPointerDown(event: MouseEvent) {
       if (
@@ -47,6 +54,13 @@ export function SidebarSearch() {
     return () => {
       document.removeEventListener("mousedown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
+      // Passive cleanup runs after the palette and its input have left the DOM.
+      const previous = previousTypingFocus.current;
+      previousTypingFocus.current = null;
+      if (!choseResult.current && previous?.isConnected && document.activeElement === document.body && !hasReadingOverlay(document)) {
+        previous.focus({ preventScroll: true });
+      }
+      requestReadingFocus(choseResult.current);
     };
   }, [open]);
 
@@ -72,7 +86,7 @@ export function SidebarSearch() {
                   closes, same as clicking anywhere else outside. */}
               <div className="search-backdrop" onMouseDown={() => setOpen(false)} />
               <div className="search-popup" role="dialog" aria-label="Search notes">
-                <SearchPanel autoFocus onNavigate={() => setOpen(false)} />
+                <SearchPanel autoFocus onNavigate={() => { choseResult.current = true; setOpen(false); }} />
               </div>
             </div>,
             document.body,

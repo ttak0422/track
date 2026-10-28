@@ -66,9 +66,12 @@ the real WKWebView, enters a draft, stops and retries the Go server, then checks
 and draft value survived while API connectivity returned. The popup test suppresses actual browser
 launches; production behavior still routes only eligible user-initiated external links to the browser.
 The focused `search-smoke.py` test launches the SwiftPM executable in an isolated mode without Go and
-enters English and Japanese queries through the native field editor, then verifies actual selected
-page text and painted highlight pixels, next/previous movement and wrapping, no-match/clear feedback,
-Escape/reopen behavior, and the window's native-tabbing policy. It never calls the search API directly. Build through the
+enters English and Japanese queries through the native field editor, then verifies all/current
+range text and painted pixels in light/dark themes, next/previous movement and wrapping, current
+match scrolling, no-match/clear feedback, IME composition, stable tabbar/viewport geometry during
+open/resize/close, Escape/reopen, and Escape/Done reading-focus requests. It also checks the
+window's native-tabbing policy. This fixture checks the native-to-page request; the web tests
+cover the reading hook and workspace-search focus transitions. It never calls the search API directly. Build through the
 desktop toolchain helper, then run it:
 
 ```sh
@@ -127,15 +130,22 @@ results within its timeout. GUI failures are not skipped or treated as successfu
   close without warning. Cancel preserves the draft so it can be saved before quitting. A two-second
   probe timeout stays conservative. Duplicate termination requests share one check and child stop,
   with one deferred AppKit reply (including cancellation). The read-only probe adds no native message handler or arbitrary capabilities.
-- Edit > Find opens a native AppKit search bar wired to WebKit's public page-search API. Cmd+F
-  focuses the field; typing selects, scrolls to, and highlights matching rendered page text,
-  including Japanese. Cmd+G or Return finds the next match; Shift+Cmd+G or Shift+Return finds the
-  previous match, wrapping at either end. Escape or Done closes the bar. A missing query shows
-  “No matches” and clears the old selection. Track disables native window tabbing on
+- Edit > Find opens a native floating AppKit search panel backed by isolated rendered-text ranges. Cmd+F
+  focuses the field; all rendered matches receive a soft highlight, with a distinct current match
+  and a current/total counter. The literal, case-insensitive query supports Japanese and inline
+  formatting. CSS Highlights preserve ordinary selection and do not change React-managed markup.
+  Cmd+G or Return finds the next match; Shift+Cmd+G or Shift+Return finds the
+  previous match, wrapping at either end and revealing the current range. Escape or Done closes
+  the panel; clearing the query removes the highlights. A missing query shows “No matches”.
+  Opening/closing Find never resizes the WebView or moves the tabstrip. Older WebKit versions
+  without CSS Highlights retain the previous single-match WKWebView.find fallback.
+  Track disables native window tabbing on
   its titled workspace window; content extends through the hidden native titlebar region.
 - In a focused note Preview reading area, `j`/`k` scroll and `Tab`/`Shift+Tab` cycle open note
   tabs. Click ordinary preview text to focus the area; `Escape` returns Tab to normal focus
-  navigation. Editing, interactive controls, IME, and open overlays keep their keys. A document-start,
+  navigation. Dismissing workspace search or choosing a result restores Preview reading focus;
+  closing the in-page Find panel also restores it after removing match highlights. Surviving input
+  focus is preserved. Editing, interactive controls, IME, and open overlays keep their keys. A document-start,
   main-frame-only boolean marker enables this context on the exact workspace origin; it adds no
   native message bridge and is absent from static apps and embedded pages. The same frontend in a
   normal browser keeps its ordinary keyboard behavior. See the help vault's **Web workspace** page.

@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { useRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useReadingKeybindings } from "./useReadingKeybindings";
+import { requestReadingFocus, useReadingKeybindings } from "./useReadingKeybindings";
 
 const state = vi.hoisted(() => ({
   tabs: [{ id: "a", title: "A" }, { id: "b", title: "B" }, { id: "c", title: "C" }],
@@ -160,6 +160,51 @@ describe("native reading shortcut context", () => {
     expect(key(reader, "Tab").defaultPrevented).toBe(false);
     fireEvent.compositionEnd(reader);
     expect(key(reader, "j").defaultPrevented).toBe(true);
+  });
+  it("restores native search focus without taking keys from controls, overlays, selection, or IME", () => {
+    const { reader, scrollBy } = setup();
+    const restore = () => act(() => requestReadingFocus());
+    for (const target of [screen.getByLabelText("Field"), screen.getByText("Editable"), screen.getByText("Control").parentElement!]) {
+      target.focus();
+      restore();
+      expect(target).toHaveFocus();
+      for (const name of ["j", "k"]) expect(key(target, name).defaultPrevented).toBe(false);
+    }
+    (document.activeElement as HTMLElement).blur();
+    for (const html of ['<div role="dialog"></div>', '<dialog open></dialog>', '<div class="menu-panel"></div>']) {
+      const overlay = document.createElement("div");
+      overlay.innerHTML = html;
+      document.body.append(overlay);
+      restore();
+      expect(reader).not.toHaveFocus();
+      overlay.remove();
+    }
+    fireEvent.compositionStart(document.body);
+    restore();
+    expect(reader).not.toHaveFocus();
+    fireEvent.compositionEnd(document.body);
+    const range = document.createRange();
+    range.selectNodeContents(screen.getByText("Prose"));
+    window.getSelection()?.addRange(range);
+    restore();
+    expect(reader).not.toHaveFocus();
+    window.getSelection()?.removeAllRanges();
+    restore();
+    expect(reader).toHaveFocus();
+    key(reader, "j");
+    expect(scrollBy).toHaveBeenCalledOnce();
+  });
+  it("does not restore reading focus into an editor or in a normal browser", () => {
+    const { reader, rerender } = setup({ reading: false, editor: true });
+    const editor = screen.getByLabelText("Editor");
+    editor.focus();
+    act(() => requestReadingFocus());
+    expect(editor).toHaveFocus();
+    for (const name of ["j", "k"]) expect(key(editor, name).defaultPrevented).toBe(false);
+    delete window.__trackNativeReading;
+    rerender(<Reader />);
+    act(() => requestReadingFocus());
+    expect(reader).not.toHaveFocus();
   });
   it("skips view tabs, leaves one-note Tab alone, and permits home-note scrolling", () => {
     state.tabs = [{ id: "a", title: "A" }, { id: "graph", title: "Graph" }];

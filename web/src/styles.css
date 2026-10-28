@@ -90,10 +90,6 @@
      in. Content width replaces this default when the user chooses Wide or Full. */
   --measure: 40em;
   --content-measure: var(--content-width, var(--measure));
-  /* Where the floating rail hangs from (see .sidebar for why it hangs rather than centres). It is a
-     token because a second thing lines up with it — the empty state's guides point at the rail's
-     buttons — and two copies of this expression is exactly how they drifted apart before. */
-  --rail-anchor: max(41px, calc(25vh - 200px));
   /* What the dock takes along the foot of the window at phone width, where it lies horizontally
      instead of hanging at the left edge (see the phone-width block). Everything else pinned to the
      bottom corner adds it to its own offset, so the dock's height is written once. Zero everywhere
@@ -249,6 +245,8 @@ img.theme-asset-dark {
 }
 
 .workspace {
+  /* TabBar updates this boundary after font changes and window resizing. */
+  --rail-clearance: calc(var(--tabstrip-bottom, 33px) + 8px);
   display: grid;
   /* The reader column must shrink below its content's preferred width (a phone is narrower than the
      old 380px floor, which forced sideways scrolling of the whole workspace). */
@@ -264,20 +262,16 @@ img.theme-asset-dark {
    the dock does not intercept reader clicks, while the dock itself stays interactive. It sits above the
    graph view (90) and below transient menus and search.
 
-   The dock hangs from a fixed point rather than being centred on one. Centring it in the top half put
-   its centre a quarter down — but it also made every entry's position depend on how many entries there
-   were, so opening a note (which adds its controls) slid the whole dock up under the pointer. The
-   anchor still tracks the viewport the way that centre did: a quarter down, less half a nominal dock,
-   so a dock of the usual size sits exactly where it always did and a longer one grows downward. It
-   never rises into the 33px tab row. */
+   The dock is centred in the whole viewport. Its symmetric height cap below keeps that centre
+   while leaving the measured tab strip and the bottom edge clear, even when its controls scroll. */
 .sidebar {
   position: fixed;
   z-index: 92;
-  top: var(--rail-anchor);
-  bottom: 8px;
+  top: 0;
+  bottom: 0;
   left: 8px;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   pointer-events: none;
 }
 
@@ -291,9 +285,8 @@ img.theme-asset-dark {
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--panel);
-  /* The strip already starts below the tab row and ends at the foot of the window, so the dock simply
-     fills what is left and .rail-scroll takes over past that. */
-  max-height: 100%;
+  /* Equal margins preserve full-window centring while clearing the tab strip at any font scale. */
+  max-height: calc(100dvh - 2 * var(--rail-clearance));
 }
 
 /* Settings stays outside this scroller, pinned at the foot of the dock. The workspace and note groups
@@ -408,14 +401,14 @@ img.theme-asset-dark {
   pointer-events: none;
 }
 
-/* The guides mirror the floating rail rather than measuring from the reader's content box: they hang
-   from the rail's own anchor and repeat its rhythm — 8px pad, 40px rows, 6px gaps — so every row lines
-   up with a button whatever the dock is carrying. The extra pixel is the rail's border, which the
-   guides have no equivalent of. They used to be centred on a quarter down, which matched the rail only
-   while the rail was centred there too; it stopped being when the dock changed to hanging. */
+/* The guides share the rail's full-window centre and its 8px pad, 40px rows, and 6px gaps.
+   Their cap excludes the rail's two border pixels; decorative hints clip where controls scroll. */
 .empty-guides {
   position: fixed;
-  top: calc(var(--rail-anchor) + 1px);
+  top: 50dvh;
+  translate: 0 -50%;
+  max-height: calc(100dvh - 2 * var(--rail-clearance) - 2px);
+  overflow: clip;
   left: 72px;
   display: flex;
   flex-direction: column;
@@ -427,6 +420,7 @@ img.theme-asset-dark {
 
 .empty-guide {
   display: flex;
+  flex: none;
   height: 40px;
   align-items: center;
   color: var(--muted);

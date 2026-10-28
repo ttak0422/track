@@ -517,10 +517,11 @@ The note's aside is a quiet column; the rail is a floating dock over the sheet.
   "where I am" and "what I am pointing at" wear the same colour. The graph
   therefore has no palette of its own: emphasis is contrast, and the one colour
   means one thing.
-- Rail: a compact floating dock 8px from the left edge, centred a quarter of
-  the way down the viewport so its menus open into empty screen rather than
-  against the bottom edge, on `--panel` with a hairline and radius but no
-  shadow. Its height stops below the tab strip even in a short window. The
+- Rail: a compact floating dock 8px from the left edge, vertically centred in
+  the full viewport, on `--panel` with a hairline and radius but no shadow.
+  Its height is capped with equal clearance above and below, using the measured
+  tab strip's bottom plus 8px, so the centred dock never covers tabs even at a
+  larger font size or in a short window. The
   Settings control stays pinned at the foot while the workspace views and
   open-note controls above it scroll, so appearance controls never disappear
   into an undiscoverable overflow. Glyphs are text controls; workspace views
