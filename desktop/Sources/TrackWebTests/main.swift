@@ -244,13 +244,16 @@ struct TrackWebTestRunner {
         try await waitUntil { supervisor.state == expected }
     }
 
-    private static func waitUntil(condition: @escaping @MainActor () -> Bool) async throws {
+    fileprivate static func waitUntil(
+        _ message: String = "asynchronous state did not arrive before its deadline",
+        condition: @escaping @MainActor () -> Bool
+    ) async throws {
         let deadline = ContinuousClock.now.advanced(by: .seconds(2))
         while ContinuousClock.now < deadline {
             if condition() { return }
             try? await Task.sleep(for: .milliseconds(5))
         }
-        throw TestFailure("asynchronous state did not arrive before its deadline")
+        throw TestFailure(message)
     }
 
     private static func isFailed(_ state: WebServerSupervisor.State, containing text: String) -> Bool {
@@ -342,6 +345,7 @@ enum NativeSpeechTests {
     static func run() async throws {
         let driver = FakeSpeechDriver()
         let session = NativeSpeechSession(driver: driver, captureLimit: .seconds(60), finishLimit: .milliseconds(10))
+        defer { session.cancel() }
         var events: [(String, String, String)] = []
         session.emit = { events.append(($0, $1, $2)) }
         await session.start(id: "first", locale: "ja-JP").value
@@ -391,12 +395,25 @@ enum NativeSpeechTests {
 
         await session.start(id: "timeout", locale: "ja-JP").value
         session.stop(id: "timeout")
-        try await Task.sleep(for: .milliseconds(40))
+        // A sleep does not guarantee that another task has started or resumed. Observe its
+        // completion with the same bounded wait used by the other native lifecycle tests.
+        try await TrackWebTestRunner.waitUntil("missing final hung the task") { events.last?.1 == "ended" }
         try expect(!driver.capturing && events.last?.1 == "ended" && events.suffix(2).first?.1 == "error", "missing final hung the task")
-        let timed = NativeSpeechSession(driver: driver, captureLimit: .milliseconds(10), finishLimit: .milliseconds(10))
+        let timedDriver = FakeSpeechDriver()
+        let timed = NativeSpeechSession(driver: timedDriver, captureLimit: .milliseconds(10), finishLimit: .milliseconds(10))
+        defer { timed.cancel() }
+        var timedEvents: [String] = []
+        var capturedAtStart = false
+        timed.emit = { _, event, _ in
+            if event == "started" { capturedAtStart = timedDriver.capturing }
+            timedEvents.append(event)
+        }
         await timed.start(id: "limit", locale: "ja-JP").value
-        try await Task.sleep(for: .milliseconds(40))
-        try expect(!driver.capturing, "capture duration limit left the microphone active")
+        try expect(capturedAtStart && timedEvents.first == "started", "bounded capture did not start")
+        try await TrackWebTestRunner.waitUntil("capture duration limit left the microphone active") { !timedDriver.capturing }
+        try expect(timedDriver.finishes == 1, "capture duration limit did not finish audio exactly once")
+        try await TrackWebTestRunner.waitUntil("capture duration limit did not end recognition") { timedEvents.last == "ended" }
+        try expect(timedEvents == ["started", "error", "ended"], "bounded capture lost its timeout error or ended more than once")
         print("PASS speech bounded finishing and maximum capture duration")
 
         let pendingDriver = FakeSpeechDriver()
