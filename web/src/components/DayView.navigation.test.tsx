@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getAgenda, openJournal } from "../api";
 import type { AgendaResponse } from "../types";
 import { DayView } from "./DayView";
+vi.mock("./CalendarEventsPanel", () => ({ CalendarEventsPanel: () => null }));
 
 const mode = vi.hoisted(() => ({ static: false }));
 vi.mock("../runtime", () => ({ get STATIC_MODE() { return mode.static; } }));

@@ -4,6 +4,7 @@ import { useAgendaQuery, useDatedTasksQuery, useResolveQuery } from "../queries"
 import { STATIC_MODE } from "../runtime";
 import { useVaultScope } from "../vaultScope";
 import { shiftDay } from "./activityDates";
+import { CalendarEventsPanel } from "./CalendarEventsPanel";
 
 // DayView is the page a calendar day opens: the notes active that day (the same set the reader's
 // "On this day" aside shows) as a plain list of links. The header offers the day's journal — the live
@@ -60,6 +61,7 @@ export function DayView({ date }: { date: string }) {
           ) : null}
         </div>
       </header>
+      <CalendarEventsPanel days={[date]} defaultDate={date} />
       {agendaQuery.isPending ? <p className="muted">Loading...</p> : null}
       {agendaQuery.isError ? <p className="error">{agendaQuery.error.message}</p> : null}
       {agendaQuery.data ? (

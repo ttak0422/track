@@ -1,6 +1,7 @@
 import { fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CalendarFullView } from "./CalendarFullView";
+vi.mock("./CalendarEventsPanel", () => ({ CalendarEventsPanel: () => null }));
 
 // The calendar derives everything from the notes list's activity days. Journals carry no days (the
 // engine excludes them); the month summary journal only feeds the title link.
@@ -21,6 +22,8 @@ const loadedNotes = {
 
 const notesQuery = vi.hoisted(() => ({ current: {} as Record<string, unknown> }));
 const tasksQuery = vi.hoisted(() => ({ current: {} as Record<string, unknown> }));
+const eventsQuery = vi.hoisted(() => ({ current: {} as Record<string, unknown> }));
+vi.mock("../calendarEventQueries", () => ({ useCalendarEventsQuery: () => eventsQuery.current }));
 
 vi.mock("../queries", () => ({
   useNotesQuery: () => notesQuery.current,
@@ -50,6 +53,7 @@ describe("CalendarFullView", () => {
   beforeEach(() => {
     notesQuery.current = { ...loadedNotes };
     tasksQuery.current = { data: { tasks: [] } };
+    eventsQuery.current = { data: { events: [] } };
     vi.useFakeTimers();
     // A Sunday mid-month, so leading blanks and the today marker are both exercised.
     vi.setSystemTime(new Date(2026, 6, 5));
@@ -248,5 +252,18 @@ describe("CalendarFullView", () => {
     const { container, getByText } = render(<CalendarFullView />);
     expect(getByText("Loading calendar...")).toBeTruthy();
     expect(container.querySelector(".calendar-grid")).toBeNull();
+  });
+
+  it("shows event-only days and opens their day agenda even when a journal exists", () => {
+    notesQuery.current = { ...loadedNotes, data: { notes: [{ note_id: "j9", file_kind: "journal", title: "20260709" }] } };
+    eventsQuery.current = { data: { events: [
+      { id: "event", all_day: true, start: "2026-07-09", end: "2026-07-11", title: "Review window", status: "cancelled", deleted: false },
+      { id: "trash", all_day: true, start: "2026-07-09", end: "2026-07-10", title: "Deleted event", status: "confirmed", deleted: true },
+    ] } };
+    const { container } = render(<CalendarFullView />);
+    expect(container.querySelector('a.calendar-day[href="/day/2026-07-09"]')?.textContent).toContain("Cancelled: Review window");
+    expect(container.querySelector('a.calendar-day[href="/day/2026-07-10"]')?.textContent).toContain("Review window");
+    expect(container.querySelector('a.calendar-day[href="/day/2026-07-11"]')).toBeNull();
+    expect(container.textContent).not.toContain("Deleted event");
   });
 });

@@ -72,6 +72,7 @@ describe("useLiveEvents", () => {
     vi.advanceTimersByTime(150);
     // The prefix covers both the dated listing (calendar, day page) and the open one (tasks page).
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["tasks"] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["calendar-events"] });
   });
 
   it("replaces a pre-event initial New request after a burst of indexed changes", async () => {

@@ -4,6 +4,10 @@ import { useDatedTasksQuery, useNotesQuery } from "../queries";
 import type { NoteID, SearchResult, TaskRow } from "../types";
 import { dueBar } from "./calendarTasks";
 import { CalendarAgenda } from "./CalendarAgenda";
+import { CalendarEventsPanel } from "./CalendarEventsPanel";
+import { useCalendarEventsQuery } from "../calendarEventQueries";
+import { eventOnDay } from "../calendarEvents";
+import { useVaultScope } from "../vaultScope";
 import { calendarWeek } from "./calendarPlanningTasks";
 import { dateKey, shiftDay } from "./activityDates";
 import { IconChevronLeft, IconChevronRight, RailIcon } from "./icons";
@@ -25,6 +29,8 @@ export function CalendarFullView() {
   const notesQuery = useNotesQuery();
   // Month activity remains usable while tasks load; the agenda reports task loading/errors directly.
   const tasksQuery = useDatedTasksQuery();
+  const { scope } = useVaultScope();
+  const eventsQuery = useCalendarEventsQuery(scope);
   const [month, setMonth] = useState(startOfCurrentMonth);
   const [view, setView] = useState<"month" | "day" | "week">("month");
   const [todayKey, setTodayKey] = useState(() => dateKey(new Date()));
@@ -117,6 +123,7 @@ export function CalendarFullView() {
               <button type="button" onClick={() => setOffset(offset + (view === "week" ? 7 : 1))}>Next {view}</button>
             </div>
           </header>
+          <CalendarEventsPanel days={agendaDays} defaultDate={selectedDay} />
           {tasksQuery.isPending ? <p className="muted" role="status">Loading tasks...</p> : null}
           {tasksQuery.isError ? <p className="error" role="alert">Could not load tasks: {tasksQuery.error.message}</p> : null}
           {tasksQuery.data ? <CalendarAgenda tasks={tasksQuery.data.tasks} days={agendaDays} today={todayKey} /> : null}
@@ -165,12 +172,13 @@ export function CalendarFullView() {
             const dayNotes = notesByDay.get(date) ?? [];
             const today = date === todayKey ? "date" : undefined;
             const dayTasks = tasksByDay.get(date) ?? [];
+            const dayEvents = (eventsQuery.data?.events ?? []).filter((event) => eventOnDay(event, date));
             // A journal is titled by its date, so the map built for the month title finds the day's
             // one too. Clicking a date opens it when it exists — the day is what the journal is
             // about, so that is the page you meant. Navigation never creates: a day with no journal
             // keeps opening the day page, which is also the only thing a published site can do.
             const journalID = journals.get(`${year}${pad2(monthNo)}${pad2(i + 1)}`);
-            if (dayNotes.length === 0 && dayTasks.length === 0 && journalID === undefined) {
+            if (dayNotes.length === 0 && dayTasks.length === 0 && dayEvents.length === 0 && journalID === undefined) {
               return (
                 <span className="calendar-day" key={date} aria-current={today}>
                   <span className="calendar-day-number">{i + 1}</span>
@@ -180,6 +188,8 @@ export function CalendarFullView() {
             const cell = (
               <>
                 <span className="calendar-day-number">{i + 1}</span>
+                {dayEvents.slice(0, 3).map((event) => <span className="calendar-day-note calendar-day-event" key={event.id}>{event.status === "cancelled" ? "Cancelled: " : ""}{event.title}</span>)}
+                {dayEvents.length > 3 ? <span className="calendar-day-more">+{dayEvents.length - 3} events</span> : null}
                 {dayTasks.slice(0, CELL_TASKS).map((task) => {
                   const bar = dueBar(task.due, todayKey);
                   return (
@@ -216,7 +226,7 @@ export function CalendarFullView() {
             );
             // Two literal links rather than one with a computed target: the router types the params
             // per route, so a shared spread would not typecheck.
-            return journalID !== undefined ? (
+            return journalID !== undefined && dayEvents.length === 0 ? (
               <Link
                 className="calendar-day calendar-day-active"
                 to="/notes/$noteId"
@@ -242,6 +252,7 @@ export function CalendarFullView() {
           })}
         </div>
       ) : null}
+      <CalendarEventsPanel days={Array.from({ length: daysInMonth }, (_, i) => `${year}-${pad2(monthNo)}-${pad2(i + 1)}`)} defaultDate={todayKey.startsWith(`${year}-${pad2(monthNo)}-`) ? todayKey : `${year}-${pad2(monthNo)}-01`} />
       </>}
     </div>
   );
