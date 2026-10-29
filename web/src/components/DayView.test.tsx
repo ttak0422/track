@@ -1,7 +1,7 @@
-import { fireEvent, render, waitFor } from "@testing-library/react";
+import { fireEvent, render, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DayView } from "./DayView";
-vi.mock("./CalendarEventsPanel", () => ({ CalendarEventsPanel: () => null }));
+vi.mock("./CalendarEventsPanel", () => ({ CalendarEventsPanel: () => <p>Day appointment fixture</p> }));
 
 const agendaQuery = vi.hoisted(() => ({ current: {} as Record<string, unknown> }));
 const navigate = vi.hoisted(() => vi.fn());
@@ -108,5 +108,33 @@ describe("DayView", () => {
   it("rejects a malformed date", () => {
     const { getByText } = render(<DayView date="20260703" />);
     expect(getByText(/Invalid date/)).toBeTruthy();
+  });
+
+  it("filters day agenda sections while preserving activity and historical tasks", () => {
+    tasksQuery.current = { data: { tasks: [{ note_id: "plan", title: "Plan", line: 1, state: "DONE", done: true, text: "Finished work", due: "2026-07-03" }] } };
+    const { getByRole, getByText, queryByRole } = render(<DayView date="2026-07-03" />);
+    const controls = within(getByRole("group", { name: "Agenda contents" }));
+    fireEvent.click(controls.getByRole("button", { name: "Tasks" }));
+    expect(getByText("Day appointment fixture")).not.toBeVisible();
+    expect(getByRole("link", { name: /Finished work/ })).toBeVisible();
+    expect(getByRole("link", { name: "Alpha" })).toBeVisible();
+    expect(getByRole("button", { name: "Journal" })).toBeVisible();
+    fireEvent.click(controls.getByRole("button", { name: "Events" }));
+    expect(queryByRole("link", { name: /Finished work/ })).toBeNull();
+    expect(getByText("Day appointment fixture")).toBeVisible();
+    expect(openJournal).not.toHaveBeenCalled();
+  });
+
+  it("distinguishes loading, failed, and empty task data in task focus", () => {
+    tasksQuery.current = { isPending: true };
+    const { getByRole, getByText, rerender } = render(<DayView date="2026-07-03" />);
+    fireEvent.click(within(getByRole("group", { name: "Agenda contents" })).getByRole("button", { name: "Tasks" }));
+    expect(getByRole("status")).toHaveTextContent("Loading tasks...");
+    tasksQuery.current = { isError: true, error: new Error("Task source unavailable") };
+    rerender(<DayView date="2026-07-03" />);
+    expect(getByRole("alert")).toHaveTextContent("Could not load tasks: Task source unavailable");
+    tasksQuery.current = { data: { tasks: [] } };
+    rerender(<DayView date="2026-07-03" />);
+    expect(getByText("No dated tasks on this day.")).toBeVisible();
   });
 });

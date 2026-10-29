@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from "@tanstack/react-router";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getAgenda, openJournal } from "../api";
 import type { AgendaResponse } from "../types";
@@ -52,12 +52,15 @@ describe.each([false, true])("day navigation (static=%s)", (staticMode) => {
     const router = mountDay("2026-12-31");
     const next = await screen.findByRole("button", { name: "Next day" });
     await screen.findByText("Year end task");
+    if (!staticMode) fireEvent.click(within(screen.getByRole("group", { name: "Agenda contents" })).getByRole("button", { name: "Tasks" }));
     next.focus();
     fireEvent.click(next);
     await screen.findByRole("heading", { name: "2027-01-01" });
     expect(router.state.location.pathname).toBe("/day/2027-01-01");
     expect(screen.queryByText("Year end task")).toBeNull();
     expect(screen.getByText("New year task")).toBeTruthy();
+    if (!staticMode) expect(within(screen.getByRole("group", { name: "Agenda contents" })).getByRole("button", { name: "Tasks", pressed: true })).toBeTruthy();
+    else expect(screen.queryByRole("group", { name: "Agenda contents" })).toBeNull();
     expect(document.activeElement).toBe(next);
     fireEvent.click(next);
     await screen.findByRole("heading", { name: "2027-01-02" });
