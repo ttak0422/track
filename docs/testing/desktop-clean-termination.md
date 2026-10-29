@@ -59,7 +59,10 @@ button leaves the existing web Save action available; this change adds no new sa
 `web/src/nativeEventNavigation.test.tsx` runs the literal production native probe against the
 real event dialog and workspace capability: untouched/edited, pending/failed save, cancellation,
 and successful-save closure. Native `<dialog open>` and explicit ARIA dialogs both stay
-conservative. This contract does not add a Web router or browser beforeunload event-draft guard.
+conservative. `web/src/components/CalendarEventDialog.navigation.test.tsx` also exercises real
+browser-history Back, day-route parameter navigation, pending/failed writes, intentional editor
+cancellation, composition/live DOM input, and beforeunload after cancelled Back. The form's
+unload listener remains independent of the history library's one-shot unload suppression.
 
 Run `web/src/nativeNavigation.test.tsx` for pending/failed saves, current DOM text, a newer edit
 arriving during a save, deletion and mount/unmount behavior. Also run

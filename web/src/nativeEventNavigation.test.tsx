@@ -7,6 +7,7 @@ import { useNativeWorkspaceState } from "./nativeNavigation";
 
 const mutation = vi.hoisted(() => ({ mutateAsync: vi.fn(), isPending: false }));
 vi.mock("./calendarEventQueries", () => ({ useSaveCalendarEvent: () => mutation }));
+vi.mock("@tanstack/react-router", () => ({ useBlocker: () => {} }));
 
 // Exercise the actual native probe, rather than a second implementation of its selector.
 const source: string = readFileSync("../desktop/Sources/TrackWebApp/WebViewCoordinator.swift", "utf8");

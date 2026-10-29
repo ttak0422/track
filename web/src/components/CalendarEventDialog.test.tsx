@@ -5,6 +5,7 @@ import type { CalendarEvent } from "../calendarEvents";
 
 const mutation = vi.hoisted(() => ({ mutateAsync: vi.fn(), isPending: false }));
 vi.mock("../calendarEventQueries", () => ({ useSaveCalendarEvent: () => mutation }));
+vi.mock("@tanstack/react-router", () => ({ useBlocker: () => {} }));
 const event: CalendarEvent = { version: 1, id: "123e4567-e89b-42d3-a456-426614174000", revision: 4, title: "Review", all_day: true, start: "2026-10-28", end: "2026-10-31", time_zone: "", description: "Source", location: "Desk", url: "", note_id: "", status: "confirmed", deleted: false, updated_at: "2026-10-28T10:00:00Z" };
 
 beforeEach(() => { mutation.mutateAsync.mockReset(); mutation.isPending = false; });

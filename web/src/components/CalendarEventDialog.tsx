@@ -1,7 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useBlocker } from "@tanstack/react-router";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { browserSupportsTimeZone, eventFields, eventLocalParts, shiftCivilDay, type CalendarEvent, type CalendarEventFields, type CalendarEventWrite } from "../calendarEvents";
 import { useSaveCalendarEvent } from "../calendarEventQueries";
 import type { SearchResult } from "../types";
+import { unsavedChangesMessage } from "../nativeNavigation";
+
+function formSnapshot(element: HTMLDialogElement | null): string {
+  return JSON.stringify(Array.from(element?.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>("input, textarea, select") ?? [],
+    (field) => field instanceof HTMLInputElement && field.type === "checkbox" ? field.checked : field.value));
+}
 
 interface Props {
   vault: string;
@@ -17,6 +24,10 @@ export function CalendarEventDialog({ vault, date, event, notes, onSaved, onClos
   const titleInput = useRef<HTMLInputElement>(null);
   const id = useRef(event?.id ?? crypto.randomUUID());
   const busy = useRef(false);
+  const released = useRef(false);
+  const failed = useRef(false);
+  const composing = useRef(false);
+  const baseline = useRef("");
   const attempt = useRef<{ fingerprint: string; operation: string } | null>(null);
   const save = useSaveCalendarEvent(vault);
   const zone = event?.time_zone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
@@ -41,6 +52,36 @@ export function CalendarEventDialog({ vault, date, event, notes, onSaved, onClos
   const [error, setError] = useState("");
   const [showOffsets, setShowOffsets] = useState(false);
 
+  useLayoutEffect(() => {
+    released.current = false;
+    baseline.current = formSnapshot(dialog.current);
+    return () => { released.current = true; };
+  }, []);
+
+  // Read the live controls: IME and the last input event can precede React's commit.
+  const protectedDraft = useCallback(() => !released.current && (busy.current || failed.current || composing.current || formSnapshot(dialog.current) !== baseline.current), []);
+  useBlocker({
+    shouldBlockFn: ({ current, next }) => {
+      if (current.pathname === next.pathname) return false;
+      if (protectedDraft() && !window.confirm(unsavedChangesMessage)) return true;
+      released.current = true;
+      onClose(); // Day-route parameter changes can keep the same panel mounted.
+      return false;
+    },
+    enableBeforeUnload: false,
+  });
+  useEffect(() => {
+    // History.back() suppresses the router's next beforeunload, even after a cancelled Back.
+    // Keep the form's unload check independent so a subsequent reload still protects its draft.
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      if (!protectedDraft()) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => window.removeEventListener("beforeunload", beforeUnload);
+  }, [protectedDraft]);
+
   useEffect(() => {
     const element = dialog.current;
     const previous = document.activeElement;
@@ -52,10 +93,15 @@ export function CalendarEventDialog({ vault, date, event, notes, onSaved, onClos
     };
   }, []);
 
-  function close() { if (!busy.current) onClose(); }
+  function close() {
+    if (!busy.current) {
+      released.current = true;
+      onClose();
+    }
+  }
 
   async function submit(deleted = false) {
-    if (busy.current) return;
+    if (busy.current || released.current) return;
     const localTime = (date: string, time: string, offset: string) => `${date}T${time.length === 5 ? `${time}:00` : time}${offset}`;
     const unchangedStart = event && !event.all_day && startDate === initialStart.date && startTime === initialStart.time && timeZone === zone && startOffset === initialStartOffset;
     const unchangedEnd = event && !event.all_day && endDate === initialEnd.date && endTime === initialEnd.time && timeZone === zone && endOffset === initialEndOffset;
@@ -74,11 +120,16 @@ export function CalendarEventDialog({ vault, date, event, notes, onSaved, onClos
     if (attempt.current?.fingerprint !== fingerprint) attempt.current = { fingerprint, operation: crypto.randomUUID() };
     const request: CalendarEventWrite = { ...fields, expected_revision: event?.revision ?? 0, operation_id: attempt.current!.operation };
     busy.current = true;
+    failed.current = false;
     setError("");
     try {
       const result = await save.mutateAsync({ id: id.current, request });
+      if (released.current) return;
+      released.current = true;
       onSaved(result.event);
     } catch (cause) {
+      if (released.current) return;
+      failed.current = true;
       const message = cause instanceof Error ? cause.message : "Could not save the event.";
       setError(message);
       if (message.toLowerCase().includes("ambiguous")) setShowOffsets(true);
@@ -90,7 +141,8 @@ export function CalendarEventDialog({ vault, date, event, notes, onSaved, onClos
     <h3 id="calendar-event-title">{event ? "Edit event" : "New event"}</h3>
     {event && !event.all_day && (initialStart.timeZoneUnavailable || initialEnd.timeZoneUnavailable) ?
       <p role="alert">Time zone “{zone}” is unavailable in this browser. Showing the saved local clock and UTC offsets. Choose a supported IANA time zone to change dates or times; other edits preserve the saved timestamps.</p> : null}
-    <form onSubmit={(e) => { e.preventDefault(); void submit(); }}>
+    <form onSubmit={(e) => { e.preventDefault(); void submit(); }}
+      onCompositionStartCapture={() => { composing.current = true; }} onCompositionEndCapture={() => { composing.current = false; }}>
       <fieldset disabled={save.isPending}>
         <label className="modal-field">Title<input ref={titleInput} className="modal-input" required maxLength={256} value={title} onChange={(e) => setTitle(e.target.value)} /></label>
         <label><input type="checkbox" checked={allDay} onChange={(e) => { setAllDay(e.target.checked); setStartOffset(""); setEndOffset(""); }} /> All day</label>
