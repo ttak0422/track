@@ -37,6 +37,7 @@ function DashboardContents({ view }: { view: MetricsDashboardResponse }) {
       <div className="metrics-dashboard-grid">
         {view.panels.map((panel, i) => <section key={i} className="metrics-dashboard-panel"
           style={{ gridColumn: `${panel.x + 1} / span ${panel.width}` }} aria-label={panel.title || `Panel ${i + 1}`}>
+          {panel.points === 0 ? <p>No observations in this period.</p> : <EChartsBlock option={panel.echarts} />}
           <p className="metrics-dashboard-meta">{panel.unit ? `Unit: ${panel.unit} · ` : ""}Data: {panel.source}<br />
             Latest observation: {panel.latest_observation || "none"}<br />
             File updated: {panel.data_updated_at || "unknown"} · {panel.points} observations · {panel.missing} missing
@@ -48,7 +49,6 @@ function DashboardContents({ view }: { view: MetricsDashboardResponse }) {
           {panel.gaps.length > 0 ? <details className="metrics-dashboard-meta"><summary>{panel.gaps.length} missing observations</summary>
             <ul>{panel.gaps.map((gap, j) => <li key={j}>{gap.time} · {gap.entity}: {gap.reason}</li>)}</ul>
           </details> : null}
-          {panel.points === 0 ? <p>No observations in this period.</p> : <EChartsBlock option={panel.echarts} />}
         </section>)}
       </div>
     </>;

@@ -1,17 +1,17 @@
 {
-  "title": "Sector observations (synthetic)",
+  "title": "Cache observations \u00b7 synthetic",
   "panels": [
     {
       "type": "timeseries",
-      "title": "Level (synthetic)",
+      "title": "Cache hit rate (%)",
       "gridPos": {
         "x": 0,
         "y": 0,
-        "w": 12
+        "w": 24
       },
       "datasource": {
         "type": "track",
-        "uid": "sectors.jsonl"
+        "uid": "observations.jsonl"
       },
       "targets": [
         {
@@ -27,15 +27,15 @@
     },
     {
       "type": "timeseries",
-      "title": "Change in percentage points",
+      "title": "Daily change (pp)",
       "gridPos": {
-        "x": 12,
-        "y": 0,
+        "x": 0,
+        "y": 1,
         "w": 12
       },
       "datasource": {
         "type": "track",
-        "uid": "sectors.jsonl"
+        "uid": "observations.jsonl"
       },
       "targets": [
         {
@@ -53,13 +53,13 @@
       "type": "timeseries",
       "title": "Relative change (%)",
       "gridPos": {
-        "x": 0,
+        "x": 12,
         "y": 1,
-        "w": 24
+        "w": 12
       },
       "datasource": {
         "type": "track",
-        "uid": "sectors.jsonl"
+        "uid": "observations.jsonl"
       },
       "targets": [
         {
