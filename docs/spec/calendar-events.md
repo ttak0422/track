@@ -81,6 +81,21 @@ stored records are bounded to 128 KiB. Unknown request fields are rejected.
 
 The existing workspace Host/Origin and vault-selection guards apply to every route.
 
+## Editor draft protection
+
+The event editor uses the workspace router blocker for navigation to a different pathname.
+Changed live form controls, input-method composition, pending writes, and failed writes need
+discard confirmation. Cancelled navigation retains the mounted form. Accepted navigation closes
+it even when a day-route parameter change reuses the panel; late write results cannot close a
+new editor. Same-path navigation keeps its form. Successful saving and intentional editor
+Cancel/Escape release the guard. In-flight saves cannot be cancelled through the editor buttons.
+
+A separate beforeunload listener reads the same current state. This keeps reload/tab-close
+protection after a cancelled history Back, for which the history library suppresses its own next
+unload check. It never opens an extra JavaScript confirm for beforeunload. Native page replacement,
+window Close and Quit retain the conservative open-dialog confirmation described in the desktop
+termination contract. No browser draft is persisted by this guard.
+
 | Request | Result |
 | --- | --- |
 | `GET /api/calendar-events` | `{vault, events}` excluding trash; `?deleted=1` includes deleted records. |
