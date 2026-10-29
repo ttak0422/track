@@ -4,7 +4,8 @@ import { openJournal } from "../api";
 import { useAgendaQuery, useDatedTasksQuery, useResolveQuery } from "../queries";
 import { STATIC_MODE } from "../runtime";
 import { useVaultScope } from "../vaultScope";
-import { shiftDay } from "./activityDates";
+import { shiftCivilDay, isCalendarDay } from "../calendarDates";
+import { CalendarDisplaySettings } from "./CalendarDisplaySettings";
 import { CalendarEventsPanel } from "./CalendarEventsPanel";
 import { CalendarAgendaFilter, type AgendaContent } from "./CalendarAgendaFilter";
 
@@ -14,7 +15,7 @@ import { CalendarAgendaFilter, type AgendaContent } from "./CalendarAgendaFilter
 // when the journal is published.
 export function DayView({ date }: { date: string }) {
   const [content, setContent] = useState<AgendaContent>("all");
-  const valid = /^\d{4}-\d{2}-\d{2}$/.test(date);
+  const valid = isCalendarDay(date);
   const agendaQuery = useAgendaQuery(date, "", { enabled: valid });
   const tasksQuery = useDatedTasksQuery();
   // Journal titles are the day's yyyyMMdd, so resolving that term finds the published journal.
@@ -47,10 +48,10 @@ export function DayView({ date }: { date: string }) {
       <header className="day-head">
         <h1 className="day-title">{date}</h1>
         <div className="calendar-nav">
-          <button type="button" onClick={() => navigate({ to: "/day/$date", params: { date: shiftDay(date, -1) } })}>
+          <button type="button" onClick={() => navigate({ to: "/day/$date", params: { date: shiftCivilDay(date, -1) } })}>
             Previous day
           </button>
-          <button type="button" onClick={() => navigate({ to: "/day/$date", params: { date: shiftDay(date, 1) } })}>
+          <button type="button" onClick={() => navigate({ to: "/day/$date", params: { date: shiftCivilDay(date, 1) } })}>
             Next day
           </button>
           {!STATIC_MODE ? (
@@ -64,6 +65,7 @@ export function DayView({ date }: { date: string }) {
           ) : null}
         </div>
       </header>
+      <CalendarDisplaySettings />
       <CalendarAgendaFilter value={content} onChange={setContent} />
       <div hidden={content === "tasks"}>
         <CalendarEventsPanel days={[date]} defaultDate={date} timeGrid />

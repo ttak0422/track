@@ -1427,6 +1427,19 @@ a.calendar-title:focus-visible {
   color: var(--text);
 }
 
+/* Display settings use text controls and underline inputs (variants 1 and 5). */
+.calendar-display-settings { margin: 0 0 18px; font-size: calc(13px * var(--font-scale, 1)); }
+.calendar-display-settings summary { color: var(--muted); cursor: pointer; }
+.calendar-display-settings summary:hover, .calendar-display-settings summary:focus-visible { color: var(--text); }
+.calendar-display-settings form { display: flex; flex-wrap: wrap; align-items: end; gap: 14px; margin-top: 12px; }
+.calendar-display-settings label { display: flex; flex-direction: column; gap: 4px; }
+.calendar-display-settings input, .calendar-display-settings select {
+  max-width: 100%; border: 0; border-bottom: 1px solid var(--line); background: transparent;
+  color: var(--text); font: inherit; padding: 4px 0;
+}
+.calendar-display-settings input:focus, .calendar-display-settings select:focus { border-color: var(--mark); outline: none; }
+.calendar-display-settings p { margin: 8px 0 0; }
+
 /* Quiet chips (design variant 2) keep event intervals legible over the hour lines. */
 .calendar-time-scroll {
   overflow: auto;

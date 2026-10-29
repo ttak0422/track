@@ -45,3 +45,8 @@ describe("calendar agenda", () => {
     expect(result.days.map((day) => day.tasks.map((t) => t.line))).toEqual([[3, 2, 1], [1]]);
   });
 });
+
+it("aligns Monday weeks by civil dates, retaining Sunday at the end", () => {
+  expect(calendarWeek("2027-01-03", 1)).toEqual(["2026-12-28","2026-12-29","2026-12-30","2026-12-31","2027-01-01","2027-01-02","2027-01-03"]);
+  expect(calendarWeek("2011-12-30", 1)).toContain("2011-12-30");
+});

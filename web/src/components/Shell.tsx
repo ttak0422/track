@@ -25,6 +25,7 @@ import { NotificationToast } from "../notifications";
 import { NoteRailControls } from "./NoteRailControls";
 import { RailTip } from "./RailTip";
 import { SearchProvider } from "../searchState";
+import { CalendarPreferencesProvider } from "../calendarPreferences";
 import { VaultScopeProvider, useVaultScope } from "../vaultScope";
 import { IconAffiliate, IconFileText, IconCalendar, IconChecklist, IconNotebook, RailIcon } from "./icons";
 import { IconMicrophone } from "@tabler/icons-react";
@@ -36,7 +37,7 @@ export function Shell() {
       <FloatingProvider>
       <TabsProvider>
       <VaultScopeProvider>
-      <ExternalMarkdownProvider><ShellView /></ExternalMarkdownProvider>
+      <CalendarPreferencesProvider><ExternalMarkdownProvider><ShellView /></ExternalMarkdownProvider></CalendarPreferencesProvider>
       </VaultScopeProvider>
       </TabsProvider>
       </FloatingProvider>

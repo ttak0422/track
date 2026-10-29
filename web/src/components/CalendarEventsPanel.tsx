@@ -7,6 +7,7 @@ import { STATIC_MODE } from "../runtime";
 import { useVaultScope } from "../vaultScope";
 import { split } from "../vaultId";
 import { CalendarEventDialog } from "./CalendarEventDialog";
+import { useCalendarPreferences } from "../calendarPreferences";
 import { CalendarTimeGrid } from "./CalendarTimeGrid";
 
 interface PanelProps { days: string[]; defaultDate: string; timeGrid?: boolean }
@@ -23,6 +24,7 @@ function LiveCalendarEventsPanel({ days, defaultDate, timeGrid }: PanelProps) {
 }
 
 function ScopedEvents({ vault, vaultName, days, defaultDate, timeGrid }: PanelProps & { vault: string; vaultName: string }) {
+  const { zone } = useCalendarPreferences();
   const events = useCalendarEventsQuery(vault);
   const notes = useNotesQuery();
   const save = useSaveCalendarEvent(vault);
@@ -34,7 +36,7 @@ function ScopedEvents({ vault, vaultName, days, defaultDate, timeGrid }: PanelPr
   const [error, setError] = useState("");
   const busy = useRef(false);
   const restoreAttempt = useRef<{ fingerprint: string; operation: string } | null>(null);
-  const rows = (events.data?.events ?? []).filter((event) => trash ? event.deleted : days.some((day) => eventOnDay(event, day))).sort(calendarEventOrder);
+  const rows = (events.data?.events ?? []).filter((event) => trash ? event.deleted : days.some((day) => eventOnDay(event, day, zone))).sort((a, b) => calendarEventOrder(a, b, zone));
   const localNotes = (notes.data?.notes ?? []).filter((note) => split(note.note_id).vault === vaultName);
 
   function saved(event: CalendarEvent) {
@@ -87,7 +89,7 @@ function ScopedEvents({ vault, vaultName, days, defaultDate, timeGrid }: PanelPr
       </div>
       {trash ? <button className="event-text-button" type="button" disabled={save.isPending} onClick={() => void restore(event)}>Restore {event.title}</button> : null}
     </div>) : null}
-    <p className="muted">{vaultName ? `Vault: ${vaultName}. ` : ""}Events use your device’s day boundaries; timed entries show their event time zone.</p>
-    {editing ? <CalendarEventDialog vault={vault} date={defaultDate} event={editing === "new" ? undefined : editing} notes={localNotes} onSaved={saved} onClose={() => setEditing(null)} /> : null}
+    <p className="muted">{vaultName ? `Vault: ${vaultName}. ` : ""}Events use {zone} day boundaries; agenda labels show each event’s authored time zone.</p>
+    {editing ? <CalendarEventDialog defaultTimeZone={zone} vault={vault} date={defaultDate} event={editing === "new" ? undefined : editing} notes={localNotes} onSaved={saved} onClose={() => setEditing(null)} /> : null}
   </section>;
 }

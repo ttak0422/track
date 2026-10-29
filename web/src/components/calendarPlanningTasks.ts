@@ -1,9 +1,10 @@
 import type { TaskRow } from "../types";
-import { shiftDay } from "./activityDates";
+import { shiftCivilDay } from "../calendarDates";
 
-export function calendarWeek(day: string): string[] {
-  const first = shiftDay(day, -new Date(`${day}T12:00:00`).getDay());
-  return Array.from({ length: 7 }, (_, offset) => shiftDay(first, offset));
+export function calendarWeek(day: string, weekStartsOn: 0 | 1 = 0): string[] {
+  const weekday = new Date(`${day}T12:00:00Z`).getUTCDay();
+  const first = shiftCivilDay(day, -((weekday - weekStartsOn + 7) % 7));
+  return Array.from({ length: 7 }, (_, offset) => shiftCivilDay(first, offset));
 }
 
 // A task may occur on both its working day and deadline, once per day. Overdue is a reminder

@@ -12,6 +12,7 @@ function formSnapshot(element: HTMLDialogElement | null): string {
 
 interface Props {
   vault: string;
+  defaultTimeZone?: string;
   date: string;
   event?: CalendarEvent;
   notes: SearchResult[];
@@ -19,7 +20,7 @@ interface Props {
   onClose: () => void;
 }
 
-export function CalendarEventDialog({ vault, date, event, notes, onSaved, onClose }: Props) {
+export function CalendarEventDialog({ vault, date, event, notes, onSaved, onClose, defaultTimeZone }: Props) {
   const dialog = useRef<HTMLDialogElement>(null);
   const titleInput = useRef<HTMLInputElement>(null);
   const id = useRef(event?.id ?? crypto.randomUUID());
@@ -30,7 +31,7 @@ export function CalendarEventDialog({ vault, date, event, notes, onSaved, onClos
   const baseline = useRef("");
   const attempt = useRef<{ fingerprint: string; operation: string } | null>(null);
   const save = useSaveCalendarEvent(vault);
-  const zone = event?.time_zone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const zone = useRef(event?.time_zone || defaultTimeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC").current;
   const initialStart: ReturnType<typeof eventLocalParts> = event && !event.all_day ? eventLocalParts(event.start, zone) : { date: event?.start ?? date, time: "09:00" };
   const initialEnd: ReturnType<typeof eventLocalParts> = event && !event.all_day ? eventLocalParts(event.end, zone) : { date: event ? shiftCivilDay(event.end, -1) : date, time: "10:00" };
   const [title, setTitle] = useState(event?.title ?? "");
