@@ -499,7 +499,7 @@ final class WebViewCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         }
         let script = """
         (() => {
-          if (document.activeElement?.tagName === 'IFRAME' || document.querySelector('[role="dialog"]')) return null;
+          if (document.activeElement?.tagName === 'IFRAME' || document.querySelector('[role="dialog"], dialog[open]')) return null;
           const read = window.__trackNativeWorkspaceState || window.__trackNativeEditorState;
           return typeof read === 'function' ? read() : null;
         })()

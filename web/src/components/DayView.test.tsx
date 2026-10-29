@@ -1,6 +1,7 @@
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DayView } from "./DayView";
+vi.mock("./CalendarEventsPanel", () => ({ CalendarEventsPanel: () => null }));
 
 const agendaQuery = vi.hoisted(() => ({ current: {} as Record<string, unknown> }));
 const navigate = vi.hoisted(() => vi.fn());
