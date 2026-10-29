@@ -29,7 +29,8 @@ and exits after checking that the Go child has already been reaped. The separate
 | Dirty note: Cancel then Save and retry Close/Quit | One warning, negative then positive reply; exact saved disk bytes |
 | Dirty note: Continue | One warning, positive reply; original disk bytes retained |
 | Dirty OS callback and repeated requests | One pending check/sheet, one reply per completed attempt |
-| No window / startup before first document | No warning; owned server startup is cancelled safely |
+| No window / gated startup before first document | No warning; owned startup child is cancelled and reaped safely |
+| Startup origin document without workspace/editor capabilities | Conservative warning; Cancel retains its text; an explicitly clean state can then quit |
 | Probe error, missing capabilities, 3.5-second blocked WebKit probe | Conservative warning; Cancel replies once; late clean result is ignored |
 | Go child suspended with SIGSTOP | No dirty warning; graceful deadline, force stop and reap precede approval |
 | Save pending against a SIGSTOP'd server | Cancel keeps draft; resume completes Save; next Quit is clean |
@@ -68,3 +69,34 @@ Run `web/src/nativeNavigation.test.tsx` for pending/failed saves, current DOM te
 arriving during a save, deletion and mount/unmount behavior. Also run
 `desktop-editor-recovery.py` for the existing real offline-save/retry flow and disk verification,
 and `desktop-verify.sh` for Swift lifecycle/URL-policy and Go regression tests.
+
+
+## Startup phase preconditions
+
+`startup-os` holds the fixture's resource launcher before it execs Go. The launcher writes its
+owned PID receipt, and the harness has a five-second deadline to observe it. It verifies that
+the WebView has no URL, is not loading, and is hidden before scheduling termination. The gate
+stays closed until the production supervisor cancels/reaps that PID. The launcher also has its
+own bounded release deadline; it never adds a delay to the shipped server. Other scenarios
+immediately exec the actual Go executable through the same launcher.
+
+`startup-document-cancel` uses the same gate, then loads a synthetic origin document with a
+textarea and no workspace/editor capabilities. That document must produce one conservative
+warning, retain its text after Cancel, and issue a single negative reply even with duplicate
+termination requests. Clearing the synthetic draft and explicitly reporting clean permits the
+next termination. This is distinct from the no-document contract: a zero-delay run-loop selector
+alone does not establish that a document has not appeared.
+
+Startup reports include URL, loading/hidden state, navigation completion and monotonic timestamps
+at the gated/request/warning phases. Repeated scenario arguments use separate fixtures, for example:
+
+```sh
+python3 scripts/desktop-clean-termination.py build/desktop/Track.app/Contents/Resources/track startup-os startup-os startup-document-cancel
+python3 -B -m unittest discover -s tests/desktop_termination -v
+```
+
+A controlled negative probe applying the no-warning expectation after the unknown document exists
+fails with one warning and a negative reply. The same production guard passes the two correctly
+conditioned scenarios. Historical failures without document-state observations cannot establish
+their exact ordering merely from a subsequent successful rerun; keep their original failure log.
+These fixture changes do not alter the production unknown-document or timeout policy.
