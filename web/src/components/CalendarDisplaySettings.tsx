@@ -12,6 +12,7 @@ export function CalendarDisplaySettings() {
   if (STATIC_MODE) return null;
   function apply(value: CalendarPreferences) {
     const error = save(value);
+    if (!error) { setWeekStartsOn(value.weekStartsOn); setTimeZone(value.timeZone); }
     setError(error);
     setNotice(error ? "" : "Calendar display saved for this browser.");
   }

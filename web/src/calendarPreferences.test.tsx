@@ -61,3 +61,14 @@ it("keeps display names in sync with the event backend and refuses placeholders 
   vi.spyOn(Intl,"DateTimeFormat").mockImplementation(function(...args: Parameters<typeof Intl.DateTimeFormat>){return new original(args[0],{...args[1],timeZone:"UTC"});});
   for(const zone of ["Factory","localtime","posixrules","SystemV/EST5","+09:00"]){expect(calendarPreferencesError({weekStartsOn:0,timeZone:zone})).toContain("IANA");}
 });
+
+it("resets unsaved fields when persisted settings already equal defaults", () => {
+  const ui=render(<Fixture/>);fireEvent.click(ui.getByText(/^Calendar display ·/));
+  fireEvent.change(ui.getByLabelText("Week starts on"),{target:{value:"1"}});
+  fireEvent.change(ui.getByLabelText("Display time zone"),{target:{value:"Factory"}});
+  fireEvent.click(ui.getByRole("button",{name:"Use defaults"}));
+  expect(ui.getByLabelText("Week starts on")).toHaveValue("0");
+  expect(ui.getByLabelText("Display time zone")).toHaveValue("");
+  expect(localStorage.getItem(calendarPreferencesKey)).toBeNull();
+  expect(ui.getByText("Calendar display saved for this browser.")).toBeVisible();
+});
