@@ -1374,6 +1374,107 @@ a.calendar-title:focus-visible {
   gap: 6px;
 }
 
+.calendar-views {
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.calendar-views button[aria-pressed="true"] {
+  color: var(--mark);
+  font-weight: 500;
+}
+
+.calendar-agenda .day-task {
+  display: block;
+}
+
+.calendar-task-dates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  color: var(--muted);
+  font-size: calc(12px * var(--font-scale, 1));
+}
+
+.calendar-events {
+  margin-bottom: 24px;
+}
+
+.calendar-day-event {
+  font-weight: 500;
+}
+
+.calendar-event-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  padding: 12px 0;
+}
+
+.event-text-button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.event-text-button:hover,
+.event-text-button:focus-visible,
+.event-title {
+  color: var(--text);
+}
+
+.calendar-event-description {
+  white-space: pre-wrap;
+}
+
+dialog.calendar-event-dialog {
+  color: var(--text);
+  margin: auto;
+  max-width: 560px;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+}
+
+.calendar-event-dialog::backdrop {
+  background: rgb(0 0 0 / 45%);
+}
+
+.calendar-event-dialog fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: 0;
+  padding: 0;
+  margin: 0 0 16px;
+  min-width: 0;
+}
+
+.calendar-event-dates {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.calendar-event-dialog select.modal-input {
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  padding: 8px 2px;
+}
+
+.calendar-event-dialog select.modal-input:focus-visible {
+  outline: none;
+  border-bottom-color: var(--mark);
+}
+
+.calendar-event-dialog input[type="checkbox"] {
+  accent-color: var(--mark);
+}
+
 .calendar-weekday {
   padding: 4px 0;
   text-align: center;

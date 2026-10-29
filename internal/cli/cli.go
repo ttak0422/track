@@ -81,6 +81,8 @@ func Run(args []string) int {
 		return cmdTask(rest)
 	case "tasks":
 		return cmdTasks(rest)
+	case "event":
+		return cmdEvent(rest)
 	case "cite":
 		return cmdCite(rest)
 	case "source":
@@ -157,6 +159,11 @@ reindex, doctor and refresh-all back to one vault: with a registry they cover ev
 and TRACK_VAULT does not scope them.
 
 Usage:
+  track event list [--deleted]        list independent calendar events in the active vault (JSON)
+  track event get --id UUID           read an event including deleted content (JSON)
+  track event save --id UUID --expect N --operation UUID
+                                      save editable event JSON from stdin; expect 0 creates,
+                                      a positive revision updates; deleted is recoverable (JSON)
   track editor-path --path P [--check]  resolve a readable editor path; --check never creates aliases (JSON)
   track editor-view                    build pinned aliases under TRACK_EDITOR_VIEW (JSON)
   track vault list                      list registered vaults, marking the active one (JSON)

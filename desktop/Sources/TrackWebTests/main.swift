@@ -245,7 +245,7 @@ struct TrackWebTestRunner {
     }
 
     fileprivate static func waitUntil(
-        _ message: String = "asynchronous state did not arrive before its deadline",
+        message: String = "asynchronous state did not arrive before its deadline",
         condition: @escaping @MainActor () -> Bool
     ) async throws {
         let deadline = ContinuousClock.now.advanced(by: .seconds(2))
@@ -395,10 +395,11 @@ enum NativeSpeechTests {
 
         await session.start(id: "timeout", locale: "ja-JP").value
         session.stop(id: "timeout")
-        // A sleep does not guarantee that another task has started or resumed. Observe its
-        // completion with the same bounded wait used by the other native lifecycle tests.
-        try await TrackWebTestRunner.waitUntil("missing final hung the task") { events.last?.1 == "ended" }
-        try expect(!driver.capturing && events.last?.1 == "ended" && events.suffix(2).first?.1 == "error", "missing final hung the task")
+        // Timer tasks may be scheduled late on a loaded runner. Require the actual cleanup
+        // state within the existing two-second test bound, rather than sampling after 40 ms.
+        try await TrackWebTestRunner.waitUntil(message: "missing final hung the task") {
+            !driver.capturing && events.last?.1 == "ended" && events.suffix(2).first?.1 == "error"
+        }
         let timedDriver = FakeSpeechDriver()
         let timed = NativeSpeechSession(driver: timedDriver, captureLimit: .milliseconds(10), finishLimit: .milliseconds(10))
         defer { timed.cancel() }
@@ -410,9 +411,9 @@ enum NativeSpeechTests {
         }
         await timed.start(id: "limit", locale: "ja-JP").value
         try expect(capturedAtStart && timedEvents.first == "started", "bounded capture did not start")
-        try await TrackWebTestRunner.waitUntil("capture duration limit left the microphone active") { !timedDriver.capturing }
+        try await TrackWebTestRunner.waitUntil(message: "capture duration limit left the microphone active") { !timedDriver.capturing }
         try expect(timedDriver.finishes == 1, "capture duration limit did not finish audio exactly once")
-        try await TrackWebTestRunner.waitUntil("capture duration limit did not end recognition") { timedEvents.last == "ended" }
+        try await TrackWebTestRunner.waitUntil(message: "capture duration limit did not end recognition") { timedEvents.last == "ended" }
         try expect(timedEvents == ["started", "error", "ended"], "bounded capture lost its timeout error or ended more than once")
         print("PASS speech bounded finishing and maximum capture duration")
 

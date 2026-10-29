@@ -34,6 +34,7 @@ export function useLiveEvents() {
         // them, and the tasks page is nothing but that one query, so without this it keeps showing
         // work already finished elsewhere.
         void queryClient.invalidateQueries({ queryKey: queryKeys.tasks() });
+        void queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
       }, 150);
     }
     let dataTimer: number | undefined;

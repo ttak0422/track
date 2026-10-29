@@ -34,7 +34,7 @@ final class TerminationHarness: NSObject, NSApplicationDelegate {
     var timer: Timer?
     var finished = false
     var phase = "loading fixture"
-    var expectedPrompts: Int { scenario.contains("cancel") || scenario == "dirty-discard" || scenario == "dirty-tab-discard" ? 1 : 0 }
+    var expectedPrompts: Int { scenario.contains("cancel") || scenario == "dirty-discard" || scenario == "dirty-tab-discard" || scenario == "event-discard" ? 1 : 0 }
 
     init(app: TestApplication) {
         self.app = app
@@ -129,6 +129,18 @@ final class TerminationHarness: NSObject, NSApplicationDelegate {
             try await waitFor("location.pathname === '/notes/100' && document.body.innerText.includes('Original fixture') && window.__trackNativeEditorState?.() === false")
         }
         phase = "editing fixture"
+        if scenario.hasPrefix("event-") {
+            _ = try await evaluate("(() => { const a = document.createElement('a'); a.href = '/calendar'; document.body.appendChild(a); a.click(); return true; })()")
+            try await waitFor("location.pathname === '/calendar' && window.__trackNativeWorkspaceState?.() === false")
+            _ = try await evaluate("Array.from(document.querySelectorAll('button')).find(b => b.textContent === 'New event').click(); true")
+            try await waitFor("!!document.querySelector('dialog.calendar-event-dialog[open] input')")
+            _ = try await evaluate("""
+            (() => { const input = document.querySelector('dialog.calendar-event-dialog input');
+            Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'Fixture event draft 日本語');
+            input.dispatchEvent(new Event('input', {bubbles:true})); return true; })()
+            """)
+            try await waitFor("document.querySelector('dialog.calendar-event-dialog input').value === 'Fixture event draft 日本語'")
+        }
         if scenario.hasPrefix("dirty") || scenario == "saved-quit" || scenario == "pending-cancel" || scenario == "ime-cancel" || scenario == "clean-edit-quit" {
             _ = try await evaluate("document.querySelector('button[aria-label^=\"Display mode:\"]').click(); true")
             try await waitFor("!!document.querySelector('[aria-label=\"Display mode\"]')")
@@ -191,7 +203,12 @@ final class TerminationHarness: NSObject, NSApplicationDelegate {
             }
             try require(replies == [false], "cancel must issue exactly one negative AppKit reply: \(replies)")
             try require(!webView.isHidden, "cancel hid the draft")
-            if scenario == "ime-cancel" {
+            if scenario.hasPrefix("event-") {
+                try require((try await evaluate("document.querySelector('dialog.calendar-event-dialog[open] input')?.value === 'Fixture event draft 日本語'")) as? Bool == true,
+                            "native Cancel lost the event draft")
+                _ = try await evaluate("Array.from(document.querySelectorAll('dialog.calendar-event-dialog button')).find(b => b.textContent === 'Cancel').click(); true")
+                try await waitFor("!document.querySelector('dialog[open]') && window.__trackNativeWorkspaceState?.() === false")
+            } else if scenario == "ime-cancel" {
                 try require((try await evaluate("window.__trackNativeEditorState()")) as? Bool == true, "composition was not protected")
                 _ = try await evaluate("document.querySelector('form.note-editor textarea').dispatchEvent(new CompositionEvent('compositionend', {bubbles:true})); true")
             } else if scenario == "pending-cancel" {
@@ -259,7 +276,7 @@ final class TerminationHarness: NSObject, NSApplicationDelegate {
                 finish(error: "unexpected unsaved-edits warning in \(scenario)")
                 return
             }
-            let button = scenario == "dirty-discard" || scenario == "dirty-tab-discard" ? choices.first(where: { $0.title == "Continue" })! : cancel
+            let button = scenario == "dirty-discard" || scenario == "dirty-tab-discard" || scenario == "event-discard" ? choices.first(where: { $0.title == "Continue" })! : cancel
             button.performClick(nil)
         }
     }

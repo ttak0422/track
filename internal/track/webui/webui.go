@@ -448,6 +448,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/note/read", s.withVault(s.handleNoteRead))
 	s.mux.HandleFunc("/api/tasks", s.withVault(s.handleTasks))
 	s.mux.HandleFunc("/api/task", s.withVault(s.handleTaskSet))
+	s.mux.HandleFunc("/api/calendar-events", s.withVault(s.handleCalendarEvents))
+	s.mux.HandleFunc("/api/calendar-event", s.withVault(s.handleCalendarEvent))
 	s.mux.HandleFunc("/api/render", s.withVault(s.handleRender))
 	s.mux.HandleFunc("/api/metrics-dashboard", s.withVault(s.handleMetricsDashboard))
 	s.mux.HandleFunc("/api/viewspec", s.withVault(s.handleViewSpec))

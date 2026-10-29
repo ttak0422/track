@@ -1,6 +1,9 @@
-import { fireEvent, render } from "@testing-library/react";
+import { fireEvent, render, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CalendarFullView } from "./CalendarFullView";
+const runtime = vi.hoisted(() => ({ static: false }));
+vi.mock("../runtime", () => ({ get STATIC_MODE() { return runtime.static; } }));
+vi.mock("./CalendarEventsPanel", () => ({ CalendarEventsPanel: () => runtime.static ? null : <section><p>Appointment fixture</p><input aria-label="Event draft fixture" defaultValue="Draft" /></section> }));
 
 // The calendar derives everything from the notes list's activity days. Journals carry no days (the
 // engine excludes them); the month summary journal only feeds the title link.
@@ -21,6 +24,8 @@ const loadedNotes = {
 
 const notesQuery = vi.hoisted(() => ({ current: {} as Record<string, unknown> }));
 const tasksQuery = vi.hoisted(() => ({ current: {} as Record<string, unknown> }));
+const eventsQuery = vi.hoisted(() => ({ current: {} as Record<string, unknown> }));
+vi.mock("../calendarEventQueries", () => ({ useCalendarEventsQuery: () => eventsQuery.current }));
 
 vi.mock("../queries", () => ({
   useNotesQuery: () => notesQuery.current,
@@ -48,8 +53,10 @@ vi.mock("@tanstack/react-router", () => ({
 
 describe("CalendarFullView", () => {
   beforeEach(() => {
+    runtime.static = false;
     notesQuery.current = { ...loadedNotes };
     tasksQuery.current = { data: { tasks: [] } };
+    eventsQuery.current = { data: { events: [] } };
     vi.useFakeTimers();
     // A Sunday mid-month, so leading blanks and the today marker are both exercised.
     vi.setSystemTime(new Date(2026, 6, 5));
@@ -100,7 +107,7 @@ describe("CalendarFullView", () => {
     // Today's marker belongs to July, not June.
     expect(container.querySelector('[aria-current="date"]')).toBeNull();
 
-    fireEvent.click(getByText("Today"));
+    fireEvent.click(getByText("Current month"));
     expect(getByText("2026 / 07")).toBeTruthy();
     expect(queryByText("2026 / 06")).toBeNull();
   });
@@ -192,10 +199,117 @@ describe("CalendarFullView", () => {
     expect(rowFor("unscheduled").querySelector(".calendar-day-due")).toBeNull();
   });
 
+  it("opens today, tomorrow and this week independently of activity notes", () => {
+    notesQuery.current = { isPending: false, isError: true, error: new Error("notes unavailable") };
+    tasksQuery.current = { data: { tasks: [
+      { note_id: "plan", file_kind: "note", title: "Plan", line: 1, state: "WAITING", done: false, text: "Waiting for review", scheduled: "2026-07-05", due: "2026-07-05" },
+      { note_id: "plan", file_kind: "note", title: "Plan", line: 2, state: "TODO", done: false, text: "Late report", due: "2026-07-04" },
+      { note_id: "plan", file_kind: "note", title: "Plan", line: 3, state: "DONE", done: true, text: "Finished work", due: "2026-07-05" },
+    ] } };
+    const { getByRole, queryByText, getByText, getByLabelText } = render(<CalendarFullView />);
+    fireEvent.click(getByRole("button", { name: "Today" }));
+    expect(getByRole("heading", { level: 1, name: "2026-07-05" })).toBeTruthy();
+    expect(getByLabelText("Overdue tasks").textContent).toContain("Late report");
+    expect(getByText("Scheduled 2026-07-05")).toBeTruthy();
+    expect(getByText("Due 2026-07-05")).toBeTruthy();
+    expect(queryByText("Finished work")).toBeNull();
+    expect(queryByText("notes unavailable")).toBeNull();
+    fireEvent.click(getByRole("button", { name: "Tomorrow" }));
+    expect(getByRole("heading", { level: 1, name: "2026-07-06" })).toBeTruthy();
+    expect(queryByText("Late report", { exact: false })).toBeNull();
+    fireEvent.click(getByRole("button", { name: "This week" }));
+    expect(getByRole("heading", { level: 1, name: "2026-07-05 – 2026-07-11" })).toBeTruthy();
+    expect(getByLabelText("Tasks on 2026-07-11")).toBeTruthy();
+    fireEvent.click(getByRole("button", { name: "Next week" }));
+    expect(getByRole("heading", { level: 1, name: "2026-07-12 – 2026-07-18" })).toBeTruthy();
+    fireEvent.click(getByRole("button", { name: "This week" }));
+    expect(getByRole("heading", { level: 1, name: "2026-07-05 – 2026-07-11" })).toBeTruthy();
+  });
+
+  it("filters agenda sections, retains event editor state, and keeps the choice through date and period navigation", () => {
+    tasksQuery.current = { data: { tasks: [
+      { note_id: "plan", file_kind: "note", title: "Plan", line: 1, state: "TODO", done: false, text: "Work today", due: "2026-07-05" },
+      { note_id: "plan", file_kind: "note", title: "Plan", line: 2, state: "WAITING", done: false, text: "Overdue work", due: "2026-07-04" },
+    ] } };
+    const { getByRole, getByText, queryByRole } = render(<CalendarFullView />);
+    fireEvent.click(getByRole("button", { name: "Today" }));
+    const controls = within(getByRole("group", { name: "Agenda contents" }));
+    expect(controls.getByRole("button", { name: "All", pressed: true })).toBeTruthy();
+    fireEvent.change(getByRole("textbox", { name: "Event draft fixture" }), { target: { value: "Keep this draft" } });
+    fireEvent.click(controls.getByRole("button", { name: "Tasks" }));
+    expect(getByText("Appointment fixture")).not.toBeVisible();
+    expect(getByRole("link", { name: /Work today/ })).toBeVisible();
+    expect(getByRole("region", { name: "Overdue tasks" })).toBeVisible();
+    fireEvent.click(getByRole("button", { name: "Tomorrow" }));
+    expect(controls.getByRole("button", { name: "Tasks", pressed: true })).toBeTruthy();
+    fireEvent.click(getByRole("button", { name: "This week" }));
+    fireEvent.click(getByRole("button", { name: "Next week" }));
+    expect(controls.getByRole("button", { name: "Tasks", pressed: true })).toBeTruthy();
+    fireEvent.click(getByRole("button", { name: "This week" }));
+    fireEvent.click(controls.getByRole("button", { name: "Events" }));
+    expect(queryByRole("link", { name: /Work today/ })).toBeNull();
+    expect(queryByRole("region", { name: "Overdue tasks" })).toBeNull();
+    expect(getByRole("textbox", { name: "Event draft fixture" })).toHaveValue("Keep this draft");
+    fireEvent.click(controls.getByRole("button", { name: "All" }));
+    expect(getByRole("link", { name: /Work today/ })).toBeVisible();
+    expect(getByText("Appointment fixture")).toBeVisible();
+    fireEvent.click(controls.getByRole("button", { name: "Tasks" }));
+    fireEvent.click(getByRole("button", { name: "Month" }));
+    fireEvent.click(getByRole("button", { name: "Today" }));
+    expect(within(getByRole("group", { name: "Agenda contents" })).getByRole("button", { name: "Tasks", pressed: true })).toBeTruthy();
+  });
+
+  it("keeps published task agendas read-only without live event filters", () => {
+    runtime.static = true;
+    tasksQuery.current = { data: { tasks: [{ note_id: "plan", file_kind: "note", title: "Plan", line: 1, state: "TODO", done: false, text: "Published work", due: "2026-07-05" }] } };
+    const { getByRole, queryByRole, getByText } = render(<CalendarFullView />);
+    fireEvent.click(getByRole("button", { name: "Today" }));
+    expect(queryByRole("group", { name: "Agenda contents" })).toBeNull();
+    expect(getByRole("link", { name: /Published work/ })).toBeVisible();
+    expect(getByText("Read-only snapshot. Open a task’s note for details.")).toBeVisible();
+  });
+
+  it("distinguishes loading and failed task requests from an empty day", () => {
+    tasksQuery.current = { isPending: true };
+    const { getByRole, queryByText, rerender } = render(<CalendarFullView />);
+    fireEvent.click(getByRole("button", { name: "Today" }));
+    expect(getByRole("status").textContent).toBe("Loading tasks...");
+    expect(queryByText("No open tasks scheduled or due.")).toBeNull();
+    tasksQuery.current = { isError: true, error: new Error("offline") };
+    rerender(<CalendarFullView />);
+    expect(getByRole("alert").textContent).toBe("Could not load tasks: offline");
+    expect(queryByText("No open tasks scheduled or due.")).toBeNull();
+  });
+
+  it("crosses year boundaries and refreshes the relative date after midnight", () => {
+    vi.setSystemTime(new Date(2026, 11, 31, 23, 59, 59));
+    const { getByRole } = render(<CalendarFullView />);
+    fireEvent.click(getByRole("button", { name: "Tomorrow" }));
+    expect(getByRole("heading", { level: 1, name: "2027-01-01" })).toBeTruthy();
+    fireEvent.click(getByRole("button", { name: "Previous day" }));
+    expect(getByRole("heading", { level: 1, name: "2026-12-31" })).toBeTruthy();
+    vi.setSystemTime(new Date(2027, 0, 1, 0, 0, 1));
+    fireEvent.focus(window);
+    expect(getByRole("heading", { level: 1, name: "2027-01-01" })).toBeTruthy();
+  });
+
   it("shows the pending state before the notes list resolves", () => {
     notesQuery.current = { ...loadedNotes, isPending: true, data: undefined };
     const { container, getByText } = render(<CalendarFullView />);
     expect(getByText("Loading calendar...")).toBeTruthy();
     expect(container.querySelector(".calendar-grid")).toBeNull();
+  });
+
+  it("shows event-only days and opens their day agenda even when a journal exists", () => {
+    notesQuery.current = { ...loadedNotes, data: { notes: [{ note_id: "j9", file_kind: "journal", title: "20260709" }] } };
+    eventsQuery.current = { data: { events: [
+      { id: "event", all_day: true, start: "2026-07-09", end: "2026-07-11", title: "Review window", status: "cancelled", deleted: false },
+      { id: "trash", all_day: true, start: "2026-07-09", end: "2026-07-10", title: "Deleted event", status: "confirmed", deleted: true },
+    ] } };
+    const { container } = render(<CalendarFullView />);
+    expect(container.querySelector('a.calendar-day[href="/day/2026-07-09"]')?.textContent).toContain("Cancelled: Review window");
+    expect(container.querySelector('a.calendar-day[href="/day/2026-07-10"]')?.textContent).toContain("Review window");
+    expect(container.querySelector('a.calendar-day[href="/day/2026-07-11"]')).toBeNull();
+    expect(container.textContent).not.toContain("Deleted event");
   });
 });

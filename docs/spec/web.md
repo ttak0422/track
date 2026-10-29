@@ -339,6 +339,33 @@ like the repo help docs — the calendar and day pages are absent from the outpu
 
 ## Tasks view
 
+Calendar also offers Today, Tomorrow, and This week task agendas. They use the dated listing,
+exclude terminal tasks, preserve WAITING, and label scheduled and deadline dates separately.
+Weeks start Sunday, matching the month grid; dates are local calendar dates and relative views
+refresh at midnight and on window focus. Previous/next navigation moves by one day or week.
+Overdue deadlines appear separately only when the range contains today. A task can appear there
+as a reminder and on its actual day without date mutation. Undated tasks remain in their notes.
+The month grid and day pages retain historical semantics. Published calendar sites use the same
+dated snapshot; no new API or write path is added.
+
+The live month/day/agenda surfaces also embed a separate Events section scoped to the working
+vault. Registration and editing share the versioned single-event CLI/API contract in
+[Calendar events](calendar-events.md). Event writes use stable UUIDs, expected revisions, and
+operation IDs; failures retain the dialog input and unchanged retries reuse the same operation.
+Trash and Undo are recoverable, with no purge. Calendar event data is not included in static
+exports; the published task agenda remains read-only. Event queries refresh after writes/SSE and
+every 30 seconds for external CLI or sync changes. All-day ranges use civil dates; timed day
+membership uses device-local boundaries while labels show the event's named zone.
+
+Live Today/Tomorrow/This week and day pages offer a view-only All/Events/Tasks content filter.
+The default is All. Selection is local to the mounted Calendar or day screen and remains through
+its date/period navigation; reload or opening another screen resets it. Hidden agenda sections
+remain mounted so event editor state is not discarded. The filter does not change task states,
+dates, event persistence, activity-note links, or Journal actions. Date pages report task loading,
+errors, and an empty dated-task result explicitly. Buttons expose pressed state and a visible
+check mark, with standard Tab/Enter/Space operation. Static exports omit the filter and retain
+their read-only task snapshot; events remain unpublished.
+
 `/tasks` lists the vault's open work — every task whose state is not a terminal one, dated or not —
 reached from the sidebar rail. The order is the engine's: `[#A]` before `[#B]` before unprioritized,
 ties broken by deadline. A row marks what put it where it is (its priority, else `!` for a deadline

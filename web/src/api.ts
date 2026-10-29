@@ -35,6 +35,7 @@ import type {
 interface APIOptions {
   method?: string;
   body?: unknown;
+  signal?: AbortSignal;
 }
 
 export class APIError extends Error {
@@ -52,6 +53,7 @@ export async function api<T>(path: string, options: APIOptions = {}): Promise<T>
   const init: RequestInit = {
     method: options.method,
     headers,
+    ...(options.signal ? { signal: options.signal } : {}),
   };
 
   if (options.body !== undefined) {
