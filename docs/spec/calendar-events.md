@@ -122,3 +122,18 @@ Keep the event and operation IDs stable for an unchanged retry. A later edit sup
 revision and a new operation ID. Use the same save command with the full saved fields and
 `"deleted": true` to move to trash; set it back to false with the latest revision to restore. Global
 `--vault NAME` selects a registered vault exactly as it does for notes.
+
+## Day/week time grid
+
+Live day/week event panels can switch between their existing agenda and a time grid. The panel
+keeps its editor mounted across layout, period and content-filter changes. Month and static
+exports retain their existing behavior; no storage, API or native navigation contract changes.
+
+All-day ranges retain civil dates and exclusive ends. Timed intervals intersect device-local
+midnight boundaries; each column uses elapsed minutes so DST gaps/folds do not lose or reverse
+intervals. Transition-day ticks include offsets; columns need not align by wall clock on these
+days. Skipped local dates have no timed interval. A deterministic greedy interval partition
+assigns columns within each connected overlap group, including minimum 24-minute visual targets
+for short events. Dense days widen the horizontally scrollable surface rather than occlude
+buttons. Every segment opens the original stable event in the existing editor. Tasks stay in
+their date-only agenda. Drag/resize and display-zone/week-start settings are separate work.

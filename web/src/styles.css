@@ -1427,6 +1427,74 @@ a.calendar-title:focus-visible {
   color: var(--text);
 }
 
+/* Quiet chips (design variant 2) keep event intervals legible over the hour lines. */
+.calendar-time-scroll {
+  overflow: auto;
+  max-height: 70vh;
+  margin: 12px 0;
+  border: 1px solid var(--line);
+}
+.calendar-time-scroll:focus-visible,
+.calendar-time-event:focus-visible { outline: 2px solid var(--mark); outline-offset: -2px; }
+.calendar-time-grid { display: grid; align-items: start; }
+.calendar-time-heading {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin: 0;
+  padding: 10px 8px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  font-size: calc(14px * var(--font-scale, 1));
+}
+.calendar-time-all-day {
+  align-self: stretch;
+  min-height: 54px;
+  padding: 6px;
+  border-bottom: 1px solid var(--line-strong);
+  border-right: 1px solid var(--line);
+  font-size: calc(12px * var(--font-scale, 1));
+}
+.calendar-time-day { position: relative; border-right: 1px solid var(--line); }
+.calendar-time-tick {
+  position: absolute;
+  left: 0;
+  right: 0;
+  padding: 2px 0 0 4px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: calc(10px * var(--font-scale, 1));
+  line-height: 1.3;
+  padding-right: calc(100% - 60px);
+  pointer-events: none;
+}
+.calendar-time-entries { position: absolute; left: 64px; right: 4px; top: 0; }
+.calendar-time-event {
+  position: absolute;
+  overflow: hidden;
+  text-align: left;
+  padding: 2px 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--panel-soft);
+  color: var(--text);
+  font: inherit;
+  font-size: calc(12px * var(--font-scale, 1));
+  line-height: 1.3;
+  cursor: pointer;
+}
+.calendar-time-event:hover { border-color: var(--text); }
+.calendar-time-event small { display: block; font-size: calc(10px * var(--font-scale, 1)); }
+.calendar-time-all-day-event {
+  position: static;
+  display: block;
+  width: 100%;
+  min-height: 24px;
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+.calendar-time-empty { margin: 8px 8px 0 64px; font-size: calc(12px * var(--font-scale, 1)); }
+
 .calendar-event-description {
   white-space: pre-wrap;
 }

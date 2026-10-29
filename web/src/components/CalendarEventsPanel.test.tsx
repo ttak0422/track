@@ -46,3 +46,22 @@ it("keeps unsupported-zone events visible and editable without breaking the pane
   fireEvent.click(getByRole("button", { name: "Edit Unsupported zone" }));
   expect(dialog.mock.calls.at(-1)?.[0]).toMatchObject({ event: state.rows[0] });
 });
+
+it("switches day/week layout without replacing its editor, preserves layout over dates and trash", () => {
+  state.rows = [{ ...event, title: "Review", deleted: false, all_day: false, start: new Date("2026-10-28T09:00:00").toISOString(), end: new Date("2026-10-28T10:00:00").toISOString(), time_zone: "UTC" }];
+  const { getByRole, queryByRole, rerender } = render(<CalendarEventsPanel days={["2026-10-28"]} defaultDate="2026-10-28" timeGrid />);
+  fireEvent.click(getByRole("button", { name: "Time grid" }));
+  fireEvent.click(getByRole("button", { name: /Edit Review on 2026-10-28/ }));
+  const original = dialog.mock.calls.at(-1)?.[0];
+  fireEvent.click(getByRole("button", { name: "Agenda" }));
+  expect(dialog.mock.calls.at(-1)?.[0]).toMatchObject({ event: original.event });
+  fireEvent.click(getByRole("button", { name: "Time grid" }));
+  fireEvent.click(getByRole("button", { name: "Show trash" }));
+  expect(queryByRole("group", { name: "Event layout" })).toBeNull();
+  fireEvent.click(getByRole("button", { name: "Show events" }));
+  expect(getByRole("button", { name: "Time grid", pressed: true })).toBeTruthy();
+  rerender(<CalendarEventsPanel days={["2026-10-29"]} defaultDate="2026-10-29" timeGrid />);
+  expect(getByRole("region", { name: "Timed events on 2026-10-29" })).toBeTruthy();
+  expect(queryByRole("button", { name: /Edit Review/ })).toBeNull();
+  expect(dialog.mock.calls.at(-1)?.[0]).toMatchObject({ event: original.event });
+});

@@ -7,24 +7,28 @@ import { STATIC_MODE } from "../runtime";
 import { useVaultScope } from "../vaultScope";
 import { split } from "../vaultId";
 import { CalendarEventDialog } from "./CalendarEventDialog";
+import { CalendarTimeGrid } from "./CalendarTimeGrid";
 
-export function CalendarEventsPanel({ days, defaultDate }: { days: string[]; defaultDate: string }) {
+interface PanelProps { days: string[]; defaultDate: string; timeGrid?: boolean }
+
+export function CalendarEventsPanel(props: PanelProps) {
   // Event data is private to the live vault. Static exports keep their existing task snapshot.
   if (STATIC_MODE) return null;
-  return <LiveCalendarEventsPanel days={days} defaultDate={defaultDate} />;
+  return <LiveCalendarEventsPanel {...props} />;
 }
 
-function LiveCalendarEventsPanel({ days, defaultDate }: { days: string[]; defaultDate: string }) {
+function LiveCalendarEventsPanel({ days, defaultDate, timeGrid }: PanelProps) {
   const { scope, activeName } = useVaultScope();
-  return <ScopedEvents key={scope} vault={scope} vaultName={scope || activeName} days={days} defaultDate={defaultDate} />;
+  return <ScopedEvents key={scope} vault={scope} vaultName={scope || activeName} timeGrid={timeGrid} days={days} defaultDate={defaultDate} />;
 }
 
-function ScopedEvents({ vault, vaultName, days, defaultDate }: { vault: string; vaultName: string; days: string[]; defaultDate: string }) {
+function ScopedEvents({ vault, vaultName, days, defaultDate, timeGrid }: PanelProps & { vault: string; vaultName: string }) {
   const events = useCalendarEventsQuery(vault);
   const notes = useNotesQuery();
   const save = useSaveCalendarEvent(vault);
   const [editing, setEditing] = useState<CalendarEvent | "new" | null>(null);
   const [trash, setTrash] = useState(false);
+  const [layout, setLayout] = useState<"agenda" | "grid">("agenda");
   const [notice, setNotice] = useState("");
   const [undo, setUndo] = useState<CalendarEvent | null>(null);
   const [error, setError] = useState("");
@@ -61,12 +65,17 @@ function ScopedEvents({ vault, vaultName, days, defaultDate }: { vault: string; 
         <button type="button" aria-pressed={trash} onClick={() => setTrash(!trash)}>{trash ? "Show events" : "Show trash"}</button>
       </div>
     </header>
+    {timeGrid && !trash ? <div className="calendar-nav calendar-views" role="group" aria-label="Event layout">
+      <button type="button" aria-pressed={layout === "agenda"} onClick={() => setLayout("agenda")}>Agenda</button>
+      <button type="button" aria-pressed={layout === "grid"} onClick={() => setLayout("grid")}>Time grid</button>
+    </div> : null}
     {notice ? <p role="status">{notice} {undo ? <button className="event-text-button" type="button" disabled={save.isPending} onClick={() => void restore(undo)}>Undo</button> : null}</p> : null}
     {error ? <p className="error" role="alert">{error}</p> : null}
     {events.isPending ? <p className="muted" role="status">Loading events...</p> : null}
     {events.isError ? <p className="error" role="alert">Could not load events: {events.error.message} <button className="event-text-button" type="button" onClick={() => void events.refetch()}>Retry events</button></p> : null}
     {events.data && rows.length === 0 ? <p className="muted">{trash ? "No deleted events." : "No events in this period."}</p> : null}
-    {rows.map((event) => <div className="calendar-event-row" key={event.id}>
+    {timeGrid && layout === "grid" && !trash && events.data ? <CalendarTimeGrid events={rows} days={days} onEdit={setEditing} /> : null}
+    {(!timeGrid || layout === "agenda" || trash) ? rows.map((event) => <div className="calendar-event-row" key={event.id}>
       <div>
         {trash ? <strong>{event.title}</strong> : <button type="button" className="event-text-button event-title" onClick={(e) => { e.currentTarget.focus(); setEditing(event); }} aria-label={`Edit ${event.title}`}>{event.title}</button>}
         {event.status === "cancelled" ? <span className="day-task-note">Cancelled</span> : null}
@@ -77,7 +86,7 @@ function ScopedEvents({ vault, vaultName, days, defaultDate }: { vault: string; 
         {event.url ? <> {event.note_id ? " · " : ""}<a href={event.url} target="_blank" rel="noreferrer">Source</a></> : null}
       </div>
       {trash ? <button className="event-text-button" type="button" disabled={save.isPending} onClick={() => void restore(event)}>Restore {event.title}</button> : null}
-    </div>)}
+    </div>) : null}
     <p className="muted">{vaultName ? `Vault: ${vaultName}. ` : ""}Events use your device’s day boundaries; timed entries show their event time zone.</p>
     {editing ? <CalendarEventDialog vault={vault} date={defaultDate} event={editing === "new" ? undefined : editing} notes={localNotes} onSaved={saved} onClose={() => setEditing(null)} /> : null}
   </section>;
