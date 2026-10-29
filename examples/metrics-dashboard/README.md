@@ -5,6 +5,11 @@ This example opens with three populated charts: a wide cache-hit rate chart for 
 of synthetic daily readings, including one visible Checkout collection gap. It needs no collector,
 credentials or Grafana server.
 
+![Actual Track workspace showing the populated cache demo and live period control](preview.jpg)
+
+Actual live workspace with the included synthetic data, shown at **All observations**.
+The two change panels continue below the first chart; the demo opens this saved note directly.
+
 From the repository root, build the complete CLI (including its frontend), then launch the demo:
 
 ```sh
