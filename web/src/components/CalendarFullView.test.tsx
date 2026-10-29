@@ -100,7 +100,7 @@ describe("CalendarFullView", () => {
     // Today's marker belongs to July, not June.
     expect(container.querySelector('[aria-current="date"]')).toBeNull();
 
-    fireEvent.click(getByText("Today"));
+    fireEvent.click(getByText("Current month"));
     expect(getByText("2026 / 07")).toBeTruthy();
     expect(queryByText("2026 / 06")).toBeNull();
   });
@@ -190,6 +190,57 @@ describe("CalendarFullView", () => {
     ).toBe("100%");
     // Scheduled only: a period with no end draws no bar.
     expect(rowFor("unscheduled").querySelector(".calendar-day-due")).toBeNull();
+  });
+
+  it("opens today, tomorrow and this week independently of activity notes", () => {
+    notesQuery.current = { isPending: false, isError: true, error: new Error("notes unavailable") };
+    tasksQuery.current = { data: { tasks: [
+      { note_id: "plan", file_kind: "note", title: "Plan", line: 1, state: "WAITING", done: false, text: "Waiting for review", scheduled: "2026-07-05", due: "2026-07-05" },
+      { note_id: "plan", file_kind: "note", title: "Plan", line: 2, state: "TODO", done: false, text: "Late report", due: "2026-07-04" },
+      { note_id: "plan", file_kind: "note", title: "Plan", line: 3, state: "DONE", done: true, text: "Finished work", due: "2026-07-05" },
+    ] } };
+    const { getByRole, queryByText, getByText, getByLabelText } = render(<CalendarFullView />);
+    fireEvent.click(getByRole("button", { name: "Today" }));
+    expect(getByRole("heading", { level: 1, name: "2026-07-05" })).toBeTruthy();
+    expect(getByLabelText("Overdue tasks").textContent).toContain("Late report");
+    expect(getByText("Scheduled 2026-07-05")).toBeTruthy();
+    expect(getByText("Due 2026-07-05")).toBeTruthy();
+    expect(queryByText("Finished work")).toBeNull();
+    expect(queryByText("notes unavailable")).toBeNull();
+    fireEvent.click(getByRole("button", { name: "Tomorrow" }));
+    expect(getByRole("heading", { level: 1, name: "2026-07-06" })).toBeTruthy();
+    expect(queryByText("Late report", { exact: false })).toBeNull();
+    fireEvent.click(getByRole("button", { name: "This week" }));
+    expect(getByRole("heading", { level: 1, name: "2026-07-05 – 2026-07-11" })).toBeTruthy();
+    expect(getByLabelText("Tasks on 2026-07-11")).toBeTruthy();
+    fireEvent.click(getByRole("button", { name: "Next week" }));
+    expect(getByRole("heading", { level: 1, name: "2026-07-12 – 2026-07-18" })).toBeTruthy();
+    fireEvent.click(getByRole("button", { name: "This week" }));
+    expect(getByRole("heading", { level: 1, name: "2026-07-05 – 2026-07-11" })).toBeTruthy();
+  });
+
+  it("distinguishes loading and failed task requests from an empty day", () => {
+    tasksQuery.current = { isPending: true };
+    const { getByRole, queryByText, rerender } = render(<CalendarFullView />);
+    fireEvent.click(getByRole("button", { name: "Today" }));
+    expect(getByRole("status").textContent).toBe("Loading tasks...");
+    expect(queryByText("No open tasks scheduled or due.")).toBeNull();
+    tasksQuery.current = { isError: true, error: new Error("offline") };
+    rerender(<CalendarFullView />);
+    expect(getByRole("alert").textContent).toBe("Could not load tasks: offline");
+    expect(queryByText("No open tasks scheduled or due.")).toBeNull();
+  });
+
+  it("crosses year boundaries and refreshes the relative date after midnight", () => {
+    vi.setSystemTime(new Date(2026, 11, 31, 23, 59, 59));
+    const { getByRole } = render(<CalendarFullView />);
+    fireEvent.click(getByRole("button", { name: "Tomorrow" }));
+    expect(getByRole("heading", { level: 1, name: "2027-01-01" })).toBeTruthy();
+    fireEvent.click(getByRole("button", { name: "Previous day" }));
+    expect(getByRole("heading", { level: 1, name: "2026-12-31" })).toBeTruthy();
+    vi.setSystemTime(new Date(2027, 0, 1, 0, 0, 1));
+    fireEvent.focus(window);
+    expect(getByRole("heading", { level: 1, name: "2027-01-01" })).toBeTruthy();
   });
 
   it("shows the pending state before the notes list resolves", () => {

@@ -1374,6 +1374,28 @@ a.calendar-title:focus-visible {
   gap: 6px;
 }
 
+.calendar-views {
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.calendar-views button[aria-pressed="true"] {
+  color: var(--mark);
+  font-weight: 500;
+}
+
+.calendar-agenda .day-task {
+  display: block;
+}
+
+.calendar-task-dates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  color: var(--muted);
+  font-size: calc(12px * var(--font-scale, 1));
+}
+
 .calendar-weekday {
   padding: 4px 0;
   text-align: center;
