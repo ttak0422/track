@@ -130,7 +130,8 @@ keeps its editor mounted across layout, period and content-filter changes. Month
 exports retain their existing behavior; no storage, API or native navigation contract changes.
 
 All-day ranges retain civil dates and exclusive ends. Timed intervals intersect device-local
-midnight boundaries; each column uses elapsed minutes so DST gaps/folds do not lose or reverse
+midnight boundaries, constructed independently so a normalized 01:00 start on a midnight-gap
+day cannot extend the preceding day into the next date. Each column uses elapsed minutes so DST gaps/folds do not lose or reverse
 intervals. Transition-day ticks include offsets; columns need not align by wall clock on these
 days. Skipped local dates have no timed interval. A deterministic greedy interval partition
 assigns columns within each connected overlap group, including minimum 24-minute visual targets

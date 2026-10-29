@@ -1,4 +1,4 @@
-import { eventOnDay, type CalendarEvent } from "../calendarEvents";
+import { eventOnDay, shiftCivilDay, type CalendarEvent } from "../calendarEvents";
 
 export interface TimedSegment {
   event: CalendarEvent;
@@ -10,8 +10,7 @@ export interface TimedSegment {
 
 export function localDayRange(day: string): { start: number; end: number; minutes: number } {
   const start = new Date(`${day}T00:00:00`);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 1);
+  const end = new Date(`${shiftCivilDay(day, 1)}T00:00:00`);
   // A skipped civil day (for example Apia 2011-12-30) has no timed interval.
   const exists = start.getFullYear() === Number(day.slice(0, 4)) && start.getMonth() + 1 === Number(day.slice(5, 7)) && start.getDate() === Number(day.slice(8, 10));
   return { start: +start, end: exists ? +end : +start, minutes: exists ? (+end - +start) / 60_000 : 0 };

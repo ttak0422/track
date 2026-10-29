@@ -20,3 +20,12 @@ it("separates civil all-day ranges, keeps empty dates, and edits the same stable
   expect(queryByRole("button", { name: /Edit Meeting on 2026-10-30/ })).toBeNull();
   expect(getByRole("region", { name: "Event time grid, scroll for more days and hours" })).toHaveAttribute("tabindex", "0");
 });
+
+it("announces cancellation in both timed and all-day event button names", () => {
+  const {getByRole} = render(<CalendarTimeGrid days={["2026-10-29"]} events={[
+    event("Workshop", true, "2026-10-29", "2026-10-30", { status: "cancelled" }),
+    event("Call", false, instant("09:00"), instant("10:00"), { status: "cancelled" }),
+  ]} onEdit={vi.fn()} />);
+  expect(getByRole("button", {name: /^Edit Workshop on 2026-10-29: Cancelled · All day/})).toBeVisible();
+  expect(getByRole("button", {name: /^Edit Call on 2026-10-29: Cancelled · /})).toBeVisible();
+});

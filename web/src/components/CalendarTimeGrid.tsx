@@ -11,7 +11,7 @@ export function CalendarTimeGrid({ events, days, onEdit }: { events: CalendarEve
         {days.map((day) => <h3 className="calendar-time-heading" key={day}>{day}</h3>)}
         {days.map((day) => <section className="calendar-time-all-day" aria-label={`All-day events on ${day}`} key={day}>
           <span className="muted">All day</span>
-          {events.filter((event) => event.all_day && eventOnDay(event, day)).map((event) => <button type="button" className="calendar-time-event calendar-time-all-day-event" key={event.id} onClick={(e) => { e.currentTarget.focus(); onEdit(event); }} aria-label={`Edit ${event.title} on ${day}: ${eventTimeLabel(event)}`}>
+          {events.filter((event) => event.all_day && eventOnDay(event, day)).map((event) => <button type="button" className="calendar-time-event calendar-time-all-day-event" key={event.id} onClick={(e) => { e.currentTarget.focus(); onEdit(event); }} aria-label={`Edit ${event.title} on ${day}: ${event.status === "cancelled" ? "Cancelled · " : ""}${eventTimeLabel(event)}`}>
             {event.status === "cancelled" ? "Cancelled · " : ""}{event.title}
           </button>)}
         </section>)}
@@ -23,7 +23,7 @@ export function CalendarTimeGrid({ events, days, onEdit }: { events: CalendarEve
             {segments.length === 0 && range.minutes > 0 ? <p className="calendar-time-empty muted">No timed events.</p> : null}
             <div className="calendar-time-entries">
               {segments.map(({ event, start, end, column, columns: count }) => <button type="button" key={event.id} className="calendar-time-event" onClick={(e) => { e.currentTarget.focus(); onEdit(event); }}
-                aria-label={`Edit ${event.title} on ${day}: ${eventTimeLabel(event)}`}
+                aria-label={`Edit ${event.title} on ${day}: ${event.status === "cancelled" ? "Cancelled · " : ""}${eventTimeLabel(event)}`}
                 title={eventTimeLabel(event)}
                 style={{ top: `${start}px`, height: `${Math.max(24, end - start)}px`, left: `${column * 100 / count}%`, width: `${100 / count}%` }}>
                 <span>{event.status === "cancelled" ? "Cancelled · " : ""}{event.title}</span>

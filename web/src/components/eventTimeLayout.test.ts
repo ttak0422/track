@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import type { CalendarEvent } from "../calendarEvents";
+import { eventOnDay, type CalendarEvent } from "../calendarEvents";
 import { gridClock, localDayRange, timedSegments } from "./eventTimeLayout";
 
 const event = (id: string, start: string, end: string, extra: Partial<CalendarEvent> = {}): CalendarEvent => ({ version: 1, id, revision: 1, title: id, all_day: false, start, end, time_zone: "UTC", description: "", location: "", url: "", note_id: "", status: "confirmed", deleted: false, updated_at: "", ...extra });
@@ -39,4 +39,17 @@ it("preserves elapsed time and offset labels across real local DST boundaries", 
   } else {
     expect(localDayRange("2026-10-29").minutes).toBe(1440);
   }
+});
+
+it("does not carry a normalized midnight hour into the next day's boundary", () => {
+  if (Intl.DateTimeFormat().resolvedOptions().timeZone !== "America/Santiago") return;
+  expect(localDayRange("2026-09-06").minutes).toBe(1380);
+  expect(localDayRange("2026-09-07").minutes).toBe(1440);
+  const next = event("next-day", "2026-09-07T00:15:00-03:00", "2026-09-07T00:45:00-03:00");
+  const crossing = event("crossing", "2026-09-06T23:30:00-03:00", "2026-09-07T00:30:00-03:00");
+  expect(eventOnDay(next, "2026-09-06")).toBe(false);
+  expect(eventOnDay(next, "2026-09-07")).toBe(true);
+  expect(timedSegments([next], "2026-09-06")).toEqual([]);
+  expect(timedSegments([crossing], "2026-09-06")[0]).toMatchObject({ start: 1350, end: 1380 });
+  expect(timedSegments([next, crossing], "2026-09-07").map(({event, start, end}) => [event.id, start, end])).toEqual([["crossing", 0, 30], ["next-day", 15, 45]]);
 });
