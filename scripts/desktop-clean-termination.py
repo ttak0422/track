@@ -31,7 +31,9 @@ def startup_gate(executable, arguments):
     receipt = os.environ.get('TRACK_TERMINATION_STARTUP_GATE')
     if receipt:
         gate = Path(receipt)
-        gate.write_text(str(os.getpid()))
+        temporary = gate.with_suffix(".writing")
+        temporary.write_text(str(os.getpid()))
+        temporary.replace(gate)
         wait_for_startup_release(gate.with_suffix('.release'), 30)
     os.execv(str(executable), [str(executable), *arguments])
 

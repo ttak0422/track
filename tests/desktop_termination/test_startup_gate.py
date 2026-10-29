@@ -1,6 +1,7 @@
 import importlib.util
 import os
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -50,3 +51,39 @@ class StartupGateTests(unittest.TestCase):
                 driver.startup_gate(Path("/fixture/track"), ["web"])
                 self.assertEqual(gate.read_text(), str(os.getpid()))
                 execute.assert_called_once_with("/fixture/track", ["/fixture/track", "web"])
+
+    def test_partial_receipt_is_not_published(self):
+        with tempfile.TemporaryDirectory() as directory:
+            gate = Path(directory) / "gate"
+            gate.with_suffix(".release").touch()
+            writing, release_write = threading.Event(), threading.Event()
+            errors = []
+
+            def partial_write(path, value, *args, **kwargs):
+                with path.open("w") as stream:
+                    stream.write(value[:1])
+                    stream.flush()
+                    writing.set()
+                    if not release_write.wait(5):
+                        raise TimeoutError("test did not release receipt write")
+                    stream.write(value[1:])
+
+            def child():
+                try:
+                    driver.startup_gate(Path("/fixture/track"), ["web"])
+                except Exception as error:
+                    errors.append(error)
+
+            with patch.dict(os.environ, {"TRACK_TERMINATION_STARTUP_GATE": str(gate)}), \
+                    patch.object(Path, "write_text", partial_write), patch.object(driver.os, "execv"):
+                thread = threading.Thread(target=child)
+                thread.start()
+                try:
+                    self.assertTrue(writing.wait(5), "child did not start writing receipt")
+                    self.assertFalse(gate.exists(), "reader could observe a partial PID")
+                finally:
+                    release_write.set()
+                    thread.join(5)
+                self.assertFalse(thread.is_alive())
+                self.assertEqual(errors, [])
+                self.assertEqual(gate.read_text(), str(os.getpid()))

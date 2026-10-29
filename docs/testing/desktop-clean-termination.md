@@ -74,7 +74,7 @@ and `desktop-verify.sh` for Swift lifecycle/URL-policy and Go regression tests.
 ## Startup phase preconditions
 
 `startup-os` holds the fixture's resource launcher before it execs Go. The launcher writes its
-owned PID receipt, and the harness has a five-second deadline to observe it. It verifies that
+owned PID receipt atomically, and the harness has a five-second deadline to observe it. It verifies that
 the WebView has no URL, is not loading, and is hidden before scheduling termination. The gate
 stays closed until the production supervisor cancels/reaps that PID. The launcher also has its
 own bounded release deadline; it never adds a delay to the shipped server. Other scenarios
