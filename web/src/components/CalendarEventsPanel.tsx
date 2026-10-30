@@ -28,6 +28,7 @@ function ScopedEvents({ vault, vaultName, days, defaultDate, timeGrid }: PanelPr
   const events = useCalendarEventsQuery(vault);
   const notes = useNotesQuery();
   const save = useSaveCalendarEvent(vault);
+  const [timeChangeOriginal, setTimeChangeOriginal] = useState<CalendarEvent | undefined>(undefined);
   const [editing, setEditing] = useState<CalendarEvent | "new" | null>(null);
   const [trash, setTrash] = useState(false);
   const [layout, setLayout] = useState<"agenda" | "grid">("agenda");
@@ -41,6 +42,7 @@ function ScopedEvents({ vault, vaultName, days, defaultDate, timeGrid }: PanelPr
 
   function saved(event: CalendarEvent) {
     setEditing(null);
+    setTimeChangeOriginal(undefined);
     setNotice(event.deleted ? `Moved “${event.title}” to trash.` : `Saved “${event.title}”.`);
     if (event.deleted) setUndo(event);
   }
@@ -63,7 +65,7 @@ function ScopedEvents({ vault, vaultName, days, defaultDate, timeGrid }: PanelPr
     <header className="day-head">
       <h2>{trash ? "Deleted events" : "Events"}</h2>
       <div className="calendar-nav">
-        <button type="button" onClick={(e) => { e.currentTarget.focus(); setEditing("new"); }}>New event</button>
+        <button type="button" onClick={(e) => { e.currentTarget.focus(); setTimeChangeOriginal(undefined); setEditing("new"); }}>New event</button>
         <button type="button" aria-pressed={trash} onClick={() => setTrash(!trash)}>{trash ? "Show events" : "Show trash"}</button>
       </div>
     </header>
@@ -76,10 +78,10 @@ function ScopedEvents({ vault, vaultName, days, defaultDate, timeGrid }: PanelPr
     {events.isPending ? <p className="muted" role="status">Loading events...</p> : null}
     {events.isError ? <p className="error" role="alert">Could not load events: {events.error.message} <button className="event-text-button" type="button" onClick={() => void events.refetch()}>Retry events</button></p> : null}
     {events.data && rows.length === 0 ? <p className="muted">{trash ? "No deleted events." : "No events in this period."}</p> : null}
-    {timeGrid && layout === "grid" && !trash && events.data ? <CalendarTimeGrid events={rows} days={days} onEdit={setEditing} /> : null}
+    {timeGrid && layout === "grid" && !trash && events.data ? <CalendarTimeGrid events={rows} days={days} onEdit={(event) => { setTimeChangeOriginal(undefined); setEditing(event); }} onTimeChange={(original, proposal) => { setTimeChangeOriginal(original); setEditing(proposal); }} /> : null}
     {(!timeGrid || layout === "agenda" || trash) ? rows.map((event) => <div className="calendar-event-row" key={event.id}>
       <div>
-        {trash ? <strong>{event.title}</strong> : <button type="button" className="event-text-button event-title" onClick={(e) => { e.currentTarget.focus(); setEditing(event); }} aria-label={`Edit ${event.title}`}>{event.title}</button>}
+        {trash ? <strong>{event.title}</strong> : <button type="button" className="event-text-button event-title" onClick={(e) => { e.currentTarget.focus(); setTimeChangeOriginal(undefined); setEditing(event); }} aria-label={`Edit ${event.title}`}>{event.title}</button>}
         {event.status === "cancelled" ? <span className="day-task-note">Cancelled</span> : null}
         <div className="muted">{eventTimeLabel(event)}</div>
         {event.location ? <div className="muted">{event.location}</div> : null}
@@ -90,6 +92,6 @@ function ScopedEvents({ vault, vaultName, days, defaultDate, timeGrid }: PanelPr
       {trash ? <button className="event-text-button" type="button" disabled={save.isPending} onClick={() => void restore(event)}>Restore {event.title}</button> : null}
     </div>) : null}
     <p className="muted">{vaultName ? `Vault: ${vaultName}. ` : ""}Events use {zone} day boundaries; agenda labels show each event’s authored time zone.</p>
-    {editing ? <CalendarEventDialog defaultTimeZone={zone} vault={vault} date={defaultDate} event={editing === "new" ? undefined : editing} notes={localNotes} onSaved={saved} onClose={() => setEditing(null)} /> : null}
+    {editing ? <CalendarEventDialog timeChangeOriginal={timeChangeOriginal} defaultTimeZone={zone} vault={vault} date={defaultDate} event={editing === "new" ? undefined : editing} notes={localNotes} onSaved={saved} onClose={() => { setEditing(null); setTimeChangeOriginal(undefined); }} /> : null}
   </section>;
 }

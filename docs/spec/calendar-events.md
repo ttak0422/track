@@ -137,7 +137,7 @@ days. Skipped local dates have no timed interval. A deterministic greedy interva
 assigns columns within each connected overlap group, including minimum 24-minute visual targets
 for short events. Dense days widen the horizontally scrollable surface rather than occlude
 buttons. Every segment opens the original stable event in the existing editor. Tasks stay in
-their date-only agenda. Drag/resize is separate work.
+their date-only agenda. Bounded time-change proposals use the confirmation flow below.
 
 ## Calendar display preferences
 
@@ -165,3 +165,25 @@ when the zone changes; Current month uses the new zone.
 The original event editor retains authored zones and stored timestamps. New timed-event defaults
 use the display zone, captured at editor mount so later preference changes cannot reset a draft.
 Existing browser/native unsaved-input protection stays intact.
+
+## Grid time-change proposals
+
+Quick adjustments apply only to confirmed, non-deleted timed events entirely inside one 1440-minute
+display-zone day. Mouse/pen event dragging moves both endpoints; the end handle resizes the end.
+The same handle exposes ordinary keyboard-operable 15-minute action buttons. No touch drag,
+start-edge resize, different-day drop, clock-change-day quick edit, or post-save time-change Undo
+is provided. Other dates and all-day/cancelled entries keep the ordinary editor.
+
+Pointer capture uses day-local coordinates so scroll offsets do not become date changes. Escape,
+pointer cancellation/lost capture, blur, data revision changes and period/zone replacement cancel
+the gesture; a drag's synthetic click cannot open a second editor. Only a dashed preview moves.
+Every accepted drop/action opens the existing editor with the original schedule and candidate
+fields. The original stable ID/revision and authored zone are retained. Whole-minute changes
+preserve fractional precision and produce RFC3339 offsets for the authored zone at each new
+instant, including when an authored-zone fold occurs on an ordinary display-zone day.
+
+The proposal is protected as unsaved even before another form edit. Apply uses the existing
+revision/operation-ID mutation, timeout, retry and error handling; no cache/grid optimistic time
+change is made. Cancel/Escape discards the proposal, and successful saving releases the guard.
+Trash is offered only in the ordinary editor so it cannot accidentally save proposed times.
+Existing title/details/date editing remains in the shared editor, with its existing validation.

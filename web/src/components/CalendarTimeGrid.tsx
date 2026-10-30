@@ -1,12 +1,19 @@
+import { useEffect, useState } from "react";
+import { CalendarTimeEntry } from "./CalendarTimeEntry";
 import { eventOnDay, eventTimeLabel, type CalendarEvent } from "../calendarEvents";
 import { useCalendarPreferences } from "../calendarPreferences";
 import { gridClock, localDayRange, timedSegments } from "./eventTimeLayout";
 
-export function CalendarTimeGrid({ events, days, onEdit }: { events: CalendarEvent[]; days: string[]; onEdit: (event: CalendarEvent) => void }) {
+export function CalendarTimeGrid({ events, days, onEdit, onTimeChange }: { events: CalendarEvent[]; days: string[]; onEdit: (event: CalendarEvent) => void; onTimeChange?: (original: CalendarEvent, proposal: CalendarEvent) => void }) {
   const { zone } = useCalendarPreferences();
+  const [notice, setNotice] = useState("");
+  const period = days.join("|");
+  useEffect(() => setNotice(""), [period, zone]);
   const columns = days.map((day) => ({ day, range: localDayRange(day, zone), segments: timedSegments(events, day, zone) }));
   return <>
     <p className="muted">Time grid · {zone}. Each column follows elapsed time from midnight in the display zone; daylight-saving days may have fewer or more hours. Tasks stay in their dated agenda.</p>
+    {onTimeChange ? <p className="muted">On ordinary 24-hour days, drag a confirmed single-day event to move it; drag ↕ to resize its end. Activate Change time for the same 15-minute actions by keyboard. Review and Apply before saving. Use the editor for all-day, cancelled, clock-change dates or events crossing a display-zone day boundary.</p> : null}
+    {notice ? <p role="status">{notice}</p> : null}
     <div className="calendar-time-scroll" tabIndex={0} role="region" aria-label="Event time grid, scroll for more days and hours">
       <div className="calendar-time-grid" style={{ gridTemplateColumns: columns.map(({ segments }) => `minmax(${Math.max(240, 64 + Math.max(1, ...segments.map((segment) => segment.columns)) * 108)}px, 1fr)`).join(" ") }}>
         {days.map((day) => <h3 className="calendar-time-heading" key={day}>{day}</h3>)}
@@ -23,13 +30,7 @@ export function CalendarTimeGrid({ events, days, onEdit }: { events: CalendarEve
             {range.minutes === 0 ? <p className="muted">No local hours on this date.</p> : null}
             {segments.length === 0 && range.minutes > 0 ? <p className="calendar-time-empty muted">No timed events.</p> : null}
             <div className="calendar-time-entries">
-              {segments.map(({ event, start, end, column, columns: count }) => <button type="button" key={event.id} className="calendar-time-event" onClick={(e) => { e.currentTarget.focus(); onEdit(event); }}
-                aria-label={`Edit ${event.title} on ${day}: ${event.status === "cancelled" ? "Cancelled · " : ""}Display time ${gridClock(range.start + start * 60_000, true, zone)}–${end === range.minutes ? "24:00" : gridClock(range.start + end * 60_000, true, zone)} · ${zone}. ${eventTimeLabel(event)}`}
-                title={eventTimeLabel(event)}
-                style={{ top: `${start}px`, height: `${Math.max(24, end - start)}px`, left: `${column * 100 / count}%`, width: `${100 / count}%` }}>
-                <span>{event.status === "cancelled" ? "Cancelled · " : ""}{event.title}</span>
-                <small>{Date.parse(event.start) < range.start ? "Continues · " : ""}{gridClock(range.start + start * 60_000, transition, zone)}–{end === range.minutes ? "24:00" : gridClock(range.start + end * 60_000, transition, zone)}{Date.parse(event.end) > range.end ? " · continues" : ""}</small>
-              </button>)}
+              {segments.map((segment) => <CalendarTimeEntry key={segment.event.id} segment={segment} day={day} zone={zone} onEdit={onEdit} onTimeChange={onTimeChange} onNotice={setNotice} />)}
             </div>
           </section>;
         })}
