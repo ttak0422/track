@@ -329,3 +329,27 @@ describe("vault-scoped activity and new-notes requests", () => {
     expect(fetched).toEqual([]);
   });
 });
+
+describe("response ID normalization boundary", () => {
+  it("normalizes successful HTTP and parsed SSE payloads equally without rewriting request ids", async () => {
+    const payload = { vault: "work", root: 7, items: [{ note_id: 7 }, { vault: "home", note_id: "8" }, { vault: "", note_id: 9 }] };
+    const expected = { vault: "work", root: "work~7", items: [{ note_id: "work~7" }, { vault: "home", note_id: "home~8" }, { vault: "", note_id: "9" }] };
+    const fetch = vi.fn(async () => new Response(JSON.stringify(payload)));
+    vi.stubGlobal("fetch", fetch);
+    const { api, normalizeIDs } = await import("./api");
+    const request = { vault: "work", note_id: 7 };
+    await expect(api("/api/fixture", { method: "POST", body: request })).resolves.toEqual(expected);
+    expect(normalizeIDs(JSON.parse(JSON.stringify(payload)))).toEqual(expected);
+    expect(fetch).toHaveBeenCalledExactlyOnceWith("/api/fixture", expect.objectContaining({ method: "POST", body: JSON.stringify(request) }));
+    expect(request).toEqual({ vault: "work", note_id: 7 });
+    expect(payload.root).toBe(7);
+  });
+
+  it("retains the HTTP error status and message contract", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: 7, vault: "work", note_id: 8 }), { status: 409 })));
+    const { api, APIError } = await import("./api");
+    const request = api("/api/fixture");
+    await expect(request).rejects.toBeInstanceOf(APIError);
+    await expect(request).rejects.toMatchObject({ status: 409, message: "7" });
+  });
+});
