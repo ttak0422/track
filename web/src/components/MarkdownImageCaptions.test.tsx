@@ -77,6 +77,22 @@ describe("Markdown image captions", () => {
     fireEvent.click(dialog);
   });
 
+  it("does not borrow a kept preview's caption from another occurrence of the same image", () => {
+    const { container, getAllByLabelText } = render(reader([
+      '![First](assets/same.png)',
+      '![Second](assets/same.png "Second caption")',
+      '![Third](assets/same.png "Third caption")',
+    ].join("\n\n")));
+    const buttons = getAllByLabelText("Preview");
+    buttons.forEach((button) => fireEvent.click(button));
+    expect(container.querySelectorAll(".wiki-preview")).toHaveLength(3);
+    expect([...container.querySelectorAll(".wiki-preview .image-caption")].map((el) => el.textContent))
+      .toEqual(["Second caption", "Third caption"]);
+    // Reopening the same titled occurrence still raises its existing window.
+    fireEvent.click(buttons[1]);
+    expect(container.querySelectorAll(".wiki-preview")).toHaveLength(3);
+  });
+
   it("does not caption other embed types", () => {
     const markdown = [
       '![Video](https://www.youtube.com/watch?v=abcdefghijk "Video caption")',

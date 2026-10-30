@@ -75,7 +75,12 @@ const FloatingContext = createContext<FloatingApi | null>(null);
 export const InFloatingWindowContext = createContext(false);
 
 function contentKey(content: FloatingContent): string {
-  return content.kind === "note" ? `note:${content.noteID}` : `media:${content.vault}:${content.src}`;
+  if (content.kind === "note") return `note:${content.noteID}`;
+  // The same image can illustrate different points: a kept preview must not lend its caption
+  // (or lack of one) to another occurrence. Untitled media keeps its existing identity.
+  return content.title
+    ? `captioned-media:${JSON.stringify([content.vault, content.src, content.title])}`
+    : `media:${content.vault}:${content.src}`;
 }
 
 export function FloatingProvider({ children }: { children: ReactNode }) {
