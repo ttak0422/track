@@ -66,8 +66,8 @@ export function eventOnDay(event: CalendarEvent, day: string): boolean {
   if (event.deleted) return false;
   if (event.all_day) return event.start <= day && day < event.end;
   const start = new Date(`${day}T00:00:00`);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 1);
+  // Construct each civil midnight separately: a skipped 00:00 may normalize to 01:00.
+  const end = new Date(`${shiftCivilDay(day, 1)}T00:00:00`);
   return new Date(event.start) < end && new Date(event.end) > start;
 }
 

@@ -66,7 +66,7 @@ export function DayView({ date }: { date: string }) {
       </header>
       <CalendarAgendaFilter value={content} onChange={setContent} />
       <div hidden={content === "tasks"}>
-        <CalendarEventsPanel days={[date]} defaultDate={date} />
+        <CalendarEventsPanel days={[date]} defaultDate={date} timeGrid />
       </div>
       {agendaQuery.isPending ? <p className="muted">Loading...</p> : null}
       {agendaQuery.isError ? <p className="error">{agendaQuery.error.message}</p> : null}

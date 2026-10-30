@@ -127,7 +127,7 @@ export function CalendarFullView() {
           </header>
           <CalendarAgendaFilter value={content} onChange={setContent} />
           <div hidden={content === "tasks"}>
-            <CalendarEventsPanel days={agendaDays} defaultDate={selectedDay} />
+            <CalendarEventsPanel days={agendaDays} defaultDate={selectedDay} timeGrid />
           </div>
           <div hidden={content === "events"}>
             {tasksQuery.isPending ? <p className="muted" role="status">Loading tasks...</p> : null}
