@@ -129,7 +129,7 @@ Live day/week event panels can switch between their existing agenda and a time g
 keeps its editor mounted across layout, period and content-filter changes. Month and static
 exports retain their existing behavior; no storage, API or native navigation contract changes.
 
-All-day ranges retain civil dates and exclusive ends. Timed intervals intersect device-local
+All-day ranges retain civil dates and exclusive ends. Timed intervals intersect display-zone
 midnight boundaries, constructed independently so a normalized 01:00 start on a midnight-gap
 day cannot extend the preceding day into the next date. Each column uses elapsed minutes so DST gaps/folds do not lose or reverse
 intervals. Transition-day ticks include offsets; columns need not align by wall clock on these
@@ -137,4 +137,31 @@ days. Skipped local dates have no timed interval. A deterministic greedy interva
 assigns columns within each connected overlap group, including minimum 24-minute visual targets
 for short events. Dense days widen the horizontally scrollable surface rather than occlude
 buttons. Every segment opens the original stable event in the existing editor. Tasks stay in
-their date-only agenda. Drag/resize and display-zone/week-start settings are separate work.
+their date-only agenda. Drag/resize is separate work.
+
+## Calendar display preferences
+
+The Shell provides Sunday/Monday week-start and an optional named IANA display zone. Empty zone
+follows the device and refreshes on focus. `track.calendar-display.v1` stores version 1,
+`weekStartsOn` (0/1) and `timeZone` in browser-origin/profile localStorage, shared across vaults.
+The accepted zone must be in the same generated Go IANA list as event authoring and supported by
+the browser. `go generate ./internal/track/calendarevent` updates both lists; a parity test prevents
+drift. Host-only placeholders and numeric-offset strings cannot become new-event defaults.
+Reading never writes or repairs storage implicitly. Invalid/unreadable stored values fall back
+to defaults with a warning in the settings disclosure. Apply validates and persists first; a
+failed write retains the active view and form input. Defaults remove the key. Storage events
+update other tabs. Static exports ignore these private preferences and offer no settings form.
+The native app's normal fixed origin and persistent WKWebsiteDataStore use the same scope;
+other ports/profiles are independent. No user config, vault data or OS setting is modified.
+
+Civil UTC arithmetic aligns month/weekday columns and Sunday/Monday weeks without dropping a
+zone's skipped date. Display-zone day intervals are found independently by Intl civil-date
+boundaries, cached by zone/date with bounded maps; 23/25-hour days, half-hour transitions,
+midnight gaps and skipped dates retain real instants. Empty intervals have no timed membership.
+Today/Tomorrow, midnight/focus refresh and overdue reminders use the display zone; dated tasks,
+all-day entries and activity-history dates remain civil dates. A browsed month stays selected
+when the zone changes; Current month uses the new zone.
+
+The original event editor retains authored zones and stored timestamps. New timed-event defaults
+use the display zone, captured at editor mount so later preference changes cannot reset a draft.
+Existing browser/native unsaved-input protection stays intact.

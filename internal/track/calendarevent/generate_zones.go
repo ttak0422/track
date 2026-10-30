@@ -26,7 +26,9 @@ func main() {
 		}
 	}
 	sort.Strings(names)
-	if err := os.WriteFile("zones.txt", []byte(strings.Join(names, "\n")+"\n"), 0o644); err != nil {
-		panic(err)
+	for _, path := range []string{"zones.txt", "../../../web/src/calendarTimeZones.txt"} {
+		if err := os.WriteFile(path, []byte(strings.Join(names, "\n")+"\n"), 0o644); err != nil {
+			panic(err)
+		}
 	}
 }

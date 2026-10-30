@@ -133,3 +133,14 @@ describe("event editor", () => {
     expect(mutation.mutateAsync.mock.calls[0][0].request).toMatchObject({ start: timed.start, end: timed.end, time_zone: timed.time_zone, expected_revision: 4 });
   });
 });
+
+it("uses the display zone for a new timed event without resetting an open draft", () => {
+  const props={vault:"",date:"2026-10-28",notes:[],onSaved:vi.fn(),onClose:vi.fn()};
+  const ui=render(<CalendarEventDialog {...props} defaultTimeZone="America/New_York"/>);
+  fireEvent.click(ui.getByLabelText("All day"));
+  fireEvent.change(ui.getByLabelText("Title"),{target:{value:"Keep my draft"}});
+  expect(ui.getByLabelText("Time zone")).toHaveValue("America/New_York");
+  ui.rerender(<CalendarEventDialog {...props} defaultTimeZone="Asia/Tokyo"/>);
+  expect(ui.getByLabelText("Time zone")).toHaveValue("America/New_York");
+  expect(ui.getByLabelText("Title")).toHaveValue("Keep my draft");
+});

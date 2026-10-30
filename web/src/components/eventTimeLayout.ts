@@ -1,4 +1,5 @@
-import { eventOnDay, shiftCivilDay, type CalendarEvent } from "../calendarEvents";
+import { eventOnDay, type CalendarEvent } from "../calendarEvents";
+import { calendarDayRange, calendarClock, deviceTimeZone } from "../calendarDates";
 
 export interface TimedSegment {
   event: CalendarEvent;
@@ -8,18 +9,12 @@ export interface TimedSegment {
   columns: number;
 }
 
-export function localDayRange(day: string): { start: number; end: number; minutes: number } {
-  const start = new Date(`${day}T00:00:00`);
-  const end = new Date(`${shiftCivilDay(day, 1)}T00:00:00`);
-  // A skipped civil day (for example Apia 2011-12-30) has no timed interval.
-  const exists = start.getFullYear() === Number(day.slice(0, 4)) && start.getMonth() + 1 === Number(day.slice(5, 7)) && start.getDate() === Number(day.slice(8, 10));
-  return { start: +start, end: exists ? +end : +start, minutes: exists ? (+end - +start) / 60_000 : 0 };
-}
+export { calendarDayRange as localDayRange } from "../calendarDates";
 
 // Elapsed minutes retain both occurrences of a repeated DST hour. Each day labels its own clock.
-export function timedSegments(events: CalendarEvent[], day: string): TimedSegment[] {
-  const range = localDayRange(day);
-  const segments = events.filter((event) => !event.all_day && eventOnDay(event, day)).map((event) => ({
+export function timedSegments(events: CalendarEvent[], day: string, zone = deviceTimeZone()): TimedSegment[] {
+  const range = calendarDayRange(day, zone);
+  const segments = events.filter((event) => !event.all_day && eventOnDay(event, day, zone)).map((event) => ({
     event,
     start: (Math.max(Date.parse(event.start), range.start) - range.start) / 60_000,
     end: (Math.min(Date.parse(event.end), range.end) - range.start) / 60_000,
@@ -45,10 +40,6 @@ export function timedSegments(events: CalendarEvent[], day: string): TimedSegmen
   return segments;
 }
 
-export function gridClock(instant: number, offset = false): string {
-  const date = new Date(instant);
-  const clock = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
-  if (!offset) return clock;
-  const minutes = -date.getTimezoneOffset();
-  return `${clock} UTC${minutes >= 0 ? "+" : "−"}${String(Math.floor(Math.abs(minutes) / 60)).padStart(2, "0")}:${String(Math.abs(minutes) % 60).padStart(2, "0")}`;
+export function gridClock(instant: number, offset = false, zone = deviceTimeZone()): string {
+  return calendarClock(instant, zone, offset);
 }
