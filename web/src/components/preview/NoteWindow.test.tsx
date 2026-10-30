@@ -24,17 +24,20 @@ vi.mock("../MarkdownView", () => ({
     title,
     showTitle,
     copyPath,
+    sourceMarkdown,
   }: {
     markdown: string;
     title?: string;
     showTitle?: boolean;
     copyPath?: string;
+    sourceMarkdown?: string;
   }) => (
     <div
       data-testid="body"
       data-title={title}
       data-show-title={String(showTitle)}
       data-copy-path={copyPath}
+      data-copy-source={sourceMarkdown}
     >
       {markdown}
     </div>
@@ -92,6 +95,14 @@ describe("NoteWindow content switch", () => {
     renderQuery.mockReturnValue({ data: { markdown: "# hi" }, isError: false });
     show();
     expect(screen.getByTestId("body")).toHaveAttribute("data-copy-path", "notes/t.md");
+  });
+
+  it.each(["# hi", "older", undefined])("supplies source verification only for the current render: %s", (sourceBody) => {
+    noteQuery.mockReturnValue(noteLoaded("# hi"));
+    renderQuery.mockReturnValue({ data: { markdown: "# hi", sourceBody }, isError: false });
+    show();
+    if (sourceBody === "# hi") expect(screen.getByTestId("body")).toHaveAttribute("data-copy-source", "# hi");
+    else expect(screen.getByTestId("body")).not.toHaveAttribute("data-copy-source");
   });
 
   it("does not wait on an empty note, whose render never runs", () => {

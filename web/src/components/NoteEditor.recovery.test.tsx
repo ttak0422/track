@@ -13,9 +13,9 @@ vi.mock("../api", async (original) => ({
   ...(await original<typeof import("../api")>()),
   getNote: vi.fn(),
   saveNote: vi.fn(),
-  renderMarkdown: vi.fn(async (body: string) => ({ markdown: body })),
+  renderMarkdown: vi.fn(async (body: string) => ({ markdown: body, sourceBody: body })),
 }));
-vi.mock("./MarkdownView", () => ({ MarkdownView: ({ markdown }: { markdown: string }) => <div data-testid="preview">{markdown}</div> }));
+vi.mock("./MarkdownView", () => ({ MarkdownView: ({ markdown, sourceMarkdown }: { markdown: string; sourceMarkdown?: string }) => <div data-testid="preview" data-copy-source={sourceMarkdown}>{markdown}</div> }));
 vi.mock("./noteShared", () => ({
   journalDateFromNote: () => "", useScrollToHash: () => {},
   LoadingIndicator: ({ label }: { label: string }) => <p role="status">{label}</p>,
@@ -35,6 +35,7 @@ function Navigation() {
   const { setMode } = useNoteControls();
   return <nav>
     <button onClick={() => setMode("edit")}>Edit</button>
+    <button onClick={() => setMode("split")}>Split</button>
     <button onClick={() => { if (activeID) close(activeID); }}>Close active tab</button>
     <Link to="/notes/$noteId" params={{ noteId: "b" }}>Open B</Link>
   </nav>;
@@ -76,6 +77,17 @@ afterEach(() => {
 });
 
 describe("note load recovery", () => {
+  it("only verifies Copy Range columns for an adopted, saved body", async () => {
+    mount();
+    await waitFor(() => expect(screen.getByTestId("preview")).toHaveAttribute("data-copy-source", "Saved a"));
+    fireEvent.click(screen.getByRole("button", { name: "Split" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Note body" }), { target: { value: "Unsaved draft" } });
+    expect(screen.getByTestId("preview")).not.toHaveAttribute("data-copy-source");
+    await waitFor(() => expect(screen.getByTestId("preview")).toHaveTextContent("Unsaved draft"));
+    expect(screen.getByTestId("preview")).not.toHaveAttribute("data-copy-source");
+  });
+
+
   it("retains a cached preview through failed retries, then refreshes without reloading", async () => {
     const { client } = mount();
     await screen.findByText("Saved a");

@@ -97,6 +97,8 @@ interface MarkdownViewProps {
   // Published bundles leave this empty because their source path is not meaningful on the reader's
   // machine; the live note response supplies the path agents can open.
   copyPath?: string;
+  // Adopted file body corresponding to this render; absent for unverified/unsaved previews.
+  sourceMarkdown?: string;
 }
 
 // The markdown is parsed by react-markdown (CommonMark + GFM tables/strikethrough/task lists, plus
@@ -128,6 +130,7 @@ function VaultMarkdownView({
   vault = "",
   includes,
   copyPath = "",
+  sourceMarkdown,
 }: MarkdownViewProps) {
   const parentIdentity = useContext(NoteIdentityContext);
   const documentIdentity = JSON.stringify([parentIdentity, vault, noteId ?? copyPath]);
@@ -136,6 +139,10 @@ function VaultMarkdownView({
   const markdownRef = useRef<HTMLDivElement>(null);
   const [copyRange, setCopyRange] = useState<CopyLineRange | null>(null);
   const [copyPopupPosition, setCopyPopupPosition] = useState({ left: 0, top: 0 });
+  // Server sanitization/expansion can shift source positions. Only add columns when the adopted
+  // file body agrees with this render (WebBody normalizes trailing newlines).
+  const copySource = sourceMarkdown !== undefined && sourceMarkdown.replace(/\n+$/, "") === markdown.replace(/\n+$/, "")
+    ? markdown : undefined;
 
   useEffect(() => {
     if (!hasMath || math) return;
@@ -172,7 +179,7 @@ function VaultMarkdownView({
       const selection = window.getSelection();
       const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
       const root = markdownRef.current;
-      const resolved = root ? resolveCopyLineRange(root, selection) : null;
+      const resolved = root ? resolveCopyLineRange(root, selection, copySource) : null;
       if (!resolved || !range) {
         dismissedSelection = null;
         setCopyRange(null);
@@ -216,7 +223,7 @@ function VaultMarkdownView({
       window.removeEventListener("resize", updateSelection);
       window.removeEventListener("scroll", dismissOnScroll, true);
     };
-  }, [copyPath]);
+  }, [copyPath, markdown, copySource]);
 
   // Every hook runs before the empty-note return below: a preview mounts with "" and gets its body a
   // moment later, so a hook placed after the return would change the hook count between renders and
@@ -264,7 +271,7 @@ function VaultMarkdownView({
     // Stamps each checklist item's source line onto its native checkbox, so a plain "- [ ]" list
     // can be ticked (see TaskCheck). Cheap and static-safe: the static site just never wires it up.
     rehypeTaskCheck,
-    ...(copyPath ? [rehypeCopyLine] : []),
+    ...(copyPath ? [[rehypeCopyLine, copySource] as [typeof rehypeCopyLine, string | undefined]] : []),
     ...(__TRACK_STATIC__ ? [] : [rehypeBudoux]),
   ];
 
@@ -306,7 +313,7 @@ function VaultMarkdownView({
 }
 
 // SelectionCopyPopover is the floating-layer panel anchored to a text selection. It carries the three
-// actions a selection can ask for: an agent-facing reference (path:start-end), the selected lines'
+// actions a selection can ask for: a source reference (with verified columns when available), the selected lines'
 // markdown source itself, and that source re-rendered as rich HTML for pasting into Confluence. All act
 // on one selection — each confirms with "Copied" and then leaves after 1200ms, as before.
 type SelectionCopyAction = "range" | "markdown" | "confluence";

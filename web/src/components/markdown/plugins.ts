@@ -559,10 +559,9 @@ export function rehypeTaskCheck() {
   };
 }
 
-// rehypeCopyLine puts source spans on rendered top-level blocks. Marking inline nodes would make a
-// long paragraph more precise, but would turn every link, emphasis run, and word-break wrapper into
-// selection bookkeeping; the block span is the quieter tradeoff for this action.
-export function rehypeCopyLine() {
+// Keep block spans for whole-line copy, and mark only text whose rendered value exactly matches its
+// original source. Decoded entities, rewritten labels and generated content have no reliable map.
+export function rehypeCopyLine(markdown?: string) {
   return (tree: HastRoot) => {
     for (const node of tree.children) {
       if (node.type === "element") markCopyLine(node);
@@ -572,6 +571,28 @@ export function rehypeCopyLine() {
     // a reader points at, so items carry their own span too (nested items included).
     visit(tree, "element", (node: Element) => {
       if (node.tagName === "li") markCopyLine(node);
+    });
+    if (markdown === undefined) return;
+    const lineStarts = [0];
+    for (let i = 0; i < markdown.length; i++) {
+      if (markdown[i] === "\n") lineStarts.push(i + 1);
+    }
+    visit(tree, "text", (node, index, parent) => {
+      if (!parent || index === undefined || !node.position || !node.value) return;
+      if (parent.type === "element" && (parent.tagName === "code" || parent.tagName === "pre")) return;
+      const { start, end } = node.position;
+      // Positions use lines/columns, not parsed offsets: include splicing preserves line numbers
+      // but changes character counts on earlier lines.
+      const from = lineStarts[start.line - 1] + start.column - 1;
+      const to = lineStarts[end.line - 1] + end.column - 1;
+      if (markdown.slice(from, to) !== node.value) return;
+      parent.children[index] = {
+        type: "element",
+        tagName: "span",
+        properties: { dataCopySourceStart: from, dataCopySourceEnd: to },
+        children: [node],
+      };
+      return index + 1;
     });
   };
 }

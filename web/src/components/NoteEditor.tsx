@@ -546,6 +546,7 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
                         vault={noteVault}
                         includes={renderQuery.data?.includes}
                         copyPath={note.copy_path}
+                        sourceMarkdown={!dirty && !changedOnDisk && loadedRef.current.noteID === noteID && renderQuery.data?.sourceBody === body ? body : undefined}
                         drawioEditing={renderQuery.data?.sourceBody === body && loadedRef.current.noteID === noteID && !saveNote.isPending ? {
                           fences: renderQuery.data.drawio_fences ?? [],
                           open: (fence) => setDiagram({ id: crypto.randomUUID(), noteID, source: body, fence }),

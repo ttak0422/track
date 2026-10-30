@@ -48,6 +48,7 @@ export function NoteWindow({ noteID, ...controls }: NoteWindowProps) {
           vault={vault}
           includes={rendered.data?.includes}
           copyPath={note.data.note.copy_path}
+          sourceMarkdown={rendered.data?.sourceBody === body ? body : undefined}
         />
       ) : null}
     </FloatingWindow>

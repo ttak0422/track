@@ -94,6 +94,22 @@ function renderWithQuery(ui: ReactElement) {
   return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
 }
 
+function firstText(element: Element): Text {
+  return document.createTreeWalker(element, NodeFilter.SHOW_TEXT).nextNode() as Text;
+}
+
+// DOM text offsets, including BudouX segments, rather than assumptions about wrapper structure.
+function textBoundary(element: Element, offset: number): [Node, number] {
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+  let node: Node | null;
+  while ((node = walker.nextNode())) {
+    const length = node.textContent!.length;
+    if (offset <= length) return [node, offset];
+    offset -= length;
+  }
+  throw new Error("Text offset outside fixture");
+}
+
 describe("MarkdownView", () => {
   it("shows a placeholder for empty input", () => {
     render(<MarkdownView markdown="   " />);
@@ -158,11 +174,86 @@ describe("MarkdownView", () => {
     expect(await screen.findByRole("button", { name: "Title copied" })).toBeInTheDocument();
   });
 
+  it.each([
+    ["plain **bold** tail", "strong", 1, 3, "1:10-1:12"],
+    ["# Heading", "h1", 1, 4, "1:4-1:7"],
+    ["one\ntwo", "p", 1, 6, "1:2-2:3"],
+    ["日😀本", "p", 1, 3, "1:2-1:4"],
+    ["日本語の文章です。次の文です。", "p", 3, 12, "1:4-1:13"],
+    ["a &amp; b", "p", 2, 3, "1"],
+    ["a \\* b", "p", 2, 3, "1"],
+    ["a `code` b", "code", 1, 3, "1"],
+    ["```js\nconst value = 1;\n```", "pre code", 6, 11, "1-3"],
+  ] as const)("copies verified source positions or whole-line fallback for %s", async (markdown, selector, start, end, suffix) => {
+    copyText.mockReset();
+    copyText.mockResolvedValue(true);
+    const { container } = render(<MarkdownView copyPath="notes/a b#%:日本.md" markdown={markdown} sourceMarkdown={markdown} />);
+    const element = container.querySelector(selector)!;
+    window.getSelection()!.setBaseAndExtent(...textBoundary(element, start), ...textBoundary(element, end));
+    fireEvent(document, new Event("selectionchange"));
+    fireEvent.click(screen.getByRole("button", { name: "Copy range" }));
+    await waitFor(() => expect(copyText).toHaveBeenCalledWith(`notes/a b#%:日本.md:${suffix}`));
+  });
+
+  it("keeps an exclusive endpoint at the next line start", async () => {
+    copyText.mockReset();
+    copyText.mockResolvedValue(true);
+    const { container } = render(<MarkdownView copyPath="note.md" markdown={"first\nsecond"} sourceMarkdown={"first\nsecond"} />);
+    const paragraph = container.querySelector("p")!;
+    window.getSelection()!.setBaseAndExtent(...textBoundary(paragraph, 2), ...textBoundary(paragraph, 6));
+    fireEvent(document, new Event("selectionchange"));
+    fireEvent.click(screen.getByRole("button", { name: "Copy range" }));
+    await waitFor(() => expect(copyText).toHaveBeenCalledWith("note.md:1:3-2:1"));
+  });
+
+  it("uses original line positions after a spliced include changes earlier source lengths", async () => {
+    copyText.mockReset();
+    copyText.mockResolvedValue(true);
+    const { container } = renderWithQuery(<FloatingProvider><MarkdownView
+      copyPath="note.md"
+      markdown={"![[Excerpt]]\n\nafter include"} sourceMarkdown={"![[Excerpt]]\n\nafter include"}
+      includes={[{ line: 0, title: "Excerpt", caption: "Excerpt", lines: ["included body"] }]}
+    /></FloatingProvider>);
+    const paragraph = screen.getByText("after include").closest("p")!;
+    window.getSelection()!.setBaseAndExtent(...textBoundary(paragraph, 1), ...textBoundary(paragraph, 5));
+    fireEvent(document, new Event("selectionchange"));
+    fireEvent.click(screen.getByRole("button", { name: "Copy range" }));
+    await waitFor(() => expect(copyText).toHaveBeenCalledWith("note.md:3:2-3:6"));
+    expect(container.querySelector(".selection-copy")).not.toBeNull();
+  });
+
+  it.each([
+    [undefined, "alpha beta"],
+    ["alpha [beta](<journal?offset=0>)\n", "alpha beta\n"],
+    ["before\n```track-query\nTABLE title\n```\nafter", "before\n| title |\n| --- |\n| Result |\nafter"],
+  ])("keeps line-only references without matching adopted source", async (sourceMarkdown, markdown) => {
+    copyText.mockReset();
+    copyText.mockResolvedValue(true);
+    const { container } = render(<MarkdownView copyPath="note.md" markdown={markdown} sourceMarkdown={sourceMarkdown} />);
+    const text = firstText(container.querySelector("p")!);
+    window.getSelection()!.setBaseAndExtent(text, 0, text, 3);
+    fireEvent(document, new Event("selectionchange"));
+    fireEvent.click(screen.getByRole("button", { name: "Copy range" }));
+    await waitFor(() => expect(copyText).toHaveBeenCalledWith("note.md:1"));
+    expect(container.querySelector("[data-copy-source-start]")).toBeNull();
+  });
+
+  it("allows trailing-newline normalization while verifying the adopted source", async () => {
+    copyText.mockReset();
+    copyText.mockResolvedValue(true);
+    const { container } = render(<MarkdownView copyPath="note.md" markdown={"alpha beta\n"} sourceMarkdown="alpha beta" />);
+    const paragraph = container.querySelector("p")!;
+    window.getSelection()!.setBaseAndExtent(...textBoundary(paragraph, 6), ...textBoundary(paragraph, 10));
+    fireEvent(document, new Event("selectionchange"));
+    fireEvent.click(screen.getByRole("button", { name: "Copy range" }));
+    await waitFor(() => expect(copyText).toHaveBeenCalledWith("note.md:1:7-1:11"));
+  });
+
   it("offers a copy range for a cross-block selection and keeps it for a backwards drag", async () => {
     copyText.mockReset();
     copyText.mockResolvedValue(true);
     const { container } = render(
-      <MarkdownView copyPath="notes/project.md" markdown={"first block\n\nsecond block"} />,
+      <MarkdownView copyPath="notes/project.md" markdown={"first block\n\nsecond block"} sourceMarkdown={"first block\n\nsecond block"} />,
     );
     const paragraphs = container.querySelectorAll("p");
     expect(paragraphs[0]).toHaveAttribute("data-copy-line-start", "1");
@@ -170,8 +261,8 @@ describe("MarkdownView", () => {
     expect(paragraphs[1]).toHaveAttribute("data-copy-line-start", "3");
 
     const selection = window.getSelection()!;
-    const first = paragraphs[0].firstChild!;
-    const second = paragraphs[1].firstChild!;
+    const first = firstText(paragraphs[0]);
+    const second = firstText(paragraphs[1]);
     selection.setBaseAndExtent(first, 1, second, 6);
     fireEvent(document, new Event("selectionchange"));
     expect(screen.getByRole("button", { name: "Copy range" })).toBeInTheDocument();
@@ -179,21 +270,21 @@ describe("MarkdownView", () => {
     selection.setBaseAndExtent(second, 6, first, 1);
     fireEvent(document, new Event("selectionchange"));
     fireEvent.click(screen.getByRole("button", { name: "Copy range" }));
-    await waitFor(() => expect(copyText).toHaveBeenCalledWith("notes/project.md:1-3"));
+    await waitFor(() => expect(copyText).toHaveBeenCalledWith("notes/project.md:1:2-3:7"));
   });
 
-  it("uses a one-line reference for a selection within one source line", async () => {
+  it("uses line and column endpoints for a partial source line", async () => {
     copyText.mockReset();
     copyText.mockResolvedValue(true);
     const { container } = render(
-      <MarkdownView copyPath="notes/project.md" markdown="single line" />,
+      <MarkdownView copyPath="notes/project.md" markdown="single line" sourceMarkdown="single line" />,
     );
-    const text = container.querySelector("p")!.firstChild!;
+    const text = firstText(container.querySelector("p")!);
     const selection = window.getSelection()!;
     selection.setBaseAndExtent(text, 0, text, 6);
     fireEvent(document, new Event("selectionchange"));
     fireEvent.click(screen.getByRole("button", { name: "Copy range" }));
-    await waitFor(() => expect(copyText).toHaveBeenCalledWith("notes/project.md:1"));
+    await waitFor(() => expect(copyText).toHaveBeenCalledWith("notes/project.md:1:1-1:7"));
   });
 
   it.each(["window", "document", "nested reader", "note content"] as const)(
@@ -201,11 +292,11 @@ describe("MarkdownView", () => {
     (target) => {
       const { container } = render(
         <div data-testid="reader-scroll">
-          <MarkdownView copyPath="notes/project.md" markdown="single line" />
+          <MarkdownView copyPath="notes/project.md" markdown="single line" sourceMarkdown="single line" />
         </div>,
       );
       const paragraph = container.querySelector("p")!;
-      const text = paragraph.firstChild!;
+      const text = firstText(paragraph);
       const selection = window.getSelection()!;
       selection.setBaseAndExtent(text, 0, text, 6);
       fireEvent(document, new Event("selectionchange"));
@@ -224,8 +315,8 @@ describe("MarkdownView", () => {
   );
 
   it("keeps the popup for wheel input that does not actually scroll", () => {
-    const { container } = render(<MarkdownView copyPath="notes/project.md" markdown="single line" />);
-    const text = container.querySelector("p")!.firstChild!;
+    const { container } = render(<MarkdownView copyPath="notes/project.md" markdown="single line" sourceMarkdown="single line" />);
+    const text = firstText(container.querySelector("p")!);
     window.getSelection()!.setBaseAndExtent(text, 0, text, 6);
     fireEvent(document, new Event("selectionchange"));
     fireEvent.wheel(container, { deltaY: 100 });
@@ -235,8 +326,8 @@ describe("MarkdownView", () => {
   it("reopens for a changed selection on the same source line and for a cleared/reselected range", async () => {
     copyText.mockReset();
     copyText.mockResolvedValue(true);
-    const { container } = render(<MarkdownView copyPath="notes/project.md" markdown="single line" />);
-    const text = container.querySelector("p")!.firstChild!;
+    const { container } = render(<MarkdownView copyPath="notes/project.md" markdown="single line" sourceMarkdown="single line" />);
+    const text = firstText(container.querySelector("p")!);
     const selection = window.getSelection()!;
     selection.setBaseAndExtent(text, 0, text, 6);
     fireEvent(document, new Event("selectionchange"));
@@ -254,7 +345,7 @@ describe("MarkdownView", () => {
     selection.setBaseAndExtent(text, 11, text, 7);
     fireEvent(document, new Event("selectionchange"));
     fireEvent.click(screen.getByRole("button", { name: "Copy range" }));
-    await waitFor(() => expect(copyText).toHaveBeenCalledWith("notes/project.md:1"));
+    await waitFor(() => expect(copyText).toHaveBeenCalledWith("notes/project.md:1:8-1:12"));
     expect(await screen.findByRole("button", { name: "Copied" })).toBeInTheDocument();
   });
 
@@ -262,15 +353,15 @@ describe("MarkdownView", () => {
     const added = vi.spyOn(window, "addEventListener");
     const removed = vi.spyOn(window, "removeEventListener");
     try {
-      const view = render(<MarkdownView copyPath="notes/project.md" markdown="single line" />);
+      const view = render(<MarkdownView copyPath="notes/project.md" markdown="single line" sourceMarkdown="single line" />);
       const listener = added.mock.calls.find(([type]) => type === "scroll")![1];
       expect(added).toHaveBeenCalledWith("scroll", listener, true);
-      view.rerender(<MarkdownView markdown="single line" />);
+      view.rerender(<MarkdownView markdown="single line" sourceMarkdown="single line" />);
       expect(removed).toHaveBeenCalledWith("scroll", listener, true);
 
       added.mockClear();
       removed.mockClear();
-      view.rerender(<MarkdownView copyPath="notes/project.md" markdown="single line" />);
+      view.rerender(<MarkdownView copyPath="notes/project.md" markdown="single line" sourceMarkdown="single line" />);
       const nextListener = added.mock.calls.find(([type]) => type === "scroll")![1];
       expect(nextListener).not.toBe(listener);
       view.unmount();
@@ -287,13 +378,13 @@ describe("MarkdownView", () => {
     copyText.mockReturnValue(new Promise<boolean>((resolve) => { finishCopy = resolve; }));
     vi.useFakeTimers();
     try {
-      const { container } = render(<MarkdownView copyPath="notes/project.md" markdown="single line" />);
-      const text = container.querySelector("p")!.firstChild!;
+      const { container } = render(<MarkdownView copyPath="notes/project.md" markdown="single line" sourceMarkdown="single line" />);
+      const text = firstText(container.querySelector("p")!);
       const selection = window.getSelection()!;
       selection.setBaseAndExtent(text, 0, text, 6);
       fireEvent(document, new Event("selectionchange"));
       fireEvent.click(screen.getByRole("button", { name: "Copy range" }));
-      expect(copyText).toHaveBeenCalledWith("notes/project.md:1");
+      expect(copyText).toHaveBeenCalledWith("notes/project.md:1:1-1:7");
       fireEvent.scroll(window);
       expect(container.querySelector(".selection-copy")).toBeNull();
 
@@ -311,8 +402,8 @@ describe("MarkdownView", () => {
   it("still lets a fresh selection retry a failed copy after scrolling", async () => {
     copyText.mockReset();
     copyText.mockResolvedValueOnce(false).mockResolvedValue(true);
-    const { container } = render(<MarkdownView copyPath="notes/project.md" markdown="single line" />);
-    const text = container.querySelector("p")!.firstChild!;
+    const { container } = render(<MarkdownView copyPath="notes/project.md" markdown="single line" sourceMarkdown="single line" />);
+    const text = firstText(container.querySelector("p")!);
     const selection = window.getSelection()!;
     selection.setBaseAndExtent(text, 0, text, 6);
     fireEvent(document, new Event("selectionchange"));
@@ -332,10 +423,10 @@ describe("MarkdownView", () => {
     copyText.mockReset();
     copyText.mockResolvedValue(true);
     const { container } = render(
-      <MarkdownView copyPath="notes/project.md" markdown={"first block\n\nsecond block"} />,
+      <MarkdownView copyPath="notes/project.md" markdown={"first block\n\nsecond block"} sourceMarkdown={"first block\n\nsecond block"} />,
     );
-    const first = container.querySelectorAll("p")[0].firstChild!;
-    const second = container.querySelectorAll("p")[1].firstChild!;
+    const first = firstText(container.querySelectorAll("p")[0]);
+    const second = firstText(container.querySelectorAll("p")[1]);
     // Lines 1..3 of the source, including the blank separator line between the paragraphs.
     const selection = window.getSelection()!;
     selection.setBaseAndExtent(first, 1, second, 6);
@@ -350,7 +441,7 @@ describe("MarkdownView", () => {
     const { container } = render(
       <MarkdownView copyPath="notes/project.md" markdown={"alpha\n\nbeta"} />,
     );
-    const second = container.querySelectorAll("p")[1].firstChild!;
+    const second = firstText(container.querySelectorAll("p")[1]);
     const selection = window.getSelection()!;
     selection.setBaseAndExtent(second, 0, second, 4);
     fireEvent(document, new Event("selectionchange"));
@@ -368,8 +459,8 @@ describe("MarkdownView", () => {
         <MarkdownView copyPath="notes/project.md" markdown={"see [[Design|API]] first\n\nsecond block"} />
       </FloatingProvider>,
     );
-    const first = container.querySelectorAll("p")[0].firstChild!;
-    const second = container.querySelectorAll("p")[1].firstChild!;
+    const first = firstText(container.querySelectorAll("p")[0]);
+    const second = firstText(container.querySelectorAll("p")[1]);
     const selection = window.getSelection()!;
     selection.setBaseAndExtent(first, 1, second, 6);
     fireEvent(document, new Event("selectionchange"));
@@ -392,9 +483,9 @@ describe("MarkdownView", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       const { container } = render(
-        <MarkdownView copyPath="notes/project.md" markdown="single line" />,
+        <MarkdownView copyPath="notes/project.md" markdown="single line" sourceMarkdown="single line" />,
       );
-      const text = container.querySelector("p")!.firstChild!;
+      const text = firstText(container.querySelector("p")!);
       const selection = window.getSelection()!;
       selection.setBaseAndExtent(text, 0, text, 6);
       fireEvent(document, new Event("selectionchange"));
@@ -420,8 +511,8 @@ describe("MarkdownView", () => {
     const rect = vi.fn(() => ({ left: 4, width: 0, top: 0, bottom: 0 }) as DOMRect);
     Object.defineProperty(Range.prototype, "getBoundingClientRect", { value: rect, configurable: true });
     try {
-      const { container } = render(<MarkdownView copyPath="notes/project.md" markdown="single line" />);
-      const text = container.querySelector("p")!.firstChild!;
+      const { container } = render(<MarkdownView copyPath="notes/project.md" markdown="single line" sourceMarkdown="single line" />);
+      const text = firstText(container.querySelector("p")!);
       const selection = window.getSelection()!;
       selection.setBaseAndExtent(text, 0, text, 6);
       fireEvent(document, new Event("selectionchange"));
@@ -444,9 +535,9 @@ describe("MarkdownView", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       const { container } = render(
-        <MarkdownView copyPath="notes/project.md" markdown="single line" />,
+        <MarkdownView copyPath="notes/project.md" markdown="single line" sourceMarkdown="single line" />,
       );
-      const text = container.querySelector("p")!.firstChild!;
+      const text = firstText(container.querySelector("p")!);
       const selection = window.getSelection()!;
       selection.setBaseAndExtent(text, 0, text, 6);
       fireEvent(document, new Event("selectionchange"));
@@ -465,15 +556,15 @@ describe("MarkdownView", () => {
     copyText.mockReset();
     copyText.mockResolvedValue(true);
     const { container } = render(
-      <MarkdownView copyPath="notes/project.md" markdown={"intro\n\n- one\n- two\n- three"} />,
+      <MarkdownView copyPath="notes/project.md" markdown={"intro\n\n- one\n- two\n- three"} sourceMarkdown={"intro\n\n- one\n- two\n- three"} />,
     );
     const items = container.querySelectorAll("li");
     expect(items[1]).toHaveAttribute("data-copy-line-start", "4");
     const selection = window.getSelection()!;
-    selection.setBaseAndExtent(items[1].firstChild!, 0, items[2].firstChild!, 3);
+    selection.setBaseAndExtent(firstText(items[1]), 0, firstText(items[2]), 3);
     fireEvent(document, new Event("selectionchange"));
     fireEvent.click(screen.getByRole("button", { name: "Copy range" }));
-    await waitFor(() => expect(copyText).toHaveBeenCalledWith("notes/project.md:4-5"));
+    await waitFor(() => expect(copyText).toHaveBeenCalledWith("notes/project.md:4:3-5:6"));
   });
 
   // A reader and every open floating window render a body of their own, and all of them listen on the
@@ -485,16 +576,16 @@ describe("MarkdownView", () => {
     const { container } = render(
       <>
         <MarkdownView copyPath="notes/reader.md" markdown="reader line" />
-        <MarkdownView copyPath="notes/window.md" markdown="window line" />
+        <MarkdownView copyPath="notes/window.md" markdown="window line" sourceMarkdown="window line" />
       </>,
     );
-    const inWindow = container.querySelectorAll("p")[1].firstChild!;
+    const inWindow = firstText(container.querySelectorAll("p")[1]);
     const selection = window.getSelection()!;
     selection.setBaseAndExtent(inWindow, 0, inWindow, 6);
     fireEvent(document, new Event("selectionchange"));
     expect(container.querySelectorAll(".selection-copy")).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "Copy range" }));
-    await waitFor(() => expect(copyText).toHaveBeenCalledWith("notes/window.md:1"));
+    await waitFor(() => expect(copyText).toHaveBeenCalledWith("notes/window.md:1:1-1:7"));
   });
 
   it("offers nothing when the selection has no marked note line", () => {
