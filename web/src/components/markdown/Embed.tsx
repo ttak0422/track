@@ -30,6 +30,7 @@ import {
 interface EmbedProps {
   src: string;
   alt: string;
+  title?: string;
   // A CSS length from the `:height` embed option (see remarkEmbedOptions); applied to the HTML-page
   // frame, which otherwise has no intrinsic height. Ignored by intrinsically-sized embeds.
   height?: string;
@@ -43,7 +44,7 @@ interface EmbedProps {
 // card. Embedding stays opt-in via the ![...]() syntax so ordinary [text](url) links are never turned
 // into noisy previews. The URL is normalized through webHref so bare domains still resolve, and only
 // http(s)/relative URLs feed an iframe so a note cannot smuggle a javascript: document into the frame.
-export function Embed({ src, alt, height, frame }: EmbedProps) {
+export function Embed({ src, alt, title, height, frame }: EmbedProps) {
   const kind = useContext(NoteKindContext);
   const vault = useContext(NoteVaultContext);
   // A relative "assets/<file>" reference is served from the vault by the local server. Resolving it here
@@ -149,13 +150,23 @@ export function Embed({ src, alt, height, frame }: EmbedProps) {
     return <OgpCard url={target} alt={alt} />;
   }
 
+  const caption = title?.trim() ? title : undefined;
+  const image = (
+    <img className="embed embed-image" src={target} alt={alt} loading="lazy" decoding="async" />
+  );
   return (
-    <MediaFrame src={src} alt={alt}>
+    <MediaFrame src={src} alt={alt} title={caption} phrasing>
       {/* Below-the-fold article images stay lazy; decoding="async" keeps the decode off the main
           thread's critical path. The LCP-image-eager promotion stays opt-in (a future :eager embed
           option): the help top page's LCP is a text paragraph, so blanket eager would only contend
           with it. Dimensions remain CSS-reserved (see .embed-image) to avoid CLS. */}
-      <img className="embed embed-image" src={target} alt={alt} loading="lazy" decoding="async" />
+      {caption ? (
+        // Phrasing elements stay valid inside a linked/emphasized image or a table cell too.
+        <span className="image-with-caption">
+          {image}
+          <span className="image-caption">{caption}</span>
+        </span>
+      ) : image}
     </MediaFrame>
   );
 }

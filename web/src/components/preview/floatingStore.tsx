@@ -14,7 +14,7 @@ export type FloatingContent =
   // A media embed keeps the vault of the note it came from: the floating layer renders outside
   // any note, so the context that told it which vault to fetch the asset from is gone by then, and
   // two vaults can hold different files under the same "assets/<name>".
-  | { kind: "media"; src: string; alt: string; noteKind: string; vault: string };
+  | { kind: "media"; src: string; alt: string; title?: string; noteKind: string; vault: string };
 
 export interface FloatingWin {
   id: string;

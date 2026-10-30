@@ -1,4 +1,5 @@
 import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { elementAnchor, initialPreviewBounds } from "../preview/bounds";
 import { InFloatingWindowContext, useFloating } from "../preview/floatingStore";
 import { NoteKindContext, NoteVaultContext } from "./context";
@@ -17,12 +18,14 @@ import { IconMaximize, IconPictureInPicture, RailIcon } from "../icons";
 // a content-sized container is circular.
 export const InLightboxContext = createContext(false);
 
-export function MediaFrame({ src, alt, children }: { src: string; alt: string; children: ReactNode }) {
+export function MediaFrame({ src, alt, title, phrasing = false, children }: {
+  src: string; alt: string; title?: string; phrasing?: boolean; children: ReactNode;
+}) {
   const inFloating = useContext(InFloatingWindowContext);
   const kind = useContext(NoteKindContext);
   const vault = useContext(NoteVaultContext);
   const floating = useFloating();
-  const ref = useRef<HTMLDivElement>(null);
+  const ref = useRef<HTMLDivElement & HTMLSpanElement>(null);
 
   // The preview this frame opened, so enlarging can take it down again. The window itself belongs to
   // the floating layer.
@@ -45,7 +48,7 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
   // button is what makes it persist across navigation, same as any other window in the layer.
   function openPreview() {
     openedRef.current = floating.open(
-      { kind: "media", src, alt, noteKind: kind, vault },
+      { kind: "media", src, alt, title, noteKind: kind, vault },
       initialPreviewBounds(elementAnchor(ref.current)),
       false,
     );
@@ -56,10 +59,27 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
     openedRef.current = null;
   }
 
+  // Images can occur inside links/emphasis. Keep their frame phrasing-only; the modal lives
+  // outside that inline ancestry so opening it cannot introduce an invalid <p>/<dialog> pair.
+  const Frame = phrasing ? "span" : "div";
+  const Controls = phrasing ? "span" : "div";
+  const lightbox = enlarged ? (
+    <dialog
+      ref={dialogRef}
+      className="media-lightbox"
+      onClose={() => setEnlarged(false)}
+      onClick={(event) => {
+        if (event.target === dialogRef.current) dialogRef.current.close();
+      }}
+    >
+      <InLightboxContext.Provider value={true}>{children}</InLightboxContext.Provider>
+    </dialog>
+  ) : null;
+
   return (
-    <div className="media-frame" ref={ref}>
+    <Frame className={"media-frame" + (phrasing ? " media-frame-phrasing" : "")} ref={ref}>
       {children}
-      <div className="media-controls">
+      <Controls className="media-controls">
         <button
           className="media-control media-preview"
           type="button"
@@ -89,20 +109,8 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
               <dialog> over a dimmed backdrop), not display fullscreen. */}
           <RailIcon Icon={IconMaximize} size={15} />
         </button>
-      </div>
-      {enlarged ? (
-        <dialog
-          ref={dialogRef}
-          className="media-lightbox"
-          onClose={() => setEnlarged(false)}
-          onClick={(event) => {
-            // A backdrop click lands on the dialog element itself (content clicks land on children).
-            if (event.target === dialogRef.current) dialogRef.current.close();
-          }}
-        >
-          <InLightboxContext.Provider value={true}>{children}</InLightboxContext.Provider>
-        </dialog>
-      ) : null}
-    </div>
+      </Controls>
+      {phrasing && lightbox ? createPortal(lightbox, document.body) : lightbox}
+    </Frame>
   );
 }

@@ -3316,6 +3316,27 @@ textarea.modal-input:focus-visible {
   position: relative;
 }
 
+.media-frame-phrasing,
+.image-with-caption {
+  display: block;
+}
+
+/* Reading-surface caption typography (design.md, Type); plain text, no new control. */
+.image-caption {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 0.8125em;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.media-lightbox .image-caption {
+  margin: 0;
+  padding: 6px 10px 10px;
+  background: var(--panel);
+}
+
 .media-controls {
   position: absolute;
   top: 8px;

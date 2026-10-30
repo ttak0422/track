@@ -498,12 +498,13 @@ const markdownComponents = {
     }
     return <ExternalLink href={href ?? ""}>{children}</ExternalLink>;
   },
-  img: ({ node, src, alt }: ElementProps & { src?: string; alt?: string }) => {
+  img: ({ node, src, alt, title }: ElementProps & { src?: string; alt?: string; title?: string }) => {
     const properties = node?.properties as { embedHeight?: unknown; embedFrame?: unknown } | undefined;
     return (
       <Embed
         src={typeof src === "string" ? src : ""}
         alt={alt ?? ""}
+        title={title}
         height={typeof properties?.embedHeight === "string" ? properties.embedHeight : undefined}
         frame={properties?.embedFrame === "none" ? "none" : undefined}
       />
