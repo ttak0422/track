@@ -133,3 +133,27 @@ describe("event editor", () => {
     expect(mutation.mutateAsync.mock.calls[0][0].request).toMatchObject({ start: timed.start, end: timed.end, time_zone: timed.time_zone, expected_revision: 4 });
   });
 });
+
+it("uses the display zone for a new timed event without resetting an open draft", () => {
+  const props={vault:"",date:"2026-10-28",notes:[],onSaved:vi.fn(),onClose:vi.fn()};
+  const ui=render(<CalendarEventDialog {...props} defaultTimeZone="America/New_York"/>);
+  fireEvent.click(ui.getByLabelText("All day"));
+  fireEvent.change(ui.getByLabelText("Title"),{target:{value:"Keep my draft"}});
+  expect(ui.getByLabelText("Time zone")).toHaveValue("America/New_York");
+  ui.rerender(<CalendarEventDialog {...props} defaultTimeZone="Asia/Tokyo"/>);
+  expect(ui.getByLabelText("Time zone")).toHaveValue("America/New_York");
+  expect(ui.getByLabelText("Title")).toHaveValue("Keep my draft");
+});
+
+it("reviews a proposal without writing until Apply and preserves it on revision conflict", async () => {
+  const original={...event,all_day:false,time_zone:"UTC",start:"2026-10-28T09:00:00Z",end:"2026-10-28T10:00:00Z"};
+  const proposal={...original,start:"2026-10-28T09:15:00Z",end:"2026-10-28T10:15:00Z"};
+  let reject!:(error:Error)=>void;mutation.mutateAsync.mockImplementation(()=>new Promise((_,fail)=>{reject=fail;}));
+  const closed=vi.fn(),saved=vi.fn();
+  const ui=render(<CalendarEventDialog vault="" date="2026-10-28" event={proposal} timeChangeOriginal={original} notes={[]} onSaved={saved} onClose={closed}/>);
+  expect(ui.getByRole("heading",{name:"Review time change"})).toBeVisible();expect(ui.queryByRole("button",{name:"Move to trash"})).toBeNull();expect(mutation.mutateAsync).not.toHaveBeenCalled();
+  fireEvent.click(ui.getByRole("button",{name:"Apply time change"}));fireEvent.click(ui.getByRole("button",{name:"Apply time change"}));
+  expect(mutation.mutateAsync).toHaveBeenCalledTimes(1);expect(mutation.mutateAsync.mock.calls[0][0]).toMatchObject({id:event.id,request:{expected_revision:4,start:proposal.start,end:proposal.end,time_zone:"UTC"}});
+  await act(async()=>reject(new Error("revision conflict")));expect(await ui.findByRole("alert")).toHaveTextContent("revision conflict");expect(ui.getByLabelText("Start time")).toHaveValue("09:15:00");
+  expect(original.start).toBe("2026-10-28T09:00:00Z");expect(saved).not.toHaveBeenCalled();fireEvent.click(ui.getByRole("button",{name:"Cancel"}));expect(closed).toHaveBeenCalledOnce();
+});

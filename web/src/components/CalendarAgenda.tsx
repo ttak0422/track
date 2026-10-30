@@ -1,13 +1,15 @@
 import { Link } from "@tanstack/react-router";
 import type { TaskRow } from "../types";
 import { STATIC_MODE } from "../runtime";
+import { useCalendarPreferences } from "../calendarPreferences";
 import { agendaTasks } from "./calendarPlanningTasks";
 
 export function CalendarAgenda({ tasks, days, today }: { tasks: TaskRow[]; days: string[]; today: string }) {
+  const { settings, zone } = useCalendarPreferences();
   const agenda = agendaTasks(tasks, days, today);
   return (
     <div className="calendar-agenda">
-      <p className="muted">Open dated tasks · local dates · weeks start Sunday. Tasks without dates stay in their notes.</p>
+      <p className="muted">Open dated tasks · dates as written · today in {zone} · weeks start {settings.weekStartsOn === 1 ? "Monday" : "Sunday"}. Tasks without dates stay in their notes.</p>
       {agenda.overdue.length > 0 ? (
         <section className="day-tasks" aria-label="Overdue tasks">
           <h2>Overdue before {today}</h2>

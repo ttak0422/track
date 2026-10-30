@@ -122,3 +122,68 @@ Keep the event and operation IDs stable for an unchanged retry. A later edit sup
 revision and a new operation ID. Use the same save command with the full saved fields and
 `"deleted": true` to move to trash; set it back to false with the latest revision to restore. Global
 `--vault NAME` selects a registered vault exactly as it does for notes.
+
+## Day/week time grid
+
+Live day/week event panels can switch between their existing agenda and a time grid. The panel
+keeps its editor mounted across layout, period and content-filter changes. Month and static
+exports retain their existing behavior; no storage, API or native navigation contract changes.
+
+All-day ranges retain civil dates and exclusive ends. Timed intervals intersect display-zone
+midnight boundaries, constructed independently so a normalized 01:00 start on a midnight-gap
+day cannot extend the preceding day into the next date. Each column uses elapsed minutes so DST gaps/folds do not lose or reverse
+intervals. Transition-day ticks include offsets; columns need not align by wall clock on these
+days. Skipped local dates have no timed interval. A deterministic greedy interval partition
+assigns columns within each connected overlap group, including minimum 24-minute visual targets
+for short events. Dense days widen the horizontally scrollable surface rather than occlude
+buttons. Every segment opens the original stable event in the existing editor. Tasks stay in
+their date-only agenda. Bounded time-change proposals use the confirmation flow below.
+
+## Calendar display preferences
+
+The Shell provides Sunday/Monday week-start and an optional named IANA display zone. Empty zone
+follows the device and refreshes on focus. `track.calendar-display.v1` stores version 1,
+`weekStartsOn` (0/1) and `timeZone` in browser-origin/profile localStorage, shared across vaults.
+The accepted zone must be in the same generated Go IANA list as event authoring and supported by
+the browser. `go generate ./internal/track/calendarevent` updates both lists; a parity test prevents
+drift. Host-only placeholders and numeric-offset strings cannot become new-event defaults.
+Reading never writes or repairs storage implicitly. Invalid/unreadable stored values fall back
+to defaults with a warning in the settings disclosure. Apply validates and persists first; a
+failed write retains the active view and form input. Defaults remove the key. Storage events
+update other tabs. Static exports ignore these private preferences and offer no settings form.
+The native app's normal fixed origin and persistent WKWebsiteDataStore use the same scope;
+other ports/profiles are independent. No user config, vault data or OS setting is modified.
+
+Civil UTC arithmetic aligns month/weekday columns and Sunday/Monday weeks without dropping a
+zone's skipped date. Display-zone day intervals are found independently by Intl civil-date
+boundaries, cached by zone/date with bounded maps; 23/25-hour days, half-hour transitions,
+midnight gaps and skipped dates retain real instants. Empty intervals have no timed membership.
+Today/Tomorrow, midnight/focus refresh and overdue reminders use the display zone; dated tasks,
+all-day entries and activity-history dates remain civil dates. A browsed month stays selected
+when the zone changes; Current month uses the new zone.
+
+The original event editor retains authored zones and stored timestamps. New timed-event defaults
+use the display zone, captured at editor mount so later preference changes cannot reset a draft.
+Existing browser/native unsaved-input protection stays intact.
+
+## Grid time-change proposals
+
+Quick adjustments apply only to confirmed, non-deleted timed events entirely inside one 1440-minute
+display-zone day. Mouse/pen event dragging moves both endpoints; the end handle resizes the end.
+The same handle exposes ordinary keyboard-operable 15-minute action buttons. No touch drag,
+start-edge resize, different-day drop, clock-change-day quick edit, or post-save time-change Undo
+is provided. Other dates and all-day/cancelled entries keep the ordinary editor.
+
+Pointer capture uses day-local coordinates so scroll offsets do not become date changes. Escape,
+pointer cancellation/lost capture, blur, data revision changes and period/zone replacement cancel
+the gesture; a drag's synthetic click cannot open a second editor. Only a dashed preview moves.
+Every accepted drop/action opens the existing editor with the original schedule and candidate
+fields. The original stable ID/revision and authored zone are retained. Whole-minute changes
+preserve fractional precision and produce RFC3339 offsets for the authored zone at each new
+instant, including when an authored-zone fold occurs on an ordinary display-zone day.
+
+The proposal is protected as unsaved even before another form edit. Apply uses the existing
+revision/operation-ID mutation, timeout, retry and error handling; no cache/grid optimistic time
+change is made. Cancel/Escape discards the proposal, and successful saving releases the guard.
+Trash is offered only in the ordinary editor so it cannot accidentally save proposed times.
+Existing title/details/date editing remains in the shared editor, with its existing validation.

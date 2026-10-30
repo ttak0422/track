@@ -1,5 +1,6 @@
 import { fireEvent, render, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { CalendarPreferencesProvider } from "../calendarPreferences";
 import { CalendarFullView } from "./CalendarFullView";
 const runtime = vi.hoisted(() => ({ static: false }));
 vi.mock("../runtime", () => ({ get STATIC_MODE() { return runtime.static; } }));
@@ -312,4 +313,39 @@ describe("CalendarFullView", () => {
     expect(container.querySelector('a.calendar-day[href="/day/2026-07-11"]')).toBeNull();
     expect(container.textContent).not.toContain("Deleted event");
   });
+});
+
+it("shares Monday/display-zone settings across month, today, tomorrow and week", () => {
+  localStorage.removeItem("track.calendar-display.v1");
+  vi.useFakeTimers(); vi.setSystemTime(new Date("2026-11-01T00:30:00Z"));
+  const {getByRole, getByLabelText, getByText, container} = render(<CalendarPreferencesProvider><CalendarFullView /></CalendarPreferencesProvider>);
+  fireEvent.click(getByText(/^Calendar display ·/));
+  fireEvent.change(getByLabelText("Week starts on"), {target:{value:"1"}});
+  fireEvent.change(getByLabelText("Display time zone"), {target:{value:"America/Los_Angeles"}});
+  fireEvent.submit(getByRole("button", {name:"Apply display"}).closest("form")!);
+  fireEvent.click(getByRole("button", {name:"Today"}));
+  expect(getByRole("heading", {level:1,name:"2026-10-31"})).toBeVisible();
+  fireEvent.click(getByRole("button", {name:"Tomorrow"}));
+  expect(getByRole("heading", {level:1,name:"2026-11-01"})).toBeVisible();
+  fireEvent.click(getByRole("button", {name:"This week"}));
+  expect(getByRole("heading", {level:1,name:"2026-10-26 – 2026-11-01"})).toBeVisible();
+  fireEvent.click(getByRole("button", {name:"Month"}));
+  fireEvent.click(getByRole("button", {name:"Current month"}));
+  expect(container.querySelector(".calendar-title")?.textContent).toBe("2026 / 10");
+  expect([...container.querySelectorAll(".calendar-weekday")].map(e=>e.textContent)).toEqual(["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]);
+  expect(container.querySelectorAll(".calendar-day-blank")).toHaveLength(3);
+  localStorage.removeItem("track.calendar-display.v1"); vi.useRealTimers();
+});
+
+it("uses the current instant when changing zones after the calendar has been open for hours", () => {
+  localStorage.removeItem("track.calendar-display.v1");
+  vi.useFakeTimers();vi.setSystemTime(new Date("2026-11-01T00:30:00Z"));
+  const ui=render(<CalendarPreferencesProvider><CalendarFullView/></CalendarPreferencesProvider>);
+  vi.setSystemTime(new Date("2026-11-01T08:30:00Z"));
+  fireEvent.click(ui.getByText(/^Calendar display ·/));
+  fireEvent.change(ui.getByLabelText("Display time zone"),{target:{value:"America/Los_Angeles"}});
+  fireEvent.submit(ui.getByRole("button",{name:"Apply display"}).closest("form")!);
+  fireEvent.click(ui.getByRole("button",{name:"Today"}));
+  expect(ui.getByRole("heading",{level:1,name:"2026-11-01"})).toBeVisible();
+  localStorage.removeItem("track.calendar-display.v1");vi.useRealTimers();
 });

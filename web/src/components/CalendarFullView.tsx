@@ -10,7 +10,9 @@ import { useCalendarEventsQuery } from "../calendarEventQueries";
 import { eventOnDay } from "../calendarEvents";
 import { useVaultScope } from "../vaultScope";
 import { calendarWeek } from "./calendarPlanningTasks";
-import { dateKey, shiftDay } from "./activityDates";
+import { calendarDateKey, calendarDayRange, shiftCivilDay } from "../calendarDates";
+import { useCalendarPreferences } from "../calendarPreferences";
+import { CalendarDisplaySettings } from "./CalendarDisplaySettings";
 import { IconChevronLeft, IconChevronRight, RailIcon } from "./icons";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -32,23 +34,24 @@ export function CalendarFullView() {
   const tasksQuery = useDatedTasksQuery();
   const { scope } = useVaultScope();
   const eventsQuery = useCalendarEventsQuery(scope);
-  const [month, setMonth] = useState(startOfCurrentMonth);
+  const { settings, zone } = useCalendarPreferences();
+  const [month, setMonth] = useState(() => currentMonth(zone));
   const [view, setView] = useState<"month" | "day" | "week">("month");
   const [content, setContent] = useState<AgendaContent>("all");
-  const [todayKey, setTodayKey] = useState(() => dateKey(new Date()));
+  const [, refreshDate] = useState(0);
+  const todayKey = calendarDateKey(Date.now(), zone);
   const [offset, setOffset] = useState(0);
-  // Relative views follow local midnight, including when a sleeping window returns.
+  // Relative views follow the display-zone midnight, including when a sleeping window returns.
   useEffect(() => {
-    const refresh = () => setTodayKey(dateKey(new Date()));
-    const now = new Date();
-    const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-    const timer = window.setTimeout(refresh, midnight.getTime() - now.getTime() + 50);
+    const refresh = () => refreshDate((value) => value + 1);
+    const midnight = calendarDayRange(todayKey, zone).end;
+    const timer = window.setTimeout(refresh, Math.max(50, midnight - Date.now() + 50));
     window.addEventListener("focus", refresh);
     return () => {
       window.clearTimeout(timer);
       window.removeEventListener("focus", refresh);
     };
-  }, [todayKey]);
+  }, [todayKey, zone]);
 
   // day (YYYY-MM-DD) → notes active that day, kept in the listing's order — most recently updated
   // first, the one order every note-list surface shares — so a cell's visible titles read the same as
@@ -89,20 +92,24 @@ export function CalendarFullView() {
     return map;
   }, [notesQuery.data]);
 
-  const year = month.getFullYear();
-  const monthNo = month.getMonth() + 1;
-  const daysInMonth = new Date(year, monthNo, 0).getDate();
-  // `month` is the 1st, so its weekday is the number of leading blank cells (weeks start on Sunday).
-  const leadingBlanks = month.getDay();
+  const year = Number(month.slice(0, 4));
+  const monthNo = Number(month.slice(5, 7));
+  const daysInMonth = new Date(Date.UTC(year, monthNo, 0)).getUTCDate();
+  // Align the civil month with the selected week start, independently of display-zone clock changes.
+  const leadingBlanks = (new Date(`${month}-01T12:00:00Z`).getUTCDay() - settings.weekStartsOn + 7) % 7;
   const monthLabel = `${year} / ${pad2(monthNo)}`;
   const monthNoteID = journals.get(`${year}${pad2(monthNo)}`);
 
   function shiftMonth(delta: number) {
-    setMonth((current) => new Date(current.getFullYear(), current.getMonth() + delta, 1));
+    setMonth((current) => {
+      const date = new Date(`${current}-01T12:00:00Z`);
+      date.setUTCMonth(date.getUTCMonth() + delta);
+      return date.toISOString().slice(0, 7);
+    });
   }
 
-  const selectedDay = shiftDay(todayKey, offset);
-  const agendaDays = view === "week" ? calendarWeek(selectedDay) : [selectedDay];
+  const selectedDay = shiftCivilDay(todayKey, offset);
+  const agendaDays = view === "week" ? calendarWeek(selectedDay, settings.weekStartsOn) : [selectedDay];
   function openAgenda(mode: "day" | "week", dayOffset: number) {
     setOffset(dayOffset);
     setView(mode);
@@ -110,6 +117,7 @@ export function CalendarFullView() {
 
   return (
     <div className="calendar-full" aria-label="Calendar">
+      <CalendarDisplaySettings />
       <nav className="calendar-nav calendar-views" aria-label="Calendar views">
         <button type="button" aria-pressed={view === "month"} onClick={() => setView("month")}>Month</button>
         <button type="button" aria-pressed={view === "day" && offset === 0} onClick={() => openAgenda("day", 0)}>Today</button>
@@ -127,7 +135,7 @@ export function CalendarFullView() {
           </header>
           <CalendarAgendaFilter value={content} onChange={setContent} />
           <div hidden={content === "tasks"}>
-            <CalendarEventsPanel days={agendaDays} defaultDate={selectedDay} />
+            <CalendarEventsPanel days={agendaDays} defaultDate={selectedDay} timeGrid />
           </div>
           <div hidden={content === "events"}>
             {tasksQuery.isPending ? <p className="muted" role="status">Loading tasks...</p> : null}
@@ -153,7 +161,7 @@ export function CalendarFullView() {
           <button type="button" aria-label="Previous month" title="Previous month" onClick={() => shiftMonth(-1)}>
             <RailIcon Icon={IconChevronLeft} size={14} />
           </button>
-          <button type="button" onClick={() => setMonth(startOfCurrentMonth())}>
+          <button type="button" onClick={() => setMonth(currentMonth(zone))}>
             Current month
           </button>
           <button type="button" aria-label="Next month" title="Next month" onClick={() => shiftMonth(1)}>
@@ -166,7 +174,7 @@ export function CalendarFullView() {
       {tasksQuery.isError ? <p className="error" role="alert">Could not load tasks: {tasksQuery.error.message}</p> : null}
       {notesQuery.data ? (
         <div className="calendar-grid">
-          {WEEKDAYS.map((day) => (
+          {[...WEEKDAYS.slice(settings.weekStartsOn), ...WEEKDAYS.slice(0, settings.weekStartsOn)].map((day) => (
             <span className="calendar-weekday" key={day}>
               {day}
             </span>
@@ -179,7 +187,7 @@ export function CalendarFullView() {
             const dayNotes = notesByDay.get(date) ?? [];
             const today = date === todayKey ? "date" : undefined;
             const dayTasks = tasksByDay.get(date) ?? [];
-            const dayEvents = (eventsQuery.data?.events ?? []).filter((event) => eventOnDay(event, date));
+            const dayEvents = (eventsQuery.data?.events ?? []).filter((event) => eventOnDay(event, date, zone));
             // A journal is titled by its date, so the map built for the month title finds the day's
             // one too. Clicking a date opens it when it exists — the day is what the journal is
             // about, so that is the page you meant. Navigation never creates: a day with no journal
@@ -265,9 +273,8 @@ export function CalendarFullView() {
   );
 }
 
-function startOfCurrentMonth(): Date {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), 1);
+function currentMonth(zone: string): string {
+  return calendarDateKey(Date.now(), zone).slice(0, 7);
 }
 
 function pad2(n: number): string {

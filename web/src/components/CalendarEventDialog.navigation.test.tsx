@@ -9,12 +9,13 @@ const mutation = vi.hoisted(() => ({ mutateAsync: vi.fn(), isPending: false }));
 vi.mock("../calendarEventQueries", () => ({ useSaveCalendarEvent: () => mutation }));
 const saved: CalendarEvent = { version: 1, id: "123e4567-e89b-42d3-a456-426614174000", revision: 1, title: "Saved fixture", all_day: true, start: "2026-10-28", end: "2026-10-29", time_zone: "", description: "", location: "", url: "", note_id: "", status: "confirmed", deleted: false, updated_at: "2026-10-28T12:00:00Z" };
 let existing: CalendarEvent | undefined;
+let originalTime: CalendarEvent | undefined;
 const dispose: (() => void)[] = [];
 
 function EditorPage({ date = "2026-10-28" }) {
   const [open, setOpen] = useState(false);
   return <><h1>Event page {date}</h1><button onClick={() => setOpen(true)}>Open event editor</button>
-    {open ? <CalendarEventDialog vault="" date={date} event={existing} notes={[]} onSaved={() => setOpen(false)} onClose={() => setOpen(false)} /> : null}</>;
+    {open ? <CalendarEventDialog vault="" date={date} event={existing} timeChangeOriginal={originalTime} notes={[]} onSaved={() => setOpen(false)} onClose={() => setOpen(false)} /> : null}</>;
 }
 
 async function setup(path: "/calendar" | "/day/$date" = "/calendar") {
@@ -41,7 +42,7 @@ function unloadBlocked() {
 }
 
 beforeEach(() => {
-  mutation.mutateAsync.mockReset(); mutation.isPending = false; existing = undefined;
+  mutation.mutateAsync.mockReset(); mutation.isPending = false; existing = undefined; originalTime = undefined;
   vi.spyOn(window, "scrollTo").mockImplementation(() => {});
 });
 afterEach(() => { dispose.splice(0).forEach((fn) => fn()); vi.restoreAllMocks(); window.history.replaceState({}, "", "/"); });
@@ -166,4 +167,16 @@ describe("event drafts through browser history and beforeunload", () => {
     expect(screen.getByLabelText("Title")).toHaveValue("Newer draft");
     expect(unloadBlocked()).toBe(true);
   });
+});
+
+it("protects an untouched time proposal and retains it after cancelled browser Back", async () => {
+  originalTime={...saved,all_day:false,time_zone:"UTC",start:"2026-10-28T09:00:00Z",end:"2026-10-28T10:00:00Z"};
+  existing={...originalTime,start:"2026-10-28T09:15:00Z",end:"2026-10-28T10:15:00Z"};
+  const confirm=vi.spyOn(window,"confirm").mockReturnValue(false);
+  const {history}=await setup();
+  expect(unloadBlocked()).toBe(true);expect(mutation.mutateAsync).not.toHaveBeenCalled();
+  await act(async()=>history.back());await waitFor(()=>expect(confirm).toHaveBeenCalledOnce());
+  expect(screen.getByLabelText("Start time")).toHaveValue("09:15:00");expect(unloadBlocked()).toBe(true);
+  fireEvent.click(screen.getByRole("button",{name:"Cancel"}));expect(unloadBlocked()).toBe(false);
+  await act(async()=>history.back());await screen.findByRole("heading",{name:"Unrelated tasks"});expect(confirm).toHaveBeenCalledOnce();
 });

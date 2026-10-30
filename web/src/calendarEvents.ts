@@ -1,3 +1,5 @@
+import { calendarDateKey, calendarDayRange, shiftCivilDay } from "./calendarDates";
+export { shiftCivilDay } from "./calendarDates";
 import { api } from "./api";
 import { STATIC_MODE } from "./runtime";
 import { split, vaultParams } from "./vaultId";
@@ -60,15 +62,13 @@ export async function saveCalendarEvent(vault: string, id: string, request: Cale
   } finally { clearTimeout(timer); }
 }
 
-// All-day dates are civil days. Timed membership follows device-local day boundaries, including
+// All-day dates are civil days. Timed membership follows the selected display zone, including
 // 23/25-hour DST days, while the row labels the event's own time zone explicitly.
-export function eventOnDay(event: CalendarEvent, day: string): boolean {
+export function eventOnDay(event: CalendarEvent, day: string, timeZone?: string): boolean {
   if (event.deleted) return false;
   if (event.all_day) return event.start <= day && day < event.end;
-  const start = new Date(`${day}T00:00:00`);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 1);
-  return new Date(event.start) < end && new Date(event.end) > start;
+  const { start, end } = calendarDayRange(day, timeZone);
+  return end > start && Date.parse(event.start) < end && Date.parse(event.end) > start;
 }
 
 export function browserSupportsTimeZone(zone: string): boolean {
@@ -90,14 +90,6 @@ export function eventLocalParts(value: string, zone: string): { date: string; ti
   }
 }
 
-// UTC is only the arithmetic coordinate here: civil dates must retain even days
-// skipped by a device's time zone, such as 2011-12-30 in Pacific/Apia.
-export function shiftCivilDay(day: string, amount: number): string {
-  const date = new Date(`${day}T00:00:00Z`);
-  date.setUTCDate(date.getUTCDate() + amount);
-  return `${String(date.getUTCFullYear()).padStart(4, "0")}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
-}
-
 export function eventTimeLabel(event: CalendarEvent): string {
   if (event.all_day) {
     const last = shiftCivilDay(event.end, -1);
@@ -111,9 +103,9 @@ export function eventTimeLabel(event: CalendarEvent): string {
   return `${start.date} ${start.time} – ${end.date} ${end.time} · ${event.time_zone}`;
 }
 
-export function calendarEventOrder(a: CalendarEvent, b: CalendarEvent): number {
-  // Compare instants across zones; the device-local date is the calendar's grouping key.
-  const day = (event: CalendarEvent) => event.all_day ? event.start : new Date(event.start).toLocaleDateString("sv-SE");
+export function calendarEventOrder(a: CalendarEvent, b: CalendarEvent, timeZone?: string): number {
+  // Compare instants across authored zones; civil grouping follows the selected display zone.
+  const day = (event: CalendarEvent) => event.all_day ? event.start : calendarDateKey(Date.parse(event.start), timeZone);
   return day(a).localeCompare(day(b)) || Number(b.all_day) - Number(a.all_day) ||
     (!a.all_day && !b.all_day ? Date.parse(a.start) - Date.parse(b.start) : 0) || a.title.localeCompare(b.title) || a.id.localeCompare(b.id);
 }

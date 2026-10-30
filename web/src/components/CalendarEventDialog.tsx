@@ -1,6 +1,6 @@
 import { useBlocker } from "@tanstack/react-router";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { browserSupportsTimeZone, eventFields, eventLocalParts, shiftCivilDay, type CalendarEvent, type CalendarEventFields, type CalendarEventWrite } from "../calendarEvents";
+import { browserSupportsTimeZone, eventTimeLabel, eventFields, eventLocalParts, shiftCivilDay, type CalendarEvent, type CalendarEventFields, type CalendarEventWrite } from "../calendarEvents";
 import { useSaveCalendarEvent } from "../calendarEventQueries";
 import type { SearchResult } from "../types";
 import { unsavedChangesMessage } from "../nativeNavigation";
@@ -12,6 +12,8 @@ function formSnapshot(element: HTMLDialogElement | null): string {
 
 interface Props {
   vault: string;
+  defaultTimeZone?: string;
+  timeChangeOriginal?: CalendarEvent;
   date: string;
   event?: CalendarEvent;
   notes: SearchResult[];
@@ -19,10 +21,11 @@ interface Props {
   onClose: () => void;
 }
 
-export function CalendarEventDialog({ vault, date, event, notes, onSaved, onClose }: Props) {
+export function CalendarEventDialog({ vault, date, event, notes, onSaved, onClose, defaultTimeZone, timeChangeOriginal }: Props) {
   const dialog = useRef<HTMLDialogElement>(null);
   const titleInput = useRef<HTMLInputElement>(null);
   const id = useRef(event?.id ?? crypto.randomUUID());
+  const originalTime = useRef(timeChangeOriginal).current;
   const busy = useRef(false);
   const released = useRef(false);
   const failed = useRef(false);
@@ -30,7 +33,7 @@ export function CalendarEventDialog({ vault, date, event, notes, onSaved, onClos
   const baseline = useRef("");
   const attempt = useRef<{ fingerprint: string; operation: string } | null>(null);
   const save = useSaveCalendarEvent(vault);
-  const zone = event?.time_zone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const zone = useRef(event?.time_zone || defaultTimeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC").current;
   const initialStart: ReturnType<typeof eventLocalParts> = event && !event.all_day ? eventLocalParts(event.start, zone) : { date: event?.start ?? date, time: "09:00" };
   const initialEnd: ReturnType<typeof eventLocalParts> = event && !event.all_day ? eventLocalParts(event.end, zone) : { date: event ? shiftCivilDay(event.end, -1) : date, time: "10:00" };
   const [title, setTitle] = useState(event?.title ?? "");
@@ -59,7 +62,7 @@ export function CalendarEventDialog({ vault, date, event, notes, onSaved, onClos
   }, []);
 
   // Read the live controls: IME and the last input event can precede React's commit.
-  const protectedDraft = useCallback(() => !released.current && (busy.current || failed.current || composing.current || formSnapshot(dialog.current) !== baseline.current), []);
+  const protectedDraft = useCallback(() => !released.current && (Boolean(originalTime) || busy.current || failed.current || composing.current || formSnapshot(dialog.current) !== baseline.current), []);
   useBlocker({
     shouldBlockFn: ({ current, next }) => {
       if (current.pathname === next.pathname) return false;
@@ -138,7 +141,8 @@ export function CalendarEventDialog({ vault, date, event, notes, onSaved, onClos
 
   return <dialog ref={dialog} className="modal-card calendar-event-dialog" aria-labelledby="calendar-event-title"
     onCancel={(e) => { e.preventDefault(); close(); }}>
-    <h3 id="calendar-event-title">{event ? "Edit event" : "New event"}</h3>
+    <h3 id="calendar-event-title">{originalTime ? "Review time change" : event ? "Edit event" : "New event"}</h3>
+    {originalTime ? <p>Original schedule: {eventTimeLabel(originalTime)}. Review the proposed dates and times below in the authored zone. Nothing is written until Apply time change.</p> : null}
     {event && !event.all_day && (initialStart.timeZoneUnavailable || initialEnd.timeZoneUnavailable) ?
       <p role="alert">Time zone “{zone}” is unavailable in this browser. Showing the saved local clock and UTC offsets. Choose a supported IANA time zone to change dates or times; other edits preserve the saved timestamps.</p> : null}
     <form onSubmit={(e) => { e.preventDefault(); void submit(); }}
@@ -168,9 +172,9 @@ export function CalendarEventDialog({ vault, date, event, notes, onSaved, onClos
       </fieldset>
       {error ? <p className="error" role="alert">{error} Your input is kept. If another editor changed this event, close and reopen it before retrying.</p> : null}
       <div className="modal-actions">
-        {event ? <button type="button" disabled={save.isPending} onClick={() => void submit(true)}>Move to trash</button> : null}
+        {event && !originalTime ? <button type="button" disabled={save.isPending} onClick={() => void submit(true)}>Move to trash</button> : null}
         <button type="button" disabled={save.isPending} onClick={close}>Cancel</button>
-        <button type="submit" disabled={save.isPending || !title.trim()}>{save.isPending ? "Saving..." : "Save event"}</button>
+        <button type="submit" disabled={save.isPending || !title.trim()}>{save.isPending ? "Saving..." : originalTime ? "Apply time change" : "Save event"}</button>
       </div>
     </form>
   </dialog>;
