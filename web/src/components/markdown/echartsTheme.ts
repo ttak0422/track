@@ -18,8 +18,38 @@ export interface ChartTheme {
 
 // Keep the fallback aligned with styles.css: it is used by standalone tests and by browsers that do
 // not expose a token (for example, before the stylesheet has loaded). The palette follows the current
-// quiet-sheet design with muted teal, amber, slate, terracotta, olive, and plum roles.
-const PALETTE_FALLBACK = ["#286957", "#a05f2e", "#536f91", "#99504a", "#737b4a", "#795f80"];
+// quiet-sheet design: ink and vermilion first, then supporting categorical colors. Color is never
+// the only series key: line patterns, point shapes and the visible text key carry the same identity.
+const PALETTE_FALLBACK = ["#303030", "#b23a22", "#005e9e", "#79538a", "#766000", "#00696b"];
+
+const LINE_PATTERNS = ["solid", "dashed", "dotted"];
+const LINE_SYMBOLS = ["circle", "diamond", "rect", "triangle", "roundRect", "pin"];
+const SYMBOL_LABELS: Record<string, string> = { circle: "circle", diamond: "diamond", rect: "square",
+  triangle: "triangle", roundRect: "rounded rectangle", pin: "pin" };
+
+function lineEncoding(series: any, index: number, trackTheme: boolean) {
+  return {
+    pattern: series.lineStyle?.type ?? LINE_PATTERNS[index % LINE_PATTERNS.length],
+    symbol: series.symbol ?? LINE_SYMBOLS[index % LINE_SYMBOLS.length],
+    // Generated options used to hide all vertices. A raw ECharts fence can still explicitly opt out.
+    markers: (trackTheme || series.showSymbol !== false) && series.symbolSize !== 0 && series.symbol !== "none",
+  };
+}
+
+// A plain-text counterpart to the chart legend remains useful without any color perception.
+// It describes the actual defaults/overrides, rather than renaming the data series.
+export function chartSeriesKey(option: Record<string, unknown>): string[] {
+  const keys = asArray(option.series).flatMap((s: any, i: number) => {
+    if (!s || typeof s !== "object" || s.type !== "line" || typeof s.name !== "string" || !s.name) return [];
+    const encoding = lineEncoding(s, i, option._trackTheme === true);
+    const pattern = typeof encoding.pattern === "string" ? encoding.pattern : "custom-pattern";
+    const marker = encoding.markers && encoding.symbol !== "none"
+      ? `${SYMBOL_LABELS[encoding.symbol] ?? "custom"} markers`
+      : "no markers";
+    return [`${s.name}: ${pattern} line, ${marker}`];
+  });
+  return keys.length > 1 ? keys : [];
+}
 
 // chartThemeFromCSS reads the theme variables off the document root, so the palette always matches
 // whatever theme (light, dark, or a future override) is active at draw time.
@@ -48,13 +78,17 @@ export function applyChartTheme(
   t: ChartTheme,
 ): Record<string, unknown> {
   const opt = structuredClone(option) as any;
-
-  opt.color = t.palette;
+  const trackTheme = opt._trackTheme === true;
+  delete opt._trackTheme;
+  // Server-generated options carry a default palette; raw ECharts color overrides are intentional.
+  if (trackTheme || opt.color === undefined) opt.color = t.palette;
   if (opt.title) {
     opt.title.textStyle = { ...opt.title.textStyle, color: t.text };
   }
-  if (opt.legend) {
-    opt.legend.textStyle = { ...opt.legend.textStyle, color: t.text };
+  for (const legend of asArray(opt.legend)) {
+    legend.textStyle = { ...legend.textStyle, color: t.text };
+    legend.itemWidth ??= 32;
+    legend.itemHeight ??= 14;
   }
   for (const axis of [...asArray(opt.xAxis), ...asArray(opt.yAxis)]) {
     axis.axisLabel = { ...axis.axisLabel, color: t.muted };
@@ -86,8 +120,18 @@ export function applyChartTheme(
   }
 
   asArray(opt.series).forEach((s: any, i: number) => {
-    if (s.areaStyle?.color) {
-      s.areaStyle.color = withAlpha(t.palette[i % t.palette.length], 0.3);
+    if (!s || typeof s !== "object") return;
+    if (s.type === "line") {
+      const encoding = lineEncoding(s, i, trackTheme);
+      s.lineStyle = { width: 3, ...s.lineStyle, type: encoding.pattern };
+      s.symbol = encoding.symbol;
+      s.showSymbol = encoding.markers;
+      s.showAllSymbol ??= "auto";
+      s.symbolSize ??= 7;
+    }
+    if (trackTheme && s.areaStyle?.color) {
+      const color = typeof s.color === "string" ? s.color : t.palette[i % t.palette.length];
+      s.areaStyle.color = s.areaStyle.opacity === undefined ? withAlpha(color, 0.3) : color;
     }
     if (s.markLine) {
       s.markLine.lineStyle = { ...s.markLine.lineStyle, color: withAlpha(t.danger, 0.7) };

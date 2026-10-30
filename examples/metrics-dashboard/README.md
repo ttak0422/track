@@ -5,10 +5,17 @@ This example opens with three populated charts: a wide cache-hit rate chart for 
 of synthetic daily readings, including one visible Checkout collection gap. It needs no collector,
 credentials or Grafana server.
 
-![Actual Track workspace showing the populated cache demo and live period control](preview.jpg)
+![Actual Track published help showing the two change charts in the light theme](preview.jpg)
 
-Actual live workspace with the included synthetic data, shown at **All observations**.
-The two change panels continue below the first chart; the demo opens this saved note directly.
+Actual published help snapshot with the included synthetic data, showing the two change panels.
+[Dark-theme screenshot](preview-dark.jpg). The live demo below opens the saved three-panel note
+and additionally provides Period and Refresh controls.
+
+Lines use redundant cues: Checkout is solid with circles, Search is dashed with diamonds. The
+legend and the text key identify these styles even without hue differences. The reader palette
+starts with ink and vermilion and adapts to light/dark; custom raw ECharts palettes and series
+styles are retained. Defaults repeat after six series, and dense charts may omit some point symbols
+until zoomed in. These reader defaults do not restyle external Grafana or standalone SVG/HTML.
 
 From the repository root, build the complete CLI (including its frontend), then launch the demo:
 
@@ -70,3 +77,21 @@ A `grafana` fence instead displays an **existing external Grafana server**, afte
 It uses that server's dashboards, data and permissions. The help URL ending in `example.test` is a
 placeholder to replace with your own server; it is not a working demo. This example creates no
 Grafana service, changes no sharing/authentication setting and makes no external connection.
+
+## Check series identity without hue
+
+Create a note from the raw ECharts fixture to compare six default styles with six deliberately
+identical gray colors:
+
+```sh
+track new --title 'Line identity checks' < examples/metrics-dashboard/series-identity.md
+```
+
+![Actual Track rendering of six equal-gray series with line patterns, marker shapes and text key](series-identity.jpg)
+
+This checks redundant cues independently of hue; it is not a medical simulation of color vision.
+The six default theme colors are tested against the reader backgrounds in both themes for at
+least 3:1 contrast, following [W3C Non-text Contrast](https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast.html).
+Line patterns, shapes and text follow [W3C Use of Color](https://www.w3.org/WAI/WCAG22/Understanding/use-of-color.html).
+Custom colors and heavily overlapping lines still need review; these checks do not certify
+complete WCAG conformance or other chart types.

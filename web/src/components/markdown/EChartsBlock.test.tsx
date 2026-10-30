@@ -42,6 +42,17 @@ async function renderChart(option: Record<string, unknown>) {
   return result;
 }
 
+it("shows the non-color series key outside the chart image", async () => {
+  const view = await renderChart({ _trackTheme: true, series: [
+    { type: "line", name: "Checkout", showSymbol: false, data: [1, null, 2] },
+    { type: "line", name: "Search", showSymbol: false, data: [2, 1, 3] },
+  ] });
+  const key = view.getByLabelText("Series styles");
+  expect(key).toHaveTextContent("Checkout: solid line, circle markers");
+  expect(key).toHaveTextContent("Search: dashed line, diamond markers");
+  expect(key.closest('[role="img"]')).toBeNull();
+});
+
 describe("EChartsBlock provenance clicks", () => {
   afterEach(() => {
     vi.clearAllMocks();

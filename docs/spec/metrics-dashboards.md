@@ -61,3 +61,15 @@ server and are not inferred from mocked iframe tests.
 
 Official references: [sharing](https://grafana.com/docs/grafana/latest/visualizations/dashboards/share-dashboards-panels/),
 [framing configuration](https://grafana.com/docs/grafana/latest/setup-grafana/configure-grafana/#allow_embedding).
+
+## Reader presentation
+
+The ECharts reader themes generated options marked `_trackTheme: true`; it consumes that internal
+marker before calling ECharts. This keeps generated default palettes/hidden vertices distinct from
+intentional raw ECharts overrides. Line defaults combine a theme-aware categorical palette, 3px
+strokes, three dash styles and six marker shapes, with a visible text key. Explicit series colors
+and stroke choices are preserved. Raw options keep explicit palettes and marker visibility.
+
+These defaults apply in the live reader and rebuilt snapshots. The six combinations repeat, dense
+series can suppress some markers, and a fixed custom color is not automatically contrast-corrected.
+Standalone renderers and external Grafana keep their existing presentation contracts.
