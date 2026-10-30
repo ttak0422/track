@@ -15,8 +15,9 @@ export function subscribeToLiveEvents(source: EventSource, refresh: { change: ()
 
   const change = () => schedule("change");
   const data = () => schedule("data");
+  const open = () => { change(); data(); };
   // Open also covers reconnection: events missed while disconnected are not replayed.
-  source.addEventListener("open", change);
+  source.addEventListener("open", open);
   source.addEventListener("change", change);
   source.addEventListener("data", data);
 
@@ -25,7 +26,7 @@ export function subscribeToLiveEvents(source: EventSource, refresh: { change: ()
     disposed = true;
     window.clearTimeout(timers.change);
     window.clearTimeout(timers.data);
-    source.removeEventListener("open", change);
+    source.removeEventListener("open", open);
     source.removeEventListener("change", change);
     source.removeEventListener("data", data);
     source.close();

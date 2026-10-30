@@ -684,3 +684,27 @@ describe("text size in px", () => {
     expect(ruleBody(".size-input:focus-visible")).toMatch(/border-bottom-color:\s*var\(--mark\)/);
   });
 });
+
+describe("chart palette contrast", () => {
+  function pair(name: string): string[] {
+    const match = css.match(new RegExp(`--${name}:\\s*light-dark\\((#[a-fA-F0-9]{6}),\\s*(#[a-fA-F0-9]{6})\\)`));
+    if (!match) throw new Error(`missing theme token: ${name}`);
+    return [match[1], match[2]];
+  }
+  function luminance(hex: string): number {
+    const channels = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+      .map((n) => n <= 0.04045 ? n / 12.92 : ((n + 0.055) / 1.055) ** 2.4);
+    return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+  }
+  for (const [theme, index] of [["light", 0], ["dark", 1]] as const) {
+    it(`keeps every categorical stroke at least 3:1 on ${theme} reading surfaces`, () => {
+      for (let i = 1; i <= 6; i++) {
+        for (const surface of ["bg", "panel", "panel-soft"]) {
+          const a = luminance(pair(`chart-${i}`)[index]);
+          const b = luminance(pair(surface)[index]);
+          expect((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05), `${theme} chart-${i} on ${surface}`).toBeGreaterThanOrEqual(3);
+        }
+      }
+    });
+  }
+});

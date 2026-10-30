@@ -34,7 +34,11 @@ export function useLiveEvents() {
         void queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
       },
       data: () => {
-        void queryClient.invalidateQueries({ queryKey: ["viewspec"] });
+        // Cancel first so a pending initial response cannot absorb this invalidation.
+        for (const prefix of ["viewspec", "metrics-dashboard"]) {
+          const queryKey = [prefix];
+          void queryClient.cancelQueries({ queryKey }).then(() => queryClient.invalidateQueries({ queryKey }));
+        }
       },
     });
   }, [queryClient]);

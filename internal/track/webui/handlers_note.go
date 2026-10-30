@@ -15,6 +15,7 @@ import (
 	"github.com/ttak0422/track/internal/track/export"
 	"github.com/ttak0422/track/internal/track/index"
 	"github.com/ttak0422/track/internal/track/link"
+	"github.com/ttak0422/track/internal/track/metrics"
 	"github.com/ttak0422/track/internal/track/note"
 	"github.com/ttak0422/track/internal/track/query"
 	"github.com/ttak0422/track/internal/track/rename"
@@ -704,4 +705,33 @@ func ensureTrailingNewline(body string) string {
 		return body
 	}
 	return body + "\n"
+}
+
+func (s *Server) handleMetricsDashboard(v *vaultView, w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, fmt.Errorf("method %s not allowed", r.Method), http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Dashboard json.RawMessage `json:"dashboard"`
+		Days      int             `json:"days"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+		writeError(w, err, http.StatusBadRequest)
+		return
+	}
+	if req.Days < 0 || req.Days > 36500 {
+		writeError(w, fmt.Errorf("days must be 0..36500"), http.StatusBadRequest)
+		return
+	}
+	since := time.Time{}
+	if req.Days > 0 {
+		since = time.Now().UTC().AddDate(0, 0, -req.Days)
+	}
+	view, err := metrics.RenderDashboard(req.Dashboard, v.cfg.DataDir(), since)
+	if err != nil {
+		writeError(w, err, http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, view)
 }

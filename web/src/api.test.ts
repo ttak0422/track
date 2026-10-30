@@ -248,6 +248,14 @@ describe("parseOgp", () => {
 });
 
 describe("getOgp on a published site", () => {
+  it("fetches and parses the linked page directly", async () => {
+    const fetch = vi.fn(async () => new Response("<title>Published link</title>", { headers: { "content-type": "text/html" } }));
+    vi.stubGlobal("fetch", fetch);
+    const url = "https://example.com/post";
+    expect(await getOgp(url)).toEqual({ url, title: "Published link", site_name: "example.com" });
+    expect(fetch).toHaveBeenCalledExactlyOnceWith(url);
+  });
+
   it("degrades to the bare card when the host refuses the cross-origin read", async () => {
     vi.stubGlobal("fetch", async () => {
       throw new TypeError("Failed to fetch");
@@ -258,6 +266,30 @@ describe("getOgp on a published site", () => {
   it("degrades to the bare card when the response is not HTML", async () => {
     vi.stubGlobal("fetch", async () => new Response("{}", { headers: { "content-type": "application/json" } }));
     expect(await getOgp("https://example.com/data.json")).toEqual({ url: "https://example.com/data.json" });
+  });
+});
+
+describe("getOgp in the live workspace", () => {
+  it("uses the encoded server endpoint instead of fetching the page directly", async () => {
+    vi.stubEnv("VITE_TRACK_STATIC", "");
+    vi.resetModules();
+    const url = "https://example.com/日本語?q=one&other=two";
+    const metadata = { url, title: "Server card" };
+    const fetch = vi.fn(async () => new Response(JSON.stringify(metadata)));
+    vi.stubGlobal("fetch", fetch);
+    const { getOgp } = await import("./api");
+    expect(await getOgp(url)).toEqual(metadata);
+    expect(fetch).toHaveBeenCalledExactlyOnceWith(`/api/ogp?url=${encodeURIComponent(url)}`, expect.any(Object));
+  });
+
+  it("preserves server errors rather than applying the browser's bare-card fallback", async () => {
+    vi.stubEnv("VITE_TRACK_STATIC", "");
+    vi.resetModules();
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: "Backend unavailable" }), { status: 502 })));
+    const { getOgp, APIError } = await import("./api");
+    const request = getOgp("https://example.com/post");
+    await expect(request).rejects.toBeInstanceOf(APIError);
+    await expect(request).rejects.toMatchObject({ status: 502, message: "Backend unavailable" });
   });
 });
 

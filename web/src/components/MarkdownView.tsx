@@ -20,6 +20,7 @@ import { CodeBlock } from "./markdown/CodeBlock";
 import {
   IncludesContext,
   MarkdownSourceContext,
+  NoteIdentityContext,
   NoteKindContext,
   NoteVaultContext,
   TaskBoardContext,
@@ -54,6 +55,8 @@ import {
 import { tocEntries } from "./markdown/toc";
 import { EChartsFence } from "./markdown/EChartsBlock";
 import { QueryView } from "./markdown/QueryView";
+import { MetricsDashboard, MetricsSnapshot } from "./markdown/MetricsDashboard";
+import { GrafanaFrame } from "./markdown/GrafanaFrame";
 import { ViewSpecChart } from "./markdown/ViewSpecChart";
 import { WikiLink } from "./preview/WikiLink";
 import { TitleCopyButton } from "./TitleCopyButton";
@@ -81,7 +84,7 @@ interface MarkdownViewProps {
   // Popup chrome owns the title row, so the title h1 is not rendered here; the body still renders
   // fully, including a leading h1 that echoes the title.
   showTitle?: boolean;
-  // The note's ID — when set, the title gets a copy button.
+  // The note's identity scopes stateful embeds; when set, the title also gets a copy button.
   noteId?: NoteID;
   kind?: string;
   // Vault of the note this body belongs to (registry name; "" for the launch vault). Everything the
@@ -126,6 +129,8 @@ function VaultMarkdownView({
   includes,
   copyPath = "",
 }: MarkdownViewProps) {
+  const parentIdentity = useContext(NoteIdentityContext);
+  const documentIdentity = JSON.stringify([parentIdentity, vault, noteId ?? copyPath]);
   const hasMath = looksLikeMath(markdown);
   const [math, setMath] = useState<MathPlugins | null>(() => (hasMath ? mathPluginsIfLoaded() : null));
   const markdownRef = useRef<HTMLDivElement>(null);
@@ -266,6 +271,7 @@ function VaultMarkdownView({
   return (
     <NoteKindContext.Provider value={kind}>
       <NoteVaultContext.Provider value={vault}>
+        <NoteIdentityContext.Provider value={documentIdentity}>
         <IncludesContext.Provider value={includes ?? []}>
         <DrawioEditingContext.Provider value={drawioEditing}>
         <MarkdownSourceContext.Provider value={markdown}>
@@ -293,6 +299,7 @@ function VaultMarkdownView({
         </MarkdownSourceContext.Provider>
         </DrawioEditingContext.Provider>
         </IncludesContext.Provider>
+        </NoteIdentityContext.Provider>
       </NoteVaultContext.Provider>
     </NoteKindContext.Provider>
   );
@@ -434,7 +441,7 @@ function IncludeEmbed({ include }: { include: NoteInclude }) {
           lineOffset: offset,
         }}
       >
-        <MarkdownView markdown={include.lines.join("\n")} kind={include.kind ?? "note"} vault={vault} />
+        <MarkdownView markdown={include.lines.join("\n")} kind={include.kind ?? "note"} vault={vault} noteId={String(include.note_id ?? include.title ?? include.caption)} />
       </TaskBoardContext.Provider>
       {(include.bad_options ?? []).map((bad) => (
         <div key={bad} className="note-include-warning">
@@ -498,12 +505,13 @@ const markdownComponents = {
     }
     return <ExternalLink href={href ?? ""}>{children}</ExternalLink>;
   },
-  img: ({ node, src, alt }: ElementProps & { src?: string; alt?: string }) => {
+  img: ({ node, src, alt, title }: ElementProps & { src?: string; alt?: string; title?: string }) => {
     const properties = node?.properties as { embedHeight?: unknown; embedFrame?: unknown } | undefined;
     return (
       <Embed
         src={typeof src === "string" ? src : ""}
         alt={alt ?? ""}
+        title={title}
         height={typeof properties?.embedHeight === "string" ? properties.embedHeight : undefined}
         frame={properties?.embedFrame === "none" ? "none" : undefined}
       />
@@ -544,6 +552,9 @@ const markdownComponents = {
       if (normalized === "mindmap") {
         return <MindmapDiagram text={text} />;
       }
+      if (normalized === "metrics-snapshot") return <MetricsSnapshot text={text} />;
+      if (normalized === "metrics-dashboard") return <MetricsDashboard key={text} text={text} />;
+      if (normalized === "grafana") return <GrafanaFrame key={text} text={text} />;
       if (normalized === "viewspec") {
         return <ViewSpecChart text={text} />;
       }

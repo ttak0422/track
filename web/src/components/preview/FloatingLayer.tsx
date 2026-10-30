@@ -68,6 +68,7 @@ export function FloatingLayer() {
             key={win.id}
             src={win.content.src}
             alt={win.content.alt}
+            title={win.content.title}
             kind={win.content.noteKind}
             vault={win.content.vault}
             {...controls}

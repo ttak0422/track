@@ -68,14 +68,12 @@ func (v *vaultView) write(fn func() error) error {
 // noteByID finds a note in this vault's index. It is also the gate that keeps a foreign id from
 // acting on a same-numbered note here: an id is only ever looked up in the vault the request named.
 func (v *vaultView) noteByID(id int64) (store.SearchResult, error) {
-	notes, err := v.store.SearchRefs()
+	notes, err := v.store.SearchByID(id)
 	if err != nil {
 		return store.SearchResult{}, err
 	}
-	for _, n := range notes {
-		if n.NoteID == id {
-			return n, nil
-		}
+	if len(notes) > 0 {
+		return notes[0], nil
 	}
 	return store.SearchResult{}, fmt.Errorf("note %d is not indexed", id)
 }

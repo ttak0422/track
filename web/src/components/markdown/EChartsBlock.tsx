@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useThemeVersion } from "../../hooks/useThemeVersion";
 import { useVisible } from "../../hooks/useVisible";
 import { CodeBlock } from "./CodeBlock";
-import { applyChartTheme, chartThemeFromCSS } from "./echartsTheme";
+import { applyChartTheme, chartSeriesKey, chartThemeFromCSS } from "./echartsTheme";
 import { computeRailLayout, extractRail, MarkerRail, type RailAnchors } from "./MarkerRail";
 
 // The chart container's CSS height (styles.css .viewspec-chart); the above annotation band grows the
@@ -30,6 +30,7 @@ interface EChartsBlockProps {
 // is kept across option updates (live re-renders apply in place via setOption) and disposed only on
 // unmount.
 export function EChartsBlock({ option }: EChartsBlockProps) {
+  const seriesKey = chartSeriesKey(option);
   const { ref: containerRef, visible } = useVisible<HTMLDivElement>();
   const navigate = useNavigate();
   // Redraw with the new colors when the app theme flips; the option itself is theme-neutral and
@@ -217,6 +218,9 @@ export function EChartsBlock({ option }: EChartsBlockProps) {
           <MarkerRail boxes={rail.boxes} layout={layout} anchors={anchors} side="below" width={width} />
         </>
       ) : null}
+      {seriesKey.length > 0 ? <figcaption className="chart-series-key" aria-label="Series styles">
+        {seriesKey.map((label, i) => <span key={i}>{label}</span>)}
+      </figcaption> : null}
     </figure>
   );
 }
