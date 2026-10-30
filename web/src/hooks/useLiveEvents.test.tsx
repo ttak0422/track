@@ -31,6 +31,9 @@ class FakeEventSource {
   addEventListener(name: string, fn: () => void) {
     this.listeners.set(name, fn);
   }
+  removeEventListener(name: string, fn: () => void) {
+    if (this.listeners.get(name) === fn) this.listeners.delete(name);
+  }
   emit(name: string) {
     this.listeners.get(name)?.();
   }
@@ -40,7 +43,7 @@ class FakeEventSource {
 }
 
 function renderLiveEvents(withNew = false) {
-  const client = new QueryClient();
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const invalidate = vi.spyOn(client, "invalidateQueries");
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={client}>{children}</QueryClientProvider>
@@ -51,7 +54,7 @@ function renderLiveEvents(withNew = false) {
   }, { wrapper });
   const source = FakeEventSource.instances[0];
   expect(source).toBeDefined();
-  return { invalidate, source, ...view };
+  return { client, invalidate, source, ...view };
 }
 
 describe("useLiveEvents", () => {
@@ -147,6 +150,160 @@ describe("useLiveEvents", () => {
 
     unmount();
     expect(source.closed).toBe(true);
+  });
+
+  it("keeps one Shell subscription across rerenders and releases its listeners", () => {
+    const { source, rerender, unmount } = renderLiveEvents();
+    rerender();
+    rerender();
+    expect(FakeEventSource.instances).toHaveLength(1);
+    expect(source.closed).toBe(false);
+    expect([...source.listeners.keys()]).toEqual(["open", "change", "data"]);
+    unmount();
+    expect(source.closed).toBe(true);
+    expect(source.listeners.size).toBe(0);
+  });
+
+  it("does not schedule refreshes from retained callbacks after unsubscribe", async () => {
+    const { source, invalidate, unmount } = renderLiveEvents();
+    const callbacks = [...source.listeners.values()];
+    source.emit("change");
+    source.emit("data");
+    unmount();
+    for (const callback of callbacks) callback();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(invalidate).not.toHaveBeenCalled();
+  });
+
+  it("keeps change and data debounce windows independent", async () => {
+    const { source, invalidate } = renderLiveEvents();
+    source.emit("change");
+    await vi.advanceTimersByTimeAsync(100);
+    source.emit("data");
+    await vi.advanceTimersByTimeAsync(50);
+    const callsFor = (prefix: string) => invalidate.mock.calls.filter(([filters]) => filters?.queryKey?.[0] === prefix);
+    expect(callsFor("note")).toHaveLength(1);
+    expect(callsFor("viewspec")).toHaveLength(0);
+    source.emit("change");
+    await vi.advanceTimersByTimeAsync(100);
+    expect(callsFor("note")).toHaveLength(1);
+    expect(callsFor("viewspec")).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(50);
+    expect(callsFor("note")).toHaveLength(2);
+  });
+
+  it("leaves transport retries to EventSource and refreshes on its next open", async () => {
+    const { source, invalidate } = renderLiveEvents();
+    source.emit("error");
+    await vi.advanceTimersByTimeAsync(200);
+    expect(invalidate).not.toHaveBeenCalled();
+    expect(source.closed).toBe(false);
+    expect(FakeEventSource.instances).toHaveLength(1);
+    source.emit("open");
+    await vi.advanceTimersByTimeAsync(200);
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["note"] });
+  });
+
+  it("releases the previous QueryClient subscription without affecting the new one", async () => {
+    const first = new QueryClient();
+    const second = new QueryClient();
+    const firstInvalidate = vi.spyOn(first, "invalidateQueries");
+    const secondInvalidate = vi.spyOn(second, "invalidateQueries");
+    let current = first;
+    const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={current}>{children}</QueryClientProvider>;
+    const { rerender, unmount } = renderHook(() => useLiveEvents(), { wrapper });
+    const previous = FakeEventSource.instances[0];
+    const late = previous.listeners.get("change")!;
+    previous.emit("data");
+    current = second;
+    rerender();
+    expect(previous.closed).toBe(true);
+    expect(previous.listeners.size).toBe(0);
+    expect(FakeEventSource.instances).toHaveLength(2);
+    late();
+    FakeEventSource.instances[1].emit("change");
+    await vi.advanceTimersByTimeAsync(200);
+    expect(firstInvalidate).not.toHaveBeenCalled();
+    expect(secondInvalidate).toHaveBeenCalledWith({ queryKey: ["note"] });
+    unmount();
+    first.clear();
+    second.clear();
+  });
+
+  it("keeps a delayed previous-vault result out of the current view", async () => {
+    let resolveWork!: (data: NotesResponse) => void;
+    const home: NotesResponse = { notes: [{ note_id: "home~6", title: "Home", file_kind: "note", path: "note/6.md" }] };
+    vi.mocked(listNewNotes).mockImplementation((_limit, vault) => vault === "work"
+      ? new Promise((resolve) => { resolveWork = resolve; })
+      : Promise.resolve(home));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+    const { result, rerender, unmount } = renderHook(({ vault }) => {
+      useLiveEvents();
+      return useNewNotesQuery(100, vault);
+    }, { wrapper, initialProps: { vault: "work" } });
+    rerender({ vault: "home" });
+    const source = FakeEventSource.instances[0];
+    source.emit("change");
+    await act(async () => { await vi.advanceTimersByTimeAsync(200); });
+    expect(result.current.data).toEqual(home);
+    await act(async () => { resolveWork({ notes: [] }); await vi.advanceTimersByTimeAsync(50); });
+    expect(result.current.data).toEqual(home);
+    expect(FakeEventSource.instances).toHaveLength(1);
+    unmount();
+    client.clear();
+  });
+
+  it("handles another notification during a New refresh and ignores its late response", async () => {
+    const { source, result } = renderLiveEvents(true);
+    await act(async () => { await vi.advanceTimersByTimeAsync(50); });
+    let resolveEarlier!: (data: NotesResponse) => void;
+    vi.mocked(listNewNotes).mockReturnValueOnce(new Promise((resolve) => { resolveEarlier = resolve; }));
+    source.emit("change");
+    await act(async () => { await vi.advanceTimersByTimeAsync(200); });
+    expect(listNewNotes).toHaveBeenCalledTimes(2);
+    const fresh: NotesResponse = { notes: [{ note_id: "work~4", title: "Latest", file_kind: "note", path: "note/4.md" }] };
+    vi.mocked(listNewNotes).mockResolvedValue(fresh);
+    source.emit("change");
+    await act(async () => { await vi.advanceTimersByTimeAsync(200); });
+    expect(listNewNotes).toHaveBeenCalledTimes(3);
+    expect(result.current?.data).toEqual(fresh);
+    await act(async () => { resolveEarlier({ notes: [] }); await vi.advanceTimersByTimeAsync(50); });
+    expect(result.current?.data).toEqual(fresh);
+  });
+
+  it("leaves an already started refresh available to other cache observers on unsubscribe", async () => {
+    const { client, source, unmount } = renderLiveEvents();
+    const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+    const observer = renderHook(() => useNewNotesQuery(100, "work"), { wrapper });
+    await act(async () => { await vi.advanceTimersByTimeAsync(50); });
+    let resolveFresh!: (data: NotesResponse) => void;
+    vi.mocked(listNewNotes).mockReturnValueOnce(new Promise((resolve) => { resolveFresh = resolve; }));
+    source.emit("change");
+    await act(async () => { await vi.advanceTimersByTimeAsync(200); });
+    expect(observer.result.current.isFetching).toBe(true);
+    unmount();
+    expect(source.closed).toBe(true);
+    const fresh: NotesResponse = { notes: [{ note_id: "work~7", title: "Shared", file_kind: "note", path: "note/7.md" }] };
+    await act(async () => { resolveFresh(fresh); await vi.advanceTimersByTimeAsync(50); });
+    expect(observer.result.current.data).toEqual(fresh);
+    observer.unmount();
+    client.clear();
+  });
+
+  it("can refresh New after a failed request on a later change", async () => {
+    const { source, result } = renderLiveEvents(true);
+    await act(async () => { await vi.advanceTimersByTimeAsync(50); });
+    vi.mocked(listNewNotes).mockRejectedValueOnce(new Error("temporarily unavailable"));
+    source.emit("change");
+    await act(async () => { await vi.advanceTimersByTimeAsync(200); });
+    expect(result.current?.isError).toBe(true);
+    const fresh: NotesResponse = { notes: [{ note_id: "work~5", title: "Recovered", file_kind: "note", path: "note/5.md" }] };
+    vi.mocked(listNewNotes).mockResolvedValue(fresh);
+    source.emit("change");
+    await act(async () => { await vi.advanceTimersByTimeAsync(200); });
+    expect(result.current?.isError).toBe(false);
+    expect(result.current?.data).toEqual(fresh);
   });
   it.each(["data", "open"])("replaces both pending initial chart responses after %s", async (event) => {
     let resolveOldDashboard!: (data: MetricsDashboardResponse) => void;
