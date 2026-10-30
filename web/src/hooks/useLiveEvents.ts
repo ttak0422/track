@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { queryKeys, refreshNewNotes } from "../queries";
 import { STATIC_MODE } from "../runtime";
+import { subscribeToLiveEvents } from "./liveEventSubscription";
 
 // Subscribes to the server's change stream and refreshes data when the vault
 // changes on disk (edits from Neovim/CLI or a cloud sync). The backend reindexes
@@ -17,12 +18,8 @@ export function useLiveEvents() {
     if (STATIC_MODE || typeof EventSource === "undefined") {
       return;
     }
-    let invalidateTimer: number | undefined;
-    function scheduleInvalidation() {
-      if (invalidateTimer !== undefined) {
-        window.clearTimeout(invalidateTimer);
-      }
-      invalidateTimer = window.setTimeout(() => {
+    return subscribeToLiveEvents(new EventSource("/api/events"), {
+      change: () => {
         void queryClient.invalidateQueries({ queryKey: queryKeys.notes(), exact: true });
         void refreshNewNotes(queryClient);
         void queryClient.invalidateQueries({ queryKey: ["note"] });
@@ -35,31 +32,10 @@ export function useLiveEvents() {
         // work already finished elsewhere.
         void queryClient.invalidateQueries({ queryKey: queryKeys.tasks() });
         void queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
-      }, 150);
-    }
-    let dataTimer: number | undefined;
-    function scheduleDataInvalidation() {
-      if (dataTimer !== undefined) {
-        window.clearTimeout(dataTimer);
-      }
-      dataTimer = window.setTimeout(() => {
+      },
+      data: () => {
         void queryClient.invalidateQueries({ queryKey: ["viewspec"] });
-      }, 150);
-    }
-    const source = new EventSource("/api/events");
-    // Events are not replayed. Refresh on connection/reconnection to cover changes in the gap,
-    // including an initial list request that began before the stream subscribed.
-    source.addEventListener("open", scheduleInvalidation);
-    source.addEventListener("change", scheduleInvalidation);
-    source.addEventListener("data", scheduleDataInvalidation);
-    return () => {
-      if (invalidateTimer !== undefined) {
-        window.clearTimeout(invalidateTimer);
-      }
-      if (dataTimer !== undefined) {
-        window.clearTimeout(dataTimer);
-      }
-      source.close();
-    };
+      },
+    });
   }, [queryClient]);
 }
