@@ -34,6 +34,7 @@ final class TerminationHarness: NSObject, NSApplicationDelegate {
     var timer: Timer?
     var finished = false
     var phase = "loading fixture"
+    var startupSnapshots: [[String: Any]] = []
     var expectedPrompts: Int { scenario.contains("cancel") || scenario == "dirty-discard" || scenario == "dirty-tab-discard" || scenario == "event-discard" ? 1 : 0 }
 
     init(app: TestApplication) {
@@ -94,9 +95,59 @@ final class TerminationHarness: NSObject, NSApplicationDelegate {
         throw Failure("timeout: \(expression); \(details ?? "no details")")
     }
 
+    func recordStartup(_ stage: String) {
+        guard scenario.hasPrefix("startup") else { return }
+        let view = app.windows.first(where: { $0.delegate === delegate })?.contentView.flatMap(findWebView)
+        let coordinator = view?.navigationDelegate as? WebViewCoordinator
+        startupSnapshots.append(["stage": stage, "uptime": ProcessInfo.processInfo.systemUptime,
+            "url": view?.url?.absoluteString ?? "<nil>", "loading": view?.isLoading ?? false,
+            "hidden": view?.isHidden ?? true, "completedNavigation": coordinator?.hasCompletedWorkspaceNavigation ?? false])
+    }
+
     func run() async throws {
-        if scenario == "initial-os" || scenario == "startup-os" {
+        if scenario == "initial-os" {
             perform(#selector(requestTermination), with: nil, afterDelay: 0)
+            return
+        }
+        if scenario == "startup-os" || scenario == "startup-document-cancel" {
+            window = app.windows.first { $0.delegate === delegate }!
+            webView = findWebView(window.contentView!)!
+            guard let path = ProcessInfo.processInfo.environment["TRACK_TERMINATION_STARTUP_GATE"] else {
+                throw Failure("startup fixture has no launcher gate")
+            }
+            let gate = URL(fileURLWithPath: path)
+            let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+            while !FileManager.default.fileExists(atPath: path) && ContinuousClock.now < deadline {
+                try await Task.sleep(for: .milliseconds(25))
+            }
+            guard let pid = Int32((try? String(contentsOf: gate, encoding: .utf8)) ?? ""), pid > 1 else {
+                throw Failure("startup launcher receipt missing before deadline")
+            }
+            childPID = pid
+            try require(kill(pid, 0) == 0, "startup launcher is not running")
+            try require(webView.url == nil && !webView.isLoading && webView.isHidden,
+                        "startup fixture advanced past its no-document precondition")
+            recordStartup("gated-before-document")
+            if scenario == "startup-document-cancel" {
+                // An origin document without workspace capabilities is unknown, even at startup.
+                webView.loadHTMLString("<textarea id='startup-draft'>Fixture startup text 日本語</textarea>",
+                                       baseURL: (webView.navigationDelegate as! WebViewCoordinator).workspaceOrigin)
+                try await waitFor("document.getElementById('startup-draft')?.value === 'Fixture startup text 日本語' && typeof window.__trackNativeWorkspaceState === 'undefined' && typeof window.__trackNativeEditorState === 'undefined'")
+                try require(webView.url != nil, "unknown startup document has no URL")
+                recordStartup("unknown-document")
+            }
+            perform(#selector(requestTermination), with: nil, afterDelay: 0)
+            if scenario == "startup-document-cancel" {
+                let cancelDeadline = ContinuousClock.now.advanced(by: .seconds(5))
+                while replies != [false] && ContinuousClock.now < cancelDeadline {
+                    try await Task.sleep(for: .milliseconds(25))
+                }
+                try require(replies == [false] && prompts == 1, "unknown startup document must warn and Cancel once")
+                try require((try await evaluate("document.getElementById('startup-draft')?.value === 'Fixture startup text 日本語'")) as? Bool == true,
+                            "Cancel lost the unknown startup document")
+                _ = try await evaluate("document.getElementById('startup-draft').value = ''; window.__trackNativeEditorState = () => false; true")
+                perform(#selector(requestTermination), with: nil, afterDelay: 0)
+            }
             return
         }
         window = app.windows.first { $0.delegate === delegate }!
@@ -235,6 +286,7 @@ final class TerminationHarness: NSObject, NSApplicationDelegate {
     }
 
     @objc func requestTermination() {
+        recordStartup("requested")
         phase = "quitting"
         started = ProcessInfo.processInfo.systemUptime
         if scenario.hasSuffix("close") {
@@ -261,6 +313,7 @@ final class TerminationHarness: NSObject, NSApplicationDelegate {
             guard let cancel = choices.first(where: { $0.title == "Cancel" }) else { continue }
             handledPanels.insert(ObjectIdentifier(panel))
             prompts += 1
+            recordStartup("warning")
             if started == 0 && phase != "dispatching Cmd-W" && phase != "waiting for Cmd-W" {
                 cancel.performClick(nil)
                 finish(error: "unexpected warning during \(phase)")
@@ -299,7 +352,7 @@ final class TerminationHarness: NSObject, NSApplicationDelegate {
     func finish(error: String?) {
         guard !finished else { return }
         finished = true
-        let result: [String: Any] = ["scenario": scenario, "ok": error == nil, "error": error ?? "",
+        let result: [String: Any] = ["scenario": scenario, "startupSnapshots": startupSnapshots, "ok": error == nil, "error": error ?? "",
                                     "prompts": prompts, "replies": replies, "callbacks": callbackReplies,
                                     "duplicateSent": duplicateSent, "phase": phase, "stopDuration": ProcessInfo.processInfo.systemUptime - started]
         try! JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]).write(to: resultURL)

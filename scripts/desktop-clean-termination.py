@@ -5,6 +5,7 @@ import json
 import os
 import plistlib
 import shutil
+import shlex
 import signal
 import subprocess
 import sys
@@ -20,9 +21,29 @@ recovery = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(recovery)
 SCENARIOS = ['clean-close', 'clean-quit', 'clean-os', 'empty-close', 'saved-quit', 'multi-clean',
              'dirty-cancel-save', 'dirty-discard', 'dirty-os-cancel', 'initial-os',
-             'timeout-cancel', 'probe-error-cancel', 'unknown-cancel', 'stopped-child-quit', 'startup-os', 'pending-cancel', 'ime-cancel', 'dirty-multi-cancel', 'dirty-cancel-close', 'clean-edit-quit',
+             'timeout-cancel', 'probe-error-cancel', 'unknown-cancel', 'stopped-child-quit', 'startup-os', 'startup-document-cancel', 'pending-cancel', 'ime-cancel', 'dirty-multi-cancel', 'dirty-cancel-close', 'clean-edit-quit',
              'tab-close-clean', 'dirty-tab-cancel', 'dirty-tab-discard',
              'event-cancel-close', 'event-cancel-quit', 'event-discard']
+
+
+def startup_gate(executable, arguments):
+    """Hold only the disposable launcher before exec; no shipped command reads this knob."""
+    receipt = os.environ.get('TRACK_TERMINATION_STARTUP_GATE')
+    if receipt:
+        gate = Path(receipt)
+        temporary = gate.with_suffix(".writing")
+        temporary.write_text(str(os.getpid()))
+        temporary.replace(gate)
+        wait_for_startup_release(gate.with_suffix('.release'), 30)
+    os.execv(str(executable), [str(executable), *arguments])
+
+
+def wait_for_startup_release(release, timeout):
+    deadline = time.monotonic() + timeout
+    while not release.exists():
+        if time.monotonic() >= deadline:
+            raise TimeoutError('startup fixture launcher was not released before its deadline')
+        time.sleep(0.01)
 
 
 def main():
@@ -55,14 +76,20 @@ let package = Package(name: "Termination", platforms: [.macOS(.v14)], targets: [
         (bundle / 'MacOS').mkdir(parents=True)
         (bundle / 'Resources').mkdir()
         shutil.copy2(ROOT / 'build/termination-harness/debug/Termination', bundle / 'MacOS/Termination')
-        (bundle / 'Resources/track').symlink_to(executable)
+        # The production supervisor still owns/reaps this PID. Non-startup scenarios exec Go
+        # immediately; startup cases hold the launcher until cancellation or explicit release.
+        launcher = bundle / 'Resources/track'
+        launcher.write_text('#!/bin/sh\nexec ' + shlex.join([
+            sys.executable, str(Path(__file__).resolve()), '--fixture-startup-gate', str(executable)
+        ]) + ' "$@"\n')
+        launcher.chmod(0o755)
         (bundle / 'Info.plist').write_bytes(plistlib.dumps({
             'CFBundleIdentifier': f'com.ttak0422.track.termination-fixture.{uuid.uuid4()}',
             'CFBundleName': 'Track Termination Fixture', 'CFBundleExecutable': 'Termination',
             'CFBundlePackageType': 'APPL', 'NSHighResolutionCapable': True,
         }))
-        for scenario in scenarios:
-            fixture = root / scenario
+        for index, scenario in enumerate(scenarios):
+            fixture = root / f"{index:02d}-{scenario}"
             vault, cache = fixture / 'vault', fixture / 'cache'
             (vault / '.track').mkdir(parents=True)
             cache.mkdir()
@@ -70,6 +97,8 @@ let package = Package(name: "Termination", platforms: [.macOS(.v14)], targets: [
             config = fixture / 'machine.yml'
             config.write_text(json.dumps({'vault_dir': str(vault), 'cache_dir': str(cache)}))
             env = environment | {'TRACK_CONFIG': str(config), 'TRACK_VAULT': str(vault), 'TRACK_CACHE_DIR': str(cache)}
+            if scenario in ('startup-os', 'startup-document-cancel'):
+                env['TRACK_TERMINATION_STARTUP_GATE'] = str(fixture / 'startup-gate')
             for note_id, title, body in [('100', 'Fixture', 'Original fixture\n\n[[101]]'), ('101', 'Other note', 'Second note')]:
                 subprocess.run([str(executable), 'new', '--id', note_id, '--title', title, '--body', body],
                                env=env, check=True, stdout=subprocess.DEVNULL)
@@ -120,4 +149,7 @@ let package = Package(name: "Termination", platforms: [.macOS(.v14)], targets: [
 
 
 if __name__ == '__main__':
-    main()
+    if len(sys.argv) > 2 and sys.argv[1] == '--fixture-startup-gate':
+        startup_gate(Path(sys.argv[2]), sys.argv[3:])
+    else:
+        main()
