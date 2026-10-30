@@ -214,3 +214,59 @@ func TestDashboardRejectsUnmatchedForeignDatasource(t *testing.T) {
 		t.Fatalf("same-file bindings: %d panels, error %v", len(view.Panels), err)
 	}
 }
+
+func TestDashboardSeriesSlotsSurvivePeriodRecordOrderAndRefresh(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "sectors.jsonl")
+	rows := []string{
+		`{"name":"level","entity":"A","time":"2026-10-01","value":1}`,
+		`{"name":"level","entity":"B","time":"2026-10-15","value":2}`,
+	}
+	raw := strings.Replace(liveDashboardJSON, `level{entity=\"A\"}`, `level`, 1)
+	check := func(since time.Time, wantSeries int) {
+		t.Helper()
+		view, err := RenderDashboard([]byte(raw), dir, since)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var option struct {
+			Order  []string `json:"_trackSeriesOrder"`
+			Series []struct {
+				ID   string `json:"id"`
+				Name string `json:"name"`
+			} `json:"series"`
+		}
+		if err := json.Unmarshal(view.Panels[0].ECharts, &option); err != nil {
+			t.Fatal(err)
+		}
+		if len(option.Order) != 2 || option.Order[0] != "level\x00A" || option.Order[1] != "level\x00B" {
+			t.Fatalf("full identity universe changed: %+v", option)
+		}
+		if len(option.Series) != wantSeries {
+			t.Fatalf("series = %+v", option)
+		}
+		for _, s := range option.Series {
+			if s.Name == "B level" && s.ID != option.Order[1] {
+				t.Fatalf("B identity lost: %+v", option)
+			}
+		}
+	}
+	write := func() {
+		t.Helper()
+		if err := os.WriteFile(file, []byte(strings.Join(rows, "\n")+"\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write()
+	check(time.Time{}, 2)
+	since, _ := ParseTime("2026-10-09")
+	check(since, 1)
+	rows[0], rows[1] = rows[1], rows[0]
+	write()
+	check(since, 1)
+	check(time.Time{}, 2)
+	rows = append(rows, `{"name":"level","entity":"B","time":"2026-10-16","value":3}`)
+	write()
+	check(since, 1)
+	check(time.Time{}, 2)
+}

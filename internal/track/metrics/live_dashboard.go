@@ -153,14 +153,6 @@ func RenderDashboard(raw []byte, dataDir string, since time.Time) (DashboardView
 					summaries[key] = summary
 					summaryTimes[key] = at
 				}
-				if !since.IsZero() && at.Before(since) {
-					break
-				}
-				// Copy before adding a display-only legend field; persisted observations never change.
-				copy := dataset.Record{}
-				for k, v := range row {
-					copy[k] = v
-				}
 				title := target.LegendFormat
 				if title == "" {
 					title = strings.TrimSpace(entity + " " + name)
@@ -172,6 +164,19 @@ func RenderDashboard(raw []byte, dataDir string, since time.Time) (DashboardView
 				for k, v := range labels {
 					title = strings.ReplaceAll(title, "{{"+k+"}}", v)
 				}
+				label := strings.ReplaceAll(title, "{{entity}}", entity)
+				if identity, ok := legends[label]; ok && identity != key {
+					return DashboardView{}, fmt.Errorf("panel %d: legend labels collide; include distinguishing labels in legendFormat", i)
+				}
+				legends[label] = key
+				if !since.IsZero() && at.Before(since) {
+					break
+				}
+				// Copy before adding a display-only legend field; persisted observations never change.
+				copy := dataset.Record{}
+				for k, v := range row {
+					copy[k] = v
+				}
 				copy["_track_observed_time"] = stamp
 				copy["time"] = at.UTC().Format("2006-01-02T15:04:05.000000000Z")
 				if len(stamp) != len("2006-01-02") {
@@ -182,11 +187,6 @@ func RenderDashboard(raw []byte, dataDir string, since time.Time) (DashboardView
 					href, _ = row.String("href")
 				}
 				copy["_track_href"] = href
-				label := strings.ReplaceAll(title, "{{entity}}", entity)
-				if identity, ok := legends[label]; ok && identity != key {
-					return DashboardView{}, fmt.Errorf("panel %d: legend labels collide; include distinguishing labels in legendFormat", i)
-				}
-				legends[label] = key
 				copy["_track_series"] = label
 				selected = append(selected, copy)
 				panel.Points++
@@ -248,6 +248,17 @@ func RenderDashboard(raw []byte, dataDir string, since time.Time) (DashboardView
 		// One-sided Grafana bounds cannot be expressed in a View Spec domain.
 		var opt map[string]any
 		_ = json.Unmarshal([]byte(option), &opt)
+		// Reserve presentation slots from the complete matched universe, before the period filter.
+		// IDs use metric/entity identity rather than a mutable legend label or filtered array position.
+		opt["_trackSeriesOrder"] = keys
+		if series, ok := opt["series"].([]any); ok {
+			for _, item := range series {
+				if s, ok := item.(map[string]any); ok {
+					label, _ := s["name"].(string)
+					s["id"] = legends[label]
+				}
+			}
+		}
 		if axes, ok := opt["yAxis"].([]any); ok && len(axes) > 0 {
 			axis, _ := axes[0].(map[string]any)
 			if axis != nil {

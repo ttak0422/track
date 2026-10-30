@@ -70,6 +70,8 @@ intentional raw ECharts overrides. Line defaults combine a theme-aware categoric
 strokes, three dash styles and six marker shapes, with a visible text key. Explicit series colors
 and stroke choices are preserved. Raw options keep explicit palettes and marker visibility.
 
+Dashboard options include stable metric/entity series IDs and `_trackSeriesOrder`, reserved from the full matched identity universe before period filtering. The reader consumes this order to assign both palette slots and line/marker styles, and removes the private metadata before calling ECharts. Period filtering, record/option reordering and observation refresh for the same universe preserve those slots. Other named options sort by `id` or `name`; unnamed series retain their positional fallback. This is not a persisted identity registry: changing the full identity set can reassign defaults; explicit style overrides remain available.
+
 These defaults apply in the live reader and rebuilt snapshots. The six combinations repeat, dense
 series can suppress some markers, and a fixed custom color is not automatically contrast-corrected.
 Standalone renderers and external Grafana keep their existing presentation contracts.

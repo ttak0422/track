@@ -149,6 +149,39 @@ describe("applyChartTheme", () => {
     expect(JSON.stringify(option)).toBe(before);
   });
 
+  it("retains a dashboard identity's color, line and marker through period filtering and refresh", () => {
+    const a = { id: "metric/A", name: "Checkout", type: "line", showSymbol: false, data: [1, null, 3] };
+    const b = { id: "metric/B", name: "Search", type: "line", showSymbol: false, data: [2, 3, 4] };
+    const option = { _trackTheme: true, _trackSeriesOrder: [a.id, b.id], series: [a, b] };
+    const appearance = (input: Record<string, unknown>, id: string) => {
+      const themed = applyChartTheme(input, THEME) as any;
+      const s = themed.series.find((series: any) => series.id === id);
+      expect(themed._trackSeriesOrder).toBeUndefined();
+      return { color: s.color, line: s.lineStyle, symbol: s.symbol, size: s.symbolSize };
+    };
+    const initial = appearance(option, b.id);
+    expect(initial).toMatchObject({ color: THEME.palette[1], line: { type: "dashed" }, symbol: "diamond" });
+    // A has no observations in the shorter period; its reserved slot is still present.
+    expect(appearance({ ...option, series: [b] }, b.id)).toEqual(initial);
+    // Refresh can reorder records/series, update values or restore A without changing B's encoding.
+    expect(appearance({ ...option, series: [{ ...b, data: [4, 5] }, a] }, b.id)).toEqual(initial);
+    expect(appearance(option, b.id)).toEqual(initial);
+    expect(chartSeriesKey({ ...option, series: [b, a] })[0]).toBe("Search: dashed line, diamond markers");
+  });
+
+  it("uses stable raw series IDs or names instead of the option array order", () => {
+    for (const identified of [false, true]) {
+      const a = { type: "line", name: "A", ...(identified ? { id: "first" } : {}), data: [1, 2] };
+      const b = { type: "line", name: "B", ...(identified ? { id: "second" } : {}), data: [2, 1] };
+      const option = { color: ["#123456", "#abcdef"], series: [a, b] };
+      const before = applyChartTheme(option, THEME) as any;
+      const after = applyChartTheme({ ...option, series: [b, a] }, THEME) as any;
+      expect(after.series).toEqual([...before.series].reverse());
+      expect(after.color).toEqual(option.color);
+      expect(chartSeriesKey({ ...option, series: [b, a] })).toEqual(chartSeriesKey(option).reverse());
+    }
+  });
+
   it("preserves raw palette, line and marker overrides and explicit fill colors", () => {
     const option = { color: ["#123456"], series: [{ type: "line", name: "Custom", color: "#abcdef",
       lineStyle: { type: "dotted", width: 5 }, symbol: "triangle", showSymbol: false,

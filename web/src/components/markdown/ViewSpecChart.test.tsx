@@ -51,7 +51,7 @@ describe("ViewSpecChart", () => {
     await waitFor(() =>
       expect(setOption).toHaveBeenCalledWith(
         expect.objectContaining({ series: [{ ...series[0], showSymbol: true,
-          lineStyle: { type: "solid", width: 3 }, symbol: "circle", symbolSize: 7, showAllSymbol: "auto" }] }),
+          color: "#303030", lineStyle: { type: "solid", width: 3 }, symbol: "circle", symbolSize: 7, showAllSymbol: "auto" }] }),
         { notMerge: true },
       ),
     );

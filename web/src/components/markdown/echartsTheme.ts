@@ -27,6 +27,24 @@ const LINE_SYMBOLS = ["circle", "diamond", "rect", "triangle", "roundRect", "pin
 const SYMBOL_LABELS: Record<string, string> = { circle: "circle", diamond: "diamond", rect: "square",
   triangle: "triangle", roundRect: "rounded rectangle", pin: "pin" };
 
+// Dashboard responses reserve slots using the full matched universe, including series outside
+// the selected period. Other options use stable IDs/names sorted independently of array order.
+// An unnamed series has no stable identity and retains its positional fallback.
+function seriesSlots(option: Record<string, unknown>): number[] {
+  const series = asArray(option.series);
+  const identity = (s: any): string | undefined => {
+    if (!s || typeof s !== "object") return undefined;
+    if (typeof s.id === "string" && s.id) return `id:${s.id}`;
+    if (typeof s.name === "string" && s.name) return `name:${s.name}`;
+    return undefined;
+  };
+  const order = Array.isArray(option._trackSeriesOrder)
+    ? option._trackSeriesOrder.filter((id): id is string => typeof id === "string").map((id) => `id:${id}`)
+    : [...new Set(series.map(identity).filter((id): id is string => id !== undefined))].sort();
+  const slots = new Map(order.map((id, i) => [id, i]));
+  return series.map((s, i) => slots.get(identity(s) ?? "") ?? i);
+}
+
 function lineEncoding(series: any, index: number, trackTheme: boolean) {
   return {
     pattern: series.lineStyle?.type ?? LINE_PATTERNS[index % LINE_PATTERNS.length],
@@ -39,9 +57,10 @@ function lineEncoding(series: any, index: number, trackTheme: boolean) {
 // A plain-text counterpart to the chart legend remains useful without any color perception.
 // It describes the actual defaults/overrides, rather than renaming the data series.
 export function chartSeriesKey(option: Record<string, unknown>): string[] {
+  const slots = seriesSlots(option);
   const keys = asArray(option.series).flatMap((s: any, i: number) => {
     if (!s || typeof s !== "object" || s.type !== "line" || typeof s.name !== "string" || !s.name) return [];
-    const encoding = lineEncoding(s, i, option._trackTheme === true);
+    const encoding = lineEncoding(s, slots[i], option._trackTheme === true);
     const pattern = typeof encoding.pattern === "string" ? encoding.pattern : "custom-pattern";
     const marker = encoding.markers && encoding.symbol !== "none"
       ? `${SYMBOL_LABELS[encoding.symbol] ?? "custom"} markers`
@@ -79,7 +98,9 @@ export function applyChartTheme(
 ): Record<string, unknown> {
   const opt = structuredClone(option) as any;
   const trackTheme = opt._trackTheme === true;
+  const slots = seriesSlots(option);
   delete opt._trackTheme;
+  delete opt._trackSeriesOrder;
   // Server-generated options carry a default palette; raw ECharts color overrides are intentional.
   if (trackTheme || opt.color === undefined) opt.color = t.palette;
   if (opt.title) {
@@ -122,7 +143,10 @@ export function applyChartTheme(
   asArray(opt.series).forEach((s: any, i: number) => {
     if (!s || typeof s !== "object") return;
     if (s.type === "line") {
-      const encoding = lineEncoding(s, i, trackTheme);
+      const slot = slots[i];
+      const encoding = lineEncoding(s, slot, trackTheme);
+      const palette = Array.isArray(opt.color) ? opt.color : [opt.color];
+      if (s.color === undefined && palette.length > 0) s.color = palette[slot % palette.length];
       s.lineStyle = { width: 3, ...s.lineStyle, type: encoding.pattern };
       s.symbol = encoding.symbol;
       s.showSymbol = encoding.markers;
@@ -130,7 +154,7 @@ export function applyChartTheme(
       s.symbolSize ??= 7;
     }
     if (trackTheme && s.areaStyle?.color) {
-      const color = typeof s.color === "string" ? s.color : t.palette[i % t.palette.length];
+      const color = typeof s.color === "string" ? s.color : t.palette[slots[i] % t.palette.length];
       s.areaStyle.color = s.areaStyle.opacity === undefined ? withAlpha(color, 0.3) : color;
     }
     if (s.markLine) {
