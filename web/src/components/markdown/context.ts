@@ -12,6 +12,9 @@ export const NoteKindContext = createContext<string>("note");
 // rendered body would silently resolve against the launch vault.
 export const NoteVaultContext = createContext<string>("");
 
+// Stateful external embeds belong to this document tree, including the host of an included note.
+export const NoteIdentityContext = createContext<string>("");
+
 // Resolved ![[...]] includes of the note being rendered (ADR 0031), indexed by the placeholder
 // tokens spliceIncludeTokens left in the markdown. Module-level markdownComponents cannot close
 // over per-render data, so the embed component reads them from here.

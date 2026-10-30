@@ -451,6 +451,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/calendar-events", s.withVault(s.handleCalendarEvents))
 	s.mux.HandleFunc("/api/calendar-event", s.withVault(s.handleCalendarEvent))
 	s.mux.HandleFunc("/api/render", s.withVault(s.handleRender))
+	s.mux.HandleFunc("/api/metrics-dashboard", s.withVault(s.handleMetricsDashboard))
 	s.mux.HandleFunc("/api/viewspec", s.withVault(s.handleViewSpec))
 	s.mux.HandleFunc("/api/asset", s.withVault(s.handleAsset))
 	s.mux.HandleFunc("/api/ogp", s.handleOGP)

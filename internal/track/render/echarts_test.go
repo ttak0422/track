@@ -75,6 +75,24 @@ func TestEChartsNaNBecomesNull(t *testing.T) {
 	}
 }
 
+func TestEChartsReaderThemeIntent(t *testing.T) {
+	res := resolvedChart(viewspec.ChartLine, "S", []float64{1, 2})
+	option, err := EChartsOptionJSON(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(option, `"_trackTheme":true`) {
+		t.Fatal("generated reader options need theme intent so raw palettes remain distinguishable")
+	}
+	standalone, err := ECharts{}.Render(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(standalone, "_trackTheme") {
+		t.Fatal("reader presentation intent must not alter the standalone renderer")
+	}
+}
+
 func TestEChartsAreaFillsAndBarStacks(t *testing.T) {
 	area, _ := EChartsOptionJSON(resolvedChart(viewspec.ChartArea, "S", []float64{1, 2}))
 	if !strings.Contains(area, `"areaStyle"`) || !strings.Contains(area, "rgba(78,121,167,0.3)") {

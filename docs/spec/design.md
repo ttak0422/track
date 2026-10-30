@@ -98,6 +98,10 @@ links. A control in the chrome never reaches into this palette; it has `--mark`
 and nothing else. `--danger` is the near neighbour of that vermilion, so the two
 are told apart by shape rather than hue: danger is a dotted underline or a
 filled destructive button, the mark is a solid rule, ring, or node.
+Categorical charts start with ink and vermilion, then supporting colors. Reader line/area series
+also use six pattern/point combinations and a plain-text key, so color does not carry identity alone.
+The default categorical strokes must clear 3:1 on `--bg`, `--panel`, and `--panel-soft` in both themes;
+custom palettes remain the author's responsibility.
 
 Non-color tokens: `--font-sans` (IBM Plex Sans JP for the reading surface),
 `--font-mono` (the one mono stack: code, the editor, section labels),

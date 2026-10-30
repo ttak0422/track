@@ -69,15 +69,15 @@
      so both values clear AA on every ground (5.4:1 on the sheet in light, 6.3:1 in dark) and a white
      label on the filled mark clears it too. */
   --mark: light-dark(#c13a1e, #f4785e);
-  /* The visualization palette: quiet, earthy series colours and a teal heatmap ramp (read by
-     echartsTheme.ts). The chrome never reaches in here. */
+  /* Ink and vermilion lead the categorical palette; patterns and point shapes also identify lines.
+     All six colors clear 3:1 on the reading surfaces in both themes. The teal ramp is separate. */
   --danger: light-dark(#8a352b, #de766b);
-  --chart-1: light-dark(#286957, #74c4a8);
-  --chart-2: light-dark(#a05f2e, #dca06a);
-  --chart-3: light-dark(#536f91, #9bb7d5);
-  --chart-4: light-dark(#99504a, #dc8b84);
-  --chart-5: light-dark(#737b4a, #b5c383);
-  --chart-6: light-dark(#795f80, #c1a4c6);
+  --chart-1: light-dark(#303030, #e6e4de);
+  --chart-2: light-dark(#b23a22, #ff9d85);
+  --chart-3: light-dark(#005e9e, #8bc5f1);
+  --chart-4: light-dark(#79538a, #d6a5dd);
+  --chart-5: light-dark(#766000, #d7c568);
+  --chart-6: light-dark(#00696b, #83c9c7);
   --chart-ramp-lo: light-dark(#e4ebe7, #28322f);
   --chart-ramp-hi: light-dark(#286957, #91d0b8);
   --font-sans:
@@ -4202,6 +4202,17 @@ textarea.modal-input:focus-visible {
   background: transparent;
 }
 
+.chart-series-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 20px;
+  margin-block: 8px;
+  color: var(--muted);
+  font-size: calc(12px * var(--font-scale, 1));
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
 .viewspec-chart-wrap .chart-annotations[data-side="above"] {
   position: absolute;
   left: 0;
@@ -5964,3 +5975,24 @@ textarea.modal-input:focus-visible {
 }
 .drawio-editor-button:hover, .drawio-editor-button:focus-visible { color: var(--text); }
 .drawio-editor-button:disabled { cursor: default; color: var(--faint); }
+
+/* Dashboard controls use design variant 1 (text control); panels share the reading sheet. */
+.markdown-view > .metrics-dashboard, .markdown-view > .grafana-frame { max-width: none; width: 100%; }
+.metrics-dashboard-controls { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; margin: 12px 0; }
+.metrics-dashboard-controls button, .metrics-dashboard-controls select {
+  color: var(--muted); background: transparent; border: 0; border-radius: 0;
+  font: inherit; cursor: pointer; padding: 4px 0;
+}
+.metrics-dashboard-controls button:hover, .metrics-dashboard-controls button:focus-visible,
+.metrics-dashboard-controls select:focus-visible { color: var(--text); }
+.metrics-dashboard-controls select option { background: var(--panel); }
+.metrics-dashboard-controls button:disabled { cursor: default; color: var(--faint); }
+.metrics-dashboard-grid { display: grid; grid-template-columns: repeat(24, minmax(0, 1fr)); gap: 20px 12px; }
+.metrics-dashboard-panel { min-width: 0; }
+.metrics-dashboard-meta { font-size: calc(13px * var(--font-scale, 1)); color: var(--muted); overflow-wrap: anywhere; }
+.grafana-frame iframe { width: 100%; height: 600px; border: 1px solid var(--line); border-radius: var(--radius); }
+@media (max-width: 700px) { .metrics-dashboard-panel { grid-column: 1 / -1 !important; } }
+
+.metrics-dashboard-meta dl { margin: 8px 0; }
+.metrics-dashboard-meta dl > div { display: grid; grid-template-columns: minmax(6em, 1fr) 3fr; gap: 12px; }
+.metrics-dashboard-meta dd { margin: 0; white-space: pre-wrap; }

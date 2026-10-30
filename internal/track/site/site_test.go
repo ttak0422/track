@@ -1333,3 +1333,17 @@ func TestSwapFavicon(t *testing.T) {
 		}
 	}
 }
+
+func TestMetricsDashboardSnapshot(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "m.jsonl"), []byte("{\"name\":\"m\",\"time\":\"2026-10-01\",\"value\":1}\n"), 0600)
+	body := "```metrics-dashboard\n" + `{"title":"Saved","panels":[{"type":"timeseries","title":"Level","datasource":{"type":"track","uid":"m.jsonl"},"targets":[{"expr":"m"}]}]}` + "\n```\n"
+	got := resolveMetricsDashboardBlocks(body, dir, func(s string) (string, bool) { return "", false })
+	if !strings.Contains(got, "```metrics-snapshot") || !strings.Contains(got, `"points":1`) || strings.Contains(got, "```metrics-dashboard") {
+		t.Fatalf("snapshot: %s", got)
+	}
+	bad := resolveMetricsDashboardBlocks("```metrics-dashboard\n{}\n```", dir, func(s string) (string, bool) { return "", false })
+	if !strings.Contains(bad, "Metrics dashboard error:") {
+		t.Fatalf("bad snapshot: %s", bad)
+	}
+}

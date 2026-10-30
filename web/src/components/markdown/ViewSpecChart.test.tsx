@@ -38,7 +38,8 @@ describe("ViewSpecChart", () => {
   });
 
   it("hands the server-resolved option to an ECharts instance", async () => {
-    mockRender.mockResolvedValue({ echarts: { series: [{ type: "line" }] } });
+    const series = [{ type: "line", name: "Checkout", data: [1, null, 3], showSymbol: false, connectNulls: false }];
+    mockRender.mockResolvedValue({ echarts: { _trackTheme: true, color: ["old"], series } });
     renderWithQuery(<ViewSpecChart text={spec} />);
     expect(screen.getByText("Rendering chart...")).toBeInTheDocument();
     await waitFor(() =>
@@ -46,13 +47,16 @@ describe("ViewSpecChart", () => {
     );
     // The spec resolves against the vault the note came from; a body rendered outside one passes "".
     expect(mockRender).toHaveBeenCalledWith(spec, "");
-    // The option arrives themed (applyChartTheme), so match on the semantic core.
+    // Reader presentation adds redundant cues while retaining values and the explicit gap.
     await waitFor(() =>
       expect(setOption).toHaveBeenCalledWith(
-        expect.objectContaining({ series: [{ type: "line" }] }),
+        expect.objectContaining({ series: [{ ...series[0], showSymbol: true,
+          color: "#303030", lineStyle: { type: "solid", width: 3 }, symbol: "circle", symbolSize: 7, showAllSymbol: "auto" }] }),
         { notMerge: true },
       ),
     );
+    expect(setOption.mock.calls[0][0]._trackTheme).toBeUndefined();
+    expect(setOption.mock.calls[0][0].color).not.toEqual(["old"]);
   });
 
   it("shows the server error and the source at the block position", async () => {

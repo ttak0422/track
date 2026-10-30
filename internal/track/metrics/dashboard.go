@@ -45,7 +45,14 @@ type grafanaFieldDefaults struct {
 	Thresholds *grafanaThresholds `json:"thresholds"`
 }
 
+type grafanaGridPos struct {
+	X int `json:"x"`
+	Y int `json:"y"`
+	W int `json:"w"`
+}
+
 type grafanaPanel struct {
+	GridPos     *grafanaGridPos    `json:"gridPos"`
 	Type        string             `json:"type"`
 	Title       string             `json:"title"`
 	Targets     []grafanaTarget    `json:"targets"`
@@ -106,6 +113,10 @@ func ResolveDashboard(data []byte, dataDir string) (string, int, error) {
 }
 
 func resolvePanel(p grafanaPanel, dataDir string) (string, error) {
+	return resolvePanelSpec(p, dataDir, false)
+}
+
+func resolvePanelSpec(p grafanaPanel, dataDir string, live bool) (string, error) {
 	type ySeries struct {
 		Field string `json:"field"`
 		Title string `json:"title,omitempty"`
@@ -120,6 +131,7 @@ func resolvePanel(p grafanaPanel, dataDir string) (string, error) {
 		Op    string `json:"op"`
 		Value string `json:"value"`
 	}
+	var sourceFile string
 	for _, t := range p.Targets {
 		if _, err := ParseQuery(t.Expr); err != nil {
 			return "", fmt.Errorf("target %q: %w (expr is a metric name plus = matchers only)", t.Expr, err)
@@ -135,6 +147,10 @@ func resolvePanel(p grafanaPanel, dataDir string) (string, error) {
 			}
 			return "", fmt.Errorf("target %q: datasource must be {\"type\":\"track\",\"uid\":\"<data/ filename>\"}, got %s", t.Expr, got)
 		}
+		if sourceFile != "" && ds.UID != sourceFile {
+			return "", fmt.Errorf("one spec reads one file: panel %q targets reference different files", p.Title)
+		}
+		sourceFile = ds.UID
 		if _, err := loadMetricFile(dataDir, ds.UID); err != nil {
 			return "", err
 		}
@@ -189,30 +205,33 @@ func resolvePanel(p grafanaPanel, dataDir string) (string, error) {
 	if len(seriesList) == 0 {
 		return "", seriesListErr(p)
 	}
-	files := map[string]bool{}
 	folded := map[string]bool{}
 	entities := map[string]bool{}
 	for _, s := range seriesList {
-		files[s.file] = true
 		folded[s.name] = true
 		entities[s.entity] = true
 	}
-	if len(files) > 1 {
-		return "", fmt.Errorf("one spec reads one file: panel %q targets span %d files", p.Title, len(files))
-	}
-	if len(folded) > 1 {
+	if len(folded) > 1 && !live {
 		return "", fmt.Errorf("panel %q matches %d series names; split the targets across panels", p.Title, len(folded))
 	}
 	file := seriesList[0].file
 	family := seriesList[0].name
 	multi := len(entities) > 1
-	ys := make([]ySeries, len(seriesList))
-	for i, s := range seriesList {
-		ys[i] = ySeries{Field: "value", Title: s.title}
-		if multi && i > 0 {
-			// Under a color split y[0] shares the chart's mark while every extra
-			// channel is an explicit series that needs its own mark override.
-			ys[i].Mark = "line"
+	ys := []ySeries{{Field: "value", Title: seriesList[0].title}}
+	filters := []filterCond{{Field: "name", Op: "eq", Value: family}}
+	if !multi {
+		filters = append(filters, filterCond{Field: "entity", Op: "eq", Value: seriesList[0].entity})
+	}
+	rows, err := loadMetricFile(dataDir, file)
+	if err != nil {
+		return "", err
+	}
+	excluded := map[string]bool{}
+	for _, row := range rows {
+		entity, _ := row.String("entity")
+		if multi && !entities[entity] && !excluded[entity] {
+			filters = append(filters, filterCond{Field: "entity", Op: "ne", Value: entity})
+			excluded[entity] = true
 		}
 	}
 	spec := map[string]any{
@@ -220,9 +239,7 @@ func resolvePanel(p grafanaPanel, dataDir string) (string, error) {
 		"title":   strings.TrimSpace(p.Title),
 		"mark":    "line",
 		"data":    map[string]any{"source": file, "kind": "metric"},
-		"filter": map[string]any{"all": []filterCond{
-			{Field: "name", Op: "eq", Value: family},
-		}},
+		"filter":  map[string]any{"all": filters},
 		"encoding": map[string]any{
 			"x": map[string]any{"field": "time"},
 			"y": ys,
@@ -262,18 +279,38 @@ func trimFloat(v float64) string {
 }
 
 func isBareFilename(s string) bool {
-	return s != "" && s == filepath.Base(s) && !strings.Contains(s, `\`)
+	return s != "" && s != "." && s != ".." && s == filepath.Base(s) && !strings.Contains(s, `\`)
+}
+
+func readMetricRecords(dataDir, file string) ([]dataset.Record, os.FileInfo, error) {
+	if !isBareFilename(file) {
+		return nil, nil, fmt.Errorf("data source must be a bare filename")
+	}
+	root, err := os.OpenRoot(dataDir)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer root.Close()
+	f, err := root.Open(file)
+	if err != nil {
+		return nil, nil, fmt.Errorf("open %s: %w", file, err)
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, nil, err
+	}
+	rows, err := dataset.ReadJSONL(f)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read %s: %w", file, err)
+	}
+	return rows, info, nil
 }
 
 func loadMetricFile(dataDir, file string) ([]dataset.Record, error) {
-	f, err := os.Open(filepath.Join(dataDir, file))
+	rows, _, err := readMetricRecords(dataDir, file)
 	if err != nil {
-		return nil, fmt.Errorf("open %s: %w", file, err)
-	}
-	defer f.Close()
-	rows, err := dataset.ReadJSONL(f)
-	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", file, err)
+		return nil, err
 	}
 	// Keep only metric-shaped rows; other kinds never enter a panel query.
 	var out []dataset.Record

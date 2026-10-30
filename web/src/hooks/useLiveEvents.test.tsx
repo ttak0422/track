@@ -1,16 +1,24 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, renderHook } from "@testing-library/react";
+import { act, render, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useLiveEvents } from "./useLiveEvents";
-import { listNewNotes } from "../api";
+import { listNewNotes, renderMetricsDashboard, renderViewSpec } from "../api";
 import { useNewNotesQuery } from "../queries";
+import { MetricsDashboard } from "../components/markdown/MetricsDashboard";
+import { ViewSpecChart } from "../components/markdown/ViewSpecChart";
+import { NoteVaultContext } from "../components/markdown/context";
+import type { MetricsDashboardResponse } from "../api";
 import type { NotesResponse } from "../types";
 
 vi.mock("../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api")>()),
   listNewNotes: vi.fn(async () => ({ notes: [] })),
+  renderMetricsDashboard: vi.fn(),
+  renderViewSpec: vi.fn(),
 }));
+
+vi.mock("../components/markdown/EChartsBlock", () => ({ EChartsBlock: () => null }));
 
 // jsdom has no EventSource; a fake capturing listeners lets the tests emit server events directly.
 class FakeEventSource {
@@ -52,6 +60,8 @@ describe("useLiveEvents", () => {
     FakeEventSource.instances = [];
     vi.stubGlobal("EventSource", FakeEventSource);
     vi.mocked(listNewNotes).mockReset().mockResolvedValue({ notes: [] });
+    vi.mocked(renderMetricsDashboard).mockReset();
+    vi.mocked(renderViewSpec).mockReset();
   });
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -116,17 +126,64 @@ describe("useLiveEvents", () => {
     expect(invalidate).not.toHaveBeenCalled();
   });
 
-  it("invalidates only viewspec queries on a data event, debouncing bursts", () => {
+  it("refreshes charts and dashboards after reconnect", async () => {
+    const { invalidate, source } = renderLiveEvents();
+    source.emit("open");
+    await act(async () => { await vi.advanceTimersByTimeAsync(150); });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["viewspec"] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["metrics-dashboard"] });
+  });
+
+  it("invalidates chart and dashboard queries on a data event, debouncing bursts", async () => {
     const { invalidate, source, unmount } = renderLiveEvents();
     // A burst of writes under data/ coalesces into a single chart refresh.
     source.emit("data");
     source.emit("data");
     expect(invalidate).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(150);
-    expect(invalidate).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(150); });
+    expect(invalidate).toHaveBeenCalledTimes(2);
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["viewspec"] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["metrics-dashboard"] });
 
     unmount();
     expect(source.closed).toBe(true);
   });
+  it.each(["data", "open"])("replaces both pending initial chart responses after %s", async (event) => {
+    let resolveOldDashboard!: (data: MetricsDashboardResponse) => void;
+    let resolveOldChart!: (data: { echarts: Record<string, unknown> }) => void;
+    vi.mocked(renderMetricsDashboard).mockReturnValueOnce(new Promise((resolve) => { resolveOldDashboard = resolve; }));
+    vi.mocked(renderViewSpec).mockReturnValueOnce(new Promise((resolve) => { resolveOldChart = resolve; }));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const dashboardText = JSON.stringify({title:"Metrics",panels:[{type:"timeseries",datasource:{type:"track",uid:"m.jsonl"},targets:[{expr:"m"}]}]});
+    const specText = JSON.stringify({version:2,mark:"line",data:{source:"m.jsonl",kind:"metric"},encoding:{x:{field:"time"},y:[{field:"value"}]}});
+    function Fixture() {
+      useLiveEvents();
+      return <NoteVaultContext value="research"><MetricsDashboard text={dashboardText} /><ViewSpecChart text={specText} /></NoteVaultContext>;
+    }
+    render(<QueryClientProvider client={client}><Fixture /></QueryClientProvider>);
+    expect(renderMetricsDashboard).toHaveBeenCalledTimes(1);
+    expect(renderViewSpec).toHaveBeenCalledTimes(1);
+    const freshDashboard: MetricsDashboardResponse = {title:"Fresh",panels:[]};
+    const freshChart = {echarts:{title:{text:"Fresh"}}};
+    vi.mocked(renderMetricsDashboard).mockResolvedValue(freshDashboard);
+    vi.mocked(renderViewSpec).mockResolvedValue(freshChart);
+    const source = FakeEventSource.instances[0];
+    source.emit(event);
+    source.emit(event);
+    await act(async () => { await vi.advanceTimersByTimeAsync(200); });
+    expect(renderMetricsDashboard).toHaveBeenCalledTimes(2);
+    expect(renderMetricsDashboard).toHaveBeenLastCalledWith(dashboardText,0,"research");
+    expect(renderViewSpec).toHaveBeenCalledTimes(2);
+    expect(renderViewSpec).toHaveBeenLastCalledWith(specText,"research");
+    expect(client.getQueriesData({queryKey:["metrics-dashboard"]})[0][1]).toEqual(freshDashboard);
+    expect(client.getQueriesData({queryKey:["viewspec"]})[0][1]).toEqual(freshChart);
+    await act(async () => {
+      resolveOldDashboard({title:"Stale",panels:[]});
+      resolveOldChart({echarts:{title:{text:"Stale"}}});
+      await vi.advanceTimersByTimeAsync(50);
+    });
+    expect(client.getQueriesData({queryKey:["metrics-dashboard"]})[0][1]).toEqual(freshDashboard);
+    expect(client.getQueriesData({queryKey:["viewspec"]})[0][1]).toEqual(freshChart);
+  });
+
 });

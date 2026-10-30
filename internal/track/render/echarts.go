@@ -65,6 +65,9 @@ func EChartsOptionJSON(res viewspec.Resolved) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// The reader supplies theme-aware presentation defaults. Keep that intent separate from a
+	// hand-written ECharts option's explicit palette or hidden markers. Standalone renderers ignore it.
+	opt["_trackTheme"] = true
 	optJSON, err := json.Marshal(opt)
 	if err != nil {
 		return "", fmt.Errorf("marshal echarts option: %w", err)
