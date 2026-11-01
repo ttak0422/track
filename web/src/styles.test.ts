@@ -202,26 +202,29 @@ describe("note flags", () => {
     );
   });
 
-  it("stamps a flagged note in danger, uppercase and rotated, over the article but under the floating layers", () => {
+  it("repeats large theme-colored watermarks without affecting content or pointer operations", () => {
     const stamp = ruleBody(".stamp");
-
     expect(stamp).toMatch(/position:\s*absolute/);
-    expect(stamp).toMatch(/color:\s*var\(--danger\)/);
-    expect(stamp).toMatch(/text-transform:\s*uppercase/);
-    expect(stamp).toMatch(/transform:\s*rotate\(-8deg\)/);
-    expect(stamp).toMatch(/opacity:\s*0\.85/);
-    expect(stamp).toMatch(/pointer-events:\s*none/);
+    expect(ruleBody(".stamp-deprecated")).toMatch(/background:\s*var\(--note-flag-deprecated\)/);
+    expect(ruleBody(".stamp-confidential")).toMatch(/background:\s*var\(--note-flag-confidential\)/);
+    expect(stamp).toMatch(/mask-size:\s*min\(100%, 720px\) min\(100%, 480px\)/);
+    expect(stamp).toMatch(/mask-repeat:\s*repeat-y/);
+    expect(stamp).toMatch(/opacity:\s*var\(--note-watermark-opacity\)/);
+    const stamps = ruleBody(".note-stamps");
+    expect(stamps).toMatch(/pointer-events:\s*none/);
+    expect(stamps).toMatch(/user-select:\s*none/);
+    expect(stamps).toMatch(/overflow:\s*hidden/);
   });
 
-  it("anchors the stamps to the note article and keeps their layer below every floating one", () => {
-    const previewBaseZ = Number(previewStack.match(/previewBaseZIndex\s*=\s*(\d+)/)?.[1]);
-    const stampsZ = zIndex(".note-stamps")!;
-
-    expect(ruleBody(".note-reader")).toMatch(/position:\s*relative/);
-    expect(ruleBody(".note-editor")).toMatch(/position:\s*relative/);
-    expect(ruleBody(".note-stamps")).toMatch(/pointer-events:\s*none/);
-    expect(stampsZ).toBeLessThan(previewBaseZ);
-    expect(stampsZ).toBeLessThan(zIndex(".selection-copy")!);
+  it("contains watermarks above the pane background and below its content", () => {
+    const surface = ruleBody(".note-surface");
+    expect(surface).toMatch(/position:\s*relative/);
+    expect(surface).toMatch(/isolation:\s*isolate/);
+    expect(surface).toMatch(/min-height:\s*100%/);
+    expect(surface).not.toMatch(/overflow:/);
+    expect(ruleBody(".note-stamps")).toMatch(/z-index:\s*-1/);
+    expect(ruleBody(".note-source")).toMatch(/background:\s*var\(--panel-soft\)/);
+    expect(ruleBody(".note-editor textarea")).toMatch(/background:\s*transparent/);
   });
 });
 
@@ -703,6 +706,47 @@ describe("chart palette contrast", () => {
           const a = luminance(pair(`chart-${i}`)[index]);
           const b = luminance(pair(surface)[index]);
           expect((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05), `${theme} chart-${i} on ${surface}`).toBeGreaterThanOrEqual(3);
+        }
+      }
+    });
+  }
+});
+
+
+describe("note watermark palette", () => {
+  const opacity = Number(ruleBody(":root").match(/--note-watermark-opacity:\s*([\d.]+)/)?.[1]);
+  function pair(name: string): number[][] {
+    const match = css.match(new RegExp(`--${name}:\\s*light-dark\\((#[a-fA-F0-9]{6}),\\s*(#[a-fA-F0-9]{6})\\)`));
+    if (!match) throw new Error(`missing theme token: ${name}`);
+    return [match[1], match[2]].map((hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)));
+  }
+  function luminance(rgb: number[]): number {
+    const channels = rgb.map((v) => v / 255).map((v) => v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+    return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+  }
+  it("uses registered red and blue theme tokens at a bounded, stronger opacity", () => {
+    expect(opacity).toBeGreaterThanOrEqual(0.18);
+    expect(opacity).toBeLessThanOrEqual(0.24);
+    for (const name of ["note-flag-deprecated", "note-flag-confidential"]) {
+      expect(css).toContain(`@property --${name} { syntax: "<color>"; inherits: true;`);
+    }
+    for (const index of [0, 1]) {
+      const red = pair("note-flag-deprecated")[index];
+      const blue = pair("note-flag-confidential")[index];
+      expect(red[0] - red[2]).toBeGreaterThan(60);
+      expect(blue[2] - blue[0]).toBeGreaterThan(60);
+    }
+  });
+  for (const [theme, index] of [["light", 0], ["dark", 1]] as const) {
+    it(`preserves at least 7:1 body ink contrast over either ${theme} watermark`, () => {
+      for (const surface of ["bg", "panel", "panel-soft"]) {
+        for (const flag of ["deprecated", "confidential"]) {
+          const ground = pair(surface)[index];
+          const ink = pair(`note-flag-${flag}`)[index];
+          const composite = ground.map((v, i) => v * (1 - opacity) + ink[i] * opacity);
+          const a = luminance(pair("text")[index]);
+          const b = luminance(composite);
+          expect((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05), `${flag} on ${surface}`).toBeGreaterThanOrEqual(7);
         }
       }
     });

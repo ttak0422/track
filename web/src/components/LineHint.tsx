@@ -8,7 +8,7 @@ import { bandMarks, type LineHintMark, type LineHintSpan } from "./roughLine";
 // the viewport happens to be. Reading mode only — the callers mount it inside .note-preview and
 // never alongside a textarea.
 //
-// It mounts as the first child of .note-preview and measures from there: the stamped blocks are its
+// It mounts inside the preview's .note-surface and measures from there: the stamped blocks are its
 // siblings (rehypeCopyLine's data-copy-line-start), and each mark is placed at its block's offset
 // from this element's own top. Nothing here listens to scrolling; the marks move because the note
 // they are pinned to moves.
