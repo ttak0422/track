@@ -2,6 +2,7 @@ import type { MermaidConfig } from "mermaid";
 import {
   type PointerEvent,
   type Ref,
+  type ReactNode,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -13,6 +14,7 @@ import { useVisible } from "../../hooks/useVisible";
 import { CodeBlock } from "./CodeBlock";
 import { copyText } from "./clipboard";
 import { registerMermaidIcons } from "./mermaidIcons";
+import { PeleDiagram, peleFallbackReason } from "./PeleDiagram";
 import {
   IconCheck,
   IconChevronDown,
@@ -34,16 +36,27 @@ interface MermaidDiagramProps {
 // the engine turns source text into an SVG string, or fails with a message shown above the source.
 export type DiagramState =
   | { status: "loading" }
-  | { status: "ready"; svg: string }
+  | { status: "ready"; svg: string; popupSvg?: string }
   | { status: "error"; message: string };
 
 let renderSequence = 0;
 
-// MermaidDiagram renders fenced ```mermaid blocks in the browser. Mermaid owns parsing and SVG
-// generation; securityLevel strict keeps diagram directives from loosening the renderer. The engine
-// import and render wait until the block scrolls near the viewport (same 200px policy as charts),
-// so off-screen diagrams cost nothing on initial load.
+// Keep Mermaid source/fence compatibility while using Pele for ordinary diagrams. Both engines
+// stay lazy and wait for the viewport; Mermaid loads only for unsupported sources or Pele failures.
 export function MermaidDiagram({ text }: MermaidDiagramProps) {
+  // A source change starts a fresh attempt and discards failures/popups from the previous source.
+  return <AutomaticDiagram key={text} text={text} />;
+}
+
+function AutomaticDiagram({ text }: MermaidDiagramProps) {
+  const [failure, setFailure] = useState<string | null>(null);
+  const reason = peleFallbackReason(text) ?? failure;
+  return reason
+    ? <MermaidRenderer text={text} toolbar={<p className="diagram-renderer-notice" role="status">Using Mermaid: {reason}</p>} />
+    : <PeleDiagram text={text} onFailure={setFailure} />;
+}
+
+function MermaidRenderer({ text, toolbar }: MermaidDiagramProps & { toolbar: ReactNode }) {
   const { ref, visible } = useVisible<HTMLDivElement>();
   const [state, setState] = useState<DiagramState>({ status: "loading" });
   const themeVersion = useThemeVersion();
@@ -79,6 +92,7 @@ export function MermaidDiagram({ text }: MermaidDiagramProps) {
       source={text}
       sourceLang="mermaid"
       label="Mermaid diagram"
+      toolbar={toolbar}
     />
   );
 }
@@ -94,6 +108,7 @@ interface DiagramFrameProps {
   label: string;
   // Extra class on the root, so engine-specific CSS (e.g. Graphviz dark-mode inversion) can hook in.
   className?: string;
+  toolbar?: ReactNode;
 }
 
 // DiagramFrame is the presentation shell shared by the diagram engines: loading placeholder, error
@@ -105,11 +120,13 @@ export function DiagramFrame({
   label,
   className,
   visibilityRef,
+  toolbar,
 }: DiagramFrameProps) {
   const svg = state.status === "ready" ? state.svg : null;
+  const popupSvg = state.status === "ready" ? state.popupSvg ?? state.svg : null;
   const panZoom = usePanZoom(svg, { persistenceKey: diagramStorageKey(sourceLang, source) });
   const [enlarged, setEnlarged] = useState(false);
-  const lightboxPanZoom = usePanZoom(enlarged ? svg : null);
+  const lightboxPanZoom = usePanZoom(enlarged ? popupSvg : null);
   const dialogRef = useRef<HTMLDialogElement>(null);
   // A stable element per svg string: pan/zoom re-renders reuse it untouched, so react-dom never
   // rewrites the innerHTML — which would both discard sizeSvgToViewBox's sizing and re-parse a large
@@ -117,6 +134,10 @@ export function DiagramFrame({
   const svgHost = useMemo(
     () => (svg == null ? null : <div dangerouslySetInnerHTML={{ __html: svg }} />),
     [svg],
+  );
+  const popupHost = useMemo(
+    () => (popupSvg == null ? null : <div dangerouslySetInnerHTML={{ __html: popupSvg }} />),
+    [popupSvg],
   );
   const rootClass = className ? `mermaid-diagram ${className}` : "mermaid-diagram";
 
@@ -128,6 +149,7 @@ export function DiagramFrame({
   if (state.status === "error") {
     return (
       <div ref={visibilityRef} className={`${rootClass} mermaid-diagram-error`}>
+        {toolbar}
         <p>{state.message}</p>
         <CodeBlock lang={sourceLang} text={source} />
       </div>
@@ -137,6 +159,7 @@ export function DiagramFrame({
   if (state.status === "loading") {
     return (
       <div ref={visibilityRef} className={`${rootClass} mermaid-diagram-loading`}>
+        {toolbar}
         Rendering diagram...
       </div>
     );
@@ -159,6 +182,7 @@ export function DiagramFrame({
   const showPopupControl = !collapsed;
   return (
     <div ref={visibilityRef} className={rootClass} data-collapsed={collapsed || undefined}>
+      {toolbar}
       {/* Every control the diagram has, in one strip above the drawing. They used to float over the
           two top corners, where they landed on whatever the diagram put there — a node's label, most
           of the time — and a chip a reader has to look past is worse than one they have to look for.
@@ -315,7 +339,7 @@ export function DiagramFrame({
                 role="img"
                 aria-label={label}
               >
-                {svgHost}
+                {popupHost}
               </div>
             </div>
           </div>
