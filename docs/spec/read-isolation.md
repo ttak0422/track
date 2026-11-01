@@ -13,7 +13,10 @@ returns bounded, alias-free YAML nodes so unknown extension fields and integer/t
 survive parent reconstruction. File bytes are bound to descriptor and path identities before/after
 reading; this detects ordinary concurrent replacement, not an atomic whole-filesystem snapshot.
 
-There are four filesystem slots, a 32-entry queue and at most two admitted requests per vault.
+There are four filesystem slots and a 32-entry work queue. Admission allows at most 36 callers
+overall, with at most two worker reservations and eight waiting callers per vault. Ordinary
+concurrency waits for a release notification under its original deadline; a blocked-owner burst
+cannot consume every admission ticket while other workers are idle.
 Caller deadlines cover admission, spawn, exchange and parse. A child not reaped after cancellation
 continues to consume its slot and owner reservation. Configuration has a separate bounded pool.
 Frames are limited to 24 MiB, text files to 16 MiB, metadata to 4 MiB, directories to 100,000 entries.
