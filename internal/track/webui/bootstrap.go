@@ -54,12 +54,10 @@ type Bootstrap struct {
 }
 
 func NewBootstrap(ctx context.Context, lease func(*config.Config) (func(), error)) *Bootstrap {
-	b := newBootstrap(ctx, config.LoadBounded, store.Open, lease)
-	b.start()
-	return b
+	return newBootstrap(ctx, config.LoadBounded, store.Open, lease)
 }
 func newBootstrap(ctx context.Context, load func(context.Context, string, bool) (*config.Config, error), open func(string) (*store.Store, error), lease func(*config.Config) (func(), error)) *Bootstrap {
-	return &Bootstrap{root: ctx, placeholder: New(&config.Config{Provisional: true}, nil), boundary: newReadBoundary(), inboxBoundary: newReadBoundary(), progress: map[int64]*note.Note{}, load: load, open: open, lease: lease}
+	return &Bootstrap{status: StorageStatus{Phase: "initializing", ReadOnly: true, Reason: "Workspace listeners are initializing"}, root: ctx, placeholder: New(&config.Config{Provisional: true}, nil), boundary: newReadBoundary(), inboxBoundary: newReadBoundary(), progress: map[int64]*note.Note{}, load: load, open: open, lease: lease}
 }
 
 func (b *Bootstrap) start() {
@@ -168,12 +166,46 @@ func (b *Bootstrap) start() {
 		openedDB := make(chan openResult)
 		go func() {
 			defer func() { b.mu.Lock(); b.openPending = false; b.mu.Unlock() }()
-			st, err := b.open(cfg.DBPath)
 			release := oldRelease
 			freshLease := false
-			if err == nil && release == nil && b.lease != nil {
-				release, err = b.lease(cfg)
+			var err error
+			if release == nil && b.lease != nil {
+				var rawRelease func()
+				rawRelease, err = b.lease(cfg)
 				freshLease = err == nil
+				if rawRelease != nil {
+					var once sync.Once
+					release = func() { once.Do(rawRelease) }
+				}
+			}
+			if ctx.Err() != nil {
+				if freshLease && release != nil {
+					release()
+				}
+				return
+			}
+			if err == nil {
+				b.mu.Lock()
+				current := b.generation == generation && !b.closed
+				if current {
+					b.release = release
+					// Ownership now belongs to the live listener, including retries.
+					// A late read-only cache open must not release the published lease.
+					freshLease = false
+				}
+				b.mu.Unlock()
+				if !current {
+					if freshLease && release != nil {
+						release()
+					}
+					return
+				}
+			}
+			// Ownership depends on verified configuration, not a responsive cache.
+			// Stop/retry can identify this server even while database opening stalls.
+			var st *store.Store
+			if err == nil {
+				st, err = b.open(cfg.DBPath)
 			}
 			if ctx.Err() != nil {
 				if freshLease && release != nil {
@@ -640,6 +672,7 @@ func ServeBootstrapWithLifecycle(ctx context.Context, b *Bootstrap, addr string,
 	errs := make(chan error, 2)
 	go func() { errs <- main.Serve(listener) }()
 	go func() { errs <- secondary.Serve(apps) }()
+	b.start()
 	if onReady != nil {
 		onReady()
 	}

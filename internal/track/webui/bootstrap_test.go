@@ -163,15 +163,19 @@ func TestBootstrapRetainsBlockedOpenBudgetThroughRetryAndShutdown(t *testing.T) 
 	release := make(chan struct{})
 	exited := make(chan struct{})
 	var calls atomic.Int32
+	var claimed, released atomic.Int32
 	b := newBootstrap(context.Background(), func(context.Context, string, bool) (*config.Config, error) { return cfg, nil }, func(string) (*store.Store, error) {
 		calls.Add(1)
 		close(entered)
 		<-release
 		close(exited)
 		return nil, errors.New("controlled unavailable cache")
-	}, nil)
+	}, func(*config.Config) (func(), error) { claimed.Add(1); return func() { released.Add(1) }, nil })
 	b.start()
 	<-entered
+	if claimed.Load() != 1 {
+		t.Fatal("ownership waited for blocked cache")
+	}
 	b.mu.Lock()
 	b.cancel()
 	generation := b.generation
@@ -190,11 +194,17 @@ func TestBootstrapRetainsBlockedOpenBudgetThroughRetryAndShutdown(t *testing.T) 
 		t.Fatal(w.Code)
 	}
 	b.Close()
+	if released.Load() != 1 {
+		t.Fatal("ownership not released after owned read-only shutdown")
+	}
 	close(release)
 	<-exited
 	waitBoot(t, func() bool { b.mu.Lock(); defer b.mu.Unlock(); return !b.openPending })
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if released.Load() != 1 {
+		t.Fatal("late cleanup released ownership twice")
+	}
 	if b.server != nil {
 		t.Fatal("late cache installed after close")
 	}
@@ -382,5 +392,53 @@ func TestMarkdownConsumeSurvivesStorageRetryAfterTokenRemoval(t *testing.T) {
 	w := <-finished
 	if w.Code != 200 || strings.TrimSpace(w.Body.String()) != string(body) {
 		t.Fatalf("storage retry discarded consumed capability: %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestBootstrapLateOpenRetainsPublishedOwnershipForRetry(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "note"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{VaultDir: root, DBPath: filepath.Join(t.TempDir(), "cache.db"), Extensions: []string{".md"}}
+	entered := make(chan struct{})
+	late := make(chan struct{})
+	var opens, claims, releases atomic.Int32
+	var owned atomic.Bool
+	b := newBootstrap(context.Background(), func(_ context.Context, _ string, strict bool) (*config.Config, error) {
+		copy := *cfg
+		copy.Provisional = !strict
+		return &copy, nil
+	}, func(path string) (*store.Store, error) {
+		if opens.Add(1) == 1 {
+			close(entered)
+			<-late
+			return nil, errors.New("late cache error")
+		}
+		return store.Open(path)
+	}, func(*config.Config) (func(), error) {
+		claims.Add(1)
+		owned.Store(true)
+		return func() { releases.Add(1); owned.Store(false) }, nil
+	})
+	b.start()
+	<-entered
+	b.mu.Lock()
+	b.cancel()
+	b.mu.Unlock()
+	waitBoot(t, func() bool { b.mu.Lock(); defer b.mu.Unlock(); return !b.running })
+	close(late)
+	waitBoot(t, func() bool { b.mu.Lock(); defer b.mu.Unlock(); return !b.openPending })
+	if !owned.Load() || claims.Load() != 1 || releases.Load() != 0 {
+		t.Fatal("late cache cleanup dropped live listener ownership")
+	}
+	b.start()
+	waitBoot(t, func() bool { return b.Status().Phase == "ready" })
+	if !owned.Load() || claims.Load() != 1 || opens.Load() != 2 {
+		t.Fatal("retry reused released ownership", claims.Load(), releases.Load(), opens.Load())
+	}
+	b.Close()
+	if owned.Load() || releases.Load() != 1 {
+		t.Fatal("ownership was not released exactly once at final close")
 	}
 }

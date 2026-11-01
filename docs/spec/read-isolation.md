@@ -6,7 +6,9 @@ The loopback Markdown capability inbox is independent of vault readiness and per
 backend handoffs, preserving one-use tokens without granting disk access.
 Verified configuration selects the root; provisional configuration never authorizes writes. A root
 change during a retry is rejected. The shell, independent panels and healthy peer reads continue
-while unavailable storage is reported explicitly. First-run confirmed files are usable read-only.
+while unavailable storage is reported explicitly. First-run confirmed files are usable read-only. Process ownership is claimed after configuration
+verification and before cache opening, then retained across cache failures/retries until final
+cleanup. Markdown protocol readiness does not assert PID-lease or storage readiness.
 
 Pure input operations run in the same executable's hidden read-worker mode, before CLI/config
 routing. Workers may read, enumerate, inspect, canonicalize, parse and verify versions. They cannot

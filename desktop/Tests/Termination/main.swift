@@ -197,10 +197,13 @@ final class TerminationHarness: NSObject, NSApplicationDelegate {
             // First paint may be a confirmed read-only snapshot. Editing fixtures must
             // wait for actual write controls, not equate a readable body with verified storage.
             try await waitFor("!!document.querySelector('button[aria-label^=\"Display mode:\"]:not(:disabled)')")
-            _ = try await evaluate("document.querySelector('button[aria-label^=\"Display mode:\"]').click(); true")
+            phase = "opening edit mode"
+            _ = try await evaluate("(() => { if (!document.querySelector('[aria-label=\"Display mode\"]')) document.querySelector('button[aria-label^=\"Display mode:\"]').click(); return true; })()")
             try await waitFor("!!document.querySelector('[aria-label=\"Display mode\"]')")
             _ = try await evaluate("Array.from(document.querySelectorAll('[role=menuitemradio]')).find(b => b.textContent.trim() === 'Edit').click(); true")
+            phase = "waiting for writable fixture"
             try await waitFor("!!document.querySelector('form.note-editor textarea:not([readonly])')")
+            phase = "typing fixture"
             if scenario != "ime-cancel" && scenario != "clean-edit-quit" {
             _ = try await evaluate("""
             (() => { const t = document.querySelector('form.note-editor textarea');
