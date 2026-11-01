@@ -187,6 +187,8 @@ func (s *Server) serveAsset(v *vaultView, w http.ResponseWriter, r *http.Request
 	if ct := mime.TypeByExtension(filepath.Ext(full)); ct != "" {
 		w.Header().Set("Content-Type", ct)
 	}
+	// Executable attachments must not inherit the workspace origin or reach native bridges via parent.
+	w.Header().Set("Content-Security-Policy", "sandbox allow-scripts allow-downloads allow-modals allow-popups allow-popups-to-escape-sandbox")
 	// Vault assets can change underneath us (an edit or a cloud sync), so they are not cached.
 	w.Header().Set("Cache-Control", "no-store")
 	http.ServeContent(w, r, stat.Name(), stat.ModTime(), f)

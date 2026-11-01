@@ -1261,6 +1261,35 @@ func TestNoteMetaEndpoint(t *testing.T) {
 	}
 }
 
+func TestAssetDocumentsHaveOpaqueSandboxOrigin(t *testing.T) {
+	cfg := &config.Config{VaultDir: t.TempDir()}
+	if err := os.MkdirAll(cfg.AssetsDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{}
+	view := &vaultView{cfg: cfg}
+	// Cover executable extensions and sniffed HTML without an extension, including HEAD/range responses.
+	for _, name := range []string{"tool.html", "image.svg", "extensionless"} {
+		if err := os.WriteFile(filepath.Join(cfg.AssetsDir(), name), []byte("<html><script>parent.native()</script></html>"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		for _, method := range []string{http.MethodGet, http.MethodHead} {
+			r := httptest.NewRequest(method, "/api/asset?name="+name, nil)
+			if method == http.MethodGet {
+				r.Header.Set("Range", "bytes=0-9")
+			}
+			w := httptest.NewRecorder()
+			server.serveAsset(view, w, r)
+			if w.Code != http.StatusOK && w.Code != http.StatusPartialContent {
+				t.Fatalf("%s %s: status %d", method, name, w.Code)
+			}
+			if got := w.Header().Get("Content-Security-Policy"); got != "sandbox allow-scripts allow-downloads allow-modals allow-popups allow-popups-to-escape-sandbox" {
+				t.Fatalf("%s %s: sandbox = %q", method, name, got)
+			}
+		}
+	}
+}
+
 func TestAssetUploadImportsImage(t *testing.T) {
 	cfg := &config.Config{VaultDir: t.TempDir(), DBPath: filepath.Join(t.TempDir(), "index.db"), Extensions: []string{".md"}}
 	s, err := store.Open(cfg.DBPath)
