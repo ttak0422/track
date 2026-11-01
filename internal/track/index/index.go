@@ -57,6 +57,23 @@ func (ix *Indexer) ReconcileMissing() (Report, error) { return ix.full(true, nil
 
 func (ix *Indexer) full(prune bool, activity map[int64]int64) (Report, error) {
 	var rep Report
+	// An invalid content root is a vault-wide failure, not one unreadable item.
+	roots := []string{ix.cfg.VaultDir, ix.cfg.NoteDir()}
+	if !ix.cfg.JournalOff {
+		roots = append(roots, ix.cfg.JournalDir())
+	}
+	for _, root := range roots {
+		info, err := os.Stat(root)
+		if os.IsNotExist(err) && root != ix.cfg.VaultDir {
+			continue // A new vault may not have created either content directory yet.
+		}
+		if err != nil {
+			return rep, fmt.Errorf("inspect vault directory: %w", err)
+		}
+		if !info.IsDir() {
+			return rep, fmt.Errorf("vault content root is not a directory: %s", root)
+		}
+	}
 	state := store.ReadState{CheckedAt: time.Now().UnixMilli()}
 	existing, err := ix.store.NoteMtimes()
 	if err != nil {

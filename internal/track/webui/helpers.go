@@ -163,8 +163,7 @@ func writeError(w http.ResponseWriter, err error, status int) {
 func writeReadJSON(w http.ResponseWriter, v *vaultView, result map[string]any) {
 	state, err := viewReadState(v)
 	if err != nil {
-		writeError(w, err, http.StatusInternalServerError)
-		return
+		state.Add(store.ReadIssue{Path: v.cfg.DBPath, Reason: "read-state verification unavailable: " + err.Error()})
 	}
 	if state.Partial {
 		result["read_state"] = state

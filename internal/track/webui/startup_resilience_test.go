@@ -106,3 +106,72 @@ func TestOptionalIndexPanelFailureRetainsVerifiedBodyReadOnly(t *testing.T) {
 		t.Fatalf("subsequent independent search failed: %d %s", search.Code, search.Body.String())
 	}
 }
+
+func TestColdInvalidContentRootFailsWithoutWriting(t *testing.T) {
+	s, cfg := partialTestServer(t)
+	if err := os.Rename(cfg.NoteDir(), cfg.NoteDir()+".held"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfg.NoteDir(), []byte("not a directory"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	// Force a cold index using a fresh isolated store.
+	cold, err := store.Open(filepath.Join(t.TempDir(), "cold.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cold.Close()
+	s = New(cfg, cold)
+	response := partialRequest(s, "POST", "/api/note", `{"title":"Unsafe"}`)
+	if response.Code != 500 {
+		t.Fatalf("invalid root: %d %s", response.Code, response.Body.String())
+	}
+	initialized, err := cold.Initialized()
+	if err != nil || initialized {
+		t.Fatalf("invalid root marked initialized: %v %v", initialized, err)
+	}
+	if _, err := os.Stat(cfg.NoteDir() + ".held/1.md"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPartialWebFederatedSearchKeepsHealthyVaultAfterStoreFailure(t *testing.T) {
+	s, _ := partialTestServer(t)
+	other, cfg := partialTestServer(t)
+	cfg.VaultName = "work"
+	s.active.cfg.Vaults = map[string]string{"work": cfg.VaultDir}
+	s.views["work"] = &vaultView{name: "work", label: "work", cfg: cfg, store: other.store}
+	other.store.Close()
+	for _, target := range []string{"/api/search?q=Synthetic", "/api/search"} {
+		response := partialRequest(s, "GET", target, "")
+		var result struct {
+			Results     []store.SearchResult `json:"results"`
+			Unavailable []vaultInfo          `json:"unavailable"`
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		if response.Code != 200 || len(result.Results) != 1 || len(result.Unavailable) != 1 || result.Unavailable[0].Name != "work" {
+			t.Fatalf("healthy vault discarded: %d %s", response.Code, response.Body.String())
+		}
+	}
+}
+
+func TestPartialWebStatusFailureKeepsScopedAndFederatedResults(t *testing.T) {
+	s, cfg := partialTestServer(t)
+	s.active.name = "main"
+	db, err := sql.Open("sqlite", cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec("DROP TABLE index_state"); err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range []string{"/api/search?q=Synthetic", "/api/search?q=Synthetic&vault=main"} {
+		response := partialRequest(s, "GET", target, "")
+		if response.Code != 200 || !strings.Contains(response.Body.String(), "Synthetic") || !strings.Contains(response.Body.String(), "read-state verification unavailable") || !strings.Contains(response.Body.String(), `"partial":true`) {
+			t.Fatalf("verified results discarded: %s %d %s", target, response.Code, response.Body.String())
+		}
+	}
+}

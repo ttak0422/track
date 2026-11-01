@@ -115,12 +115,12 @@ func TestEnsureInitializedEmptyVaultAndFailure(t *testing.T) {
 		if err := os.WriteFile(cfg.NoteDir(), []byte("not a directory"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if changed, err := New(cfg, s).EnsureInitialized(); err != nil || !changed {
-			t.Fatalf("partial initialization: %v %v", changed, err)
+		if changed, err := New(cfg, s).EnsureInitialized(); err == nil || changed {
+			t.Fatalf("invalid root initialization: %v %v", changed, err)
 		}
-		state, err := s.ReadState()
-		if err != nil || !state.Partial || state.CacheUsed {
-			t.Fatalf("unavailable first load falsely complete: %+v %v", state, err)
+		initialized, err := s.Initialized()
+		if err != nil || initialized {
+			t.Fatalf("invalid root falsely initialized: %v %v", initialized, err)
 		}
 		if _, err := New(cfg, s).FullStrict(); err == nil {
 			t.Fatal("partial first load authorized a mutation")

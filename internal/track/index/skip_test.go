@@ -211,8 +211,16 @@ func TestRefreshWarnsAboutConflictWithUnchangedIndex(t *testing.T) {
 
 func TestDirectoryFailureReportsPartialFirstRun(t *testing.T) {
 	cfg, s := setup(t)
-	fixtureFile(t, cfg.NoteDir(), "not a directory")
+	if err := os.MkdirAll(cfg.NoteDir(), 0755); err != nil {
+		t.Fatal(err)
+	}
 	ix := New(cfg, s)
+	ix.readDir = func(path string) ([]os.DirEntry, error) {
+		if path == cfg.NoteDir() {
+			return nil, os.ErrPermission
+		}
+		return os.ReadDir(path)
+	}
 	rep, err := ix.Full()
 	if err != nil || rep.ReadState == nil || rep.ReadState.CacheUsed {
 		t.Fatalf("first-run failure hidden: %+v %v", rep, err)

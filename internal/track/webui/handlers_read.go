@@ -321,11 +321,21 @@ func (s *Server) handleResolve(v *vaultView, w http.ResponseWriter, r *http.Requ
 
 func writeSearchJSON(w http.ResponseWriter, views []*vaultView, result map[string]any) {
 	partial := []map[string]any{}
+	unavailable, _ := result["unavailable"].([]vaultInfo)
 	for _, v := range views {
+		failed := false
+		for _, gap := range unavailable {
+			if gap.Name == v.name {
+				failed = true
+				break
+			}
+		}
+		if failed {
+			continue // Its failed query is already reported; do not query its broken store again.
+		}
 		state, err := viewReadState(v)
 		if err != nil {
-			writeError(w, err, http.StatusInternalServerError)
-			return
+			state.Add(store.ReadIssue{Path: v.cfg.DBPath, Reason: "read-state verification unavailable: " + err.Error()})
 		}
 		if state.Partial {
 			partial = append(partial, map[string]any{"name": v.name, "read_state": state})
