@@ -208,7 +208,6 @@ export function useResolveQuery(term: string, vault = "") {
   return useQuery({
     queryKey: queryKeys.resolve(term, vault),
     queryFn: () => resolveTerm(term, vault),
-    retry: retryRead,
     enabled: term.trim() !== "",
   });
 }
@@ -226,7 +225,6 @@ export function useNoteQuery(noteID: NoteID, options: { live?: boolean; enabled?
   return useQuery({
     queryKey: queryKeys.note(noteID),
     queryFn: () => getNote(noteID),
-    retry: retryRead,
     refetchInterval: options.live ? liveRefetchInterval : false,
     enabled: options.enabled ?? true,
   });

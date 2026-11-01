@@ -102,11 +102,13 @@ describe("NoteWindow content switch", () => {
     expect(screen.getByTestId("body")).toBeTruthy();
   });
 
-  it("falls through to the empty body when the render fails", () => {
+  it("shows escaped source and explicit recovery when the render fails", () => {
     noteQuery.mockReturnValue(noteLoaded("# hi"));
     renderQuery.mockReturnValue({ data: undefined, isError: true });
     show();
     expect(screen.queryByRole("status")).toBeNull();
-    expect(screen.getByTestId("body")).toBeTruthy();
+    expect(screen.queryByTestId("body")).toBeNull();
+    expect(screen.getByText("# hi", { selector: "code" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry preview" })).toBeEnabled();
   });
 });

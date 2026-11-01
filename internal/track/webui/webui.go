@@ -32,8 +32,9 @@ type Server struct {
 	// views caches the vaults this server opened, by the registry name that reaches them. The
 	// registry gives a vault exactly one name, so one entry is one vault. The workspace reads and
 	// writes across them, so a request names its vault and never inherits the active one by accident.
-	viewsMu sync.Mutex
-	views   map[string]*vaultView
+	viewsMu   sync.Mutex
+	views     map[string]*vaultView
+	viewOpens map[string]*sync.Mutex
 	// appsVaultDirs maps private path selectors on the static-only app origin to vault roots. The
 	// listener never opens an index or registers API handlers; each selector can only reach apps/.
 	appsVaultDirs map[string]string
@@ -94,6 +95,7 @@ func New(cfg *config.Config, s *store.Store) *Server {
 		cfg:           cfg,
 		store:         s,
 		views:         map[string]*vaultView{},
+		viewOpens:     map[string]*sync.Mutex{},
 		appsVaultDirs: map[string]string{"launch": cfg.VaultDir},
 		mux:           http.NewServeMux(),
 		webRoot:       embeddedWebRoot,

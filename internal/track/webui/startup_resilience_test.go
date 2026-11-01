@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -173,5 +174,50 @@ func TestPartialWebStatusFailureKeepsScopedAndFederatedResults(t *testing.T) {
 		if response.Code != 200 || !strings.Contains(response.Body.String(), "Synthetic") || !strings.Contains(response.Body.String(), "read-state verification unavailable") || !strings.Contains(response.Body.String(), `"partial":true`) {
 			t.Fatalf("verified results discarded: %s %d %s", target, response.Code, response.Body.String())
 		}
+	}
+}
+
+func TestPartialWebConcurrentColdViewsShareOneStore(t *testing.T) {
+	s, cfg := partialTestServer(t)
+	work := t.TempDir()
+	writeVaultNote(t, work, 1, "Other", "Readable peer")
+	s.active.name = "main"
+	cfg.Vaults = map[string]string{"main": cfg.VaultDir, "work": work}
+	configPath := filepath.Join(t.TempDir(), "config.yml")
+	if err := os.WriteFile(configPath, []byte("cache_dir: "+t.TempDir()+"\nvaults:\n  main: "+cfg.VaultDir+"\n  work: "+work+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TRACK_CONFIG", configPath)
+	t.Setenv("TRACK_VAULT", cfg.VaultDir)
+	t.Setenv("TRACK_CACHE_DIR", "")
+	t.Cleanup(s.closeViews)
+	start := make(chan struct{})
+	results := make(chan *vaultView, 24)
+	errs := make(chan error, 24)
+	var wg sync.WaitGroup
+	for range 24 {
+		wg.Add(1)
+		go func() { defer wg.Done(); <-start; v, err := s.viewByName("work"); results <- v; errs <- err }()
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	var first *vaultView
+	for v := range results {
+		if first == nil {
+			first = v
+		}
+		if v != first {
+			t.Fatal("concurrent opens returned different views")
+		}
+	}
+	if first == nil || first.store == nil {
+		t.Fatal("peer did not open")
 	}
 }

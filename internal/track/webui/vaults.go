@@ -163,9 +163,24 @@ func (s *Server) viewByName(name string) (*vaultView, error) {
 	if v, ok := s.cachedView(name); ok {
 		return v, nil
 	}
+	// Share the initial open for this registry entry. Concurrent SQLite WAL/schema
+	// setup can fail before busy_timeout takes effect. Other vaults and cache hits
+	// do not wait for this vault's filesystem work.
+	s.viewsMu.Lock()
+	opening := s.viewOpens[name]
+	if opening == nil {
+		opening = &sync.Mutex{}
+		s.viewOpens[name] = opening
+	}
+	s.viewsMu.Unlock()
+	opening.Lock()
+	defer opening.Unlock()
+	if v, ok := s.cachedView(name); ok {
+		return v, nil
+	}
 	// Opening reads config files, stats the vault directory, and opens its index — all filesystem
 	// work, and on a vault that lives on an unreachable mount it blocks for as long as that mount
-	// takes to fail. None of it happens under the lock: a dead vault would otherwise stall every
+	// takes to fail. None of it happens under viewsMu: a dead vault would otherwise stall every
 	// request for the healthy ones, including cache hits that need no I/O at all.
 	cfg, err := config.LoadAt(path)
 	if err != nil {
@@ -183,12 +198,6 @@ func (s *Server) viewByName(name string) (*vaultView, error) {
 
 	s.viewsMu.Lock()
 	defer s.viewsMu.Unlock()
-	// Another request may have opened this vault while this one was doing its filesystem work; keep
-	// the view that got there first and discard this one's handle rather than leaking it.
-	if existing, ok := s.views[name]; ok {
-		st.Close()
-		return existing, nil
-	}
 	v := &vaultView{name: name, label: name, cfg: cfg, store: st}
 	s.views[name] = v
 	return v, nil
