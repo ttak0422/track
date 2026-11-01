@@ -6,6 +6,8 @@ import { APIError, getNote, saveNote } from "../api";
 import { NoteControlsProvider, useNoteControls } from "../noteControls";
 import { queryKeys } from "../queries";
 import type { NoteResponse } from "../types";
+import { StorageNotice } from "../storage";
+import { NoteRailControls } from "./NoteRailControls";
 import { NoteEditor } from "./NoteEditor";
 import { TabsProvider, useTabs } from "./tabs/tabsStore";
 
@@ -41,8 +43,8 @@ function Navigation() {
 }
 
 const disposals: (() => void)[] = [];
-function mount({ path = "/notes/a", homeNote = false }: { path?: string; homeNote?: boolean } = {}) {
-  const root = createRootRoute({ component: () => <TabsProvider><NoteControlsProvider><Navigation /><Outlet /></NoteControlsProvider></TabsProvider> });
+function mount({ path = "/notes/a", homeNote = false, storageReady = false }: { path?: string; homeNote?: boolean; storageReady?: boolean } = {}) {
+  const root = createRootRoute({ component: () => <TabsProvider><NoteControlsProvider>{storageReady && <StorageNotice />}<NoteRailControls /><Navigation /><Outlet /></NoteControlsProvider></TabsProvider> });
   const home = createRoute({ getParentRoute: () => root, path: "/", component: () => homeNote ? <NoteEditor noteID="home" /> : <p>Home</p> });
   const empty = createRoute({ getParentRoute: () => root, path: "/empty", component: () => <p>Workspace</p> });
   const reader = createRoute({ getParentRoute: () => root, path: "/notes/$noteId", component: () => {
@@ -52,6 +54,7 @@ function mount({ path = "/notes/a", homeNote = false }: { path?: string; homeNot
   const history = createMemoryHistory({ initialEntries: [path] });
   const router = createRouter({ routeTree: root.addChildren([home, empty, reader]), history, defaultPendingMinMs: 0 });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { retry: false } } });
+  if (storageReady) client.setQueryData(["storage-status"], { phase: "ready", read_only: false, generation: 1 });
   const view = render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>);
   disposals.push(() => { view.unmount(); history.destroy(); client.clear(); });
   return { client, router, history };
@@ -211,4 +214,102 @@ describe("note load recovery", () => {
     expect(screen.queryByText("Late a")).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
   });
+});
+
+it("allows read-only layout controls while retaining save protection", async () => {
+  const response = note(); response.note.read_only = true;
+  vi.mocked(getNote).mockResolvedValue(response);
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "Display mode: Preview" }));
+  fireEvent.click(screen.getByRole("menuitemradio", { name: "Edit" }));
+  expect(await screen.findByRole("textbox", { name: "Note body" })).toHaveAttribute("readonly");
+  expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  expect(saveNote).not.toHaveBeenCalled();
+});
+
+it("revalidates a read-only response arriving after storage's ready invalidation", async () => {
+  let complete!: (response: NoteResponse) => void;
+  vi.mocked(getNote).mockImplementationOnce(() => new Promise(resolve => { complete = resolve; }))
+    .mockResolvedValue(note());
+  const { client } = mount({ storageReady: true });
+  await waitFor(() => expect(getNote).toHaveBeenCalledTimes(1));
+  const snapshot = note(); snapshot.note.read_only = true;
+  await act(async () => complete(snapshot));
+  await screen.findByText("Reading remains available. Editing is disabled until the index recovers.");
+  // A fresh verified poll, rather than another phase transition, must release the late snapshot.
+  await act(async () => { client.setQueryData(["storage-status"], { phase: "ready", read_only: false, generation: 1 },
+    { updatedAt: Date.now() + 1 }); });
+  await waitFor(() => expect(screen.queryByText("Reading remains available. Editing is disabled until the index recovers.")).toBeNull());
+  expect(getNote).toHaveBeenCalledTimes(2);
+  const oldSnapshot = note("a", "Older cached source", "older"); oldSnapshot.note.read_only = true;
+  vi.mocked(getNote).mockResolvedValue(oldSnapshot);
+  await act(async () => { await client.invalidateQueries({ queryKey: queryKeys.note("a") }); });
+  await screen.findByRole("button", { name: "Retry note" });
+  expect(await screen.findByTestId("preview")).toHaveTextContent("Saved a");
+  expect(saveNote).not.toHaveBeenCalled();
+});
+
+it("bounds automatic read-only recovery and retains an explicit retry", async () => {
+  const snapshot = note(); snapshot.note.read_only = true;
+  vi.mocked(getNote).mockResolvedValue(snapshot);
+  const { client } = mount();
+  await screen.findByRole("button", { name: "Retry note" });
+  for (const offset of [1000, 2000]) {
+    await act(async () => { client.setQueryData(["storage-status"], { phase: "ready", read_only: false, generation: 1 },
+      { updatedAt: Date.now() + offset }); });
+    await waitFor(() => expect(getNote).toHaveBeenCalledTimes(offset === 1000 ? 2 : 3));
+  }
+  await act(async () => { client.setQueryData(["storage-status"], { phase: "ready", read_only: false, generation: 1 },
+    { updatedAt: Date.now() + 3000 }); });
+  expect(getNote).toHaveBeenCalledTimes(3);
+  await act(async () => { client.setQueryData(["storage-status"], { phase: "ready", read_only: false, generation: 2 },
+    { updatedAt: Date.now() + 4000 }); });
+  await waitFor(() => expect(getNote).toHaveBeenCalledTimes(4));
+  fireEvent.click(screen.getByRole("button", { name: "Retry note" }));
+  await waitFor(() => expect(getNote).toHaveBeenCalledTimes(5));
+  expect(saveNote).not.toHaveBeenCalled();
+});
+
+it("preserves a successful save across late reads and older read-only snapshots", async () => {
+  const { client } = mount(); await screen.findByText("Saved a");
+  fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+  fireEvent.change(await screen.findByRole("textbox", { name: "Note body" }), { target: { value: "Saved final body" } });
+  let late!: (response: NoteResponse) => void;
+  const oldSnapshot = note("a", "Old startup body", "startup"); oldSnapshot.note.read_only = true;
+  vi.mocked(getNote).mockImplementationOnce(() => new Promise(resolve => { late = resolve; })).mockResolvedValue(oldSnapshot);
+  void client.invalidateQueries({ queryKey: queryKeys.note("a") });
+  await waitFor(() => expect(getNote).toHaveBeenCalledTimes(2));
+  vi.mocked(saveNote).mockResolvedValue({ note_id: "a", etag: "saved", saved: true });
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(saveNote).toHaveBeenCalledTimes(1));
+  await screen.findByRole("button", { name: "Retry note" });
+  await act(async () => late(note("a", "Late old body", "old")));
+  expect(screen.getByRole("textbox", { name: "Note body" })).toHaveValue("Saved final body");
+  expect(client.getQueryData<NoteResponse>(queryKeys.note("a"))?.note.etag).not.toBe("old");
+  fireEvent.click(screen.getByRole("button", { name: "Display mode: Edit" }));
+  fireEvent.click(screen.getByRole("menuitemradio", { name: "Preview" }));
+  fireEvent.click(screen.getByRole("button", { name: "Display mode: Preview" }));
+  fireEvent.click(screen.getByRole("menuitemradio", { name: "Edit" }));
+  expect(screen.getByRole("textbox", { name: "Note body" })).toHaveValue("Saved final body");
+  expect(saveNote).toHaveBeenCalledTimes(1);
+});
+
+it("preserves a typed draft and keeps it locked until the note itself is verified", async () => {
+  const { client } = mount(); await screen.findByText("Saved a");
+  fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+  const input = await screen.findByRole("textbox", { name: "Note body" });
+  fireEvent.change(input, { target: { value: "My typed draft 日本語" } });
+  const snapshot = note("a", "Older uncertain source", "uncertain"); snapshot.note.read_only = true;
+  vi.mocked(getNote).mockResolvedValue(snapshot);
+  await act(async () => { await client.invalidateQueries({ queryKey: queryKeys.note("a") }); });
+  await waitFor(() => expect(screen.getByRole("textbox", { name: "Note body" })).toHaveAttribute("readonly"));
+  expect(screen.getByRole("textbox", { name: "Note body" })).toHaveValue("My typed draft 日本語");
+  await act(async () => { client.setQueryData(["storage-status"], { phase: "ready", read_only: false, generation: 1 }, { updatedAt: Date.now() + 1000 }); });
+  await waitFor(() => expect(getNote).toHaveBeenCalledTimes(3));
+  expect(screen.getByRole("textbox", { name: "Note body" })).toHaveAttribute("readonly"); expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  expect(screen.getByRole("textbox", { name: "Note body" })).toHaveValue("My typed draft 日本語"); expect(saveNote).not.toHaveBeenCalled();
+  vi.mocked(getNote).mockResolvedValue(note("a", "External verified source", "external"));
+  await act(async () => { client.setQueryData(["storage-status"], { phase: "ready", read_only: false, generation: 1 }, { updatedAt: Date.now() + 2000 }); });
+  await waitFor(() => expect(screen.getByRole("textbox", { name: "Note body" })).not.toHaveAttribute("readonly"));
+  expect(screen.getByRole("textbox", { name: "Note body" })).toHaveValue("My typed draft 日本語"); expect(saveNote).not.toHaveBeenCalled();
 });

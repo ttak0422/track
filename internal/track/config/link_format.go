@@ -1,12 +1,15 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/ttak0422/track/internal/track/link"
+	"github.com/ttak0422/track/internal/track/vaultfile"
 	"gopkg.in/yaml.v3"
 )
 
@@ -36,7 +39,7 @@ func (c *Config) ValidateExplicitTarget(key, sourceFormat string) error {
 	if _, explicit := link.ExplicitID(key, sourceFormat); !explicit {
 		return nil
 	}
-	return readLinkTitles(c.VaultDir, func(title string) error {
+	return readLinkTitles(c.VaultDir, false, func(title string) error {
 		if strings.TrimSpace(title) == key {
 			return fmt.Errorf("ambiguous explicit ID %q: target vault also has that literal title; rename it before using this ID link", key)
 		}
@@ -45,12 +48,13 @@ func (c *Config) ValidateExplicitTarget(key, sourceFormat string) error {
 }
 
 func auditLinkTitles(vault, format string) error {
-	return readLinkTitles(vault, func(title string) error { return ValidateLinkTitle(format, title) })
+	return readLinkTitles(vault, true, func(title string) error { return ValidateLinkTitle(format, title) })
 }
 
-func readLinkTitles(vault string, validate func(string) error) error {
+// Startup can isolate invalid inputs; explicit ID resolution must still verify the target namespace.
+func readLinkTitles(vault string, skipInvalid bool, validate func(string) error) error {
 	dir := filepath.Join(vault, ".track", "notes")
-	entries, err := os.ReadDir(dir)
+	entries, err := vaultfile.ReadDir(dir)
 	if os.IsNotExist(err) {
 		return nil
 	}
@@ -61,16 +65,28 @@ func readLinkTitles(vault string, validate func(string) error) error {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
 			continue
 		}
+		if _, err := strconv.ParseInt(strings.TrimSuffix(entry.Name(), ".yaml"), 10, 64); err != nil {
+			continue
+		}
 		path := filepath.Join(dir, entry.Name())
-		data, err := os.ReadFile(path)
+		data, err := vaultfile.Read(path)
 		if err != nil {
+			var local *vaultfile.Error
+			if skipInvalid && errors.As(err, &local) {
+				vaultfile.Warn(local.Path, local.Reason)
+				continue
+			}
 			return fmt.Errorf("audit link_format id-v1: %w", err)
 		}
 		var meta struct {
 			Title string `yaml:"title"`
 		}
 		if err := yaml.Unmarshal(data, &meta); err != nil {
-			return fmt.Errorf("audit link_format id-v1: %s: %w", path, err)
+			if skipInvalid {
+				vaultfile.Warn(path, "invalid note metadata")
+				continue
+			}
+			return fmt.Errorf("audit link_format id-v1: %s: cannot verify title namespace (invalid metadata)", path)
 		}
 		if err := validate(meta.Title); err != nil {
 			return fmt.Errorf("%s: %w", path, err)

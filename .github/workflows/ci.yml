@@ -20,16 +20,16 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7.0.1
 
       - name: Install Nix
-        uses: cachix/install-nix-action@v31
+        uses: cachix/install-nix-action@v31.11.3
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
 
       - name: Set up Cachix
-        uses: cachix/cachix-action@v15
+        uses: cachix/cachix-action@v17
         # Cache availability is optional, including uploads in the post-action hook.
         # Build and test steps still fail normally.
         continue-on-error: true
@@ -76,7 +76,7 @@ jobs:
       # The report job reads this back with `gh run download`, and reads the same artifact from the
       # last main run to work out the delta — so the upload has to happen on push to main too.
       - name: Upload coverage profile
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: code-coverage
           path: coverage.out
@@ -91,6 +91,10 @@ jobs:
       - name: Neovim backup command E2E
         timeout-minutes: 2
         run: nix run .#test-nvim -- --headless -u NONE -i NONE -l scripts/e2e/nvim_backup.lua
+
+      - name: Neovim JSON transport isolation E2E
+        timeout-minutes: 2
+        run: TRACK_TEST_TMP="$RUNNER_TEMP/track-json-transport" nix run .#test-nvim -- --headless -u NONE -i NONE -n -l scripts/e2e/nvim_json_transport.lua
 
       - name: Neovim readable editor view E2E
         timeout-minutes: 3
@@ -239,10 +243,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7.0.1
 
       - name: Install Nix
-        uses: cachix/install-nix-action@v31
+        uses: cachix/install-nix-action@v31.11.3
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes

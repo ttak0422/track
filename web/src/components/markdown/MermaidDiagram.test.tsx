@@ -28,7 +28,13 @@ vi.mock("mermaid", () => ({
   },
 }));
 
-describe("MermaidDiagram", () => {
+// These tests exercise the retained Mermaid fallback and shared frame, not the default engine.
+vi.mock("./PeleDiagram", () => ({
+  peleFallbackReason: () => "Fallback renderer regression coverage.",
+  PeleDiagram: vi.fn(),
+}));
+
+describe("Mermaid fallback", () => {
   afterEach(() => {
     vi.clearAllMocks();
   });

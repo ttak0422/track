@@ -487,8 +487,7 @@ func TestWatcherReconcileStampsEditDay(t *testing.T) {
 
 // TestWatchBroadcastsDataChanges guards the live-chart refresh path: a write under the vault's data/
 // directory (the JSONL files View Spec data.source / overlays[].source read) must reach SSE subscribers
-// as a `data` event, and the directory must be created and watched even when the vault starts without
-// it. Data files are not indexed, so this event is distinct from the reindex-backed `change` event.
+// as a `data` event. Watching an existing directory never creates a missing vault path. Data files are not indexed, so this event is distinct from the reindex-backed `change` event.
 func TestWatchBroadcastsDataChanges(t *testing.T) {
 	cfg := &config.Config{
 		VaultDir:          t.TempDir(),
@@ -503,9 +502,13 @@ func TestWatchBroadcastsDataChanges(t *testing.T) {
 	}
 	t.Cleanup(func() { s.Close() })
 
-	// The vault has no data/ yet; startWatch must create and watch it.
+	// Explicitly create the data fixture: a read-only watcher must never scaffold the vault.
 	server := New(cfg, s)
+	t.Cleanup(server.closeViews)
 	server.startWatch()
+	if err := os.MkdirAll(cfg.DataDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	ch := server.events.subscribe()
 	t.Cleanup(func() { server.events.unsubscribe(ch) })
 
@@ -1258,6 +1261,35 @@ func TestNoteMetaEndpoint(t *testing.T) {
 	noteRes := getJSON(t, server.URL+"/api/note?id=100")["note"].(map[string]any)
 	if noteRes["title"] != "Alpha v2" {
 		t.Fatalf("note title after rename = %v", noteRes["title"])
+	}
+}
+
+func TestAssetDocumentsHaveOpaqueSandboxOrigin(t *testing.T) {
+	cfg := &config.Config{VaultDir: t.TempDir()}
+	if err := os.MkdirAll(cfg.AssetsDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{}
+	view := &vaultView{cfg: cfg}
+	// Cover executable extensions and sniffed HTML without an extension, including HEAD/range responses.
+	for _, name := range []string{"tool.html", "image.svg", "extensionless"} {
+		if err := os.WriteFile(filepath.Join(cfg.AssetsDir(), name), []byte("<html><script>parent.native()</script></html>"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		for _, method := range []string{http.MethodGet, http.MethodHead} {
+			r := httptest.NewRequest(method, "/api/asset?name="+name, nil)
+			if method == http.MethodGet {
+				r.Header.Set("Range", "bytes=0-9")
+			}
+			w := httptest.NewRecorder()
+			server.serveAsset(view, w, r)
+			if w.Code != http.StatusOK && w.Code != http.StatusPartialContent {
+				t.Fatalf("%s %s: status %d", method, name, w.Code)
+			}
+			if got := w.Header().Get("Content-Security-Policy"); got != "sandbox allow-scripts allow-downloads allow-modals allow-popups allow-popups-to-escape-sandbox" {
+				t.Fatalf("%s %s: sandbox = %q", method, name, got)
+			}
+		}
 	}
 }
 

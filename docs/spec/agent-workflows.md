@@ -206,14 +206,30 @@ excluded, so an undo never restores or removes attachments.
 
 `track graph --orphans` reports vault-wide link-graph hygiene in one call (self-healing the index first): `orphans` are notes (journals excluded) with no inbound `[[link]]`, hence undiscoverable by navigation; `dangling_prefixes` are notes whose title `foo / bar` names a parent scope `foo` that no note owns. It replaces per-note `backlinks` probing when a dream/consolidation pass sweeps the whole vault for reconnection candidates.
 
-`track reindex --full` rebuilds the cache index from the on-disk notes and sidecars; it reconciles deletions silently. Reconciling — here and when a read command self-heals a stale index — touches only index rows: the sidecar of a note missing from disk stays in place as an `orphan_sidecar` for doctor to report. Only explicit commands move files (`track rm` to trash, `doctor --fix` to restore).
+`track reindex --full` updates accessible files without deleting the prior cache first.
+Normal rebuilds and read-triggered refreshes retain cached rows, metadata, and links for
+unavailable files or missing directory entries. They return additive `read_state` information
+with `partial`, `cache_used`, `checked_at` (Unix milliseconds), and per-file `issues`.
+`checked_at` records a verification attempt, not a fresh complete snapshot. A first run can
+return healthy files with `partial: true` and `cache_used: false`. Cross-vault searches put
+these states under `partial: [{name,read_state}]`; existing result fields remain unchanged.
+Web search shows a persistent inline explanation instead of repeated error popups.
 
-Invalid note filenames (such as `100 (conflicted copy).md` or `100-DESKTOP-ABC.md`) and invalid metadata
-are skipped per file during bulk indexing, with path/reason warnings on stderr. `reindex` adds a
-nonzero `skipped` count to its JSON result; valid files still index and remain searchable. Read-time
-refreshes and the web watcher use the same policy. Existing cached data for a present but
-unparseable note is retained; explicit `reindex` starts from a fresh cache and omits it. Files remain
-untouched, and filesystem/directory access and database failures still fail the operation.
+After verifying that external deletions are intentional, run
+`track reindex --vault NAME --prune-missing` (omit `--vault` without a registry). It prunes
+missing index rows only after all expected kind directories and remaining files can be read.
+An incomplete scan refuses pruning without changing the cache. Authoritative sidecars are
+never deleted by reconciliation. `track rm` removes its known ID from the index after a
+successful trash move; generation restore reconciles its explicitly selected snapshot.
+
+Malformed metadata and unreadable files are isolated during read refreshes. Known missing
+sidecars do not replace cached titles or tags with empty metadata. Cache rows, links, and read
+state publish in one transaction. Unchanged failures retry at most every 30 seconds during
+read refresh; healthy mtime changes trigger an immediate refresh, and explicit reindex
+retries immediately. Fatal configuration, database, and authoritative write errors remain
+errors. Renames and moves require a complete index before changing files. The `id-v1` startup audit isolates individual unreadable/malformed sidecars. Explicit-ID target
+namespace checks remain strict, and a partial title dictionary cannot authorize creation or rename. These changes do not install an arbitrary filesystem-call
+cancellation guarantee or a mutation retry mechanism.
 
 `track doctor` is a read-only health check that never changes files. It reports vault/sidecar divergence — the kind a cloud sync (e.g. OneDrive) can introduce — as a JSON `issues` array, with `ok: true` when clean. Issue kinds: `missing_sidecar`, `orphan_sidecar`, `stray_file` (e.g. a conflict copy that breaks the `<id>.md` naming rule), `stray_sidecar` (the same copy made of a `.track/notes/<id>.yaml` sidecar), `unreadable_sidecar`, `duplicate_title`, `property_violation` (a note property breaks the configured schema), and `shadowed_title` (a title is captured by a registered vault qualifier). Finding issues is not an error, so it still exits 0; only real failures use the `{"error":...}`/exit 1 contract. Run it before a `reindex --full` if you suspect a partially synced vault, so an orphan sidecar is not mistaken for a delete.
 

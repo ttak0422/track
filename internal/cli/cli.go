@@ -257,7 +257,7 @@ Usage:
                                         open/create a daily note
   track init                            create the vault directory skeleton; the only command that
                                         ever creates a vault, so a typo elsewhere cannot (idempotent, JSON)
-  track reindex [--full]                rebuild the index
+  track reindex [--full] [--prune-missing] rebuild accessible files; optionally confirm missing entries
   track doctor [--fix]                  report vault/sidecar divergence without changing files; finding
                                         issues is not a failure, so branch on .ok rather than the exit
                                         code (JSON). --fix repairs by auto-numbered restore and then
@@ -397,4 +397,16 @@ func open() (*config.Config, *store.Store, error) {
 		return nil, nil, fmt.Errorf("initialize index: %w", err)
 	}
 	return cfg, s, nil
+}
+
+// emitRead adds freshness information only when the result is partial.
+func emitRead(s *store.Store, result map[string]any) int {
+	state, err := s.ReadState()
+	if err != nil {
+		return fail("read state: %v", err)
+	}
+	if state.Partial {
+		result["read_state"] = state
+	}
+	return emit(result)
 }

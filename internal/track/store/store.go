@@ -15,6 +15,7 @@ import (
 
 type Store struct {
 	db *sql.DB
+	tx *sql.Tx
 }
 
 // Open opens (creating if necessary) the index database at dbPath, applying the schema on first use.

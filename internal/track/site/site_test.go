@@ -483,18 +483,13 @@ func TestBuildVaultBundle(t *testing.T) {
 	if !hasEdge(graph.Graph.Edges, 100, 200) {
 		t.Fatalf("graph missing edge 100->200: %+v", graph.Graph.Edges)
 	}
-	// Each node carries the vault's own five-level grade, so a published node is drawn the size the
-	// workspace draws it. 100 links twice (Child and the out-of-set Outsider) for grade 3, 200 once
-	// for grade 2: the grade counts the vault's links, not the published slice's.
+	// Public nodes each have one in-set outgoing link. Neither score includes Outsider.
 	for _, n := range graph.Graph.Nodes {
 		if n.NoteID == PublishID(300) {
-			t.Fatalf("out-of-set note 300 should not be a graph node")
+			t.Fatal("out-of-set node published")
 		}
-		if n.NoteID == PublishID(100) && n.Size != 3 {
-			t.Fatalf("node 100 should carry grade 3 (two outgoing links), got %d", n.Size)
-		}
-		if n.NoteID == PublishID(200) && n.Size != 2 {
-			t.Fatalf("node 200 should carry grade 2 (one outgoing link), got %d", n.Size)
+		if n.Size != 2 || n.AreaScore != 1.8 {
+			t.Fatalf("public-only grade/area = %d/%g, want 2/1.8", n.Size, n.AreaScore)
 		}
 	}
 
@@ -1345,5 +1340,82 @@ func TestMetricsDashboardSnapshot(t *testing.T) {
 	bad := resolveMetricsDashboardBlocks("```metrics-dashboard\n{}\n```", dir, func(s string) (string, bool) { return "", false })
 	if !strings.Contains(bad, "Metrics dashboard error:") {
 		t.Fatalf("bad snapshot: %s", bad)
+	}
+}
+
+// A private-only graph edit must not change any decoded public data or its generation.
+func TestPublishedGraphIgnoresPrivateLinks(t *testing.T) {
+	cfg, st := vaultStore(t)
+	writeVaultNote(t, cfg, 100, "Public Home", "[[Public Child]]")
+	writeVaultNote(t, cfg, 200, "Public Child", "[[Public Home]]")
+	writeVaultNote(t, cfg, 300, "PRIVATE_A", "PRIVATE_BODY_A [[PRIVATE_B]]")
+	writeVaultNote(t, cfg, 400, "PRIVATE_B", "PRIVATE_BODY_B [[PRIVATE_A]] [[PRIVATE_C]] [[PRIVATE_D]]")
+	writeVaultNote(t, cfg, 500, "PRIVATE_C", "PRIVATE_BODY_C")
+	writeVaultNote(t, cfg, 600, "PRIVATE_D", "PRIVATE_BODY_D")
+	frontend := fakeFrontend(t)
+	build := func() (map[string]string, string, float64) {
+		t.Helper()
+		if _, err := index.New(cfg, st).Full(); err != nil {
+			t.Fatal(err)
+		}
+		live, err := st.FullGraph()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var liveArea float64
+		for _, node := range live.Nodes {
+			if node.NoteID == 100 {
+				liveArea = node.AreaScore
+			}
+		}
+		out := t.TempDir()
+		if _, err := Build(cfg, st, Options{Root: 100, IDs: []int64{200}}, frontend, out); err != nil {
+			t.Fatal(err)
+		}
+		graph := readJSON[struct {
+			Graph jsonGraph `json:"graph"`
+		}](t, filepath.Join(out, "data", "graph.json"))
+		if len(graph.Graph.Nodes) != 2 || len(graph.Graph.Edges) != 2 {
+			t.Fatal("wrong published set")
+		}
+		for _, node := range graph.Graph.Nodes {
+			if node.Size != 2 || node.AreaScore != 1.8 {
+				t.Fatalf("private statistics escaped: %+v", node)
+			}
+		}
+		graphPath := bundlePath(t, filepath.Join(out, "data", "graph.bin"))
+		generationDir := filepath.Dir(graphPath)
+		decoded := map[string]string{}
+		err = filepath.WalkDir(generationDir, func(path string, entry os.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if entry.IsDir() {
+				return nil
+			}
+			rel, err := filepath.Rel(generationDir, path)
+			if err != nil {
+				return err
+			}
+			plain := readLocked(t, filepath.Join(out, "data", strings.TrimSuffix(rel, ".bin")+".json"))
+			if bytes.Contains(plain, []byte("PRIVATE_")) {
+				t.Fatalf("private marker in %s", rel)
+			}
+			decoded[rel] = string(plain)
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return decoded, filepath.Base(generationDir), liveArea
+	}
+	before, generation, liveBefore := build()
+	writeVaultNote(t, cfg, 300, "PRIVATE_A", "PRIVATE_BODY_A [[PRIVATE_B]] [[PRIVATE_C]] [[PRIVATE_D]]")
+	after, afterGeneration, liveAfter := build()
+	if liveBefore == liveAfter {
+		t.Fatal("fixture did not move the live median")
+	}
+	if !reflect.DeepEqual(before, after) || generation != afterGeneration {
+		t.Fatal("private-only links changed published data or generation")
 	}
 }

@@ -45,6 +45,7 @@ export function SearchPanel({ onNavigate, autoFocus }: SearchPanelProps = {}) {
   // Vaults the server could not read. Saying so is the point: otherwise a search that reached only
   // half the vaults looks exactly like one that found nothing in the other half.
   const unavailable = hasQuery ? (search.data?.unavailable ?? []) : [];
+  const partial = hasQuery && (search.data?.read_state?.partial || search.data?.partial?.some((vault) => vault.read_state.partial));
   // Keyboard order is what the reader sees: titles, then full text, then the file name.
   const ordered = [...titleHits, ...bodyHits, ...pathHits];
   const [active, setActive] = useState(0);
@@ -117,6 +118,7 @@ export function SearchPanel({ onNavigate, autoFocus }: SearchPanelProps = {}) {
       <div className="results" aria-live="polite" ref={listRef}>
         {hasQuery && search.isPending ? <p className="muted">Loading notes...</p> : null}
         {hasQuery && search.isError ? <p className="error">{search.error.message}</p> : null}
+        {partial ? <p className="muted search-unavailable">Some files could not be checked. Results may include cached information and may be incomplete.</p> : null}
         {/* Title matches first, then full-text — the ordering the engine composed, kept visible.
             The captions only appear once there is a second group to tell apart, so an ordinary
             title-only search looks exactly as it always has. */}

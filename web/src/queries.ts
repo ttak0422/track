@@ -1,3 +1,5 @@
+import { useEffect, useRef } from "react";
+import { useStorageStatus } from "./storage";
 import { keepPreviousData, type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   APIError,
@@ -216,13 +218,40 @@ export function useResolveQuery(term: string, vault = "") {
 // SSE change stream (see useLiveEvents); this only covers a dropped stream.
 const liveRefetchInterval = 30000;
 
+export function retryRead(failureCount: number,error: Error): boolean {
+ if(error instanceof APIError && error.status>=400 && error.status<500)return false;
+ return failureCount<1;
+}
+
 export function useNoteQuery(noteID: NoteID, options: { live?: boolean; enabled?: boolean } = {}) {
-  return useQuery({
+  const noteQuery = useQuery({
     queryKey: queryKeys.note(noteID),
     queryFn: () => getNote(noteID),
     refetchInterval: options.live ? liveRefetchInterval : false,
     enabled: options.enabled ?? true,
   });
+  const storage = useStorageStatus({ enabled: options.live === true && options.enabled !== false });
+  const recovery = useRef({ noteID, generation: storage.data?.generation, attempts: 0, checkedAt: 0 });
+  useEffect(() => {
+    if (recovery.current.noteID !== noteID || recovery.current.generation !== storage.data?.generation) {
+      recovery.current = { noteID, generation: storage.data?.generation, attempts: 0, checkedAt: 0 };
+    }
+    if (noteQuery.data?.note.read_only !== true) {
+      recovery.current.attempts = 0; recovery.current.checkedAt = 0;
+      return;
+    }
+    // A first read-only response can arrive after the "ready" invalidation while
+    // its initial request was still pending. Only a newer verified storage poll
+    // authorizes a bounded read retry; saves are never replayed.
+    if (!options.live || options.enabled === false || noteQuery.isError || noteQuery.isFetching || storage.isError || storage.data?.phase !== "ready" ||
+        storage.dataUpdatedAt < noteQuery.dataUpdatedAt || recovery.current.attempts >= 2 ||
+        recovery.current.checkedAt === storage.dataUpdatedAt) return;
+    recovery.current.attempts++;
+    recovery.current.checkedAt = storage.dataUpdatedAt;
+    void noteQuery.refetch({ cancelRefetch: false });
+  }, [noteID, options.live, options.enabled, noteQuery.dataUpdatedAt, noteQuery.data?.note.read_only, noteQuery.isError,
+      noteQuery.isFetching, noteQuery.refetch, storage.dataUpdatedAt, storage.data?.phase, storage.data?.generation, storage.isError]);
+  return noteQuery;
 }
 
 // useRenderQuery turns a raw note body into the sanitized Markdown the preview renders, via the server's
@@ -236,6 +265,7 @@ export function useRenderQuery(body: string, vault = "", debounceMs = 0) {
   return useQuery({
     queryKey: queryKeys.render(source, vault),
     queryFn: () => renderMarkdown(source, vault),
+    retry: false,
     enabled: source.trim() !== "",
     // Sanitization is a pure function of the body and the server caches nothing per-note, so an identical
     // body never needs re-posting within a session.
@@ -303,7 +333,10 @@ export function useSaveNoteMutation(noteID: NoteID) {
 
   return useMutation({
     mutationFn: (request: SaveNoteRequest) => saveNote(noteID, request),
-    onSuccess: (response, request) => {
+    onMutate: () => queryClient.cancelQueries({ queryKey: queryKeys.note(noteID) }),
+    onSuccess: async (response, request) => {
+      // Discard reads started by polling/SSE while this write was pending.
+      await queryClient.cancelQueries({ queryKey: queryKeys.note(noteID) });
       queryClient.setQueryData<NoteResponse>(queryKeys.note(noteID), (current) => {
         if (!current) return current;
         return {

@@ -16,7 +16,10 @@
     throw new Error(message + '; UI=' + document.body.innerText.slice(0, 1500));
   };
   const mode = async label => {
-    document.querySelector('button[aria-label^="Display mode:"]').click();
+    await wait(() => document.querySelector('button[aria-label^="Display mode:"]'), 'mode controls absent');
+    if (!document.querySelector('[aria-label="Display mode"]')) {
+      document.querySelector('button[aria-label^="Display mode:"]').click();
+    }
     await wait(() => document.querySelector('[aria-label="Display mode"]'), 'mode menu absent');
     const button = [...document.querySelectorAll('[role="menuitemradio"]')]
       .find(button => button.textContent.trim() === label);
@@ -58,6 +61,7 @@
         'server is not using the isolated fixture vault');
       await wait(() => document.querySelector('button[aria-label^="Display mode:"]'), 'note not loaded');
       await mode('Edit');
+      await wait(() => editor() && !editor().readOnly, 'storage never enabled editing');
       await wait(() => editor()?.value === original, 'original body not adopted');
       window.__wk3Document = 'same-document';
       type(draft);
@@ -83,6 +87,8 @@
       checkDraft();
     },
     async recovered() {
+      await wait(() => editor() && !editor().readOnly && save() && !save().disabled,
+        'storage did not verify the retained draft for saving');
       checkDraft();
       assert(await bodyOnServer() === original, 'offline save unexpectedly persisted');
       type(finalBody);

@@ -24,7 +24,7 @@ export function loadMathPlugins(): Promise<MathPlugins> {
     ]);
     cached = { remark, rehype };
     return cached;
-  })();
+  })().catch((error: unknown) => { promise = null; throw error; });
   return promise;
 }
 

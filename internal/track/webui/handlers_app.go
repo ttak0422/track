@@ -92,8 +92,11 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	html := strings.ReplaceAll(string(raw), "__TRACK_DEFAULT_THEME__", theme)
 	overrides := ""
-	if s.colorCSS != "" {
-		overrides = "<style id=\"track-colors\">\n" + s.colorCSS + "</style>"
+	s.colorMu.RLock()
+	css := s.colorCSS
+	s.colorMu.RUnlock()
+	if css != "" {
+		overrides = "<style id=\"track-colors\">\n" + css + "</style>"
 	}
 	html = strings.ReplaceAll(html, "__TRACK_COLOR_OVERRIDES__", overrides)
 	// The configured web.home note becomes the workspace landing view (the same start-page mechanism the
@@ -187,6 +190,8 @@ func (s *Server) serveAsset(v *vaultView, w http.ResponseWriter, r *http.Request
 	if ct := mime.TypeByExtension(filepath.Ext(full)); ct != "" {
 		w.Header().Set("Content-Type", ct)
 	}
+	// Executable attachments must not inherit the workspace origin or reach native bridges via parent.
+	w.Header().Set("Content-Security-Policy", "sandbox allow-scripts allow-downloads allow-modals allow-popups allow-popups-to-escape-sandbox")
 	// Vault assets can change underneath us (an edit or a cloud sync), so they are not cached.
 	w.Header().Set("Cache-Control", "no-store")
 	http.ServeContent(w, r, stat.Name(), stat.ModTime(), f)

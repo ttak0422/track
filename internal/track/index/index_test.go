@@ -1,7 +1,6 @@
 package index
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -118,78 +117,47 @@ func TestFullIndexesOnlyNoteAndJournalDirs(t *testing.T) {
 	}
 }
 
-func TestFullReconcilesDeletions(t *testing.T) {
+func TestMissingFilesRetainedUntilExplicitReconciliation(t *testing.T) {
 	cfg, s := setup(t)
-	writeNote(t, cfg, 1, "a", note.Metadata{Title: "A"})
-	writeNote(t, cfg, 2, "b", note.Metadata{Title: "B"})
+	writeNote(t, cfg, 1, "[[B]]", note.Metadata{Title: "A"})
+	writeNote(t, cfg, 2, "[[A]]", note.Metadata{Title: "B"})
 	ix := New(cfg, s)
 	if _, err := ix.Full(); err != nil {
 		t.Fatal(err)
 	}
-
 	if err := os.Remove(cfg.NotePath(2)); err != nil {
 		t.Fatal(err)
 	}
 	rep, err := ix.Full()
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || rep.Deleted != 0 || rep.ReadState == nil || !rep.ReadState.CacheUsed {
+		t.Fatalf("missing data not retained: %+v %v", rep, err)
 	}
-	if rep.Deleted != 1 {
-		t.Fatalf("deleted = %d, want 1", rep.Deleted)
+	back, err := s.Backlinks(2)
+	if err != nil || len(back) != 1 || back[0].NoteID != 1 {
+		t.Fatalf("lost inbound links: %+v %v", back, err)
 	}
-	// Reconciling only removes index rows: the sidecar stays on disk as an orphan (doctor reports
-	// it), and only explicit commands (track rm, doctor --fix) move files.
+	back, err = s.Backlinks(1)
+	if err != nil || len(back) != 1 || back[0].NoteID != 2 {
+		t.Fatalf("lost outgoing links: %+v %v", back, err)
+	}
+	if _, err := ix.FullStrict(); err == nil {
+		t.Fatal("partial state authorized a strict operation")
+	}
+	rep, err = ix.ReconcileMissing()
+	if err != nil || rep.Deleted != 1 {
+		t.Fatalf("explicit cleanup: %+v %v", rep, err)
+	}
+	if _, found, err := s.ResolveTerm("B"); err != nil || found {
+		t.Fatalf("confirmed deletion not removed: %v %v", found, err)
+	}
 	if _, err := os.Stat(cfg.MetadataPath(2)); err != nil {
-		t.Fatalf("sidecar of deleted note must stay in place: %v", err)
-	}
-	if trashed, err := filepath.Glob(filepath.Join(cfg.TrashDir(), "*")); err != nil || len(trashed) != 0 {
-		t.Fatalf("a read-path reconcile must not move files into trash, glob=%v err=%v", trashed, err)
-	}
-	notes, _ := s.AllNotes()
-	if len(notes) != 1 || notes[0].NoteID != 1 {
-		t.Fatalf("expected only note 1 to remain, got %+v", notes)
+		t.Fatal("cleanup touched authoritative metadata", err)
 	}
 }
 
-func TestFullRefusesEmptyScanWithPopulatedIndex(t *testing.T) {
+func TestMissingDirectoryRetainsEvenOneCachedRow(t *testing.T) {
 	cfg, s := setup(t)
-	ids := []int64{1, 2, 3, 4, 5}
-	for _, id := range ids {
-		writeNote(t, cfg, id, "body", note.Metadata{Title: fmt.Sprintf("Note %d", id)})
-	}
-	ix := New(cfg, s)
-	if _, err := ix.Full(); err != nil {
-		t.Fatal(err)
-	}
-
-	// An unmounted or unreadable vault scans as empty; that must refuse, not wipe the index.
-	if err := os.RemoveAll(cfg.NoteDir()); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := ix.Full(); err == nil {
-		t.Fatal("Full on an empty scan with a populated index should refuse")
-	}
-	if _, err := ix.RefreshIfStale(); err == nil {
-		t.Fatal("RefreshIfStale should propagate the refusal")
-	}
-	for _, id := range ids {
-		if _, err := os.Stat(cfg.MetadataPath(id)); err != nil {
-			t.Fatalf("sidecar %d must survive the refused reconcile: %v", id, err)
-		}
-	}
-	notes, err := s.AllNotes()
-	if err != nil || len(notes) != len(ids) {
-		t.Fatalf("index rows must survive the refused reconcile, got %+v err=%v", notes, err)
-	}
-}
-
-func TestFullReconcilesEmptyScanBelowGuardFloor(t *testing.T) {
-	// `track rm` of a vault's last file leaves a zero scan over a small DB; that must reconcile, not
-	// strand phantom rows behind the guard. Uses exactly floor-1 notes to pin the floor from below.
-	cfg, s := setup(t)
-	for id := int64(1); id <= emptyScanGuardMin-1; id++ {
-		writeNote(t, cfg, id, "body", note.Metadata{Title: fmt.Sprintf("Note %d", id)})
-	}
+	writeNote(t, cfg, 1, "body", note.Metadata{Title: "A"})
 	ix := New(cfg, s)
 	if _, err := ix.Full(); err != nil {
 		t.Fatal(err)
@@ -197,16 +165,19 @@ func TestFullReconcilesEmptyScanBelowGuardFloor(t *testing.T) {
 	if err := os.RemoveAll(cfg.NoteDir()); err != nil {
 		t.Fatal(err)
 	}
-	rep, err := ix.Full()
-	if err != nil {
-		t.Fatalf("full below guard floor: %v", err)
+	if _, err := ix.RefreshIfStale(); err != nil {
+		t.Fatal(err)
 	}
-	if rep.Deleted != emptyScanGuardMin-1 {
-		t.Fatalf("deleted = %d, want %d", rep.Deleted, emptyScanGuardMin-1)
+	state, err := s.ReadState()
+	if err != nil || !state.Partial || !state.CacheUsed {
+		t.Fatalf("missing partial status %+v %v", state, err)
 	}
-	notes, _ := s.AllNotes()
-	if len(notes) != 0 {
-		t.Fatalf("expected empty index, got %+v", notes)
+	if _, err := ix.ReconcileMissing(); err == nil {
+		t.Fatal("pruned unavailable directory")
+	}
+	rows, err := s.AllNotes()
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("lost cache: %+v %v", rows, err)
 	}
 }
 
@@ -272,8 +243,14 @@ func TestRefreshIfStale(t *testing.T) {
 	if changed, err := ix.RefreshIfStale(); err != nil || !changed {
 		t.Fatalf("RefreshIfStale after delete = %v, %v; want true, nil", changed, err)
 	}
+	if _, found, _ := s.ResolveTerm("Second"); !found {
+		t.Fatal("unconfirmed missing note was deleted")
+	}
+	if _, err := ix.ReconcileMissing(); err != nil {
+		t.Fatal(err)
+	}
 	if _, found, _ := s.ResolveTerm("Second"); found {
-		t.Fatalf("deleted note still indexed")
+		t.Fatal("confirmed deleted note still indexed")
 	}
 }
 

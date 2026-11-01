@@ -1,3 +1,5 @@
+import { reportRecoverable } from "../recovery";
+import { FeatureBoundary } from "./FeatureBoundary";
 import type { Element } from "hast";
 import { DrawioEditingContext, type DrawioEditing } from "./markdown/drawioEditing";
 import {
@@ -132,6 +134,8 @@ function VaultMarkdownView({
   const parentIdentity = useContext(NoteIdentityContext);
   const documentIdentity = JSON.stringify([parentIdentity, vault, noteId ?? copyPath]);
   const hasMath = looksLikeMath(markdown);
+  const [mathFailed,setMathFailed]=useState(false);
+  const [mathAttempt,setMathAttempt]=useState(0);
   const [math, setMath] = useState<MathPlugins | null>(() => (hasMath ? mathPluginsIfLoaded() : null));
   const markdownRef = useRef<HTMLDivElement>(null);
   const [copyRange, setCopyRange] = useState<CopyLineRange | null>(null);
@@ -140,13 +144,14 @@ function VaultMarkdownView({
   useEffect(() => {
     if (!hasMath || math) return;
     let cancelled = false;
+    setMathFailed(false);
     void loadMathPlugins().then((plugins) => {
       if (!cancelled) setMath(plugins);
-    });
+    }).catch((error: unknown) => {if(!cancelled)setMathFailed(true);reportRecoverable("math rendering",error);});
     return () => {
       cancelled = true;
     };
-  }, [hasMath, math]);
+  }, [hasMath, math, documentIdentity, mathAttempt]);
 
   useEffect(() => {
     if (!copyPath) {
@@ -283,9 +288,12 @@ function VaultMarkdownView({
               </h1>
             ) : null}
             {markdown.trim() === "" ? <p className="muted">Empty note.</p> : null}
+            {mathFailed ? <p className="muted">Math rendering is unavailable; formulas remain as source. <button type="button" className="note-recovery-action" onClick={()=>setMathAttempt((n)=>n+1)}>Retry math</button></p> : null}
+            <FeatureBoundary key={documentIdentity + source} name="Note preview" fallback={<div><p className="muted">Preview is unavailable. Showing the note source.</p><pre><code>{source}</code></pre></div>}>
             <Markdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={markdownComponents}>
               {source}
             </Markdown>
+            </FeatureBoundary>
             {copyPath && copyRange ? (
               <SelectionCopyPopover
                 path={copyPath}

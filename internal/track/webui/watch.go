@@ -11,6 +11,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/ttak0422/track/internal/track/index"
+	"github.com/ttak0422/track/internal/track/vaultfile"
 )
 
 type serverEvent struct {
@@ -107,6 +108,8 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	for {
 		select {
+		case <-s.watchDone:
+			return // Retired backends release SSE clients so they reconnect to the current generation.
 		case <-ctx.Done():
 			return
 		case <-ping.C:
@@ -138,13 +141,17 @@ func (s *Server) startWatch() {
 	}
 
 	watched := 0
-	for _, dir := range []string{s.cfg.NoteDir(), s.cfg.JournalDir(), s.cfg.DataDir()} {
-		// Ensure the directory exists so it is watched even before its first file
-		// (e.g. journal/ is created lazily on the first daily note, data/ on the
-		// first JSONL ingest).
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			fmt.Fprintf(os.Stderr, "track web: not watching %s: %v\n", dir, err)
+	for _, dir := range []string{s.cfg.VaultDir, s.cfg.NoteDir(), s.cfg.JournalDir(), s.cfg.DataDir()} {
+		// A read-only startup never creates vault directories. A later mutation
+		// creates its own parents; periodic refresh covers initially absent watches.
+		if info, err := vaultfile.Stat(dir); err != nil || !info.IsDir() {
 			continue
+		}
+		select {
+		case <-s.watchDone:
+			watcher.Close()
+			return
+		default:
 		}
 		if err := watcher.Add(dir); err != nil {
 			fmt.Fprintf(os.Stderr, "track web: not watching %s: %v\n", dir, err)
@@ -166,6 +173,13 @@ func (s *Server) startWatch() {
 // note under "on this day" for the day it was edited. A bare Full() would only sync mtimes, silently
 // swallowing the staleness so the read-time refresh later sees nothing left to stamp.
 func (s *Server) reconcileAfterChange() {
+	if s.asyncReads {
+		s.active.progress.mu.Lock()
+		s.active.progress.last = time.Time{}
+		s.active.progress.mu.Unlock()
+		s.refreshAsync(s.active)
+		return
+	}
 	v := s.active
 	v.reindexMu.Lock()
 	defer v.reindexMu.Unlock()
@@ -189,12 +203,46 @@ func (s *Server) watchLoop(watcher *fsnotify.Watcher) {
 
 	for {
 		select {
+		case <-s.watchDone:
+			if noteTimer != nil {
+				noteTimer.Stop()
+			}
+			if dataTimer != nil {
+				dataTimer.Stop()
+			}
+			return
 		case ev, ok := <-watcher.Events:
 			if !ok {
 				return
 			}
 			// Ignore chmod-only events; react to content/structure changes.
 			if ev.Op&(fsnotify.Create|fsnotify.Write|fsnotify.Remove|fsnotify.Rename) == 0 {
+				continue
+			}
+			// Observe creation of initially absent content directories without
+			// scaffolding the vault. Reconcile immediately because the first file
+			// can be written before the new directory watch is attached.
+			if filepath.Dir(ev.Name) == s.cfg.VaultDir {
+				known := ev.Name == s.cfg.NoteDir() || ev.Name == s.cfg.JournalDir() || ev.Name == dataDir
+				if !known {
+					continue
+				}
+				if info, err := vaultfile.Stat(ev.Name); err == nil && info.IsDir() {
+					if err := watcher.Add(ev.Name); err != nil {
+						fmt.Fprintf(os.Stderr, "track web: content watch unavailable: %v\n", err)
+					}
+				}
+				if ev.Name == dataDir {
+					if dataTimer != nil {
+						dataTimer.Stop()
+					}
+					dataTimer = time.AfterFunc(debounce, notifyData)
+				} else {
+					if noteTimer != nil {
+						noteTimer.Stop()
+					}
+					noteTimer = time.AfterFunc(debounce, reindex)
+				}
 				continue
 			}
 			// The watch is non-recursive, so events name direct children of a

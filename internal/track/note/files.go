@@ -3,6 +3,7 @@ package note
 import (
 	"bytes"
 	"fmt"
+	"github.com/ttak0422/track/internal/track/vaultfile"
 	"os"
 	"path/filepath"
 	"time"
@@ -47,7 +48,7 @@ func MoveToTrash(cfg *config.Config, notePath string, noteID int64) (TrashMove, 
 	if err := os.Rename(notePath, move.TrashedNote); err != nil {
 		return move, fmt.Errorf("move note: %w", err)
 	}
-	if _, err := os.Stat(move.MetadataPath); err == nil {
+	if _, err := vaultfile.Stat(move.MetadataPath); err == nil {
 		move.TrashedMetadata = filepath.Join(cfg.TrashDir(), fmt.Sprintf("%d-%s", stamp, filepath.Base(move.MetadataPath)))
 		if err := os.Rename(move.MetadataPath, move.TrashedMetadata); err != nil {
 			if restoreErr := os.Rename(move.TrashedNote, notePath); restoreErr != nil {

@@ -3,10 +3,12 @@ package note
 import (
 	"errors"
 	"fmt"
+	"github.com/ttak0422/track/internal/track/notedata"
+	"github.com/ttak0422/track/internal/track/vaultfile"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
-	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -39,7 +41,7 @@ const (
 	// MetadataVersionV12 adds Babel input hashes and execution cache keys.
 	MetadataVersionV12 = 12
 	// MaxMetadataVersion is the newest schema this build can read and write.
-	MaxMetadataVersion = MetadataVersionV12
+	MaxMetadataVersion = notedata.MaxMetadataVersion
 )
 
 func supportedVersion(v int) bool {
@@ -48,9 +50,14 @@ func supportedVersion(v int) bool {
 
 // ReadMetadata reads a versioned metadata sidecar. found=false means the note has no sidecar yet.
 func ReadMetadata(path string) (meta Metadata, found bool, err error) {
-	raw, err := os.ReadFile(path)
+	raw, err := vaultfile.Read(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
+			if _, linkErr := vaultfile.Lstat(path); linkErr == nil {
+				return Metadata{}, false, vaultfile.ReadError(path, err)
+			} else if !errors.Is(linkErr, os.ErrNotExist) {
+				return Metadata{}, false, vaultfile.ReadError(path, linkErr)
+			}
 			return Metadata{}, false, nil
 		}
 		return Metadata{}, false, err
@@ -152,34 +159,6 @@ func EnsureDay(meta Metadata, day string) (Metadata, bool) {
 	return meta, true
 }
 
-// ApplyReadEvent records a shared reading milestone on the sidecar metadata: "seen" stamps the first
-// time any device opened the note in the web workspace, "read" stamps the first time viewing time
-// crossed the note's read threshold there (which implies having seen it). Both are monotonic firsts:
-// a milestone never overwrites an earlier stamp, so whichever device reached it first wins and
-// re-reporting is a changeless no-op. Reports whether anything changed; callers persist with
-// WriteMetadata only then. An unknown event changes nothing — callers validate before applying.
-func (m *Metadata) ApplyReadEvent(event string, at time.Time) bool {
-	stamp := at.Format(time.RFC3339)
-	switch event {
-	case "seen":
-		if m.SeenAt != "" {
-			return false
-		}
-		m.SeenAt = stamp
-	case "read":
-		if m.ReadAt != "" {
-			return false
-		}
-		m.ReadAt = stamp
-		if m.SeenAt == "" {
-			m.SeenAt = stamp
-		}
-	default:
-		return false
-	}
-	return true
-}
-
 // StampUnix parses a sidecar timestamp into unix seconds for the index and API payloads: 0 when
 // absent, and 1 for a present-but-unparseable value so a hand-edited stamp still reads as "happened"
 // rather than silently dropping the milestone.
@@ -196,45 +175,43 @@ func StampUnix(stamp string) int64 {
 
 // SplitLegacyFootmatter strips the old trailing HTML-comment metadata block from a note body.
 // The returned yamlText is for migration/compatibility only; new writes use sidecar metadata files instead.
-func SplitLegacyFootmatter(raw string) (body string, yamlText string, found bool) {
-	const open = "<!--track"
-	const close = "-->"
-
-	lines := strings.Split(raw, "\n")
-	openIdx, closeIdx := -1, -1
-	for i := len(lines) - 1; i >= 0; i-- {
-		t := strings.TrimSpace(lines[i])
-		if closeIdx == -1 {
-			if t == close {
-				closeIdx = i
-			}
-			continue
-		}
-		if t == open {
-			openIdx = i
-			break
-		}
-	}
-	if openIdx == -1 || closeIdx == -1 || closeIdx <= openIdx {
-		return strings.TrimRight(raw, "\n"), "", false
-	}
-
-	body = strings.TrimRight(strings.Join(lines[:openIdx], "\n"), "\n")
-	yamlText = strings.Join(lines[openIdx+1:closeIdx], "\n")
-	return body, yamlText, true
+func SplitLegacyFootmatter(raw string) (string, string, bool) {
+	return notedata.SplitLegacyFootmatter(raw)
 }
 
-// ParseLegacyMetadata parses the old footmatter payload into the current metadata shape.
-func ParseLegacyMetadata(yamlText string) (Metadata, error) {
-	var meta Metadata
-	if err := yaml.Unmarshal([]byte(yamlText), &meta); err != nil {
-		return Metadata{}, err
+func ParseLegacyMetadata(raw string) (Metadata, error) { return notedata.ParseLegacyMetadata(raw) }
+
+// WriteMetadataAtomic protects the existing sidecar during optional background
+// activity updates, including process shutdown before the replacement is ready.
+func WriteMetadataAtomic(path string, expected, meta Metadata) error {
+	f, err := os.CreateTemp(filepath.Dir(path), ".activity-*.yaml.tmp")
+	if err != nil {
+		return err
 	}
-	if meta.Version == 0 {
-		meta.Version = CurrentMetadataVersion
+	tmp := f.Name()
+	defer os.Remove(tmp)
+	if err := f.Close(); err != nil {
+		return err
 	}
-	if !supportedVersion(meta.Version) {
-		return Metadata{}, fmt.Errorf("unsupported metadata version %d", meta.Version)
+	if err := WriteMetadata(tmp, meta); err != nil {
+		return err
 	}
-	return meta, nil
+	info, err := vaultfile.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return errors.New("activity metadata must be a regular sidecar")
+	}
+	if err := os.Chmod(tmp, info.Mode().Perm()); err != nil {
+		return err
+	}
+	current, found, err := ReadMetadata(path)
+	if err != nil {
+		return err
+	}
+	if !found || !reflect.DeepEqual(current, expected) {
+		return errors.New("metadata changed before activity update")
+	}
+	return os.Rename(tmp, path)
 }

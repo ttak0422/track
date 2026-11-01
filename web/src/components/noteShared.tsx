@@ -56,24 +56,25 @@ export function NoteBreadcrumbs({ trail }: { trail: NoteRef[] }) {
   );
 }
 
-// NoteStamps overlays a note's article with its author-assigned flags (ADR 0074): the classic red
-// English-text stamp, uppercase and slightly rotated, transparent enough to keep reading and
-// pointer-transparent so it never blocks selection or editing. Each flag stacks down the article's
-// right edge (the per-stamp top offset comes from here, not CSS, so the stack scales with the flag
-// list rather than a sibling rule). Callers anchor it inside the positioned article.
+// Repeating masks put the flags behind the content of each note surface (ADR 0074).
+// SVG text is decorative: the container supplies one accessible label, without copyable text.
 export function NoteStamps({ flags }: { flags?: string[] }) {
-  if (!flags || flags.length === 0) return null;
+  const markers = flags?.filter((flag) => flag === "DEPRECATED" || flag === "CONFIDENTIAL") ?? [];
+  if (markers.length === 0) return null;
   return (
-    <div className="note-stamps" aria-hidden="true">
-      {flags.map((flag, index) => (
-        <span
-          key={flag}
-          className={`stamp stamp-${flag.toLowerCase()}`}
-          style={{ top: `${24 + index * 76}px` }}
-        >
-          {flag}
-        </span>
-      ))}
+    <div className="note-stamps" role="img" aria-label={`Note flags: ${markers.join(", ")}`}>
+      {markers.map((flag, index) => {
+        const y = 240 + (index - (markers.length - 1) / 2) * 150;
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 480"><text x="360" y="${y}" text-anchor="middle" dominant-baseline="middle" transform="rotate(-18 360 240)" font-family="monospace" font-size="76" font-weight="700">${flag}</text></svg>`;
+        return (
+          <span
+            key={flag}
+            className={`stamp stamp-${flag.toLowerCase()}`}
+            aria-hidden="true"
+            style={{ maskImage: `url("data:image/svg+xml,${encodeURIComponent(svg)}")` }}
+          />
+        );
+      })}
     </div>
   );
 }

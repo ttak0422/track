@@ -91,15 +91,12 @@ func cmdGenMove(args []string, dir string) int {
 	if err != nil {
 		return fail("gen %s: %v", dir, err)
 	}
-	if err := store.Reset(cfg.DBPath); err != nil {
-		return fail("reset index db: %v", err)
-	}
 	s, err := store.Open(cfg.DBPath)
 	if err != nil {
 		return fail("%v", err)
 	}
 	defer s.Close()
-	rep, err := index.New(cfg, s).Full()
+	rep, err := index.New(cfg, s).ReconcileMissing()
 	if err != nil {
 		return fail("reindex: %v", err)
 	}

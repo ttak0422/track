@@ -35,7 +35,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 			writeError(w, err, http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, map[string]any{"results": results, "unavailable": []vaultInfo{}})
+		writeReadJSON(w, v, map[string]any{"results": results, "unavailable": []vaultInfo{}})
 		return
 	}
 
@@ -53,7 +53,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 			writeError(w, err, http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, map[string]any{"results": results, "unavailable": unavailable})
+		writeSearchJSON(w, views, map[string]any{"results": results, "unavailable": unavailable})
 		return
 	}
 
@@ -63,7 +63,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	unavailable = append(unavailable, gaps...)
-	writeJSON(w, map[string]any{"results": results, "unavailable": unavailable})
+	writeSearchJSON(w, views, map[string]any{"results": results, "unavailable": unavailable})
 }
 
 // searchOne is the single-vault search: an empty query lists the most recently updated notes, the
@@ -105,6 +105,9 @@ func (s *Server) searchOne(v *vaultView, query string, limit int) ([]store.Searc
 // not be opened never reaches here; servedViews already reported it as a gap. A vault that opened
 // but could not answer becomes one of the gaps returned beside the results.
 func (s *Server) searchAcross(views []*vaultView, query string, limit int) ([]store.SearchResult, []vaultInfo, error) {
+	if s.asyncReads {
+		return s.searchAcrossBounded(views, query, limit)
+	}
 	if query != "" {
 		// Title and body merge separately, because their ranks are on different scales — bm25 is
 		// negative, a title rank vector is 0..3 — so merging composed per-vault lists on one key
@@ -179,7 +182,7 @@ func (s *Server) handleNotes(v *vaultView, w http.ResponseWriter, r *http.Reques
 			return
 		}
 		addSearchPaths(v, results)
-		writeJSON(w, map[string]any{"notes": results})
+		writeReadJSON(w, v, map[string]any{"notes": results})
 		return
 	}
 	results, err := v.store.SearchRefs()
@@ -199,7 +202,7 @@ func (s *Server) handleNotes(v *vaultView, w http.ResponseWriter, r *http.Reques
 	}
 	sortRefs(results)
 	addSearchPaths(v, results)
-	writeJSON(w, map[string]any{"notes": results})
+	writeReadJSON(w, v, map[string]any{"notes": results})
 }
 
 // handleActivity returns the per-day note activity within a [since, until] window (inclusive), counted
@@ -231,7 +234,7 @@ func (s *Server) handleActivity(v *vaultView, w http.ResponseWriter, r *http.Req
 	for _, day := range counts {
 		total += day.Count
 	}
-	writeJSON(w, map[string]any{
+	writeReadJSON(w, v, map[string]any{
 		"activity": map[string]any{
 			"since":  sinceStr,
 			"until":  untilStr,
@@ -258,7 +261,7 @@ func (s *Server) handleAgenda(v *vaultView, w http.ResponseWriter, r *http.Reque
 		notes = []store.NoteRef{}
 	}
 	addRefPaths(v, notes)
-	writeJSON(w, map[string]any{"date": date, "notes": notes})
+	writeReadJSON(w, v, map[string]any{"date": date, "notes": notes})
 }
 
 // handleJournal opens or creates the journal for a day and returns its note id, letting the activity
@@ -301,7 +304,7 @@ func (s *Server) handleJournal(v *vaultView, w http.ResponseWriter, r *http.Requ
 			return
 		}
 	}
-	writeJSON(w, map[string]any{"vault": v.label, "note_id": res.NoteID, "created": res.Created})
+	writeReadJSON(w, v, map[string]any{"vault": v.label, "note_id": res.NoteID, "created": res.Created})
 }
 
 func (s *Server) handleResolve(v *vaultView, w http.ResponseWriter, r *http.Request) {
@@ -316,5 +319,33 @@ func (s *Server) handleResolve(v *vaultView, w http.ResponseWriter, r *http.Requ
 		writeError(w, err, http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, map[string]any{"found": found, "note": ref})
+	writeReadJSON(w, v, map[string]any{"found": found, "note": ref})
+}
+
+func writeSearchJSON(w http.ResponseWriter, views []*vaultView, result map[string]any) {
+	partial := []map[string]any{}
+	unavailable, _ := result["unavailable"].([]vaultInfo)
+	for _, v := range views {
+		failed := false
+		for _, gap := range unavailable {
+			if gap.Name == v.name {
+				failed = true
+				break
+			}
+		}
+		if failed {
+			continue // Its failed query is already reported; do not query its broken store again.
+		}
+		state, err := viewReadState(v)
+		if err != nil {
+			state.Add(store.ReadIssue{Path: v.cfg.DBPath, Reason: "read-state verification unavailable: " + err.Error()})
+		}
+		if state.Partial {
+			partial = append(partial, map[string]any{"name": v.name, "read_state": state})
+		}
+	}
+	if len(partial) > 0 {
+		result["partial"] = partial
+	}
+	writeJSON(w, result)
 }

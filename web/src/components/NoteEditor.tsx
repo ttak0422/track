@@ -1,3 +1,4 @@
+import { RenderFailure } from "./RenderFailure";
 import { useBlocker, useNavigate } from "@tanstack/react-router";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { DrawioEditorDialog } from "./DrawioEditorDialog";
@@ -41,6 +42,7 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
   // Poll so the note reflects edits made elsewhere; we still guard against
   // clobbering unsaved local edits below.
   const noteQuery = useNoteQuery(noteID, { live: true });
+  const readOnly = noteQuery.isError || noteQuery.data?.note.read_only === true;
   const saveNote = useSaveNoteMutation(noteID);
   const deleteNote = useDeleteNoteMutation(noteID);
   const {
@@ -92,6 +94,7 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
     noteID,
     body: cachedNote?.body ?? "",
     etag: cachedNote?.etag ?? "",
+    verified: !!cachedNote && cachedNote.read_only !== true,
   });
   // The task controls' writable data, updated on the same adopt as the body. See TaskBoardData:
   // the ref keeps a disk refresh from re-rendering the controls (and closing their pickers).
@@ -128,7 +131,7 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
   }, [body]);
 
   useEffect(() => {
-    if (noteQuery.isPending) return;
+    if (noteQuery.isPending || readOnly || !noteQuery.data?.note) return;
     markSeen(noteID);
     let last = Date.now();
     const flush = () => {
@@ -146,7 +149,7 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
       document.removeEventListener("visibilitychange", onVisibility);
       flush();
     };
-  }, [noteID, noteQuery.isPending]);
+  }, [noteID, noteQuery.isPending, readOnly, !!noteQuery.data?.note]);
 
   useEffect(() => {
     editorModeRef.current = editorMode;
@@ -170,13 +173,15 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
   });
 
   useEffect(() => {
+    if (!noteQuery.data?.note) { setActions(null); return; }
     setActions({
+      readOnly,
       getBody: () => railBodyRef.current,
       onMeta: () => railMetaRef.current(),
       onDelete: () => railDeleteRef.current(),
     });
     return () => setActions(null);
-  }, [setActions]);
+  }, [setActions,readOnly,!!noteQuery.data?.note]);
 
   useEffect(() => {
     const incoming = noteQuery.data?.note;
@@ -187,25 +192,27 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
     const switchedNote = noteID !== loadedRef.current.noteID;
     const discardedUnsavedEdit =
       switchedNote && body !== loadedRef.current.body;
-    if (switchedNote || (body === loadedRef.current.body && !diagram)) {
+    if (switchedNote || (body === loadedRef.current.body && !diagram &&
+        !(incoming.read_only === true && loadedRef.current.verified))) {
       if (switchedNote) setDiagram(null);
-      loadedRef.current = { noteID, body: incoming.body, etag: incoming.etag };
+      loadedRef.current = { noteID, body: incoming.body, etag: incoming.etag, verified: incoming.read_only !== true };
       tasksRef.current = { tasks: incoming.tasks ?? { items: [] }, etag: incoming.etag };
       setBody(incoming.body);
       if (discardedUnsavedEdit) {
         setEditorMode("preview");
       }
     }
-  }, [noteID, noteQuery.data?.note.etag, diagram]);
+  }, [noteID, noteQuery.data?.note.etag, noteQuery.data?.note.read_only, diagram]);
 
   const dirty = body !== loadedRef.current.body;
+  const currentRender = renderQuery.data?.sourceBody === body && loadedRef.current.noteID === noteID && !renderQuery.isError && !renderQuery.isPlaceholderData;
   const protectedDraft = dirty || diagram !== null;
   // Memoized so a disk refresh (which swaps only tasksRef.current) does not re-render the controls:
   // the value identity is what the consumers re-render on, and noteID is the only part of it that
   // changes their rendered output (the inert/read-only blanking while the buffer is dirty).
   const taskBoardValue = useMemo(
-    () => ({ noteID: dirty ? "" : noteID, tasksRef }),
-    [dirty, noteID, tasksRef],
+    () => ({ noteID: dirty || readOnly || !currentRender ? "" : noteID, tasksRef }),
+    [dirty, readOnly, currentRender, noteID, tasksRef],
   );
 
   useBlocker({
@@ -372,13 +379,13 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!dirty || saveNote.isPending || diagram) return;
+    if (!dirty || readOnly || saveNote.isPending || diagram) return;
     try {
       const response = await saveNote.mutateAsync({
         body,
         etag: loadedRef.current.etag,
       });
-      loadedRef.current = { noteID, body, etag: response.etag };
+      loadedRef.current = { noteID, body, etag: response.etag, verified: true };
     } catch {
       // Conflict/errors surface via saveNote.isError below.
     }
@@ -387,7 +394,7 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
   const deleteConfirmed = deleteConfirmText.trim() === note.title.trim();
 
   async function confirmDelete() {
-    if (!deleteConfirmed || deleteNote.isPending) return;
+    if (!deleteConfirmed || readOnly || deleteNote.isPending) return;
     try {
       await deleteNote.mutateAsync();
       // Skip the unsaved-changes guard, drop the dirty marker, then close this note's tab — which moves
@@ -473,7 +480,7 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
               <button
                 type="button"
                 className="danger-button"
-                disabled={!deleteConfirmed || deleteNote.isPending}
+                disabled={!deleteConfirmed || readOnly || deleteNote.isPending}
                 onClick={confirmDelete}
               >
                 {deleteNote.isPending ? "Deleting..." : "Delete note"}
@@ -496,23 +503,30 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
           />
 
           <form className="note-editor" onSubmit={submit}>
-            {/* Author-assigned flags (ADR 0074) stamp the note's own surface, in every mode; the
-                overlay is pointer-transparent so editing underneath is unaffected. */}
-            <NoteStamps flags={note.flags} />
+            {data.read_state?.partial ? <p className="muted">Some information is unavailable or cached. Results may be incomplete.</p> : null}
+            {data.note.read_only ? <div>
+              <p className="muted">Reading remains available. Editing is disabled until the index recovers.</p>
+              <button type="button" className="note-recovery-action" disabled={noteQuery.isFetching}
+                onClick={() => { void noteQuery.refetch({ cancelRefetch: false }); }}>Retry note</button>
+            </div> : null}
             <div className={`editor-grid editor-grid-${editorMode}`}>
               {editorMode !== "preview" ? (
-                <textarea
-                  aria-label="Note body"
-                  ref={textareaRef}
-                  value={body}
-                  onChange={(event) => {
-                    setBody(event.currentTarget.value);
-                    revealTextareaCaret(event.currentTarget);
-                  }}
-                  onClick={(event) => revealTextareaCaret(event.currentTarget)}
-                  onKeyUp={(event) => revealTextareaCaret(event.currentTarget)}
-                  onSelect={(event) => revealTextareaCaret(event.currentTarget)}
-                />
+                <div className="note-surface note-source">
+                  <NoteStamps flags={note.flags} />
+                  <textarea
+                    aria-label="Note body"
+                    ref={textareaRef}
+                    value={body}
+                    readOnly={readOnly}
+                    onChange={(event) => {
+                      setBody(event.currentTarget.value);
+                      revealTextareaCaret(event.currentTarget);
+                    }}
+                    onClick={(event) => revealTextareaCaret(event.currentTarget)}
+                    onKeyUp={(event) => revealTextareaCaret(event.currentTarget)}
+                    onSelect={(event) => revealTextareaCaret(event.currentTarget)}
+                  />
+                </div>
               ) : null}
               {editorMode !== "edit" ? (
                 <section
@@ -520,39 +534,42 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
                   ref={previewRef}
                   aria-label="Rendered note preview"
                 >
-                  {/* The rough source-line marker is a reading aid, so it rides the reading mode
-                    alone — split keeps its editing surface marker-free. */}
-                  {editorMode === "preview" ? <LineHint /> : null}
-                  {/* A non-empty body with no render yet is still loading — show a spinner rather than let
-                    MarkdownView flash "Empty note." for a body that is not actually empty. */}
-                  {body.trim() !== "" &&
-                  renderQuery.data?.markdown === undefined ? (
-                    <LoadingIndicator label="Loading note" />
-                  ) : (
-                    // The board reads the saved note's tasks (line numbers must match the file on disk
-                    // for the state-set API), not the live textarea buffer. While the buffer is dirty
-                    // the two disagree, so the controls go inert rather than write to a stale line.
-                    //
-                    // A note changed on disk is not the same situation: the tasks/etag stay on the
-                    // adopted state (tasksRef) until the body catches up in the same tick, so a sync
-                    // landing re-renders nothing the controls care about — an open native picker
-                    // survives it.
-                    <TaskBoardContext.Provider value={taskBoardValue}>
-                      <MarkdownView
-                        markdown={renderQuery.data?.markdown ?? ""}
-                        title={note.title}
-                        noteId={noteID}
-                        kind={note.file_kind}
-                        vault={noteVault}
-                        includes={renderQuery.data?.includes}
-                        copyPath={note.copy_path}
-                        drawioEditing={renderQuery.data?.sourceBody === body && loadedRef.current.noteID === noteID && !saveNote.isPending ? {
-                          fences: renderQuery.data.drawio_fences ?? [],
-                          open: (fence) => setDiagram({ id: crypto.randomUUID(), noteID, source: body, fence }),
-                        } : null}
-                      />
-                    </TaskBoardContext.Provider>
-                  )}
+                  <div className="note-surface">
+                    <NoteStamps flags={note.flags} />
+                    {/* The rough source-line marker is a reading aid, so it rides the reading mode
+                      alone — split keeps its editing surface marker-free. */}
+                    {editorMode === "preview" ? <LineHint /> : null}
+                    {/* A non-empty body with no render yet is still loading — show a spinner rather than let
+                      MarkdownView flash "Empty note." for a body that is not actually empty. */}
+                    {renderQuery.isError ? <RenderFailure source={body} retry={() => { void renderQuery.refetch(); }} retrying={renderQuery.isFetching} /> : body.trim() !== "" &&
+                    renderQuery.data?.markdown === undefined ? (
+                      <LoadingIndicator label="Loading note" />
+                    ) : (
+                      // The board reads the saved note's tasks (line numbers must match the file on disk
+                      // for the state-set API), not the live textarea buffer. While the buffer is dirty
+                      // the two disagree, so the controls go inert rather than write to a stale line.
+                      //
+                      // A note changed on disk is not the same situation: the tasks/etag stay on the
+                      // adopted state (tasksRef) until the body catches up in the same tick, so a sync
+                      // landing re-renders nothing the controls care about — an open native picker
+                      // survives it.
+                      <TaskBoardContext.Provider value={taskBoardValue}>
+                        <MarkdownView
+                          markdown={renderQuery.data?.markdown ?? ""}
+                          title={note.title}
+                          noteId={noteID}
+                          kind={note.file_kind}
+                          vault={noteVault}
+                          includes={renderQuery.data?.includes}
+                          copyPath={note.copy_path}
+                          drawioEditing={currentRender && !readOnly && !saveNote.isPending ? {
+                            fences: renderQuery.data?.drawio_fences ?? [],
+                            open: (fence) => setDiagram({ id: crypto.randomUUID(), noteID, source: body, fence }),
+                          } : null}
+                        />
+                      </TaskBoardContext.Provider>
+                    )}
+                  </div>
                 </section>
               ) : null}
             </div>
@@ -572,7 +589,7 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
                 <button
                   className="primary-button"
                   type="submit"
-                  disabled={!dirty || saveNote.isPending || diagram !== null}
+                  disabled={!dirty || readOnly || saveNote.isPending || diagram !== null}
                 >
                   {saveNote.isPending ? "Saving..." : "Save"}
                 </button>

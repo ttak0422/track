@@ -2,7 +2,7 @@ package webui
 
 import (
 	"fmt"
-	"os"
+	"github.com/ttak0422/track/internal/track/vaultfile"
 	"regexp"
 	"sort"
 	"strings"
@@ -51,7 +51,7 @@ func LoadPalette(path string) (string, error) {
 	if strings.TrimSpace(path) == "" {
 		return "", nil
 	}
-	raw, err := os.ReadFile(path)
+	raw, err := vaultfile.Read(path)
 	if err != nil {
 		return "", fmt.Errorf("read palette %s: %w", path, err)
 	}

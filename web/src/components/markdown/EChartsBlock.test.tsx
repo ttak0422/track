@@ -258,3 +258,12 @@ describe("detail tooltip", () => {
     expect(html.match(/note&lt;b&gt;/g)).toHaveLength(1);
   });
 });
+
+it("contains an asynchronous chart failure without hiding sibling prose",async()=>{
+ const warn=vi.spyOn(console,"warn").mockImplementation(()=>{});
+ setOption.mockImplementationOnce(()=>{throw new Error("synthetic chart render failure")});
+ const view=render(<><p>Readable sibling</p><EChartsBlock option={{series:[]}} /></>);
+ await waitFor(()=>expect(view.getByText(/Chart is unavailable/)).toBeTruthy());
+ expect(view.getByText("Readable sibling")).toBeTruthy();
+ view.unmount();warn.mockRestore();
+});

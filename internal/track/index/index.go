@@ -2,6 +2,7 @@
 package index
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -15,191 +16,323 @@ import (
 	"github.com/ttak0422/track/internal/track/note"
 	"github.com/ttak0422/track/internal/track/store"
 	tmpl "github.com/ttak0422/track/internal/track/template"
+	"github.com/ttak0422/track/internal/track/vaultfile"
 )
 
 type Indexer struct {
-	cfg   *config.Config
-	store *store.Store
+	cfg      *config.Config
+	store    *store.Store
+	readDir  func(string) ([]os.DirEntry, error)
+	readNote func(context.Context, string, *config.Config) (*note.Note, error)
+	previous map[int64]*vaultfile.NoteRead
 }
 
 func New(cfg *config.Config, s *store.Store) *Indexer {
-	return &Indexer{cfg: cfg, store: s}
+	return &Indexer{cfg: cfg, store: s, readDir: vaultfile.ReadDir, readNote: note.ReadFileContext}
 }
 
-// emptyScanGuardMin is how many indexed notes an empty scan must strand before Full refuses to
-// reconcile: a real vault outage strands the whole DB, while an intentionally emptied tiny vault
-// (e.g. `track rm` of the last file) stays under it and reconciles normally.
-const emptyScanGuardMin = 5
-
-// Report summarizes a reindex run.
+// Report summarizes a rebuild. Partial data is explicitly described, even on a first run.
 type Report struct {
-	Indexed int `json:"indexed"`
-	Deleted int `json:"deleted"`
-	Links   int `json:"links"`
-	Skipped int `json:"skipped,omitempty"`
+	Indexed   int              `json:"indexed"`
+	Deleted   int              `json:"deleted"`
+	Links     int              `json:"links"`
+	Skipped   int              `json:"skipped,omitempty"`
+	ReadState *store.ReadState `json:"read_state,omitempty"`
 }
 
-// Full re-parses every note in the vault, reconciles deletions, and recomputes the entire link graph.
-// It is the authoritative rebuild; single-file updates can't see new inbound links, so use Full for
-// bulk repair or when previously unresolved links should become backlinks after creating a title.
-//
-// Reconciling touches only index rows, never vault files: the sidecar of a vanished note stays on
-// disk as an orphan for doctor to report. Full runs as a side effect of read commands (via
-// RefreshIfStale), and only explicit commands (track rm, doctor --fix) may move or delete files.
-func (ix *Indexer) Full() (Report, error) {
-	var rep Report
+// Full updates accessible files and retains unverified cached data. It never infers
+// deletion from directory absence; ReconcileMissing is the explicit cleanup path.
+func (ix *Indexer) Full() (Report, error) { return ix.full(false, nil) }
 
-	paths, err := ix.scanFiles()
-	if err != nil {
-		return rep, err
+// FullStrict is a mutation precondition: incomplete backlink/namespace information
+// must not authorize a rename, move, or published export.
+func (ix *Indexer) FullStrict() (Report, error) {
+	rep, err := ix.Full()
+	if err == nil && rep.ReadState != nil {
+		err = fmt.Errorf("index is partial; verify unavailable files before this operation")
 	}
+	return rep, err
+}
 
+// ReconcileMissing requires explicit confirmation of intentional external deletions.
+// Any failed read/listing prevents all pruning and preserves the previous cache.
+func (ix *Indexer) ReconcileMissing() (Report, error) { return ix.full(true, nil) }
+
+func (ix *Indexer) full(prune bool, activity map[int64]int64) (Report, error) {
+	var rep Report
+	// An invalid content root is a vault-wide failure, not one unreadable item.
+	roots := []string{ix.cfg.VaultDir, ix.cfg.NoteDir()}
+	if !ix.cfg.JournalOff {
+		roots = append(roots, ix.cfg.JournalDir())
+	}
+	for _, root := range roots {
+		info, err := vaultfile.Stat(root)
+		if os.IsNotExist(err) && root != ix.cfg.VaultDir {
+			continue // A new vault may not have created either content directory yet.
+		}
+		if err != nil {
+			return rep, fmt.Errorf("inspect vault directory: %w", err)
+		}
+		if !info.IsDir() {
+			return rep, fmt.Errorf("vault content root is not a directory: %s", root)
+		}
+	}
+	state := store.ReadState{CheckedAt: time.Now().UnixMilli()}
 	existing, err := ix.store.NoteMtimes()
 	if err != nil {
 		return rep, err
 	}
-
-	// A scan that finds nothing while the index holds notes means the vault is unreadable — unmounted
-	// cloud storage, EPERM, a half-finished checkout — not that every note was deleted. Reconciling
-	// would empty the index, and a read command must never do that silently. If the notes really are
-	// gone, `track reindex` resets the index first and rebuilds from disk. The floor keeps legitimate
-	// small cases reconciling: `track rm` of a vault's last file leaves a zero scan over a rowful DB.
-	// ponytail: zero-scan guard only; a partial sync gap still reconciles (rows self-heal on the next
-	// refresh) — add a fractional threshold if that ever bites.
-	validPaths := 0
-	for _, p := range paths {
-		if _, err := note.IDFromPath(p); err == nil {
-			validPaths++
-		}
+	metaTimes, err := ix.store.NoteMetaMtimes()
+	if err != nil {
+		return rep, err
 	}
-	if validPaths == 0 && len(existing) >= emptyScanGuardMin {
-		return rep, fmt.Errorf("no note files found under %s but the index lists %d notes; refusing to reconcile deletions (vault unmounted or unreadable?) — if the notes really are gone, run 'track reindex'", ix.cfg.VaultDir, len(existing))
+	cachedRefs, err := ix.store.AllNotes()
+	if err != nil {
+		return rep, err
 	}
-
+	expectedRoots := map[string]bool{}
+	cachedPaths := map[int64]string{}
+	for _, ref := range cachedRefs {
+		cachedPaths[ref.NoteID] = ix.cfg.PathForKind(ref.FileKind, ref.NoteID)
+		expectedRoots[filepath.Dir(cachedPaths[ref.NoteID])] = true
+	}
+	paths, scanIssues := ix.scanReadableFiles(expectedRoots)
+	for _, issue := range scanIssues {
+		state.Add(issue)
+	}
+	seen := map[int64]bool{}
 	notes := make([]*note.Note, 0, len(paths))
-	seen := make(map[int64]bool, len(paths))
-	for _, p := range paths {
-		// A present but malformed note must not be reconciled as a deletion.
-		if id, err := note.IDFromPath(p); err == nil {
+	for _, path := range paths {
+		id, idErr := note.IDFromPath(path)
+		if idErr == nil {
 			seen[id] = true
 		}
-		n, err := note.ParseFile(p, ix.cfg)
-		if err != nil {
-			var invalid *note.ParseError
-			if errors.As(err, &invalid) {
-				warnSkipped(invalid)
-				rep.Skipped++
+		_, cached := existing[id]
+		reject := func(reason string) {
+			rep.Skipped++
+			state.Add(store.FileReadIssue(id, path, ix.cfg.MetadataPath(id), reason, cached))
+		}
+		// Missing metadata for a known sidecar is unavailable data, not an empty title.
+		if metaTimes[id] != 0 {
+			if _, err := vaultfile.Stat(ix.cfg.MetadataPath(id)); err != nil {
+				reject("metadata unavailable: " + err.Error())
 				continue
 			}
-			return rep, err
+		}
+		n, err := note.ReadFile(path, ix.cfg)
+		if err != nil {
+			var invalid *note.ParseError
+			var local *vaultfile.Error
+			if !errors.As(err, &invalid) && !errors.As(err, &local) {
+				return rep, err
+			}
+			if invalid != nil {
+				warnSkipped(invalid)
+			} else {
+				vaultfile.Warn(local.Path, local.Reason)
+			}
+			reject(err.Error())
+			continue
+		}
+		if metaTimes[id] != 0 && n.MetaMtime == 0 {
+			reject("known metadata disappeared during read")
+			continue
 		}
 		if err := config.ValidateLinkTitle(ix.cfg.LinkFormat, n.Meta.Title); err != nil {
 			return rep, err
 		}
-		if err := ix.store.UpsertNote(n); err != nil {
-			return rep, err
-		}
-		notes = append(notes, n)
-		seen[n.ID] = true
-		rep.Indexed++
-	}
-
-	for id := range existing {
-		if !seen[id] {
-			if err := ix.store.DeleteNote(id); err != nil {
+		// Activity writes are made only after both body and metadata were read. A write
+		// failure stays fatal and never gets misclassified as an unavailable input.
+		if _, changed := activity[id]; changed && n.Kind != config.KindJournal {
+			if err := ix.recordActivity(map[int64]int64{id: n.Mtime}); err != nil {
 				return rep, err
 			}
-			rep.Deleted++
+			// Reparse after the activity write so the cache matches the exact saved metadata.
+			n, err = note.ReadFile(path, ix.cfg)
+			if err != nil {
+				var invalid *note.ParseError
+				var local *vaultfile.Error
+				if !errors.As(err, &invalid) && !errors.As(err, &local) {
+					return rep, err
+				}
+				reject(err.Error())
+				continue
+			}
+			if metaTimes[id] != 0 && n.MetaMtime == 0 {
+				reject("known metadata disappeared during read")
+				continue
+			}
+		}
+		vaultfile.Recovered(path)
+		vaultfile.Recovered(ix.cfg.MetadataPath(id))
+		notes = append(notes, n)
+	}
+	var missing []int64
+	for id := range existing {
+		if !seen[id] {
+			missing = append(missing, id)
+			if !prune {
+				state.Add(store.ReadIssue{NoteID: id, Path: cachedPaths[id], Reason: "file absent from scan; deletion not confirmed", Cached: true})
+			}
 		}
 	}
-
-	dict, err := ix.keywordDict()
+	slices.Sort(missing)
+	if prune && state.Partial {
+		return rep, fmt.Errorf("refusing to prune an incomplete scan")
+	}
+	if prune {
+		// Recheck the absent IDs against the scanned baseline, not rows concurrently
+		// added after enumeration. A disappeared root cannot confirm a deletion.
+		for _, id := range missing {
+			path := cachedPaths[id]
+			if _, err := vaultfile.ReadDir(filepath.Dir(path)); err != nil {
+				return rep, fmt.Errorf("refusing to prune unavailable directory: %w", err)
+			}
+			if _, err := vaultfile.Lstat(path); !os.IsNotExist(err) {
+				return rep, fmt.Errorf("missing file changed during pruning check: %s", path)
+			}
+		}
+	}
+	// A link-format change cannot safely mix incompatible cached dictionaries.
+	previousFormat, err := ix.store.IndexedLinkFormat()
 	if err != nil {
 		return rep, err
 	}
-	for _, n := range notes {
-		targets, ext := ix.resolveLinks(n.Body, dict)
-		if err := ix.store.ReplaceLinks(n.ID, targets); err != nil {
-			return rep, err
-		}
-		if err := ix.store.ReplaceExtLinks(n.ID, ext); err != nil {
-			return rep, err
-		}
-		rep.Links += countExcludingSelf(targets, n.ID)
-	}
-
-	if err := ix.store.SetIndexedLinkFormat(ix.cfg.LinkFormat); err != nil {
+	initialized, err := ix.store.Initialized()
+	if err != nil {
 		return rep, err
+	}
+	if state.Partial && initialized && previousFormat != ix.cfg.LinkFormat {
+		return rep, fmt.Errorf("cannot change link format with an incomplete index")
+	}
+	err = ix.store.Atomic(func(tx *store.Store) error {
+		for _, n := range notes {
+			if err := tx.UpsertNote(n); err != nil {
+				return err
+			}
+			rep.Indexed++
+		}
+		if prune {
+			for _, id := range missing {
+				if err := tx.DeleteNote(id); err != nil {
+					return err
+				}
+				rep.Deleted++
+			}
+		}
+		indexed := New(ix.cfg, tx)
+		dict, err := indexed.keywordDict()
+		if err != nil {
+			return err
+		}
+		for _, n := range notes {
+			targets, ext := indexed.resolveLinks(n.Body, dict)
+			if err := tx.ReplaceLinks(n.ID, targets); err != nil {
+				return err
+			}
+			if err := tx.ReplaceExtLinks(n.ID, ext); err != nil {
+				return err
+			}
+			rep.Links += countExcludingSelf(targets, n.ID)
+		}
+		if err := tx.SetIndexedLinkFormat(ix.cfg.LinkFormat); err != nil {
+			return err
+		}
+		return tx.SetReadState(state)
+	})
+	if err != nil {
+		return Report{}, err
+	}
+	if state.Partial {
+		rep.ReadState = &state
 	}
 	return rep, nil
 }
 
-// RefreshIfStale compares the note and journal files on disk — and their sidecars — against the
-// indexed mtimes and, when they diverge (a note added, changed, or removed, or a sidecar edited),
-// runs Full to bring the index back in sync. It reports whether a reindex happened. The common
-// "nothing changed" path only reads directory entries and file mtimes, so it is cheap enough to call
-// before serving a query. This is how a long-lived process (the web server, a second editor's CLI)
-// picks up edits it never observed as an event — a write by another process, or an external/cloud-sync
-// change that raised no filesystem notification. Sidecar mtimes are compared only for notes present
-// on disk, so an orphan sidecar (reported by doctor, never moved by a read) cannot re-trigger this.
+// RefreshIfStale keeps the existing API while publishing read status in the
+// store. A partial refresh retries on the next request, even if mtimes agree.
 func (ix *Indexer) RefreshIfStale() (bool, error) {
 	if initialized, err := ix.EnsureInitialized(); initialized || err != nil {
 		return initialized, err
 	}
+	previous, err := ix.store.ReadState()
+	if err != nil {
+		return false, err
+	}
+
 	format, err := ix.store.IndexedLinkFormat()
 	if err != nil {
 		return false, err
 	}
-	if format != ix.cfg.LinkFormat {
-		_, err := ix.Full()
-		return err == nil, err
-	}
-	disk, journals, skipped, err := ix.scanMtimes()
-	if err != nil {
-		return false, err
-	}
+	disk, journals, skipped, scanErr := ix.scanMtimes()
 	indexed, err := ix.store.NoteMtimes()
 	if err != nil {
 		return false, err
 	}
-	if sameMtimes(disk, indexed) {
-		// Bodies agree; a sidecar-only change (a tag or title edit synced from another machine)
-		// still needs a rebuild. The body check passing means disk and DB hold the same ids, so the
-		// two sidecar maps cover the same keys.
-		metaDisk := ix.scanMetaMtimes(disk)
-		metaIndexed, err := ix.store.NoteMetaMtimes()
-		if err != nil {
-			return false, err
-		}
-		if sameMtimes(metaDisk, metaIndexed) {
-			// Conflict copies do not change indexed ids or mtimes, but must still be visible.
-			for _, invalid := range skipped {
-				warnSkipped(invalid)
+	metaIndexed, err := ix.store.NoteMetaMtimes()
+	if err != nil {
+		return false, err
+	}
+	// Retry unchanged failures at most once per 30 seconds. Healthy file changes
+	// still trigger an immediate refresh, while retained rows stay explicitly stale.
+	if previous.Partial && time.Now().UnixMilli()-previous.CheckedAt < 30000 && format == ix.cfg.LinkFormat && scanErr == nil {
+		compareDisk, compareIndex := cloneMtimes(disk), cloneMtimes(indexed)
+		compareMeta := ix.scanMetaMtimes(disk)
+		retryChangedFailure := false
+		for _, issue := range previous.Issues {
+			if issue.NoteID != 0 && (disk[issue.NoteID] != issue.BodyMtime || compareMeta[issue.NoteID] != issue.MetaMtime) {
+				retryChangedFailure = true
+				break
 			}
+		}
+		for _, issue := range previous.Issues {
+			if issue.NoteID != 0 {
+				delete(compareDisk, issue.NoteID)
+				delete(compareIndex, issue.NoteID)
+				delete(compareMeta, issue.NoteID)
+				delete(metaIndexed, issue.NoteID)
+			}
+		}
+		if !retryChangedFailure && sameMtimes(compareDisk, compareIndex) && sameMtimes(compareMeta, metaIndexed) {
 			return false, nil
 		}
 	}
-	// Record the activity day on each note that was added or changed (mtime diverged) before the rebuild,
-	// so Full picks the new days into note_days. Removed ids are skipped. This is how an editor's direct
-	// body save — which never goes through a track mutation command — gets its day stamped into the sidecar.
-	// Journals are skipped like One does: they carry no activity days (see note.ActivityDays), so stamping
-	// would only write dead metadata.
+	if !previous.Partial && format == ix.cfg.LinkFormat && scanErr == nil && sameMtimes(disk, indexed) && sameMtimes(ix.scanMetaMtimes(disk), metaIndexed) && len(skipped) == 0 {
+		return false, nil
+	}
 	changed := map[int64]int64{}
 	for id, m := range disk {
-		if journals[id] {
+		if !journals[id] {
+			if im, ok := indexed[id]; !ok || im != m {
+				changed[id] = m
+			}
+		}
+	}
+	_, err = ix.full(false, changed)
+	return err == nil, err
+}
+
+// scanReadableFiles keeps a failed directory separate from the directories that
+// can still answer. Missing directories are normal only when no cached IDs need them.
+func (ix *Indexer) scanReadableFiles(expected map[string]bool) ([]string, []store.ReadIssue) {
+	var paths []string
+	var issues []store.ReadIssue
+	for _, root := range []string{ix.cfg.NoteDir(), ix.cfg.JournalDir()} {
+		entries, err := ix.readDir(root)
+		if err != nil {
+			if !os.IsNotExist(err) || expected[root] {
+				issues = append(issues, store.ReadIssue{Path: root, Reason: err.Error()})
+			}
 			continue
 		}
-		if im, ok := indexed[id]; !ok || im != m {
-			changed[id] = m
+		for _, entry := range entries {
+			if slices.Contains(ix.cfg.Extensions, filepath.Ext(entry.Name())) {
+				paths = append(paths, filepath.Join(root, entry.Name()))
+			}
 		}
 	}
-	if err := ix.recordActivity(changed); err != nil {
-		return false, err
-	}
-	if _, err := ix.Full(); err != nil {
-		return false, err
-	}
-	return true, nil
+	slices.Sort(paths)
+	return paths, issues
 }
 
 // activityDay formats a file mtime as the local calendar day used for activity tracking, matching the
@@ -242,7 +375,7 @@ func (ix *Indexer) scanMetaMtimes(disk map[int64]int64) map[int64]int64 {
 	out := make(map[int64]int64, len(disk))
 	for id := range disk {
 		out[id] = 0
-		if fi, err := os.Stat(ix.cfg.MetadataPath(id)); err == nil {
+		if fi, err := vaultfile.Stat(ix.cfg.MetadataPath(id)); err == nil {
 			out[id] = fi.ModTime().Unix()
 		}
 	}
@@ -266,7 +399,7 @@ func (ix *Indexer) scanMtimes() (map[int64]int64, map[int64]bool, []*note.ParseE
 			skipped = append(skipped, &note.ParseError{Path: path, Err: fmt.Errorf("invalid note filename (expected a numeric id): %w", err)})
 			continue
 		}
-		info, err := os.Stat(path)
+		info, err := vaultfile.Stat(path)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -279,7 +412,11 @@ func (ix *Indexer) scanMtimes() (map[int64]int64, map[int64]bool, []*note.ParseE
 }
 
 func warnSkipped(err *note.ParseError) {
-	fmt.Fprintf(os.Stderr, "track: warning: skipping %q: %v; run 'track doctor' to inspect vault files\n", err.Path, err.Err)
+	reason := "invalid note metadata"
+	if _, idErr := note.IDFromPath(err.Path); idErr != nil && filepath.Ext(err.Path) != ".yaml" {
+		reason = "invalid note filename"
+	}
+	vaultfile.Warn(err.Path, reason)
 }
 
 func sameMtimes(disk, indexed map[int64]int64) bool {
@@ -305,16 +442,30 @@ func (ix *Indexer) One(path string) error {
 		return err
 	}
 	if format != ix.cfg.LinkFormat {
-		if _, err := ix.Full(); err != nil {
+		if _, err := ix.FullStrict(); err != nil {
 			return err
 		}
 	}
-	n, err := note.ParseFile(path, ix.cfg)
+	id, idErr := note.IDFromPath(path)
+	if idErr != nil {
+		return idErr
+	}
+	if err := ix.store.RequireMetadata(id, ix.cfg.MetadataPath(id)); err != nil {
+		return err
+	}
+	n, err := note.ReadFile(path, ix.cfg)
 	if err != nil {
 		return err
 	}
 	if err := config.ValidateLinkTitle(ix.cfg.LinkFormat, n.Meta.Title); err != nil {
 		return err
+	}
+	knownMeta, err := ix.store.NoteMetaMtimes()
+	if err != nil {
+		return err
+	}
+	if knownMeta[n.ID] != 0 && n.MetaMtime == 0 {
+		return fmt.Errorf("known metadata disappeared during read")
 	}
 	// A track mutation command (new/append/toggle/journal) just wrote this file, so stamp its mtime day
 	// into the sidecar. The editor-edit path is handled separately by RefreshIfStale. Journals carry no
@@ -328,7 +479,7 @@ func (ix *Indexer) One(path string) error {
 			n.Meta = meta
 			// Re-stat so the stored sidecar mtime matches the write above; a stale value would make
 			// the next RefreshIfStale see a phantom sidecar change and rebuild for nothing.
-			if fi, err := os.Stat(metaPath); err == nil {
+			if fi, err := vaultfile.Stat(metaPath); err == nil {
 				n.MetaMtime = fi.ModTime().Unix()
 			}
 		}
@@ -456,7 +607,7 @@ func (ix *Indexer) resolveLinks(body string, dict map[string]int64) ([]int64, []
 func (ix *Indexer) scanFiles() ([]string, error) {
 	var out []string
 	for _, root := range []string{ix.cfg.NoteDir(), ix.cfg.JournalDir()} {
-		entries, err := os.ReadDir(root)
+		entries, err := vaultfile.ReadDir(root)
 		if err != nil {
 			if os.IsNotExist(err) {
 				continue // note/journal dir may not exist yet
@@ -481,4 +632,12 @@ func countExcludingSelf(ids []int64, self int64) int {
 		}
 	}
 	return n
+}
+
+func cloneMtimes(in map[int64]int64) map[int64]int64 {
+	out := make(map[int64]int64, len(in))
+	for id, m := range in {
+		out[id] = m
+	}
+	return out
 }

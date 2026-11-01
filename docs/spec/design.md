@@ -174,6 +174,16 @@ title (`.note-title`); the chrome title keeps its own weight of 500 and leading.
   edge with its existing inset, while the main column remains capped and centered in the space
   beside it. Narrow screens and edit/split views stack the aside below the note.
 
+### Note flag watermarks
+
+Author-assigned note flags are content annotations, not chrome accents. Behind the
+note body, `DEPRECATED` uses `--note-flag-deprecated` (red) and `CONFIDENTIAL` uses
+`--note-flag-confidential` (blue). Their distinct uppercase words and separate lines
+carry identity without relying on color alone. Both tokens are registered theme pairs;
+`--note-watermark-opacity` controls their shared strength without fading the prose.
+The masks stay below content and take no selection or pointer events. List badges
+retain their existing treatment. A confidentiality marker is not access control.
+
 ### Scrollbars
 
 Visible overflow uses the same quiet scrollbar everywhere: an 8px thumb,
@@ -381,6 +391,11 @@ Rules run horizontally only, and only where they separate something.
 
 The strip is a line of titles on the sheet, not a bar of chrome.
 
+- The row keeps its title-line height and vertical padding even with no tabs open, including
+  before session restore. The working-vault switcher stays at the right edge and the reader starts
+  at the same vertical position when the first tab opens or the last one closes. An empty row has
+  no placeholder tab or keyboard stop.
+
 - **Most recent first**, so the note being read is the leftmost tab and the
   strip behind it is the order you visited things in. The tab you are on is
   therefore always in the same place, and never in the overflow.
@@ -506,13 +521,23 @@ The note's aside is a quiet column; the rail is a floating dock over the sheet.
   words nor the row move.
 - The aside's graph draws its centre node filled with `--mark`, its other
   nodes filled with `--bg` and outlined 1px in `--line-node`, and its edges in
-  `--line-strong`. A node's radius carries its precomputed five-level grade
-  (1–5, from the note's own outgoing-link count, graded absolutely over the
-  whole vault) — the same size in every view, so the engine computes it once
-  and the canvas only draws it. The five radii are 4 / 6 / 8.5 / 12 / 17px:
-  each level about 1.4× the last, because a grade has to be legible from the
-  shape of the field rather than by comparing two dots side by side. The
-  centre keeps its focal 10px, or its own grade where that is larger. Hover
+  `--line-strong`. Node size carries outgoing-link count relative to the median
+  positive count across the authorized vault, computed before authenticated view
+  filters or caps. Published sites instead use only published nodes and in-set
+  links; they never inherit private-vault counts or statistics. For count `c`
+  and median `m`, the engine adds `area_score = 1 + 4q/(1+q)`, where
+  `q = (c/(2m))²`; calling that score `s`, the canvas draws
+  `r = sqrt(4² + (s-1)/4 * (17²-4²))` CSS pixels. Zero links stay at 4px;
+  twice the median gets half the available area above the minimum dot area.
+  The squared ratio adds contrast while the median resists extreme outliers;
+  near-equal counts stay near-equal rather than stretching ranks to fill the range.
+  These are bounded visual weights, not proportional link-count areas. The same
+  radius drives rendering, picking, and label offsets, independent of zoom.
+  The existing integer `size` field retains the fixed grades 0 / 1 / 2–3 /
+  4–7 / 8+ (levels 1–5). Older clients ignore `area_score`; new clients fall
+  back to the original 4 / 6 / 8.5 / 12 / 17px grade radii when it is absent
+  or invalid. Neither client/server update order changes that legacy contract.
+  The centre keeps its focal minimum of 10px. Hover
   and search highlighting are ink
   (`--text`), not the salient: the match and its edges strengthen while
   everything else dims in
@@ -638,3 +663,4 @@ A candidate design is a token set, not a branch (ADR 0068):
   `_design-shots/index.html` for a one-page comparison.
 - Adopting a candidate edits **this document first** (tokens, principles), then
   `styles.css` follows. Candidates never merge as-is.
+

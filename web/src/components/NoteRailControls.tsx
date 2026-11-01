@@ -39,6 +39,7 @@ export function NoteRailControls() {
       </RailTip>
       <EditorModeMenu mode={mode} setMode={setMode} />
       <NoteActionsMenu
+        readOnly={actions.readOnly}
         getBody={actions.getBody}
         onMeta={actions.onMeta}
         onDelete={actions.onDelete}

@@ -35,6 +35,7 @@ func federatedSearchResults(targets []vaultTarget, query string, limit int, scop
 		}
 	}()
 	unavailable := []map[string]any{}
+	partial := []map[string]any{}
 	for _, tgt := range targets {
 		var opened openVault
 		_, err := runInVault(tgt, func(c *config.Config) (map[string]any, error) {
@@ -74,7 +75,20 @@ func federatedSearchResults(targets []vaultTarget, query string, limit int, scop
 	if results == nil {
 		results = []store.SearchResult{}
 	}
-	return map[string]any{"results": results, "unavailable": unavailable}, nil
+	for _, v := range healthy {
+		state, err := v.store.ReadState()
+		if err != nil {
+			return nil, err
+		}
+		if state.Partial {
+			partial = append(partial, map[string]any{"name": v.name, "read_state": state})
+		}
+	}
+	out := map[string]any{"results": results, "unavailable": unavailable}
+	if len(partial) > 0 {
+		out["partial"] = partial
+	}
+	return out, nil
 }
 
 // targetPath is where the vault the engine labelled name was registered, so a gap reported after the

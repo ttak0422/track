@@ -1,3 +1,5 @@
+import { useStorageStatus } from "./storage";
+import { retryRead } from "./queries";
 import {
   type RouterHistory,
   RouterProvider,
@@ -183,7 +185,7 @@ export function AppTree({ queryClient, children }: { queryClient: QueryClient; c
 // The client's shared query client. On the static site the prerender inlines its dehydrated react-query
 // cache as window.__TRACK_STATE__, locked like every other published data file (ADR 0069) — so opening it
 // is async, and main.tsx awaits hydratePrerenderedState() before the first render.
-export const queryClient = new QueryClient();
+export const queryClient = new QueryClient({defaultOptions:{queries:{retry:retryRead},mutations:{retry:false}}});
 
 // hydratePrerenderedState seeds the cache from the page's inlined state, so the client reuses the
 // prerendered content instead of refetching and flashing. A blob that will not open is not fatal: the
@@ -215,6 +217,8 @@ export function App() {
 }
 
 function HomeRoute() {
+  const storage = useStorageStatus();
+  const home = STATIC_MODE ? START_PAGE_ID : (storage.data?.home_note_id ?? START_PAGE_ID);
   // The published site's "/" is the start page: it renders the configured root note directly, so the
   // prerendered index.html carries real content (fast FCP/LCP) instead of an empty shell that redirects.
   // The empty state lives at /empty (reached by closing every tab).
@@ -224,8 +228,8 @@ function HomeRoute() {
   // The live workspace opens the configured home note (config web.home, injected as START_PAGE_ID) as its
   // landing view — a dashboard note with ```dashboard widgets is the intended target. With no home note
   // configured it falls back to the search hero.
-  if (START_PAGE_ID) {
-    return <NoteReader noteID={START_PAGE_ID} />;
+  if (home) {
+    return <NoteReader noteID={home} />;
   }
   return (
     <section className="home-hero">

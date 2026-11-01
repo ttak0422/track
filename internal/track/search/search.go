@@ -9,7 +9,9 @@
 package search
 
 import (
+	"errors"
 	"fmt"
+	"github.com/ttak0422/track/internal/track/vaultfile"
 	"os"
 	"path/filepath"
 	"slices"
@@ -208,7 +210,17 @@ func bodySearchFTS(cfg *config.Config, s *store.Store, query string, limit int, 
 			continue
 		}
 		hit.Path = cfg.PathForKind(hit.FileKind, hit.NoteID)
-		hit.Line, hit.Snippet = fileLineMatchGroups(hit.Path, groups)
+		var readErr error
+		hit.Line, hit.Snippet, readErr = fileLineMatchGroups(hit.Path, groups)
+		if readErr != nil {
+			var local *vaultfile.Error
+			if !errors.As(readErr, &local) {
+				return nil, readErr
+			}
+			if err := s.AddReadIssue(store.FileReadIssue(hit.NoteID, hit.Path, cfg.MetadataPath(hit.NoteID), readErr.Error(), true)); err != nil {
+				return nil, err
+			}
+		}
 		out = append(out, hit)
 		if len(out) >= limit {
 			break
@@ -229,7 +241,7 @@ func bodySearchScan(cfg *config.Config, s *store.Store, groups [][]string, limit
 	for _, n := range notes {
 		refs[n.NoteID] = n
 	}
-	paths, err := scanSearchFiles(cfg)
+	paths, err := scanSearchFiles(cfg, s)
 	if err != nil {
 		return nil, err
 	}
@@ -240,9 +252,16 @@ func bodySearchScan(cfg *config.Config, s *store.Store, groups [][]string, limit
 		if err != nil || !indexed || skip[id] {
 			continue
 		}
-		raw, err := os.ReadFile(path)
+		raw, err := vaultfile.Read(path)
 		if err != nil {
-			return nil, err
+			var local *vaultfile.Error
+			if !errors.As(err, &local) {
+				return nil, err
+			}
+			if err := s.AddReadIssue(store.FileReadIssue(id, path, cfg.MetadataPath(id), err.Error(), true)); err != nil {
+				return nil, err
+			}
+			continue
 		}
 		body, _, _ := note.SplitLegacyFootmatter(string(raw))
 		if !bodyMatchesAnyGroup(body, groups) {
@@ -279,30 +298,25 @@ func cmpDesc[T ~int64](a, b T) int {
 	}
 }
 
-func scanSearchFiles(cfg *config.Config) ([]string, error) {
+func scanSearchFiles(cfg *config.Config, s *store.Store) ([]string, error) {
 	var out []string
 	for _, root := range []string{cfg.NoteDir(), cfg.JournalDir()} {
-		err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-			if err != nil {
-				if d == nil {
-					return nil
-				}
-				return err
-			}
-			if d.IsDir() {
-				if path != root {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			if slices.Contains(cfg.Extensions, filepath.Ext(path)) {
-				out = append(out, path)
-			}
-			return nil
-		})
+		entries, err := vaultfile.ReadDir(root)
 		if err != nil {
-			return nil, err
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			if stateErr := s.AddReadIssue(store.ReadIssue{Path: root, Reason: err.Error()}); stateErr != nil {
+				return nil, stateErr
+			}
+			continue
 		}
+		for _, entry := range entries {
+			if !entry.IsDir() && slices.Contains(cfg.Extensions, filepath.Ext(entry.Name())) {
+				out = append(out, filepath.Join(root, entry.Name()))
+			}
+		}
+
 	}
 	slices.Sort(out)
 	return out, nil
@@ -361,13 +375,14 @@ func bodyLineMatchGroups(body string, groups [][]string) (int, string) {
 
 // fileLineMatchGroups reads path and locates the best matching line for the query's OR groups. A read
 // error yields the title-only sentinel rather than failing the search: the FTS hit is authoritative.
-func fileLineMatchGroups(path string, groups [][]string) (int, string) {
-	raw, err := os.ReadFile(path)
+func fileLineMatchGroups(path string, groups [][]string) (int, string, error) {
+	raw, err := vaultfile.Read(path)
 	if err != nil {
-		return 0, ""
+		return 0, "", err
 	}
 	body, _, _ := note.SplitLegacyFootmatter(string(raw))
-	return bodyLineMatchGroups(body, groups)
+	line, snippet := bodyLineMatchGroups(body, groups)
+	return line, snippet, nil
 }
 
 func truncateSearchSnippet(s string, max int) string {

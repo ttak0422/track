@@ -116,10 +116,14 @@ func TestEnsureInitializedEmptyVaultAndFailure(t *testing.T) {
 			t.Fatal(err)
 		}
 		if changed, err := New(cfg, s).EnsureInitialized(); err == nil || changed {
-			t.Fatalf("failed build = %v, %v", changed, err)
+			t.Fatalf("invalid root initialization: %v %v", changed, err)
 		}
-		if initialized, err := s.Initialized(); err != nil || initialized {
-			t.Fatalf("failed marker = %v, %v", initialized, err)
+		initialized, err := s.Initialized()
+		if err != nil || initialized {
+			t.Fatalf("invalid root falsely initialized: %v %v", initialized, err)
+		}
+		if _, err := New(cfg, s).FullStrict(); err == nil {
+			t.Fatal("partial first load authorized a mutation")
 		}
 	})
 }

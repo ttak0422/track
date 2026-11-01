@@ -1,3 +1,4 @@
+import { StorageNotice } from "../storage";
 import { useRef } from "react";
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { ExternalMarkdownProvider } from "./ExternalMarkdownSource";
@@ -178,6 +179,7 @@ function ShellView() {
             aria-label={readingKeys ? "Note reading area" : undefined}
             aria-description={readingKeys ? "j/k scroll; Tab/Shift+Tab switch notes. Escape returns Tab to focus navigation." : undefined}
           >
+            <StorageNotice />
             <Outlet />
           </section>
         </div>

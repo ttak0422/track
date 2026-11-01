@@ -3,6 +3,7 @@ package note
 import (
 	"errors"
 	"fmt"
+	"github.com/ttak0422/track/internal/track/vaultfile"
 	"os"
 	"strings"
 	"time"
@@ -29,7 +30,7 @@ var ErrStateMismatch = errors.New("task state mismatch")
 // an inserted line above makes `line` a different task, and if that task is in the expected state
 // too the guard passes. Assert the task text if that ever bites.
 func ApplyTaskState(cfg *config.Config, notePath string, line int, state, expect string, now time.Time) (task.Transition, error) {
-	raw, err := os.ReadFile(notePath)
+	raw, err := vaultfile.Read(notePath)
 	if err != nil {
 		return task.Transition{}, fmt.Errorf("read note: %w", err)
 	}
@@ -76,7 +77,7 @@ type TaskPatch struct {
 // every line-based transformation on the same raw bytes closes the check-then-reopen window that
 // would otherwise let a same-state insertion redirect the mutation to another task.
 func ApplyTaskPatch(cfg *config.Config, notePath string, patch TaskPatch, now time.Time) (task.Transition, error) {
-	raw, err := os.ReadFile(notePath)
+	raw, err := vaultfile.Read(notePath)
 	if err != nil {
 		return task.Transition{}, fmt.Errorf("read note: %w", err)
 	}
@@ -178,7 +179,7 @@ func appendTaskTransition(cfg *config.Config, notePath string, tr task.Transitio
 // an inserted line above makes `line` a different task, and if that task is in the expected state
 // too the guard passes. Assert the task text if that ever bites.
 func ApplyTaskDate(notePath string, line int, field task.DateField, date, expect string) (task.Task, error) {
-	raw, err := os.ReadFile(notePath)
+	raw, err := vaultfile.Read(notePath)
 	if err != nil {
 		return task.Task{}, fmt.Errorf("read note: %w", err)
 	}

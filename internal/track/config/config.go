@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/ttak0422/track/internal/track/vaultfile"
 	"io"
 	"os"
 	"path/filepath"
@@ -30,6 +31,8 @@ const IndexSchemaVersion = 11
 func indexDBName() string { return fmt.Sprintf("index-v%d.db", IndexSchemaVersion) }
 
 type Config struct {
+	Provisional bool
+
 	// LinkFormat opts this source vault into explicit ID body links. Empty/title is legacy.
 	LinkFormat        string
 	VaultDir          string
@@ -245,14 +248,16 @@ func LoadAt(vaultPath string) (*Config, error) {
 	return load(vaultPath)
 }
 
-func load(fixedVault string) (*Config, error) {
+func load(fixedVault string) (*Config, error) { return loadPolicy(fixedVault, true) }
+
+func loadPolicy(fixedVault string, audit bool) (*Config, error) {
 	mc, err := loadMachineConfig()
 	if err != nil {
 		return nil, err
 	}
 	// Validate the registry on every load so a malformed entry fails loudly now, not on the first
 	// --vault.
-	registry, namesByPath, err := resolveVaults(vaultEntries(mc))
+	registry, namesByPath, err := resolveVaultsPolicy(vaultEntries(mc), audit)
 	if err != nil {
 		return nil, err
 	}
@@ -273,8 +278,10 @@ func load(fixedVault string) (*Config, error) {
 	if err := validateVaultConfig(vc); err != nil {
 		return nil, err
 	}
-	if err := auditLinkFormat(vault, vc.LinkFormat, registry); err != nil {
-		return nil, err
+	if audit {
+		if err := auditLinkFormat(vault, vc.LinkFormat, registry); err != nil {
+			return nil, err
+		}
 	}
 
 	// The index is a derived cache, never a configured file: it lives under the cache dir keyed by the
@@ -343,7 +350,12 @@ func load(fixedVault string) (*Config, error) {
 		archiveNote = "Archive {{year}}"
 	}
 
+	activeName := namesByPath[vault]
+	if !audit && activeName == "" {
+		activeName = namesByPath[displayVault]
+	}
 	return &Config{
+		Provisional:       !audit,
 		LinkFormat:        vc.LinkFormat,
 		VaultDir:          vault,
 		DBPath:            db,
@@ -370,7 +382,7 @@ func load(fixedVault string) (*Config, error) {
 		// The registry is already indexed by canonical path (that is how it refuses two names for one
 		// vault), so this vault's name is a lookup on the path it resolved to — including under LoadAt,
 		// where the Config represents whichever vault was named rather than the configured one.
-		VaultName: namesByPath[vault],
+		VaultName: activeName,
 	}, nil
 }
 
@@ -504,6 +516,10 @@ func vaultEntries(mc machineFileConfig) map[string]string {
 // that knows a vault's path — Load, for its own vault — reads the name off it instead of scanning the
 // registry again.
 func resolveVaults(vaults map[string]string) (map[string]string, map[string]string, error) {
+	return resolveVaultsPolicy(vaults, true)
+}
+
+func resolveVaultsPolicy(vaults map[string]string, canonicalize bool) (map[string]string, map[string]string, error) {
 	out := make(map[string]string, len(vaults))
 	// One vault, one name. Two names for the same directory would make the vault's identity
 	// ambiguous everywhere a name is reported rather than accepted — which of them labels a search
@@ -523,7 +539,11 @@ func resolveVaults(vaults map[string]string) (map[string]string, map[string]stri
 		// Compare canonically so two spellings of one directory (a symlink, a trailing slash) are
 		// caught too, not just literally equal strings.
 		key := clean
-		if canonical, err := canonicalPath(clean); err == nil {
+		if canonicalize {
+			canonical, err := canonicalPath(clean)
+			if err != nil {
+				return nil, nil, err
+			}
 			key = canonical
 		}
 		if first, dup := byPath[key]; dup {
@@ -686,9 +706,9 @@ func isUnknownFieldError(err error) bool {
 // wrong file (or a typo) fails loudly instead of being silently ignored. A missing or empty file is a
 // zero value, not an error; a second YAML document is an error, never silently dropped.
 func strictDecodeFile(path string, out any) error {
-	raw, err := os.ReadFile(path)
+	raw, err := vaultfile.Read(path)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) {
 			return nil
 		}
 		return fmt.Errorf("read config %s: %w", path, err)
@@ -724,15 +744,19 @@ func canonicalPath(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+	if resolved, err := vaultfile.EvalSymlinks(abs); err == nil {
 		return resolved, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", err
 	}
 
 	existing := abs
 	var missing []string
 	for {
-		if _, err := os.Stat(existing); err == nil {
+		if _, err := vaultfile.Stat(existing); err == nil {
 			break
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return "", err
 		}
 		parent := filepath.Dir(existing)
 		if parent == existing {
@@ -741,7 +765,7 @@ func canonicalPath(path string) (string, error) {
 		missing = append(missing, filepath.Base(existing))
 		existing = parent
 	}
-	resolved, err := filepath.EvalSymlinks(existing)
+	resolved, err := vaultfile.EvalSymlinks(existing)
 	if err != nil {
 		return abs, nil
 	}
@@ -846,8 +870,10 @@ func (c *Config) VaultSkeleton() []string {
 func (c *Config) EnsureVaultSkeleton() ([]string, error) {
 	var created []string
 	for _, dir := range c.VaultSkeleton() {
-		if _, err := os.Stat(dir); err == nil {
+		if _, err := vaultfile.Stat(dir); err == nil {
 			continue
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return created, err
 		}
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return created, fmt.Errorf("create %s: %w", dir, err)

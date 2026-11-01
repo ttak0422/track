@@ -1,0 +1,223 @@
+package webui
+
+import (
+	"database/sql"
+	"encoding/json"
+	"github.com/ttak0422/track/internal/track/config"
+	"github.com/ttak0422/track/internal/track/store"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+)
+
+func TestColdStartupIsolatesSidecarAndRefusesUncertainCreation(t *testing.T) {
+	vault := t.TempDir()
+	writeVaultNote(t, vault, 1, "Healthy", "Readable body")
+	writeVaultNote(t, vault, 2, "Hidden", "Unavailable metadata")
+	configPath := filepath.Join(t.TempDir(), "machine.yml")
+	if err := os.WriteFile(configPath, []byte("vault_dir: "+vault+"\ncache_dir: "+t.TempDir()+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(vault, ".track", "config.yml"), []byte("link_format: id-v1\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// Malformed and unreadable files follow the same per-item startup boundary.
+	if err := os.WriteFile(filepath.Join(vault, ".track", "notes", "2.yaml"), []byte("version: 1\ntitle: [\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TRACK_CONFIG", configPath)
+	t.Setenv("TRACK_VAULT", vault)
+	t.Setenv("TRACK_CACHE_DIR", "")
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("sidecar blocked startup: %v", err)
+	}
+	st, err := store.Open(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	s := New(cfg, st)
+	read := partialRequest(s, "GET", "/api/note?id=1", "")
+	if read.Code != 200 || !strings.Contains(read.Body.String(), "Readable body") || !strings.Contains(read.Body.String(), `"partial":true`) {
+		t.Fatalf("cold healthy read: %d %s", read.Code, read.Body.String())
+	}
+	beforeMeta, err := os.ReadFile(cfg.MetadataPath(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	edit := partialRequest(s, "POST", "/api/note/meta?id=1", `{"title":"Hidden","tags":["must-not-save"]}`)
+	afterMeta, err := os.ReadFile(cfg.MetadataPath(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edit.Code != 409 || string(beforeMeta) != string(afterMeta) {
+		t.Fatalf("rejected rename partly saved metadata: %d %s", edit.Code, edit.Body.String())
+	}
+	before, err := os.ReadDir(cfg.NoteDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	create := partialRequest(s, "POST", "/api/note", `{"title":"Hidden"}`)
+	if create.Code != 409 {
+		t.Fatalf("uncertain namespace allowed creation: %d %s", create.Code, create.Body.String())
+	}
+	after, err := os.ReadDir(cfg.NoteDir())
+	if err != nil || len(after) != len(before) {
+		t.Fatalf("creation wrote files: %v", err)
+	}
+	// A rejected dependent mutation does not poison subsequent independent reads.
+	again := partialRequest(s, "GET", "/api/search?q=Healthy", "")
+	if again.Code != 200 || !strings.Contains(again.Body.String(), "Healthy") {
+		t.Fatalf("later search failed: %d %s", again.Code, again.Body.String())
+	}
+}
+
+func TestOptionalIndexPanelFailureRetainsVerifiedBodyReadOnly(t *testing.T) {
+	s, cfg := partialTestServer(t)
+	db, err := sql.Open("sqlite", cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec("DROP TABLE links"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TRIGGER fail_read_diagnostics BEFORE UPDATE ON index_state WHEN NEW.key='read_state' BEGIN SELECT RAISE(FAIL,'synthetic diagnostics writer unavailable'); END;`); err != nil {
+		t.Fatal(err)
+	}
+	response := partialRequest(s, "GET", "/api/note?id=1", "")
+	var body struct {
+		Note struct {
+			Body     string `json:"body"`
+			ReadOnly bool   `json:"read_only"`
+		} `json:"note"`
+		State store.ReadState `json:"read_state"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if response.Code != 200 || body.Note.Body != "xy needle" || !body.Note.ReadOnly || !body.State.Partial {
+		t.Fatalf("optional failure collapsed body: %d %s", response.Code, response.Body.String())
+	}
+	search := partialRequest(s, "GET", "/api/search?q=Synthetic", "")
+	if search.Code != 200 {
+		t.Fatalf("subsequent independent search failed: %d %s", search.Code, search.Body.String())
+	}
+}
+
+func TestColdInvalidContentRootFailsWithoutWriting(t *testing.T) {
+	s, cfg := partialTestServer(t)
+	if err := os.Rename(cfg.NoteDir(), cfg.NoteDir()+".held"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfg.NoteDir(), []byte("not a directory"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	// Force a cold index using a fresh isolated store.
+	cold, err := store.Open(filepath.Join(t.TempDir(), "cold.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cold.Close()
+	s = New(cfg, cold)
+	response := partialRequest(s, "POST", "/api/note", `{"title":"Unsafe"}`)
+	if response.Code != 500 {
+		t.Fatalf("invalid root: %d %s", response.Code, response.Body.String())
+	}
+	initialized, err := cold.Initialized()
+	if err != nil || initialized {
+		t.Fatalf("invalid root marked initialized: %v %v", initialized, err)
+	}
+	if _, err := os.Stat(cfg.NoteDir() + ".held/1.md"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPartialWebFederatedSearchKeepsHealthyVaultAfterStoreFailure(t *testing.T) {
+	s, _ := partialTestServer(t)
+	other, cfg := partialTestServer(t)
+	cfg.VaultName = "work"
+	s.active.cfg.Vaults = map[string]string{"work": cfg.VaultDir}
+	s.views["work"] = &vaultView{name: "work", label: "work", cfg: cfg, store: other.store}
+	other.store.Close()
+	for _, target := range []string{"/api/search?q=Synthetic", "/api/search"} {
+		response := partialRequest(s, "GET", target, "")
+		var result struct {
+			Results     []store.SearchResult `json:"results"`
+			Unavailable []vaultInfo          `json:"unavailable"`
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		if response.Code != 200 || len(result.Results) != 1 || len(result.Unavailable) != 1 || result.Unavailable[0].Name != "work" {
+			t.Fatalf("healthy vault discarded: %d %s", response.Code, response.Body.String())
+		}
+	}
+}
+
+func TestPartialWebStatusFailureKeepsScopedAndFederatedResults(t *testing.T) {
+	s, cfg := partialTestServer(t)
+	s.active.name = "main"
+	db, err := sql.Open("sqlite", cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec("DROP TABLE index_state"); err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range []string{"/api/search?q=Synthetic", "/api/search?q=Synthetic&vault=main"} {
+		response := partialRequest(s, "GET", target, "")
+		if response.Code != 200 || !strings.Contains(response.Body.String(), "Synthetic") || !strings.Contains(response.Body.String(), "read-state verification unavailable") || !strings.Contains(response.Body.String(), `"partial":true`) {
+			t.Fatalf("verified results discarded: %s %d %s", target, response.Code, response.Body.String())
+		}
+	}
+}
+
+func TestPartialWebConcurrentColdViewsShareOneStore(t *testing.T) {
+	s, cfg := partialTestServer(t)
+	work := t.TempDir()
+	writeVaultNote(t, work, 1, "Other", "Readable peer")
+	s.active.name = "main"
+	cfg.Vaults = map[string]string{"main": cfg.VaultDir, "work": work}
+	configPath := filepath.Join(t.TempDir(), "config.yml")
+	if err := os.WriteFile(configPath, []byte("cache_dir: "+t.TempDir()+"\nvaults:\n  main: "+cfg.VaultDir+"\n  work: "+work+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TRACK_CONFIG", configPath)
+	t.Setenv("TRACK_VAULT", cfg.VaultDir)
+	t.Setenv("TRACK_CACHE_DIR", "")
+	t.Cleanup(s.closeViews)
+	start := make(chan struct{})
+	results := make(chan *vaultView, 24)
+	errs := make(chan error, 24)
+	var wg sync.WaitGroup
+	for range 24 {
+		wg.Add(1)
+		go func() { defer wg.Done(); <-start; v, err := s.viewByName("work"); results <- v; errs <- err }()
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	var first *vaultView
+	for v := range results {
+		if first == nil {
+			first = v
+		}
+		if v != first {
+			t.Fatal("concurrent opens returned different views")
+		}
+	}
+	if first == nil || first.store == nil {
+		t.Fatal("peer did not open")
+	}
+}

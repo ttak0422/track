@@ -204,8 +204,19 @@ func TestBackupCLI(t *testing.T) {
 			}
 		})
 	}
-	// A FIFO machine config simulates a read that never completes. The parent
-	// deadline includes configuration resolution, before any source hydration.
+	// A tiny explicit deadline exercises timeout cleanup through the real CLI,
+	// even when configuration validation no longer blocks on a FIFO.
+	result = invoke(false, "backup", "--timeout", "1ns", "--overwrite", "--out", archive)
+	if !strings.Contains(result["error"].(string), "timed out") {
+		t.Fatal(result)
+	}
+	after, _ = os.ReadFile(archive)
+	if string(before) != string(after) {
+		t.Fatal("timeout replaced previous archive")
+	}
+	// Main's isolated config reader rejects FIFO inputs without opening them for
+	// blocking reads. Either that rejection or the enclosing deadline must fail
+	// safely before source hydration; a dedicated worker test checks the deadline.
 	fifo := filepath.Join(dir, "config-fifo")
 	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
 		t.Fatal(err)
@@ -213,12 +224,13 @@ func TestBackupCLI(t *testing.T) {
 	t.Setenv("TRACK_CONFIG", fifo)
 	start := time.Now()
 	result = invoke(false, "backup", "--timeout", "100ms", "--overwrite", "--out", archive)
-	if time.Since(start) > 3*time.Second || !strings.Contains(result["error"].(string), "timed out") {
+	reason, _ := result["error"].(string)
+	if time.Since(start) > 3*time.Second || (!strings.Contains(reason, "timed out") && !strings.Contains(reason, "machine configuration is invalid or unavailable")) {
 		t.Fatal(result)
 	}
 	after, _ = os.ReadFile(archive)
 	if string(before) != string(after) {
-		t.Fatal("timeout replaced previous archive")
+		t.Fatal("failed configuration read replaced previous archive")
 	}
 	leftovers, _ := filepath.Glob(filepath.Join(dir, ".track-backup-*.partial"))
 	if len(leftovers) != 0 {
@@ -314,4 +326,23 @@ func TestBackupDirectorySyncFailureReportsCommittedOutcome(t *testing.T) {
 	if code != 1 || result["commit_state"] != "committed" || result["durability"] != "uncertain" || result["complete"] == true {
 		t.Fatalf("misleading post-commit result: %s", output)
 	}
+}
+
+// Exercise the parent's deadline independently of input validation: FIFO configs
+// now fail fast, so they no longer reliably keep a backup worker busy.
+func TestBackupWorkerDeadline(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestBackupWorkerDeadlineHelper$")
+	cmd.Env = append(os.Environ(), "TRACK_TEST_BACKUP_DEADLINE_HELPER=1")
+	start := time.Now()
+	err := waitBackupWorker(cmd, 100*time.Millisecond)
+	if err == nil || !strings.Contains(err.Error(), "worker timed out") || time.Since(start) > 3*time.Second {
+		t.Fatalf("worker deadline: elapsed=%s err=%v", time.Since(start), err)
+	}
+}
+
+func TestBackupWorkerDeadlineHelper(t *testing.T) {
+	if os.Getenv("TRACK_TEST_BACKUP_DEADLINE_HELPER") != "1" {
+		return
+	}
+	time.Sleep(30 * time.Second)
 }
