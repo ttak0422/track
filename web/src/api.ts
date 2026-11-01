@@ -446,8 +446,9 @@ export function renderMarkdown(body: string, vault = ""): Promise<RenderResponse
   }
   return api<RenderResponse>(`/api/render${vaultParams(vault, "?")}`, { method: "POST", body: { body } })
     .then((rendered) => {
-      if(typeof rendered?.markdown!=="string" || (rendered.includes!==undefined&&!Array.isArray(rendered.includes)) || (rendered.drawio_fences!==undefined&&!Array.isArray(rendered.drawio_fences))) throw new APIError(502,"Invalid preview response");
-      return {...rendered,sourceBody:body};
+      if(typeof rendered?.markdown!=="string" || (rendered.includes!=null&&!Array.isArray(rendered.includes)) || (rendered.drawio_fences!=null&&!Array.isArray(rendered.drawio_fences))) throw new APIError(502,"Invalid preview response");
+      // Go serializes nil optional slices as null; those are valid empty collections.
+      return {...rendered,includes:rendered.includes??[],drawio_fences:rendered.drawio_fences??[],sourceBody:body};
     });
 }
 

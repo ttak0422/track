@@ -377,3 +377,9 @@ it("rejects incomplete metadata instead of seeding a destructive full replacemen
  vi.stubGlobal("fetch",async()=>new Response(JSON.stringify({etag:"valid",title:"Keep",kind:"note",tags:[],image:"",icon:"",props:""})));
  const api=await import("./api");await expect(api.getNoteMeta("1")).rejects.toMatchObject({status:502});
 });
+
+it("accepts the live Go renderer's null optional slices as empty collections",async()=>{
+ vi.stubGlobal("fetch",async()=>new Response(JSON.stringify({markdown:"## Readable heading",includes:null,drawio_fences:null})));
+ const api=await import("./api");
+ await expect(api.renderMarkdown("## Readable heading")).resolves.toMatchObject({markdown:"## Readable heading",sourceBody:"## Readable heading",includes:[],drawio_fences:[]});
+});
