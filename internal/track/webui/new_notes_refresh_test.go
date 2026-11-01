@@ -29,11 +29,14 @@ func TestNewNotesFreshAfterExternalCreation(t *testing.T) {
 			t.Cleanup(func() { st.Close() })
 			server := New(cfg, st)
 			httpServer := httptest.NewServer(server.Handler())
-			t.Cleanup(httpServer.Close)
+			t.Cleanup(func() { server.closeViews(); httpServer.Close() })
 			ch := server.events.subscribe()
 			t.Cleanup(func() { server.events.unsubscribe(ch) })
 			if source == "watch" {
 				server.startWatch()
+				if err := os.MkdirAll(cfg.NoteDir(), 0o755); err != nil {
+					t.Fatal(err)
+				}
 			} else if err := os.MkdirAll(cfg.NoteDir(), 0o755); err != nil {
 				t.Fatal(err)
 			}

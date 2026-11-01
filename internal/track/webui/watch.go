@@ -139,7 +139,7 @@ func (s *Server) startWatch() {
 	}
 
 	watched := 0
-	for _, dir := range []string{s.cfg.NoteDir(), s.cfg.JournalDir(), s.cfg.DataDir()} {
+	for _, dir := range []string{s.cfg.VaultDir, s.cfg.NoteDir(), s.cfg.JournalDir(), s.cfg.DataDir()} {
 		// A read-only startup never creates vault directories. A later mutation
 		// creates its own parents; periodic refresh covers initially absent watches.
 		if info, err := vaultfile.Stat(dir); err != nil || !info.IsDir() {
@@ -215,6 +215,32 @@ func (s *Server) watchLoop(watcher *fsnotify.Watcher) {
 			}
 			// Ignore chmod-only events; react to content/structure changes.
 			if ev.Op&(fsnotify.Create|fsnotify.Write|fsnotify.Remove|fsnotify.Rename) == 0 {
+				continue
+			}
+			// Observe creation of initially absent content directories without
+			// scaffolding the vault. Reconcile immediately because the first file
+			// can be written before the new directory watch is attached.
+			if filepath.Dir(ev.Name) == s.cfg.VaultDir {
+				known := ev.Name == s.cfg.NoteDir() || ev.Name == s.cfg.JournalDir() || ev.Name == dataDir
+				if !known {
+					continue
+				}
+				if info, err := vaultfile.Stat(ev.Name); err == nil && info.IsDir() {
+					if err := watcher.Add(ev.Name); err != nil {
+						fmt.Fprintf(os.Stderr, "track web: content watch unavailable: %v\n", err)
+					}
+				}
+				if ev.Name == dataDir {
+					if dataTimer != nil {
+						dataTimer.Stop()
+					}
+					dataTimer = time.AfterFunc(debounce, notifyData)
+				} else {
+					if noteTimer != nil {
+						noteTimer.Stop()
+					}
+					noteTimer = time.AfterFunc(debounce, reindex)
+				}
 				continue
 			}
 			// The watch is non-recursive, so events name direct children of a

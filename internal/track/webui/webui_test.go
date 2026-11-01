@@ -487,8 +487,7 @@ func TestWatcherReconcileStampsEditDay(t *testing.T) {
 
 // TestWatchBroadcastsDataChanges guards the live-chart refresh path: a write under the vault's data/
 // directory (the JSONL files View Spec data.source / overlays[].source read) must reach SSE subscribers
-// as a `data` event, and the directory must be created and watched even when the vault starts without
-// it. Data files are not indexed, so this event is distinct from the reindex-backed `change` event.
+// as a `data` event. Watching an existing directory never creates a missing vault path. Data files are not indexed, so this event is distinct from the reindex-backed `change` event.
 func TestWatchBroadcastsDataChanges(t *testing.T) {
 	cfg := &config.Config{
 		VaultDir:          t.TempDir(),
@@ -503,9 +502,13 @@ func TestWatchBroadcastsDataChanges(t *testing.T) {
 	}
 	t.Cleanup(func() { s.Close() })
 
-	// The vault has no data/ yet; startWatch must create and watch it.
+	// Explicitly create the data fixture: a read-only watcher must never scaffold the vault.
 	server := New(cfg, s)
+	t.Cleanup(server.closeViews)
 	server.startWatch()
+	if err := os.MkdirAll(cfg.DataDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	ch := server.events.subscribe()
 	t.Cleanup(func() { server.events.unsubscribe(ch) })
 

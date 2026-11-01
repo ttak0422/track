@@ -240,3 +240,125 @@ func TestWorkerRejectsOverBudgetMetadataStructureAndProtocol(t *testing.T) {
 		t.Fatal("oversized protocol frame admitted")
 	}
 }
+
+func TestOrdinaryConcurrentReadsWaitWithoutPollingOrLosingBudget(t *testing.T) {
+	started := make(chan struct{}, 2)
+	release := make(chan struct{})
+	var first atomic.Int32
+	p := newPool(4, 32, func() (process, error) {
+		child := &controlledProcess{stopped: make(chan struct{}), exited: make(chan struct{})}
+		child.run = func(request) (response, error) {
+			if first.Add(1) <= 2 {
+				started <- struct{}{}
+				<-release
+			}
+			return response{Data: []byte("healthy")}, nil
+		}
+		go func() { <-child.stopped; close(child.exited) }()
+		return child, nil
+	})
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if err := p.Close(ctx); err != nil {
+			t.Error(err)
+		}
+	}()
+	results := make(chan error, 8)
+	for range 2 {
+		go func() {
+			_, err := p.call(context.Background(), request{Op: "read", Path: "/vault/note/1.md"})
+			results <- err
+		}()
+	}
+	<-started
+	<-started
+	expired, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := p.call(expired, request{Op: "read", Path: "/vault/note/1.md"}); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+	for range 6 {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			_, err := p.call(ctx, request{Op: "read", Path: "/vault/note/1.md"})
+			results <- err
+		}()
+	}
+	close(release)
+	for range 8 {
+		if err := <-results; err != nil {
+			t.Fatal("healthy concurrency failed", err)
+		}
+	}
+}
+
+func TestBlockedOwnerBurstLeavesAdmissionForHealthyVault(t *testing.T) {
+	started := make(chan struct{}, 2)
+	reap := make(chan struct{})
+	p := newPool(4, 32, func() (process, error) {
+		child := &controlledProcess{stopped: make(chan struct{}), exited: make(chan struct{})}
+		child.run = func(r request) (response, error) {
+			if ownerFor(r.Path) == "/bad" {
+				started <- struct{}{}
+				<-reap
+			}
+			return response{Data: []byte("confirmed")}, nil
+		}
+		go func() { <-child.stopped; <-reap; close(child.exited) }()
+		return child, nil
+	})
+	defer func() {
+		close(reap)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if err := p.Close(ctx); err != nil {
+			t.Error(err)
+		}
+	}()
+	active, cancelActive := context.WithCancel(context.Background())
+	defer cancelActive()
+	activeDone := make(chan error, 2)
+	for range 2 {
+		go func() { _, err := p.call(active, request{Op: "read", Path: "/bad/note/1.md"}); activeDone <- err }()
+	}
+	<-started
+	<-started
+	queued, cancelQueued := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelQueued()
+	results := make(chan error, 36)
+	for range 36 {
+		go func() { _, err := p.call(queued, request{Op: "read", Path: "/bad/note/2.md"}); results <- err }()
+	}
+	// Two active and eight waiting tickets fill this owner's budget; the rest fail explicitly.
+	for range 28 {
+		select {
+		case err := <-results:
+			if !errors.Is(err, ErrCapacity) {
+				t.Fatal(err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("owner burst exceeded bounded admission")
+		}
+	}
+	healthy, cancelHealthy := context.WithTimeout(context.Background(), time.Second)
+	defer cancelHealthy()
+	if value, err := p.call(healthy, request{Op: "read", Path: "/healthy/note/1.md"}); err != nil || string(value.Data) != "confirmed" {
+		t.Fatal("healthy peer starved", err)
+	}
+	cancelActive()
+	<-activeDone
+	<-activeDone
+	// Entering quarantine wakes waiting readers even though their own deadline has not elapsed.
+	for range 8 {
+		select {
+		case err := <-results:
+			if !errors.Is(err, ErrCapacity) {
+				t.Fatal(err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("quarantine did not release owner waiters")
+		}
+	}
+}

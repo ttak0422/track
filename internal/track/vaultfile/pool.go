@@ -38,21 +38,26 @@ type outcome struct {
 // Pool owns a fixed number of process slots, including children not yet reaped.
 // A response deadline never waits for a blocked syscall or child termination.
 type Pool struct {
-	jobs        chan job
-	closed      chan struct{}
-	finished    chan struct{}
-	once        sync.Once
-	live        atomic.Int64
-	quarantined atomic.Int64
-	launch      func() (process, error)
-	ownerMu     sync.Mutex
-	owners      map[string]int
-	ownerLimit  int
+	jobs              chan job
+	closed            chan struct{}
+	finished          chan struct{}
+	once              sync.Once
+	live              atomic.Int64
+	quarantined       atomic.Int64
+	launch            func() (process, error)
+	ownerMu           sync.Mutex
+	owners            map[string]int
+	ownerLimit        int
+	admission         chan struct{}
+	ownerChanged      chan struct{}
+	quarantinedOwners map[string]int
+	tickets           map[string]int
+	waitLimit         int
 }
 
 func NewPool() *Pool { return newPool(WorkerCount, QueueLimit, startProcess) }
 func newPool(n, queue int, launch func() (process, error)) *Pool {
-	p := &Pool{jobs: make(chan job, queue), closed: make(chan struct{}), finished: make(chan struct{}), launch: launch, owners: map[string]int{}, ownerLimit: 2}
+	p := &Pool{jobs: make(chan job, queue), closed: make(chan struct{}), finished: make(chan struct{}), launch: launch, owners: map[string]int{}, ownerLimit: 2, admission: make(chan struct{}, n+queue), ownerChanged: make(chan struct{}), quarantinedOwners: map[string]int{}, tickets: map[string]int{}, waitLimit: max(1, queue/n)}
 	var wg sync.WaitGroup
 	for range n {
 		wg.Add(1)
@@ -67,12 +72,49 @@ func (p *Pool) call(ctx context.Context, r request) (response, error) {
 	}
 	owner := ownerFor(r.Path)
 	p.ownerMu.Lock()
-	if p.owners[owner] >= p.ownerLimit {
+	if p.tickets[owner] >= p.ownerLimit+p.waitLimit {
 		p.ownerMu.Unlock()
 		return response{}, ErrCapacity
 	}
-	p.owners[owner]++
+	p.tickets[owner]++
 	p.ownerMu.Unlock()
+	defer func() {
+		p.ownerMu.Lock()
+		p.tickets[owner]--
+		if p.tickets[owner] == 0 {
+			delete(p.tickets, owner)
+		}
+		p.ownerMu.Unlock()
+	}()
+	select {
+	case p.admission <- struct{}{}:
+		defer func() { <-p.admission }()
+	default:
+		return response{}, ErrCapacity
+	}
+	for {
+		p.ownerMu.Lock()
+		if p.owners[owner] < p.ownerLimit {
+			p.owners[owner]++
+			p.ownerMu.Unlock()
+			break
+		}
+		// Quarantined slots cannot promise progress. Ordinary short concurrent
+		// reads instead wait on a bounded admission ticket, without polling.
+		if p.quarantinedOwners[owner] > 0 {
+			p.ownerMu.Unlock()
+			return response{}, ErrCapacity
+		}
+		changed := p.ownerChanged
+		p.ownerMu.Unlock()
+		select {
+		case <-changed:
+		case <-ctx.Done():
+			return response{}, ctx.Err()
+		case <-p.closed:
+			return response{}, ErrClosed
+		}
+	}
 	var once sync.Once
 	release := func() {
 		once.Do(func() {
@@ -81,6 +123,8 @@ func (p *Pool) call(ctx context.Context, r request) (response, error) {
 			if p.owners[owner] == 0 {
 				delete(p.owners, owner)
 			}
+			close(p.ownerChanged)
+			p.ownerChanged = make(chan struct{})
 			p.ownerMu.Unlock()
 		})
 	}
@@ -111,18 +155,33 @@ func (p *Pool) call(ctx context.Context, r request) (response, error) {
 }
 func (p *Pool) loop() {
 	var child process
-	retire := func() {
+	retire := func(owner string) {
 		if child == nil {
 			return
 		}
 		p.quarantined.Add(1)
+		if owner != "" {
+			p.ownerMu.Lock()
+			p.quarantinedOwners[owner]++
+			close(p.ownerChanged)
+			p.ownerChanged = make(chan struct{})
+			p.ownerMu.Unlock()
+		}
 		child.stop()
 		<-child.done()
+		if owner != "" {
+			p.ownerMu.Lock()
+			p.quarantinedOwners[owner]--
+			if p.quarantinedOwners[owner] == 0 {
+				delete(p.quarantinedOwners, owner)
+			}
+			p.ownerMu.Unlock()
+		}
 		p.quarantined.Add(-1)
 		p.live.Add(-1)
 		child = nil
 	}
-	defer retire()
+	defer retire("")
 	for {
 		select {
 		case <-p.closed:
@@ -150,16 +209,16 @@ func (p *Pool) loop() {
 			select {
 			case out := <-answer:
 				if out.err != nil {
-					retire()
+					retire(ownerFor(j.req.Path))
 				}
 				if j.ctx.Err() == nil {
 					j.release()
 					j.answer <- out
 				}
 			case <-j.ctx.Done():
-				retire()
+				retire(ownerFor(j.req.Path))
 			case <-p.closed:
-				retire()
+				retire(ownerFor(j.req.Path))
 				j.release()
 				return
 			}

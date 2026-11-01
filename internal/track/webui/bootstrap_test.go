@@ -281,3 +281,15 @@ func TestBootstrapShutdownRetainsLeaseUntilAuthoritativeWriterExits(t *testing.T
 		t.Fatal("cleanup did not finish after writer exited")
 	}
 }
+
+func TestReadOnlyWatcherNeverCreatesMissingVaultDirectories(t *testing.T) {
+	cfg := &config.Config{VaultDir: t.TempDir()}
+	srv := newServer(cfg, nil, true)
+	defer srv.closeViews()
+	srv.startWatch()
+	for _, path := range []string{cfg.NoteDir(), cfg.JournalDir(), cfg.DataDir()} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("read-only watcher created %s: %v", path, err)
+		}
+	}
+}
