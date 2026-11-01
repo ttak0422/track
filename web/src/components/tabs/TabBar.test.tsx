@@ -42,16 +42,44 @@ describe("TabBar", () => {
     window.localStorage.clear();
   });
 
+  it("keeps the same empty row through restore, first open, last close, and reopening", () => {
+    routerMock.pathname = "/";
+    window.localStorage.setItem("track.tabs", "[]");
+    const view = renderStrip();
+    const row = screen.getByRole("list", { name: "Open notes" });
+    expect(row).toBeEmptyDOMElement();
+    expect(screen.queryByRole("listitem")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { current: "page" })).not.toBeInTheDocument();
+
+    routerMock.pathname = "/notes/a1";
+    view.rerender(strip());
+    expect(screen.getByRole("listitem")).toHaveClass("active");
+    expect(screen.getByRole("list")).toBe(row);
+    fireEvent.click(screen.getByRole("button", { name: "Close Untitled" }));
+    expect(routerMock.navigate).toHaveBeenLastCalledWith({ to: "/", ignoreBlocker: true });
+    routerMock.pathname = "/";
+    view.rerender(strip());
+    expect(screen.getByRole("list")).toBe(row);
+    expect(row).toBeEmptyDOMElement();
+    expect(window.localStorage.getItem("track.tabs")).toBe("[]");
+
+    routerMock.pathname = "/notes/b2";
+    view.rerender(strip());
+    expect(screen.getByRole("list")).toBe(row);
+    expect(screen.getAllByRole("listitem")).toHaveLength(1);
+    expect(screen.getByRole("listitem")).toHaveClass("active");
+  });
+
   it("keeps fixed panels below the measured strip through resizing and empty tabs", () => {
     let bottom = 33;
-    const callbacks: (() => void)[] = [];
+    const callbacks = new Map<Element, () => void>();
     const disconnect = vi.fn();
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
       return { bottom: this.classList.contains("tabstrip") ? bottom : 0 } as DOMRect;
     });
     vi.stubGlobal("ResizeObserver", class {
-      constructor(callback: () => void) { callbacks.push(callback); }
-      observe() {}
+      constructor(private callback: () => void) {}
+      observe(element: Element) { callbacks.set(element, this.callback); }
       disconnect = disconnect;
     });
     const view = render(<main className="workspace">{strip()}</main>);
@@ -59,7 +87,7 @@ describe("TabBar", () => {
     expect(workspace.style.getPropertyValue("--tabstrip-bottom")).toBe("33px");
     // The outer strip observer runs independently from tab overflow's width observer.
     bottom = 49.5;
-    act(() => callbacks[0]());
+    act(() => callbacks.get(document.querySelector(".tabstrip")!)!());
     expect(workspace.style.getPropertyValue("--tabstrip-bottom")).toBe("49.5px");
     bottom = 28;
     fireEvent(window, new Event("resize"));
@@ -95,11 +123,7 @@ describe("TabBar", () => {
     expect(screen.getAllByRole("button", { name: "Float this note" })).toHaveLength(2);
   });
 
-  // The strip is absent from the first render — the open tabs arrive in an effect — so an observer
-  // bound on mount watched nothing at all, and the tab count then answered no resize for the rest of
-  // the session: narrowing the window left the tabs that no longer fit overflowing under the +N menu
-  // instead of moving into it.
-  it("observes the strip even though it mounts a frame late", () => {
+  it("observes the empty row before the first tab is opened", () => {
     const observed: string[] = [];
     vi.stubGlobal(
       "ResizeObserver",
@@ -111,6 +135,7 @@ describe("TabBar", () => {
         disconnect() {}
       },
     );
+    routerMock.pathname = "/";
     renderStrip();
     expect(observed).toContain("tabbar");
     vi.unstubAllGlobals();

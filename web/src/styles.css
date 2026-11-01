@@ -1016,17 +1016,6 @@ img.theme-asset-dark {
   min-height: 0;
   flex-direction: column;
   overflow: hidden;
-  /* Tabs are added in a post-paint effect (from the URL/localStorage), so the tab bar's ~33px row
-     (see .tabbar) mounts a frame after the reader below it. Reserve that row up front so the reader
-     doesn't get pushed down once the real tab bar appears (CLS); cancelled below once it does. */
-  padding-top: 33px;
-}
-
-.reader-pane:has(.tabbar),
-/* The empty state has no tab bar (and none will mount without navigating away), so drop the reserved row
-   there; its arrow guides align to the floating dock instead. */
-.reader-pane:has(.empty-state) {
-  padding-top: 0;
 }
 
 .reader {
@@ -1845,6 +1834,10 @@ dialog.calendar-event-dialog {
   display: flex;
   flex: 1 1 auto;
   min-width: 0;
+  /* Keep the title's line plus its 8px vertical padding even before restore or after the last close.
+     The empty row still pushes the vault switcher right, without inventing a focusable tab. */
+  font-size: calc(14px * var(--font-scale, 1));
+  min-height: calc(1lh + 16px);
   align-items: stretch;
 }
 
