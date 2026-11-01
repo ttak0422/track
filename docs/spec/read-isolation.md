@@ -49,3 +49,9 @@ editor retries that read only after a successful ready poll newer than the respo
 per note/generation/continuous read-only episode. Errors stop automatic recovery; manual retry
 remains available. Draft adoption and write guards are unchanged. Retiring a backend ends its SSE
 streams, so clients reconnect to the new generation instead of silently losing later updates.
+
+Authoritative mutations invalidate the bootstrap progress snapshot before writing; subsequent reads
+use current input/progress or the derived cache. Saves cancel earlier reads before the request and
+again before publishing the acknowledgement to the client cache. An older read-only snapshot cannot
+replace a verified/saved editor body, and fresh reads cannot overwrite an unsaved draft. Recovery
+never converts an explicitly read-only note into writable data merely because storage reports ready.

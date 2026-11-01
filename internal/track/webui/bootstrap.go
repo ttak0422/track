@@ -407,6 +407,9 @@ func (b *Bootstrap) progressResponse(w http.ResponseWriter, r *http.Request, rea
 			latest[n.ID] = n
 		}
 		srv.active.progress.mu.Lock()
+		if srv.active.progress.initialSuperseded {
+			latest = map[int64]*note.Note{}
+		}
 		for id, n := range srv.active.progress.notes {
 			latest[id] = n
 		}
@@ -452,6 +455,14 @@ func (b *Bootstrap) progressResponse(w http.ResponseWriter, r *http.Request, rea
 			}
 		}
 	case "/api/search", "/api/notes":
+		if serverCurrent && srv != nil && len(notes) == 0 {
+			srv.active.progress.mu.Lock()
+			superseded := srv.active.progress.initialSuperseded
+			srv.active.progress.mu.Unlock()
+			if superseded {
+				return false
+			} // Use the current derived cache, not startup's old snapshot.
+		}
 		query := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
 		hits := []store.SearchResult{}
 		for _, n := range notes {

@@ -15,16 +15,17 @@ import (
 )
 
 type readProgress struct {
-	mu         sync.Mutex
-	generation uint64
-	running    bool
-	cancel     context.CancelFunc
-	last       time.Time
-	state      store.ReadState
-	notes      map[int64]*note.Note
-	versions   map[int64]*vaultfile.NoteRead
-	bytes      int
-	home       string
+	mu                sync.Mutex
+	generation        uint64
+	running           bool
+	cancel            context.CancelFunc
+	last              time.Time
+	state             store.ReadState
+	notes             map[int64]*note.Note
+	versions          map[int64]*vaultfile.NoteRead
+	bytes             int
+	home              string
+	initialSuperseded bool
 }
 
 const maxProgressBytes = 32 << 20
@@ -141,6 +142,7 @@ func (v *vaultView) invalidateRead() {
 	p.running = false
 	p.cancel = nil
 	p.notes = nil
+	p.initialSuperseded = true
 	p.versions = nil
 	p.bytes = 0
 }

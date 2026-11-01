@@ -20,8 +20,8 @@ async function fetchStorage(): Promise<StorageStatus> {
   }
   return data;
 }
-export function useStorageStatus() {
-  return useQuery({ queryKey: ["storage-status"], queryFn: fetchStorage, enabled: !STATIC_MODE, retry: false, refetchInterval: 1000 });
+export function useStorageStatus(options: { enabled?: boolean } = {}) {
+  return useQuery({ queryKey: ["storage-status"], queryFn: fetchStorage, enabled: !STATIC_MODE && options.enabled !== false, retry: false, refetchInterval: 1000 });
 }
 export function StorageNotice() {
   const status = useStorageStatus();

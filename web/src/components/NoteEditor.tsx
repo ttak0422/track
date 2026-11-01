@@ -1,4 +1,3 @@
-import { useStorageStatus } from "../storage";
 import { RenderFailure } from "./RenderFailure";
 import { useBlocker, useNavigate } from "@tanstack/react-router";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -44,27 +43,6 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
   // clobbering unsaved local edits below.
   const noteQuery = useNoteQuery(noteID, { live: true });
   const readOnly = noteQuery.isError || noteQuery.data?.note.read_only === true;
-  const storage = useStorageStatus();
-  const recovery = useRef({ noteID, generation: storage.data?.generation, attempts: 0, checkedAt: 0 });
-  useEffect(() => {
-    if (recovery.current.noteID !== noteID || recovery.current.generation !== storage.data?.generation) {
-      recovery.current = { noteID, generation: storage.data?.generation, attempts: 0, checkedAt: 0 };
-    }
-    if (noteQuery.data?.note.read_only !== true) {
-      recovery.current.attempts = 0; recovery.current.checkedAt = 0;
-      return;
-    }
-    // A first read-only response can arrive after the "ready" invalidation while
-    // its initial request was still pending. Only a newer verified storage poll
-    // authorizes a bounded read retry; saves are never replayed.
-    if (noteQuery.isError || noteQuery.isFetching || storage.isError || storage.data?.phase !== "ready" ||
-        storage.dataUpdatedAt < noteQuery.dataUpdatedAt || recovery.current.attempts >= 2 ||
-        recovery.current.checkedAt === storage.dataUpdatedAt) return;
-    recovery.current.attempts++;
-    recovery.current.checkedAt = storage.dataUpdatedAt;
-    void noteQuery.refetch({ cancelRefetch: false });
-  }, [noteID, noteQuery.dataUpdatedAt, noteQuery.data?.note.read_only, noteQuery.isError,
-      noteQuery.isFetching, noteQuery.refetch, storage.dataUpdatedAt, storage.data?.phase, storage.data?.generation, storage.isError]);
   const saveNote = useSaveNoteMutation(noteID);
   const deleteNote = useDeleteNoteMutation(noteID);
   const {
@@ -116,6 +94,7 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
     noteID,
     body: cachedNote?.body ?? "",
     etag: cachedNote?.etag ?? "",
+    verified: !!cachedNote && cachedNote.read_only !== true,
   });
   // The task controls' writable data, updated on the same adopt as the body. See TaskBoardData:
   // the ref keeps a disk refresh from re-rendering the controls (and closing their pickers).
@@ -213,16 +192,17 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
     const switchedNote = noteID !== loadedRef.current.noteID;
     const discardedUnsavedEdit =
       switchedNote && body !== loadedRef.current.body;
-    if (switchedNote || (body === loadedRef.current.body && !diagram)) {
+    if (switchedNote || (body === loadedRef.current.body && !diagram &&
+        !(incoming.read_only === true && loadedRef.current.verified))) {
       if (switchedNote) setDiagram(null);
-      loadedRef.current = { noteID, body: incoming.body, etag: incoming.etag };
+      loadedRef.current = { noteID, body: incoming.body, etag: incoming.etag, verified: incoming.read_only !== true };
       tasksRef.current = { tasks: incoming.tasks ?? { items: [] }, etag: incoming.etag };
       setBody(incoming.body);
       if (discardedUnsavedEdit) {
         setEditorMode("preview");
       }
     }
-  }, [noteID, noteQuery.data?.note.etag, diagram]);
+  }, [noteID, noteQuery.data?.note.etag, noteQuery.data?.note.read_only, diagram]);
 
   const dirty = body !== loadedRef.current.body;
   const currentRender = renderQuery.data?.sourceBody === body && loadedRef.current.noteID === noteID && !renderQuery.isError && !renderQuery.isPlaceholderData;
@@ -405,7 +385,7 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
         body,
         etag: loadedRef.current.etag,
       });
-      loadedRef.current = { noteID, body, etag: response.etag };
+      loadedRef.current = { noteID, body, etag: response.etag, verified: true };
     } catch {
       // Conflict/errors surface via saveNote.isError below.
     }

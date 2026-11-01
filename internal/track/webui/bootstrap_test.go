@@ -442,3 +442,45 @@ func TestBootstrapLateOpenRetainsPublishedOwnershipForRetry(t *testing.T) {
 		t.Fatal("ownership was not released exactly once at final close")
 	}
 }
+
+func TestMutationInvalidatesStartupProgressWithoutHidingCurrentCache(t *testing.T) {
+	vault := t.TempDir()
+	writeVaultNote(t, vault, 1, "One", "old startup body")
+	cfg := &config.Config{VaultDir: vault, DBPath: filepath.Join(t.TempDir(), "cache.db"), Extensions: []string{".md"}}
+	st, err := store.Open(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original, err := note.ReadFileContext(context.Background(), cfg.NotePath(1), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := newBootstrap(context.Background(), nil, nil, nil)
+	defer b.Close()
+	srv := newServer(cfg, st, true)
+	srv.enableAsync()
+	b.cfg = cfg
+	b.server = srv
+	b.progress[1] = original
+	srv.active.progress.state.Partial = true
+	srv.active.invalidateRead() // The same boundary every authoritative mutation crosses before writing.
+	if err := os.WriteFile(cfg.NotePath(1), []byte("new saved body"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	current, err := note.ReadFileContext(context.Background(), cfg.NotePath(1), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.UpsertNote(current); err != nil {
+		t.Fatal(err)
+	}
+	srv.active.progress.running = true
+	w := bootRequest(b, "GET", "/api/note?id=1", "")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "new saved body") || strings.Contains(w.Body.String(), "old startup body") {
+		t.Fatalf("stale startup snapshot returned after mutation: %d %s", w.Code, w.Body.String())
+	}
+	w = bootRequest(b, "GET", "/api/search?q=One", "")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"note_id":1`) {
+		t.Fatalf("current cache hidden by invalid initial snapshot: %d %s", w.Code, w.Body.String())
+	}
+}
