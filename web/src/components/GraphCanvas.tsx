@@ -554,11 +554,8 @@ export function GraphCanvas({
     };
   }
 
-  // nodeRadius returns a node's drawn radius in CSS pixels (independent of zoom): the centre node
-  // keeps its focal size, and the rest take their precomputed five-level grade (1–5) from the
-  // engine — the same grade in every view, so a node's size does not depend on which graph shows it.
-  // A node without a grade falls back to the degree-based size (see radiusForNode). Rendering and
-  // hit-testing both use it so the clickable area always matches the dot the user actually sees.
+  // Allowed-population area scores survive filtering unchanged. Drawing, labels and picking share
+  // the same radius; the centre retains its focal minimum (see radiusForNode).
   function nodeRadius(node: SimNode): number {
     return radiusForNode(node, graphRef.current.center_id);
   }

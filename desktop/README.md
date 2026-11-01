@@ -44,6 +44,7 @@ TRACK_CACHE_DIR="$HOME/Library/Caches/track" \
 
 ```sh
 make desktop-verify
+make desktop-notification-test
 make desktop-smoke
 make desktop-recovery-smoke
 make desktop-termination-test
@@ -51,7 +52,7 @@ make desktop-clean-termination-test
 ```
 
 `desktop-verify` performs a release app build, the Swift lifecycle/URL-policy regression runner, the
-Go test suite once, a SIGSTOP-child deferred-termination test, and ShellCheck when installed.
+mocked WKWebView notification security/delivery tests, the Go test suite once, a SIGSTOP-child deferred-termination test, and ShellCheck when installed.
 `desktop-termination-test` runs that isolated SIGSTOP test by itself.
 `desktop-clean-termination-test` covers clean and dirty window/quit/OS callbacks with a separately
 identified bundle and owned ephemeral ports; see [the scenario matrix](../docs/testing/desktop-clean-termination.md). The
@@ -113,9 +114,10 @@ results within its timeout. GUI failures are not skipped or treated as successfu
 - A server retry does not reload an already-rendered WebView. It retains the current document and
   dispatches online/focus events so the live query and event-stream clients can reconnect without
   discarding editor-local input. Explicit Reload checks the live note editor before deciding whether to warn.
-- WKWebView uses its persistent website data store in normal operation. It receives no JavaScript
-  message handler, native object, arbitrary shell capability, or custom URL-scheme handler. The
-  existing web UI can render sandboxed HTML embeds, remote HTTP(S) iframe embeds, and vault-local
+- WKWebView uses its persistent website data store in normal operation. Its narrow speech handler
+  validates the exact workspace origin and main frame. The activity-notification handler additionally
+  requires a committed app-route document; executable vault attachments have an opaque sandbox
+  origin. No arbitrary shell capability or custom URL-scheme handler is exposed. The existing web UI can render sandboxed HTML embeds, remote HTTP(S) iframe embeds, and vault-local
   static apps. Static apps remain on their static-only origin, separate from the live API.
 - A top-level external HTTP(S) URL is sent to the default browser only after a direct link gesture.
   Remote HTTP(S) subframes may render in WebKit. Redirects, scripted external navigation, `file:`,
@@ -183,3 +185,30 @@ CLANG_MODULE_CACHE_PATH="$PWD/build/desktop-clang-module-cache" \
 AppKit renders the SVG independently at 16, 32, 128, 256, and 512 points, each at 1x and 2x
 (up to 1024 pixels), and `iconutil` packages the PNGs in `build/desktop/Track.iconset`.
 No image-generation service or additional renderer dependency is needed.
+
+## macOS activity notifications
+
+Enable through **Track > Activity Notifications > Enable macOS Notifications…**. Only this
+explicit menu action requests UserNotifications permission; denial is not retried by background
+activity. Permission, the saved on/off choice and a System Settings link are available in that menu.
+The `trackNotifications` reply bridge accepts only `ready` and validated `activity` messages from
+the exact workspace origin and committed app-route main frame. HTML/SVG vault asset responses
+carry an opaque-origin CSP sandbox, preventing attachment scripts from calling the parent bridge. It acknowledges only accepted posts (or an already
+accepted daily duplicate); the web client falls back to its toast on false/error. Save/creation/
+conflict outcomes continue using the in-app UI. Foreground notices use `.banner` and `.list` too.
+
+The OS payload is always a generic title/body without note content, paths, IDs or routing data.
+Random request identifiers map to note routes only in app memory. A router-ready handshake queues
+clicks during reload without a full document navigation; old notifications from an exited process
+only activate/reopen the workspace. The map is capped at 1,000 routes per session, then uses the
+in-app fallback. No new events are detected after the app quits (including last-window close).
+No resident process, launch agent, push registration, credentials or signing changes are added.
+See the help vault's **Web workspace** page for user guidance and system-delivery limits.
+
+`make desktop-notification-test` runs a mock driver with an ephemeral WKWebView and local HTTP
+fixtures. It covers disabled/denied/revoked permission, failed delivery/retry, daily/concurrent dedup,
+in-flight disable, payload allowlisting, same-origin iframe and foreign-origin raw-handler denial,
+and click readiness/stale-route protection. It does not request real notification permission,
+post system notices, modify notification settings, or access a configured vault. Actual permission,
+Notification Center/banner delivery, Focus/lock-screen appearance and LaunchServices reopen behavior
+require a separately authorized manual check of the assembled app.

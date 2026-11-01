@@ -10,6 +10,7 @@ MODULE_CACHE="$ROOT/build/desktop-clang-module-cache"
 CLANG_MODULE_CACHE_PATH="$MODULE_CACHE" sh "$SCRIPT_DIR/apple-toolchain.sh" desktop swift \
 	run --package-path "$ROOT/desktop" -c debug TrackWebTests
 python3 "$SCRIPT_DIR/desktop-speech-test.py"
+python3 "$SCRIPT_DIR/desktop-notification-test.py"
 go test ./...
 
 if command -v shellcheck >/dev/null 2>&1; then

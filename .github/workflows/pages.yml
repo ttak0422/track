@@ -30,16 +30,16 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7.0.1
 
       - name: Install Nix
-        uses: cachix/install-nix-action@v31
+        uses: cachix/install-nix-action@v31.11.3
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
 
       - name: Set up Cachix
-        uses: cachix/cachix-action@v15
+        uses: cachix/cachix-action@v17
         # Cache availability is optional, including uploads in the post-action hook.
         # Build and test steps still fail normally.
         continue-on-error: true
@@ -49,7 +49,7 @@ jobs:
 
       - name: Configure Pages
         id: pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
 
       # Build + prerender the site. SITE_BASE is the Pages base path (e.g. /track/ for a project site),
       # baked into the bundle so the path-routed, prerendered pages resolve assets, data, and routes under
@@ -87,10 +87,12 @@ jobs:
           echo "carried $carried assets from the previous deployment"
 
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: ./_site
+          # Preserve v3's archive contents, including generated dotfiles.
+          include-hidden-files: true
 
       - name: Deploy to GitHub Pages
         id: deploy
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5.0.1

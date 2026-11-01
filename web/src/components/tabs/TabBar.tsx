@@ -36,8 +36,7 @@ export function TabBar() {
     };
   }, []);
   const { tabs, activeID, dirtyID, close } = useTabs();
-  // A restored/closed last tab can remove the reader pane's reserved top padding without
-  // changing the strip height. ResizeObserver alone cannot detect that position-only change.
+  // Keep fixed panels aligned after tab changes as well as strip/window resizing.
   useLayoutEffect(() => { measureBoundary.current?.(); });
   const navigate = useNavigate();
   const stripRef = useRef<HTMLDivElement>(null);
@@ -48,11 +47,7 @@ export function TabBar() {
   const capRef = useRef(Number.POSITIVE_INFINITY);
   const [width, setWidth] = useState(0);
 
-  // Observed through the ref callback, not a mount effect: the strip does not exist until the tabs are
-  // restored (a post-paint effect), so an effect on mount ran while stripRef was still null and never
-  // observed anything. The count then froze at whatever the first geometry produced, and a window
-  // narrowed after load — a phone rotating, devtools switching to a phone size — kept it: the tabs
-  // that no longer fit simply overflowed under the +N menu instead of moving into it.
+  // Observe the row even while empty, so opening a first tab uses the current window width.
   const observeStrip = useCallback((strip: HTMLDivElement | null) => {
     stripRef.current = strip;
     if (!strip || typeof ResizeObserver === "undefined") return;
@@ -97,8 +92,7 @@ export function TabBar() {
 
   return (
     <div className="tabstrip" ref={observeBoundary}>
-      {visible.length > 0 ? (
-        <div className="tabbar" role="list" aria-label="Open notes" ref={observeStrip}>
+      <div className="tabbar" role="list" aria-label="Open notes" ref={observeStrip}>
         {visible.map((tab) => {
           const active = tab.id === activeID;
           const label = tab.title || "Untitled";
@@ -151,8 +145,7 @@ export function TabBar() {
             </div>
           );
         })}
-        </div>
-      ) : null}
+      </div>
       {hidden.length > 0 ? <TabOverflow tabs={hidden} onOpen={openTab} onClose={close} /> : null}
       <VaultSwitcher />
     </div>
