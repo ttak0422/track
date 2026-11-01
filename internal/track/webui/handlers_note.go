@@ -79,7 +79,7 @@ func (s *Server) postNote(v *vaultView, w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	path := v.cfg.NotePath(noteID)
-	if _, err := os.Stat(path); err == nil {
+	if _, err := vaultfile.Stat(path); err == nil {
 		writeError(w, fmt.Errorf("note already exists: %s", path), http.StatusConflict)
 		return
 	}
@@ -382,7 +382,7 @@ func (s *Server) putNote(v *vaultView, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	current, err := os.ReadFile(path)
+	current, err := vaultfile.Read(path)
 	if err != nil {
 		writeError(w, err, http.StatusInternalServerError)
 		return

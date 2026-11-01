@@ -2,6 +2,7 @@
 package index
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -19,13 +20,15 @@ import (
 )
 
 type Indexer struct {
-	cfg     *config.Config
-	store   *store.Store
-	readDir func(string) ([]os.DirEntry, error)
+	cfg      *config.Config
+	store    *store.Store
+	readDir  func(string) ([]os.DirEntry, error)
+	readNote func(context.Context, string, *config.Config) (*note.Note, error)
+	previous map[int64]*vaultfile.NoteRead
 }
 
 func New(cfg *config.Config, s *store.Store) *Indexer {
-	return &Indexer{cfg: cfg, store: s, readDir: os.ReadDir}
+	return &Indexer{cfg: cfg, store: s, readDir: vaultfile.ReadDir, readNote: note.ReadFileContext}
 }
 
 // Report summarizes a rebuild. Partial data is explicitly described, even on a first run.
@@ -63,7 +66,7 @@ func (ix *Indexer) full(prune bool, activity map[int64]int64) (Report, error) {
 		roots = append(roots, ix.cfg.JournalDir())
 	}
 	for _, root := range roots {
-		info, err := os.Stat(root)
+		info, err := vaultfile.Stat(root)
 		if os.IsNotExist(err) && root != ix.cfg.VaultDir {
 			continue // A new vault may not have created either content directory yet.
 		}
@@ -111,7 +114,7 @@ func (ix *Indexer) full(prune bool, activity map[int64]int64) (Report, error) {
 		}
 		// Missing metadata for a known sidecar is unavailable data, not an empty title.
 		if metaTimes[id] != 0 {
-			if _, err := os.Stat(ix.cfg.MetadataPath(id)); err != nil {
+			if _, err := vaultfile.Stat(ix.cfg.MetadataPath(id)); err != nil {
 				reject("metadata unavailable: " + err.Error())
 				continue
 			}
@@ -182,10 +185,10 @@ func (ix *Indexer) full(prune bool, activity map[int64]int64) (Report, error) {
 		// added after enumeration. A disappeared root cannot confirm a deletion.
 		for _, id := range missing {
 			path := cachedPaths[id]
-			if _, err := os.ReadDir(filepath.Dir(path)); err != nil {
+			if _, err := vaultfile.ReadDir(filepath.Dir(path)); err != nil {
 				return rep, fmt.Errorf("refusing to prune unavailable directory: %w", err)
 			}
-			if _, err := os.Lstat(path); !os.IsNotExist(err) {
+			if _, err := vaultfile.Lstat(path); !os.IsNotExist(err) {
 				return rep, fmt.Errorf("missing file changed during pruning check: %s", path)
 			}
 		}
@@ -372,7 +375,7 @@ func (ix *Indexer) scanMetaMtimes(disk map[int64]int64) map[int64]int64 {
 	out := make(map[int64]int64, len(disk))
 	for id := range disk {
 		out[id] = 0
-		if fi, err := os.Stat(ix.cfg.MetadataPath(id)); err == nil {
+		if fi, err := vaultfile.Stat(ix.cfg.MetadataPath(id)); err == nil {
 			out[id] = fi.ModTime().Unix()
 		}
 	}
@@ -396,7 +399,7 @@ func (ix *Indexer) scanMtimes() (map[int64]int64, map[int64]bool, []*note.ParseE
 			skipped = append(skipped, &note.ParseError{Path: path, Err: fmt.Errorf("invalid note filename (expected a numeric id): %w", err)})
 			continue
 		}
-		info, err := os.Stat(path)
+		info, err := vaultfile.Stat(path)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -476,7 +479,7 @@ func (ix *Indexer) One(path string) error {
 			n.Meta = meta
 			// Re-stat so the stored sidecar mtime matches the write above; a stale value would make
 			// the next RefreshIfStale see a phantom sidecar change and rebuild for nothing.
-			if fi, err := os.Stat(metaPath); err == nil {
+			if fi, err := vaultfile.Stat(metaPath); err == nil {
 				n.MetaMtime = fi.ModTime().Unix()
 			}
 		}
@@ -604,7 +607,7 @@ func (ix *Indexer) resolveLinks(body string, dict map[string]int64) ([]int64, []
 func (ix *Indexer) scanFiles() ([]string, error) {
 	var out []string
 	for _, root := range []string{ix.cfg.NoteDir(), ix.cfg.JournalDir()} {
-		entries, err := os.ReadDir(root)
+		entries, err := vaultfile.ReadDir(root)
 		if err != nil {
 			if os.IsNotExist(err) {
 				continue // note/journal dir may not exist yet

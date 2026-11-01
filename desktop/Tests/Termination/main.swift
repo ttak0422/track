@@ -183,6 +183,7 @@ final class TerminationHarness: NSObject, NSApplicationDelegate {
         if scenario.hasPrefix("event-") {
             _ = try await evaluate("(() => { const a = document.createElement('a'); a.href = '/calendar'; document.body.appendChild(a); a.click(); return true; })()")
             try await waitFor("location.pathname === '/calendar' && window.__trackNativeWorkspaceState?.() === false")
+            try await waitFor("Array.from(document.querySelectorAll('button')).some(b => b.textContent === 'New event' && !b.disabled)")
             _ = try await evaluate("Array.from(document.querySelectorAll('button')).find(b => b.textContent === 'New event').click(); true")
             try await waitFor("!!document.querySelector('dialog.calendar-event-dialog[open] input')")
             _ = try await evaluate("""
@@ -193,10 +194,16 @@ final class TerminationHarness: NSObject, NSApplicationDelegate {
             try await waitFor("document.querySelector('dialog.calendar-event-dialog input').value === 'Fixture event draft 日本語'")
         }
         if scenario.hasPrefix("dirty") || scenario == "saved-quit" || scenario == "pending-cancel" || scenario == "ime-cancel" || scenario == "clean-edit-quit" {
-            _ = try await evaluate("document.querySelector('button[aria-label^=\"Display mode:\"]').click(); true")
+            // First paint may be a confirmed read-only snapshot. Editing fixtures must
+            // wait for actual write controls, not equate a readable body with verified storage.
+            try await waitFor("!!document.querySelector('button[aria-label^=\"Display mode:\"]:not(:disabled)')")
+            phase = "opening edit mode"
+            _ = try await evaluate("(() => { if (!document.querySelector('[aria-label=\"Display mode\"]')) document.querySelector('button[aria-label^=\"Display mode:\"]').click(); return true; })()")
             try await waitFor("!!document.querySelector('[aria-label=\"Display mode\"]')")
             _ = try await evaluate("Array.from(document.querySelectorAll('[role=menuitemradio]')).find(b => b.textContent.trim() === 'Edit').click(); true")
-            try await waitFor("!!document.querySelector('form.note-editor textarea')")
+            phase = "waiting for writable fixture"
+            try await waitFor("!!document.querySelector('form.note-editor textarea:not([readonly])')")
+            phase = "typing fixture"
             if scenario != "ime-cancel" && scenario != "clean-edit-quit" {
             _ = try await evaluate("""
             (() => { const t = document.querySelector('form.note-editor textarea');

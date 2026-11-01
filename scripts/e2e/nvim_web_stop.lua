@@ -44,8 +44,9 @@ local function ready(addr)
    return result.code == 0 and ok and data.ready == true
 end
 
+-- Markdown readiness is independent of vault startup; ownership assertions also need the lease.
 local function wait_ready(addr, expected)
-   check(vim.wait(10000, function() return ready(addr) == expected end, 50),
+   check(vim.wait(10000, function() return ready(addr) == expected and (not expected or vim.fn.filereadable(cache .. "/web-" .. addr:gsub(":", "-") .. ".pid") == 1) end, 50),
       "unexpected listener state (expected ready=" .. tostring(expected) .. "): " .. addr .. ": " .. vim.inspect(notices))
 end
 

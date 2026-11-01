@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/ttak0422/track/internal/track/vaultfile"
 	"io"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -349,7 +349,7 @@ func ValidateImageRef(cfg *config.Config, ref string) error {
 	if !slices.Contains(imageExtensions, strings.ToLower(filepath.Ext(rel))) {
 		return fmt.Errorf("image %q must be one of %s (OGP consumers do not render other formats)", ref, strings.Join(imageExtensions, " "))
 	}
-	if _, err := os.Stat(filepath.Join(cfg.AssetsDir(), filepath.FromSlash(rel))); err != nil {
+	if _, err := vaultfile.Stat(filepath.Join(cfg.AssetsDir(), filepath.FromSlash(rel))); err != nil {
 		return fmt.Errorf("image %q not found in the vault assets: %w", ref, err)
 	}
 	return nil

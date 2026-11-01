@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/ttak0422/track/internal/track/note"
-	"os"
+	"github.com/ttak0422/track/internal/track/vaultfile"
 	"time"
 )
 
@@ -27,6 +27,7 @@ type ReadState struct {
 	CacheUsed bool        `json:"cache_used"`
 	CheckedAt int64       `json:"checked_at"`
 	Issues    []ReadIssue `json:"issues"`
+	Omitted   int         `json:"omitted,omitempty"`
 }
 
 func (r *ReadState) Add(issue ReadIssue) {
@@ -36,6 +37,10 @@ func (r *ReadState) Add(issue ReadIssue) {
 		if old == issue {
 			return
 		}
+	}
+	if len(r.Issues) >= 256 {
+		r.Omitted++
+		return
 	}
 	r.Issues = append(r.Issues, issue)
 }
@@ -65,7 +70,8 @@ func (s *Store) SetReadState(state ReadState) error {
 
 // AddReadIssue records a query-time failure without losing prior refresh issues.
 func (s *Store) AddReadIssue(issue ReadIssue) error {
-	return s.Atomic(func(tx *Store) error {
+	return s.atomicMode(func(sqlTx *sql.Tx) error {
+		tx := &Store{db: s.db, tx: sqlTx}
 		state, err := tx.ReadState()
 		if err != nil {
 			return err
@@ -76,7 +82,7 @@ func (s *Store) AddReadIssue(issue ReadIssue) error {
 			state.CheckedAt = time.Now().UnixMilli()
 		}
 		return tx.SetReadState(state)
-	})
+	}, false)
 }
 
 type runner interface {
@@ -92,7 +98,8 @@ func (s *Store) runner() runner {
 	return s.db
 }
 
-func (s *Store) atomic(fn func(*sql.Tx) error) error {
+func (s *Store) atomic(fn func(*sql.Tx) error) error { return s.atomicMode(fn, true) }
+func (s *Store) atomicMode(fn func(*sql.Tx) error, advance bool) error {
 	if s.tx != nil {
 		return fn(s.tx)
 	}
@@ -103,6 +110,11 @@ func (s *Store) atomic(fn func(*sql.Tx) error) error {
 	defer tx.Rollback()
 	if err := fn(tx); err != nil {
 		return err
+	}
+	if advance {
+		if _, err := tx.Exec(`INSERT INTO index_state(key,value) VALUES('snapshot_revision','1') ON CONFLICT(key) DO UPDATE SET value=CAST(value AS INTEGER)+1`); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }
@@ -139,7 +151,7 @@ func (s *Store) RequireMetadata(id int64, path string) error {
 // FileReadIssue keeps retry observations identical for indexing and query paths.
 func FileReadIssue(id int64, path, metaPath, reason string, cached bool) ReadIssue {
 	stamp := func(p string) int64 {
-		info, err := os.Stat(p)
+		info, err := vaultfile.Stat(p)
 		if err != nil {
 			return 0
 		}

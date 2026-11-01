@@ -116,3 +116,23 @@ describe("NoteRailControls", () => {
     expect(getBody).not.toHaveBeenCalled();
   });
 });
+
+it("keeps read controls mounted while disabling metadata and deletion", async () => {
+  const onMeta = vi.fn(), onDelete = vi.fn();
+  const writable = { ...noopActions, onMeta, onDelete };
+  const view = renderRail(writable);
+  const toggle = await screen.findByRole("button", { name: "Display mode: Preview" });
+  fireEvent.click(toggle);
+  expect(screen.getByRole("menu", { name: "Display mode" })).toBeInTheDocument();
+  view.rerender(<NoteControlsProvider><FakeNote actions={{ ...writable, readOnly: true }} /><NoteRailControls /></NoteControlsProvider>);
+  expect(screen.getByRole("button", { name: "Display mode: Preview" })).toBe(toggle);
+  expect(screen.getByRole("menu", { name: "Display mode" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("menuitemradio", { name: "Split" }));
+  expect(screen.getByRole("button", { name: "Display mode: Split" })).toBeEnabled();
+  fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+  expect(screen.getByRole("menuitem", { name: "Copy MD" })).toBeEnabled();
+  expect(screen.getByRole("menuitem", { name: "Meta…" })).toBeDisabled();
+  expect(screen.getByRole("menuitem", { name: "Delete…" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("menuitem", { name: "Delete…" }));
+  expect(onDelete).not.toHaveBeenCalled(); expect(onMeta).not.toHaveBeenCalled();
+});

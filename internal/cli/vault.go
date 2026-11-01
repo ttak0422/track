@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/ttak0422/track/internal/track/config"
+	"github.com/ttak0422/track/internal/track/vaultfile"
 )
 
 // selectedVault is the registry name chosen with the global --vault flag for this invocation; empty
@@ -214,7 +215,7 @@ func cmdVaultWhich(args []string) int {
 // more often than a first launch, and scattering note/ and .track/ through an unrelated directory is
 // the same mistake one step later.
 func requireVaultDir(cfg *config.Config) error {
-	entries, err := os.ReadDir(cfg.VaultDir)
+	entries, err := vaultfile.ReadDir(cfg.VaultDir)
 	switch {
 	case os.IsNotExist(err):
 		if name := activeVaultName(cfg, nil); name != "" {
@@ -235,7 +236,7 @@ func requireVaultDir(cfg *config.Config) error {
 // added later is covered without touching this.
 func holdsVaultLayout(cfg *config.Config) bool {
 	for _, dir := range append([]string{cfg.TrackDir()}, cfg.VaultSkeleton()...) {
-		if info, err := os.Stat(dir); err == nil && info.IsDir() {
+		if info, err := vaultfile.Stat(dir); err == nil && info.IsDir() {
 			return true
 		}
 	}

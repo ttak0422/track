@@ -15,6 +15,7 @@ export const editorModes: EditorMode[] = ["preview", "edit", "split"];
 // The body is a getter rather than a value on purpose: it changes on every keystroke, and storing it
 // here would re-render the whole workspace as you type.
 export interface NoteActions {
+  readOnly?: boolean;
   getBody: () => string;
   onMeta: () => void;
   onDelete: () => void;

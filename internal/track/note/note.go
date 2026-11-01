@@ -3,17 +3,19 @@
 package note
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"github.com/ttak0422/track/internal/track/vaultfile"
+	"gopkg.in/yaml.v3"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/ttak0422/track/internal/track/babel"
 	"github.com/ttak0422/track/internal/track/config"
-	"github.com/ttak0422/track/internal/track/dispatch"
+	"github.com/ttak0422/track/internal/track/notedata"
 	"github.com/ttak0422/track/internal/track/task"
 )
 
@@ -52,33 +54,11 @@ func (e *ParseError) Unwrap() error { return e.Err }
 // ExecLog (version 11 sidecars) is the append-only execution log of agent dispatches over the note:
 // one dispatch.Record per state transition, keyed by note id and dispatch id. Like task_log it is
 // authoritative sidecar data, never reconstructed from the body and never written to the index.
-type Metadata struct {
-	Version     int                        `yaml:"version"`
-	Title       string                     `yaml:"title,omitempty"`
-	Tags        []string                   `yaml:"tags,omitempty"`
-	Created     string                     `yaml:"created,omitempty"`
-	Days        []string                   `yaml:"days,omitempty"`
-	Description string                     `yaml:"description,omitempty"`
-	Image       string                     `yaml:"image,omitempty"`
-	Props       map[string]any             `yaml:"props,omitempty"`
-	Icon        string                     `yaml:"icon,omitempty"`
-	SeenAt      string                     `yaml:"seen_at,omitempty"`
-	ReadAt      string                     `yaml:"read_at,omitempty"`
-	Flags       []string                   `yaml:"flags,omitempty"`
-	Blocks      map[string]babel.BlockMeta `yaml:"blocks,omitempty"`
-	TaskLog     []task.LogEntry            `yaml:"task_log,omitempty"`
-	ExecLog     []dispatch.Record          `yaml:"exec_log,omitempty"`
-	// Slug pins this note's published URL. The static export normally derives a slug from the note
-	// id, so a note that already has a public URL under some other id — one imported from a
-	// published directory — would move. Setting it here freezes the address the note is already
-	// reachable at; empty means derive it as usual.
-	Slug string `yaml:"slug,omitempty"`
-	// Preserve extension fields through edits and reindexes. They are not editable
-	// through the metadata form or part of the public JSON representation.
-	Extra map[string]any `yaml:",inline" json:"-"`
-}
+type Metadata = notedata.Metadata
 
 type Note struct {
+	Snapshot *vaultfile.NoteRead
+
 	ID    int64
 	Kind  string
 	Path  string
@@ -112,10 +92,50 @@ var MetadataKeyOrder = []string{
 func ParseFile(path string, c *config.Config) (*Note, error) { return parseFile(path, c, true) }
 
 // ReadFile parses without migrating legacy metadata or creating sidecars.
-func ReadFile(path string, c *config.Config) (*Note, error) { return parseFile(path, c, false) }
+func ReadFile(path string, c *config.Config) (*Note, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), vaultfile.ReadTimeout)
+	defer cancel()
+	return ReadFileContext(ctx, path, c)
+}
+
+func ReadFileContext(ctx context.Context, path string, c *config.Config) (*Note, error) {
+	id, err := IDFromPath(path)
+	if err != nil {
+		return nil, &ParseError{Path: path, Err: err}
+	}
+	staged, err := vaultfile.ReadNote(ctx, path, c.MetadataPath(id))
+	if err != nil {
+		var bad *vaultfile.ParseFailure
+		if errors.As(err, &bad) {
+			return nil, &ParseError{Path: bad.Path, Err: errors.New(bad.Reason)}
+		}
+		return nil, err
+	}
+	if staged == nil {
+		return nil, errors.New("read worker returned no parsed note")
+	}
+	var meta Metadata
+	if len(staged.Metadata) > 0 {
+		if err := yaml.Unmarshal(staged.Metadata, &meta); err != nil {
+			return nil, &ParseError{Path: c.MetadataPath(id), Err: err}
+		}
+	}
+	if meta.Version == 0 {
+		meta.Version = CurrentMetadataVersion
+	}
+	kind, ok := c.KindFromPath(path)
+	if !ok {
+		kind = config.KindNote
+	}
+	metaMtime := int64(0)
+	if staged.Found {
+		metaMtime = staged.MetaInfo.ModTime().Unix()
+	}
+	return &Note{Snapshot: staged, ID: id, Kind: kind, Path: path, Body: staged.Body, Mtime: staged.BodyInfo.ModTime().Unix(), MetaMtime: metaMtime, Meta: meta, Tasks: staged.Tasks}, nil
+}
 
 func parseFile(path string, c *config.Config, migrate bool) (*Note, error) {
-	return parseFileWithStat(path, c, migrate, os.Stat)
+	return parseFileWithStat(path, c, migrate, vaultfile.Stat)
 }
 
 func parseFileWithStat(path string, c *config.Config, migrate bool, stat func(string) (os.FileInfo, error)) (*Note, error) {
@@ -163,7 +183,7 @@ func parseFileWithStat(path string, c *config.Config, migrate bool, stat func(st
 	}
 	// Stat after the possible legacy write so the recorded mtime matches the sidecar now on disk.
 	metaMtime := int64(0)
-	if fi, err := os.Stat(metaPath); err == nil {
+	if fi, err := vaultfile.Stat(metaPath); err == nil {
 		metaMtime = fi.ModTime().Unix()
 	}
 	return &Note{
@@ -197,7 +217,7 @@ func NewID(c *config.Config, t time.Time) (int64, error) {
 // created in the same second never collide or overwrite each other.
 func FreeID(c *config.Config, start int64) (int64, error) {
 	for id := start; ; id++ {
-		_, err := os.Stat(c.NotePath(id))
+		_, err := vaultfile.Stat(c.NotePath(id))
 		if os.IsNotExist(err) {
 			return id, nil
 		}

@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { APIError, getGraph, searchNotes, setTaskState } from "./api";
+import { APIError, getGraph, searchNotes, setTaskState, saveNote } from "./api";
 import { NotificationProvider, NotificationToast } from "./notifications";
 import {
   queryKeys,
@@ -11,6 +11,7 @@ import {
   useGraphQuery,
   useNewNotesQuery,
   useSearchQuery,
+  useSaveNoteMutation,
   useSetTaskDateMutation,
   useSetTaskStateMutation,
 } from "./queries";
@@ -19,6 +20,7 @@ import {
 // rest of the api module keeps its real implementation.
 vi.mock("./api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./api")>()),
+  saveNote: vi.fn(async () => ({ note_id: "100", etag: "saved", saved: true })),
   setTaskState: vi.fn(async () => ({ tasks: { items: [] }, etag: "next" })),
   setTaskDate: vi.fn(async () => ({ tasks: { items: [] }, etag: "next" })),
   searchNotes: vi.fn(async () => ({ results: [] })),
@@ -214,4 +216,32 @@ describe("bounded workspace read retries", () => {
     expect(getGraph).toHaveBeenCalledTimes(attempts);
     view.unmount(); client.clear();
   });
+});
+
+it("cancels note reads before saving and before publishing the saved cache", async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  const key = queryKeys.note("100");
+  const initial = { note: { note_id: "100", title: "Note", body: "Old", etag: "old" }, backlinks: [] };
+  client.setQueryData(key, initial);
+  let before!: (value: typeof initial) => void;
+  let firstCanceled = false;
+  void client.fetchQuery({ queryKey: key, queryFn: ({ signal }) => { signal.addEventListener("abort", () => { firstCanceled = true; }); return new Promise<typeof initial>(resolve => { before = resolve; }); } })
+    .catch(() => {});
+  let finishSave!: (value: { note_id: string; etag: string; saved: boolean }) => void;
+  vi.mocked(saveNote).mockImplementationOnce(() => new Promise(resolve => { finishSave = resolve; }));
+  const view = renderHook(() => useSaveNoteMutation("100"), { wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> });
+  let saved!: Promise<unknown>;
+  act(() => { saved = view.result.current.mutateAsync({ body: "Saved", etag: "old" }); });
+  await waitFor(() => expect(firstCanceled).toBe(true));
+  await waitFor(() => expect(finishSave).toBeTypeOf("function"));
+  let during!: (value: typeof initial) => void;
+  let secondCanceled = false;
+  void client.fetchQuery({ queryKey: key, queryFn: ({ signal }) => { signal.addEventListener("abort", () => { secondCanceled = true; }); return new Promise<typeof initial>(resolve => { during = resolve; }); } })
+    .catch(() => {});
+  await act(async () => { finishSave({ note_id: "100", etag: "saved", saved: true }); await saved; });
+  expect(secondCanceled).toBe(true);
+  await act(async () => { before(initial); during(initial); });
+  expect(client.getQueryData<typeof initial>(key)?.note.body).toBe("Saved");
+  expect(client.getQueryData<typeof initial>(key)?.note.etag).toBe("saved");
+  view.unmount(); client.clear();
 });

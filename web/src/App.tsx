@@ -1,3 +1,4 @@
+import { useStorageStatus } from "./storage";
 import { retryRead } from "./queries";
 import {
   type RouterHistory,
@@ -216,6 +217,8 @@ export function App() {
 }
 
 function HomeRoute() {
+  const storage = useStorageStatus();
+  const home = STATIC_MODE ? START_PAGE_ID : (storage.data?.home_note_id ?? START_PAGE_ID);
   // The published site's "/" is the start page: it renders the configured root note directly, so the
   // prerendered index.html carries real content (fast FCP/LCP) instead of an empty shell that redirects.
   // The empty state lives at /empty (reached by closing every tab).
@@ -225,8 +228,8 @@ function HomeRoute() {
   // The live workspace opens the configured home note (config web.home, injected as START_PAGE_ID) as its
   // landing view — a dashboard note with ```dashboard widgets is the intended target. With no home note
   // configured it falls back to the search hero.
-  if (START_PAGE_ID) {
-    return <NoteReader noteID={START_PAGE_ID} />;
+  if (home) {
+    return <NoteReader noteID={home} />;
   }
   return (
     <section className="home-hero">

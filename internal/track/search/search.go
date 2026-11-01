@@ -301,30 +301,22 @@ func cmpDesc[T ~int64](a, b T) int {
 func scanSearchFiles(cfg *config.Config, s *store.Store) ([]string, error) {
 	var out []string
 	for _, root := range []string{cfg.NoteDir(), cfg.JournalDir()} {
-		err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-			if err != nil {
-				if os.IsNotExist(err) && path == root {
-					return nil
-				}
-				if stateErr := s.AddReadIssue(store.ReadIssue{Path: path, Reason: err.Error()}); stateErr != nil {
-					return stateErr
-				}
-				return nil
-			}
-			if d.IsDir() {
-				if path != root {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			if slices.Contains(cfg.Extensions, filepath.Ext(path)) {
-				out = append(out, path)
-			}
-			return nil
-		})
+		entries, err := vaultfile.ReadDir(root)
 		if err != nil {
-			return nil, err
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			if stateErr := s.AddReadIssue(store.ReadIssue{Path: root, Reason: err.Error()}); stateErr != nil {
+				return nil, stateErr
+			}
+			continue
 		}
+		for _, entry := range entries {
+			if !entry.IsDir() && slices.Contains(cfg.Extensions, filepath.Ext(entry.Name())) {
+				out = append(out, filepath.Join(root, entry.Name()))
+			}
+		}
+
 	}
 	slices.Sort(out)
 	return out, nil

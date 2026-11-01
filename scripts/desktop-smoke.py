@@ -96,7 +96,8 @@ def main() -> None:
                 break
             time.sleep(0.1)
         else:
-            raise SystemExit("the supervised Go server did not release both fixed ports and its temporary PID lease after app exit")
+            raise SystemExit("the supervised Go server did not release both fixed ports and its temporary PID lease after app exit; "
+                             f"listeners_closed={no_listeners}, remaining_owned_leases={[p.name for p in cache.glob('web-*.pid')]}")
 
         summary = "WKWebView smoke passed: live UI rendered, /api/vaults returned 200, "
         if recovery_test:
