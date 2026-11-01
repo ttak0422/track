@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -23,6 +24,7 @@ type readProgress struct {
 	notes      map[int64]*note.Note
 	versions   map[int64]*vaultfile.NoteRead
 	bytes      int
+	home       string
 }
 
 const maxProgressBytes = 32 << 20
@@ -78,6 +80,9 @@ func (s *Server) refreshAsync(v *vaultView) {
 			copy := *n
 			copy.Meta.Days = append([]string(nil), n.Meta.Days...)
 			p.notes[n.ID] = &copy
+			if v.cfg.WebHome == n.Meta.Title || v.cfg.WebHome == strconv.FormatInt(n.ID, 10) {
+				p.home = strconv.FormatInt(n.ID, 10)
+			}
 			p.bytes += len(n.Body) + len(n.Snapshot.Metadata) + len(n.Tasks)*512
 			s.events.broadcastChange()
 		})

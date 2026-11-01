@@ -64,7 +64,7 @@ func TestBootstrapShellIsUsableWhileConfigurationIsBlocked(t *testing.T) {
 func TestBootstrapColdProgressSurvivesBlockedCacheAndBackendHandoff(t *testing.T) {
 	vault := t.TempDir()
 	writeVaultNote(t, vault, 1, "Healthy", "Readable while cache is blocked")
-	cfg := &config.Config{VaultDir: vault, VaultDirDisplay: vault, DBPath: filepath.Join(t.TempDir(), "index.db"), Extensions: []string{".md"}, DateFormat: "2006-01-02", JournalOff: true, GenOff: true}
+	cfg := &config.Config{VaultDir: vault, VaultDirDisplay: vault, DBPath: filepath.Join(t.TempDir(), "index.db"), Extensions: []string{".md"}, DateFormat: "2006-01-02", WebHome: "Healthy", JournalOff: true, GenOff: true}
 	release := make(chan struct{})
 	cacheReturned := make(chan struct{})
 	b := newBootstrap(context.Background(), func(context.Context, string, bool) (*config.Config, error) {
@@ -78,6 +78,9 @@ func TestBootstrapColdProgressSurvivesBlockedCacheAndBackendHandoff(t *testing.T
 	}, nil)
 	b.start()
 	waitBoot(t, func() bool { return b.Status().Verified == 1 })
+	if b.Status().Home != "1" {
+		t.Fatal("configured home lost during early startup")
+	}
 	for _, target := range []string{"/api/note?id=1", "/api/search?q=Healthy", "/api/notes"} {
 		w := bootRequest(b, "GET", target, "")
 		if w.Code != 200 || !strings.Contains(w.Body.String(), "Healthy") || !strings.Contains(w.Body.String(), `"partial":true`) {
@@ -105,7 +108,11 @@ func TestBootstrapColdProgressSurvivesBlockedCacheAndBackendHandoff(t *testing.T
 	srv.active.progress.generation = 10
 	b.server = srv
 	b.serverGeneration = b.generation
+	srv.active.progress.home = "1"
 	b.mu.Unlock()
+	if b.Status().Home != "1" {
+		t.Fatal("backend progress lost configured home")
+	}
 	if w := bootRequest(b, "GET", "/api/note?id=1", ""); w.Code != 200 || !strings.Contains(w.Body.String(), "Readable while cache") {
 		t.Fatalf("handoff lost confirmed body: %d %s", w.Code, w.Body.String())
 	}

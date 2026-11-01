@@ -330,6 +330,11 @@ func (b *Bootstrap) Status() StorageStatus {
 	serverGeneration := b.serverGeneration
 	b.mu.Unlock()
 	if srv != nil && status.Generation == serverGeneration {
+		srv.active.progress.mu.Lock()
+		if home := srv.active.progress.home; home != "" {
+			status.Home = home
+		}
+		srv.active.progress.mu.Unlock()
 		state := srv.active.asyncState()
 		available := srv.active.mutationGate().TryLock()
 		if available {
