@@ -1,25 +1,22 @@
 import type { GraphNode } from "../types";
 
-// radiusForNode returns the radius a graph node is drawn at, in CSS pixels independent of zoom: the
-// centre keeps its focal size, and the rest take the engine's precomputed five-level grade (1–5) —
-// the same grade in every view, so a node's size does not depend on which graph shows it. A node
-// without a grade (an older bundle, an orphan report) falls back to the degree-based size.
-// Rendering and hit-testing both use it, so the clickable area always matches the drawn dot.
-// Exported for its test.
+// The engine supplies a continuous area score for the allowed population in [1, 5]. Interpolate area,
+// then take its square root so the weight applies to area rather than being squared again.
+// Rendering, label placement and hit-testing share this CSS-pixel radius, independent of zoom.
 export function radiusForNode(node: GraphNode & { degree?: number }, centerID: string): number {
   const center = node.center || node.note_id === centerID;
+  const scaled =
+    typeof node.area_score === "number" && node.area_score >= 1 && node.area_score <= 5
+      ? Math.sqrt(4 ** 2 + ((node.area_score - 1) / 4) * (17 ** 2 - 4 ** 2))
+      : undefined;
   const graded =
-    typeof node.size === "number" && node.size >= 1 && node.size <= 5
+    typeof node.size === "number" && Number.isInteger(node.size) && node.size >= 1 && node.size <= 5
       ? GRADE_RADIUS[node.size - 1]
       : undefined;
-  // The centre keeps its focal size, but never draws smaller than its own grade would: a hub read as
-  // a stub the moment you opened it.
-  if (center) return Math.max(10, graded ?? 0);
-  return graded ?? 6 + Math.min(8, Math.sqrt(node.degree ?? 0) * 2);
+  const radius = scaled ?? graded ?? 6 + Math.min(8, Math.sqrt(node.degree ?? 0) * 2);
+  // The centre retains its focal minimum; its color also distinguishes it from its neighbours.
+  if (center) return Math.max(10, scaled ?? graded ?? 0);
+  return radius;
 }
 
-// The five grades as radii, one per level rather than a ramp: the 1.5px step the ramp gave between
-// neighbouring grades was a difference you had to go looking for, which is no difference at all in a
-// field of dots. Each level is about 1.4× the last instead, so the gap between a stub and a hub is a
-// factor of four across the radius — visible without comparing two nodes side by side.
 const GRADE_RADIUS = [4, 6, 8.5, 12, 17];

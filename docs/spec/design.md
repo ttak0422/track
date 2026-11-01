@@ -506,13 +506,23 @@ The note's aside is a quiet column; the rail is a floating dock over the sheet.
   words nor the row move.
 - The aside's graph draws its centre node filled with `--mark`, its other
   nodes filled with `--bg` and outlined 1px in `--line-node`, and its edges in
-  `--line-strong`. A node's radius carries its precomputed five-level grade
-  (1–5, from the note's own outgoing-link count, graded absolutely over the
-  whole vault) — the same size in every view, so the engine computes it once
-  and the canvas only draws it. The five radii are 4 / 6 / 8.5 / 12 / 17px:
-  each level about 1.4× the last, because a grade has to be legible from the
-  shape of the field rather than by comparing two dots side by side. The
-  centre keeps its focal 10px, or its own grade where that is larger. Hover
+  `--line-strong`. Node size carries outgoing-link count relative to the median
+  positive count across the authorized vault, computed before authenticated view
+  filters or caps. Published sites instead use only published nodes and in-set
+  links; they never inherit private-vault counts or statistics. For count `c`
+  and median `m`, the engine adds `area_score = 1 + 4q/(1+q)`, where
+  `q = (c/(2m))²`; calling that score `s`, the canvas draws
+  `r = sqrt(4² + (s-1)/4 * (17²-4²))` CSS pixels. Zero links stay at 4px;
+  twice the median gets half the available area above the minimum dot area.
+  The squared ratio adds contrast while the median resists extreme outliers;
+  near-equal counts stay near-equal rather than stretching ranks to fill the range.
+  These are bounded visual weights, not proportional link-count areas. The same
+  radius drives rendering, picking, and label offsets, independent of zoom.
+  The existing integer `size` field retains the fixed grades 0 / 1 / 2–3 /
+  4–7 / 8+ (levels 1–5). Older clients ignore `area_score`; new clients fall
+  back to the original 4 / 6 / 8.5 / 12 / 17px grade radii when it is absent
+  or invalid. Neither client/server update order changes that legacy contract.
+  The centre keeps its focal minimum of 10px. Hover
   and search highlighting are ink
   (`--text`), not the salient: the match and its edges strengthen while
   everything else dims in

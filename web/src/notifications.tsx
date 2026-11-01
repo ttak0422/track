@@ -10,6 +10,7 @@ import {
   useState,
 } from "react";
 import type { NoteID } from "./types";
+import { connectNativeNotifications, postNativeActivity } from "./nativeNotifications";
 
 // How long a toast stays up. Long enough to read the longest message this app raises (the task
 // conflict notice) and still reach for it, short enough that it is gone before it becomes furniture.
@@ -20,17 +21,20 @@ const toastLifetime = 8000;
 interface Notification {
   message: string;
   noteID?: NoteID;
+  activity?: boolean;
 }
 
 interface Notifications {
   notification: Notification | null;
   notify: (message: string, noteID?: NoteID) => void;
+  notifyActivity: (message: string, noteID: NoteID, day: string) => void;
   dismiss: () => void;
 }
 
 const NotificationContext = createContext<Notifications>({
   notification: null,
   notify: () => {},
+  notifyActivity: () => {},
   dismiss: () => {},
 });
 
@@ -40,8 +44,14 @@ const NotificationContext = createContext<Notifications>({
 export function NotificationProvider({ children }: { children: ReactNode }) {
   const [notification, setNotification] = useState<Notification | null>(null);
   const notify = useCallback((message: string, noteID?: NoteID) => setNotification({ message, noteID }), []);
+  const notifyActivity = useCallback((message: string, noteID: NoteID, day: string) => {
+    void postNativeActivity(noteID, day).then((posted) => {
+      // A delayed fallback must not overwrite a more recent save/conflict result.
+      if (!posted) setNotification((current) => current && !current.activity ? current : { message, noteID, activity: true });
+    });
+  }, []);
   const dismiss = useCallback(() => setNotification(null), []);
-  const value = useMemo(() => ({ notification, notify, dismiss }), [notification, notify, dismiss]);
+  const value = useMemo(() => ({ notification, notify, notifyActivity, dismiss }), [notification, notify, notifyActivity, dismiss]);
 
   return <NotificationContext.Provider value={value}>{children}</NotificationContext.Provider>;
 }
@@ -51,6 +61,9 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 export function NotificationToast() {
   const { notification, dismiss } = useNotifications();
   const navigate = useNavigate();
+  useEffect(() => connectNativeNotifications((noteID) => {
+    void navigate({ to: "/notes/$noteId", params: { noteId: noteID } });
+  }), [navigate]);
   // A toast reports something that already happened, so it expires on its own rather than waiting to
   // be dismissed — otherwise a vault update from an hour ago is still sitting over the corner of the
   // reader. Each new notification is a fresh object, so an identical message repeated later restarts

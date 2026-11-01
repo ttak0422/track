@@ -74,6 +74,19 @@ describe("overviewGraph", () => {
     );
   });
 
+  it("preserves whole-vault fractional size scores when filtering and capping", () => {
+    const graph = makeGraph(["a", "b", "c", "unlinked"], [["a", "b"], ["b", "c"]]);
+    graph.nodes.forEach((node, i) => {
+      node.area_score = [1.8, 2.6, 1, 1][i];
+    });
+    for (const cap of [2, 1000]) {
+      const overview = overviewGraph(graph, cap);
+      for (const node of overview.graph.nodes) {
+        expect(node.area_score).toBe(graph.nodes.find((original) => original.note_id === node.note_id)!.area_score);
+      }
+    }
+  });
+
   it("caps at a size a screen can still show", () => {
     // The bound is a readability budget, not a performance one: a 1920x1080 canvas holds about
     // 2,300 dots at a 30px pitch before the edges have nowhere to go.
