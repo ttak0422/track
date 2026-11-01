@@ -174,6 +174,16 @@ title (`.note-title`); the chrome title keeps its own weight of 500 and leading.
   edge with its existing inset, while the main column remains capped and centered in the space
   beside it. Narrow screens and edit/split views stack the aside below the note.
 
+### Note flag watermarks
+
+Author-assigned note flags are content annotations, not chrome accents. Behind the
+note body, `DEPRECATED` uses `--note-flag-deprecated` (red) and `CONFIDENTIAL` uses
+`--note-flag-confidential` (blue). Their distinct uppercase words and separate lines
+carry identity without relying on color alone. Both tokens are registered theme pairs;
+`--note-watermark-opacity` controls their shared strength without fading the prose.
+The masks stay below content and take no selection or pointer events. List badges
+retain their existing treatment. A confidentiality marker is not access control.
+
 ### Scrollbars
 
 Visible overflow uses the same quiet scrollbar everywhere: an 8px thumb,
@@ -638,3 +648,4 @@ A candidate design is a token set, not a branch (ADR 0068):
   `_design-shots/index.html` for a one-page comparison.
 - Adopting a candidate edits **this document first** (tokens, principles), then
   `styles.css` follows. Candidates never merge as-is.
+
