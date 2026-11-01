@@ -496,23 +496,23 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
           />
 
           <form className="note-editor" onSubmit={submit}>
-            {/* Author-assigned flags (ADR 0074) stamp the note's own surface, in every mode; the
-                overlay is pointer-transparent so editing underneath is unaffected. */}
-            <NoteStamps flags={note.flags} />
             <div className={`editor-grid editor-grid-${editorMode}`}>
               {editorMode !== "preview" ? (
-                <textarea
-                  aria-label="Note body"
-                  ref={textareaRef}
-                  value={body}
-                  onChange={(event) => {
-                    setBody(event.currentTarget.value);
-                    revealTextareaCaret(event.currentTarget);
-                  }}
-                  onClick={(event) => revealTextareaCaret(event.currentTarget)}
-                  onKeyUp={(event) => revealTextareaCaret(event.currentTarget)}
-                  onSelect={(event) => revealTextareaCaret(event.currentTarget)}
-                />
+                <div className="note-surface note-source">
+                  <NoteStamps flags={note.flags} />
+                  <textarea
+                    aria-label="Note body"
+                    ref={textareaRef}
+                    value={body}
+                    onChange={(event) => {
+                      setBody(event.currentTarget.value);
+                      revealTextareaCaret(event.currentTarget);
+                    }}
+                    onClick={(event) => revealTextareaCaret(event.currentTarget)}
+                    onKeyUp={(event) => revealTextareaCaret(event.currentTarget)}
+                    onSelect={(event) => revealTextareaCaret(event.currentTarget)}
+                  />
+                </div>
               ) : null}
               {editorMode !== "edit" ? (
                 <section
@@ -520,39 +520,42 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
                   ref={previewRef}
                   aria-label="Rendered note preview"
                 >
-                  {/* The rough source-line marker is a reading aid, so it rides the reading mode
-                    alone — split keeps its editing surface marker-free. */}
-                  {editorMode === "preview" ? <LineHint /> : null}
-                  {/* A non-empty body with no render yet is still loading — show a spinner rather than let
-                    MarkdownView flash "Empty note." for a body that is not actually empty. */}
-                  {body.trim() !== "" &&
-                  renderQuery.data?.markdown === undefined ? (
-                    <LoadingIndicator label="Loading note" />
-                  ) : (
-                    // The board reads the saved note's tasks (line numbers must match the file on disk
-                    // for the state-set API), not the live textarea buffer. While the buffer is dirty
-                    // the two disagree, so the controls go inert rather than write to a stale line.
-                    //
-                    // A note changed on disk is not the same situation: the tasks/etag stay on the
-                    // adopted state (tasksRef) until the body catches up in the same tick, so a sync
-                    // landing re-renders nothing the controls care about — an open native picker
-                    // survives it.
-                    <TaskBoardContext.Provider value={taskBoardValue}>
-                      <MarkdownView
-                        markdown={renderQuery.data?.markdown ?? ""}
-                        title={note.title}
-                        noteId={noteID}
-                        kind={note.file_kind}
-                        vault={noteVault}
-                        includes={renderQuery.data?.includes}
-                        copyPath={note.copy_path}
-                        drawioEditing={renderQuery.data?.sourceBody === body && loadedRef.current.noteID === noteID && !saveNote.isPending ? {
-                          fences: renderQuery.data.drawio_fences ?? [],
-                          open: (fence) => setDiagram({ id: crypto.randomUUID(), noteID, source: body, fence }),
-                        } : null}
-                      />
-                    </TaskBoardContext.Provider>
-                  )}
+                  <div className="note-surface">
+                    <NoteStamps flags={note.flags} />
+                    {/* The rough source-line marker is a reading aid, so it rides the reading mode
+                      alone — split keeps its editing surface marker-free. */}
+                    {editorMode === "preview" ? <LineHint /> : null}
+                    {/* A non-empty body with no render yet is still loading — show a spinner rather than let
+                      MarkdownView flash "Empty note." for a body that is not actually empty. */}
+                    {body.trim() !== "" &&
+                    renderQuery.data?.markdown === undefined ? (
+                      <LoadingIndicator label="Loading note" />
+                    ) : (
+                      // The board reads the saved note's tasks (line numbers must match the file on disk
+                      // for the state-set API), not the live textarea buffer. While the buffer is dirty
+                      // the two disagree, so the controls go inert rather than write to a stale line.
+                      //
+                      // A note changed on disk is not the same situation: the tasks/etag stay on the
+                      // adopted state (tasksRef) until the body catches up in the same tick, so a sync
+                      // landing re-renders nothing the controls care about — an open native picker
+                      // survives it.
+                      <TaskBoardContext.Provider value={taskBoardValue}>
+                        <MarkdownView
+                          markdown={renderQuery.data?.markdown ?? ""}
+                          title={note.title}
+                          noteId={noteID}
+                          kind={note.file_kind}
+                          vault={noteVault}
+                          includes={renderQuery.data?.includes}
+                          copyPath={note.copy_path}
+                          drawioEditing={renderQuery.data?.sourceBody === body && loadedRef.current.noteID === noteID && !saveNote.isPending ? {
+                            fences: renderQuery.data.drawio_fences ?? [],
+                            open: (fence) => setDiagram({ id: crypto.randomUUID(), noteID, source: body, fence }),
+                          } : null}
+                        />
+                      </TaskBoardContext.Provider>
+                    )}
+                  </div>
                 </section>
               ) : null}
             </div>

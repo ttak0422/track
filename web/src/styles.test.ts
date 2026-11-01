@@ -202,26 +202,28 @@ describe("note flags", () => {
     );
   });
 
-  it("stamps a flagged note in danger, uppercase and rotated, over the article but under the floating layers", () => {
+  it("repeats large theme-colored watermarks without affecting content or pointer operations", () => {
     const stamp = ruleBody(".stamp");
-
     expect(stamp).toMatch(/position:\s*absolute/);
-    expect(stamp).toMatch(/color:\s*var\(--danger\)/);
-    expect(stamp).toMatch(/text-transform:\s*uppercase/);
-    expect(stamp).toMatch(/transform:\s*rotate\(-8deg\)/);
-    expect(stamp).toMatch(/opacity:\s*0\.85/);
-    expect(stamp).toMatch(/pointer-events:\s*none/);
+    expect(stamp).toMatch(/background:\s*var\(--danger\)/);
+    expect(stamp).toMatch(/mask-size:\s*min\(100%, 720px\) min\(100%, 480px\)/);
+    expect(stamp).toMatch(/mask-repeat:\s*repeat-y/);
+    expect(stamp).toMatch(/opacity:\s*0\.12/);
+    const stamps = ruleBody(".note-stamps");
+    expect(stamps).toMatch(/pointer-events:\s*none/);
+    expect(stamps).toMatch(/user-select:\s*none/);
+    expect(stamps).toMatch(/overflow:\s*hidden/);
   });
 
-  it("anchors the stamps to the note article and keeps their layer below every floating one", () => {
-    const previewBaseZ = Number(previewStack.match(/previewBaseZIndex\s*=\s*(\d+)/)?.[1]);
-    const stampsZ = zIndex(".note-stamps")!;
-
-    expect(ruleBody(".note-reader")).toMatch(/position:\s*relative/);
-    expect(ruleBody(".note-editor")).toMatch(/position:\s*relative/);
-    expect(ruleBody(".note-stamps")).toMatch(/pointer-events:\s*none/);
-    expect(stampsZ).toBeLessThan(previewBaseZ);
-    expect(stampsZ).toBeLessThan(zIndex(".selection-copy")!);
+  it("contains watermarks above the pane background and below its content", () => {
+    const surface = ruleBody(".note-surface");
+    expect(surface).toMatch(/position:\s*relative/);
+    expect(surface).toMatch(/isolation:\s*isolate/);
+    expect(surface).toMatch(/min-height:\s*100%/);
+    expect(surface).not.toMatch(/overflow:/);
+    expect(ruleBody(".note-stamps")).toMatch(/z-index:\s*-1/);
+    expect(ruleBody(".note-source")).toMatch(/background:\s*var\(--panel-soft\)/);
+    expect(ruleBody(".note-editor textarea")).toMatch(/background:\s*transparent/);
   });
 });
 
