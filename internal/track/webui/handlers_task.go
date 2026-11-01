@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ttak0422/track/internal/track/vaultfile"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -116,7 +116,7 @@ func (s *Server) handleTaskSet(v *vaultView, w http.ResponseWriter, r *http.Requ
 		if err := index.New(v.cfg, v.store).One(path); err != nil {
 			return err
 		}
-		updatedRaw, err = os.ReadFile(path)
+		updatedRaw, err = vaultfile.Read(path)
 		return err
 	}); err != nil {
 		// A refused assertion is a conflict, not a bad request — the same shape the note save's
@@ -138,7 +138,7 @@ func (s *Server) handleTaskSet(v *vaultView, w http.ResponseWriter, r *http.Requ
 
 // noteTasks reads a note file and parses its task lines with the configured state set.
 func (v *vaultView) noteTasks(fileKind string, id int64) (task.Set, error) {
-	raw, err := os.ReadFile(v.cfg.PathForKind(fileKind, id))
+	raw, err := vaultfile.Read(v.cfg.PathForKind(fileKind, id))
 	if err != nil {
 		return task.Set{}, err
 	}

@@ -53,11 +53,8 @@ func ReadError(path string, err error) error {
 // Read accepts regular UTF-8 text files, including symlinks to regular files. In particular,
 // a named pipe or device with a note extension must not block the scanner waiting for input.
 func Read(path string) ([]byte, error) {
-	f, raw, err := read(path)
-	if err == nil {
-		f.Close()
-	}
-	return raw, err
+	v, err := bounded(request{Op: "read", Path: path})
+	return v.Data, err
 }
 
 func read(path string) (*os.File, []byte, error) {
@@ -73,7 +70,10 @@ func read(path string) (*os.File, []byte, error) {
 		f.Close()
 		return nil, nil, ReadError(path, err)
 	}
-	raw, err := io.ReadAll(f)
+	raw, err := io.ReadAll(io.LimitReader(f, MaxReadBytes+1))
+	if err == nil && len(raw) > MaxReadBytes {
+		err = &Error{Path: path, Reason: "text file exceeds read byte budget"}
+	}
 	if err == nil && !utf8.Valid(raw) {
 		err = &Error{Path: path, Reason: "invalid UTF-8 text"}
 	}

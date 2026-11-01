@@ -2,6 +2,7 @@ package note
 
 import (
 	"fmt"
+	"github.com/ttak0422/track/internal/track/vaultfile"
 	"os"
 	"time"
 
@@ -50,7 +51,7 @@ func SettleDispatch(cfg *config.Config, id int64, rec dispatch.Record, expected 
 	}
 	// unknown_task: no note with that id. A note with only an orphan sidecar (its file gone) reads
 	// as unknown too, matching "no note with that id".
-	if _, err := os.Stat(cfg.NotePath(id)); err != nil {
+	if _, err := vaultfile.Stat(cfg.NotePath(id)); err != nil {
 		if os.IsNotExist(err) {
 			return SettleResult{Reason: dispatch.RejectUnknownTask}, nil
 		}

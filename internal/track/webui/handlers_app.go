@@ -92,8 +92,11 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	html := strings.ReplaceAll(string(raw), "__TRACK_DEFAULT_THEME__", theme)
 	overrides := ""
-	if s.colorCSS != "" {
-		overrides = "<style id=\"track-colors\">\n" + s.colorCSS + "</style>"
+	s.colorMu.RLock()
+	css := s.colorCSS
+	s.colorMu.RUnlock()
+	if css != "" {
+		overrides = "<style id=\"track-colors\">\n" + css + "</style>"
 	}
 	html = strings.ReplaceAll(html, "__TRACK_COLOR_OVERRIDES__", overrides)
 	// The configured web.home note becomes the workspace landing view (the same start-page mechanism the

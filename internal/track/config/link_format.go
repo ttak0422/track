@@ -54,7 +54,7 @@ func auditLinkTitles(vault, format string) error {
 // Startup can isolate invalid inputs; explicit ID resolution must still verify the target namespace.
 func readLinkTitles(vault string, skipInvalid bool, validate func(string) error) error {
 	dir := filepath.Join(vault, ".track", "notes")
-	entries, err := os.ReadDir(dir)
+	entries, err := vaultfile.ReadDir(dir)
 	if os.IsNotExist(err) {
 		return nil
 	}

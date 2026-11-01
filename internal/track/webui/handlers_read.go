@@ -105,6 +105,9 @@ func (s *Server) searchOne(v *vaultView, query string, limit int) ([]store.Searc
 // not be opened never reaches here; servedViews already reported it as a gap. A vault that opened
 // but could not answer becomes one of the gaps returned beside the results.
 func (s *Server) searchAcross(views []*vaultView, query string, limit int) ([]store.SearchResult, []vaultInfo, error) {
+	if s.asyncReads {
+		return s.searchAcrossBounded(views, query, limit)
+	}
 	if query != "" {
 		// Title and body merge separately, because their ranks are on different scales — bm25 is
 		// negative, a title rank vector is 0..3 — so merging composed per-vault lists on one key

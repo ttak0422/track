@@ -1,7 +1,7 @@
 package webui
 
 import (
-	"os"
+	"github.com/ttak0422/track/internal/track/vaultfile"
 
 	"github.com/ttak0422/track/internal/track/export"
 	"github.com/ttak0422/track/internal/track/link"
@@ -55,7 +55,7 @@ func (s *Server) resolveIncludes(source *vaultView, body string) []resolvedInclu
 		if err != nil || !found {
 			return 0, "", "", "", false
 		}
-		raw, err := os.ReadFile(target.cfg.PathForKind(ref.FileKind, ref.NoteID))
+		raw, err := vaultfile.Read(target.cfg.PathForKind(ref.FileKind, ref.NoteID))
 		if err != nil {
 			return 0, "", "", "", false
 		}

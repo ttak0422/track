@@ -23,6 +23,9 @@ import (
 )
 
 type Server struct {
+	asyncReads bool
+	queryReads *readBoundary
+
 	// active is the vault track web was launched in: the default target of every request and the
 	// only vault the file watcher follows. cfg and store are its config and index, kept as fields
 	// because the shell, palette, and watcher are properties of the launch vault, not of a request.
@@ -32,9 +35,15 @@ type Server struct {
 	// views caches the vaults this server opened, by the registry name that reaches them. The
 	// registry gives a vault exactly one name, so one entry is one vault. The workspace reads and
 	// writes across them, so a request names its vault and never inherits the active one by accident.
-	viewsMu   sync.Mutex
-	views     map[string]*vaultView
-	viewOpens map[string]*sync.Mutex
+	viewsMu        sync.Mutex
+	views          map[string]*vaultView
+	opening        map[string]bool
+	openRetry      map[string]time.Time
+	closed         bool
+	viewOpens      map[string]*sync.Mutex
+	watchDone      chan struct{}
+	watchStop      sync.Once
+	viewsCloseOnce sync.Once
 	// appsVaultDirs maps private path selectors on the static-only app origin to vault roots. The
 	// listener never opens an index or registers API handlers; each selector can only reach apps/.
 	appsVaultDirs map[string]string
@@ -43,6 +52,7 @@ type Server struct {
 	mux           *http.ServeMux
 	webRoot       fs.FS
 	colorCSS      string
+	colorMu       sync.RWMutex
 	// bindHost is the non-loopback host the server was asked to listen on (empty for the default
 	// loopback bind); guard admits it alongside the loopback names.
 	bindHost string
@@ -87,14 +97,19 @@ func init() {
 	_ = mime.AddExtensionType(".mjs", "text/javascript; charset=utf-8")
 }
 
-func New(cfg *config.Config, s *store.Store) *Server {
+func New(cfg *config.Config, s *store.Store) *Server { return newServer(cfg, s, false) }
+
+// Early storage startup must not synchronously resolve optional peer roots or palettes.
+func newServer(cfg *config.Config, s *store.Store, early bool) *Server {
 	// The launch vault carries no wire label: unqualified means "the vault you are in".
 	active := &vaultView{name: activeName(cfg), cfg: cfg, store: s}
 	srv := &Server{
 		active:        active,
+		queryReads:    newReadBoundary(),
 		cfg:           cfg,
 		store:         s,
 		views:         map[string]*vaultView{},
+		watchDone:     make(chan struct{}),
 		viewOpens:     map[string]*sync.Mutex{},
 		appsVaultDirs: map[string]string{"launch": cfg.VaultDir},
 		mux:           http.NewServeMux(),
@@ -103,20 +118,34 @@ func New(cfg *config.Config, s *store.Store) *Server {
 	}
 	for name, vaultDir := range cfg.Vaults {
 		if name != active.name {
-			if canonical, err := config.CanonicalPath(vaultDir); err == nil {
-				vaultDir = canonical
+			if !early {
+				if canonical, err := config.CanonicalPath(vaultDir); err == nil {
+					vaultDir = canonical
+				}
 			}
 			srv.appsVaultDirs["vault-"+name] = vaultDir
 		}
 	}
 	// A palette is a best-effort cosmetic override; a bad file must not take the workspace down, so we
 	// warn and fall back to the built-in colors rather than failing to start.
-	if css, err := LoadPalette(cfg.WebColorsPath); err != nil {
-		fmt.Fprintf(os.Stderr, "track web: ignoring palette: %v\n", err)
-	} else {
-		srv.colorCSS = css
+	if !early {
+		if css, err := LoadPalette(cfg.WebColorsPath); err != nil {
+			fmt.Fprintf(os.Stderr, "track web: ignoring palette: %v\n", err)
+		} else {
+			srv.colorCSS = css
+		}
 	}
 	srv.routes()
+	if early && cfg.WebColorsPath != "" {
+		go func() {
+			css, err := LoadPalette(cfg.WebColorsPath)
+			if err == nil {
+				srv.colorMu.Lock()
+				srv.colorCSS = css
+				srv.colorMu.Unlock()
+			}
+		}()
+	}
 	return srv
 }
 

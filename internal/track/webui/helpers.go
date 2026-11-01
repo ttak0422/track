@@ -172,6 +172,9 @@ func writeReadJSON(w http.ResponseWriter, v *vaultView, result map[string]any) {
 }
 
 func viewReadState(v *vaultView) (store.ReadState, error) {
+	if v.async {
+		return v.asyncState(), nil
+	}
 	v.reindexMu.Lock()
 	defer v.reindexMu.Unlock()
 	state, err := v.store.ReadState()

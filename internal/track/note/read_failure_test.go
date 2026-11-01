@@ -26,3 +26,26 @@ func TestPostReadStatFailureRemainsFileLocal(t *testing.T) {
 		t.Fatalf("post-read disappearance became a fatal unclassified error: %v", err)
 	}
 }
+
+func TestAtomicActivityUpdateRefusesChangedMetadata(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "1.yaml")
+	expected := Metadata{Version: 1, Title: "Keep", Extra: map[string]any{"opaque": uint64(18446744073709551615)}}
+	if err := WriteMetadata(path, expected); err != nil {
+		t.Fatal(err)
+	}
+	current, _, err := ReadMetadata(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteMetadata(path, Metadata{Title: "External edit"}); err != nil {
+		t.Fatal(err)
+	}
+	updated, _ := EnsureDay(current, "2026-11-01")
+	if err := WriteMetadataAtomic(path, current, updated); err == nil {
+		t.Fatal("activity overwrite accepted stale metadata")
+	}
+	after, _, err := ReadMetadata(path)
+	if err != nil || after.Title != "External edit" {
+		t.Fatal(after, err)
+	}
+}

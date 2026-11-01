@@ -2,6 +2,7 @@ package webui
 
 import (
 	"fmt"
+	"github.com/ttak0422/track/internal/track/vaultfile"
 	"net/http"
 	"os"
 	"sort"
@@ -19,6 +20,11 @@ import (
 // vault-local and journal ids collide across vaults by construction, so a view — never a bare id —
 // is what decides which files a request touches.
 type vaultView struct {
+	async      bool
+	mutations  sync.Mutex
+	sharedGate *sync.Mutex
+	progress   readProgress
+
 	// name is the vault's registry identity, used to address it (?vault=) and to list it.
 	name string
 	// label is what the vault is called on the wire: empty for the launch vault, the registry name
@@ -40,6 +46,10 @@ type vaultView struct {
 // reflects edits made by another process or an external sync even when no filesystem event arrived.
 // Only the active vault is watched, so for every other vault this scan is the only freshness signal.
 func (s *Server) refresh(v *vaultView) {
+	if s.asyncReads {
+		s.refreshAsync(v)
+		return
+	}
 	v.reindexMu.Lock()
 	defer v.reindexMu.Unlock()
 	if time.Since(v.lastStale) < staleCheckInterval {
@@ -115,6 +125,19 @@ func (s *Server) withVault(fn vaultHandler) http.HandlerFunc {
 			writeError(w, err, http.StatusBadRequest)
 			return
 		}
+		if s.asyncReads {
+			if r.Method != http.MethodGet && r.Method != http.MethodHead && !readOnlyPost(r.URL.Path) {
+				if !s.asyncMutation(v, w, r) {
+					return
+				}
+				defer v.mutationGate().Unlock()
+			}
+			if r.Method == http.MethodGet || r.Method == http.MethodHead {
+				s.refresh(v)
+			}
+			fn(v, w, r)
+			return
+		}
 		if err := v.cfg.ValidateLinkFormat(); err != nil {
 			writeError(w, err, http.StatusConflict)
 			return
@@ -163,6 +186,10 @@ func (s *Server) viewByName(name string) (*vaultView, error) {
 	if v, ok := s.cachedView(name); ok {
 		return v, nil
 	}
+	if s.asyncReads {
+		s.kickView(name)
+		return nil, errViewPending
+	}
 	// Share the initial open for this registry entry. Concurrent SQLite WAL/schema
 	// setup can fail before busy_timeout takes effect. Other vaults and cache hits
 	// do not wait for this vault's filesystem work.
@@ -188,7 +215,7 @@ func (s *Server) viewByName(name string) (*vaultView, error) {
 	}
 	// A registered vault that is merely unmounted must be reported, not indexed: laying down an
 	// index for an unreachable vault would record it as empty.
-	if _, err := os.Stat(cfg.VaultDir); err != nil {
+	if _, err := vaultfile.Stat(cfg.VaultDir); err != nil {
 		return nil, fmt.Errorf("vault %q is unavailable: %v", name, err)
 	}
 	st, err := store.Open(cfg.DBPath)
@@ -284,6 +311,9 @@ type vaultInfo struct {
 // servedViews returns every vault the workspace can currently read, active first, skipping the ones
 // that cannot be opened. Cross-vault reads use it; each caller decides how to report the gaps.
 func (s *Server) servedViews() (views []*vaultView, unavailable []vaultInfo) {
+	if s.asyncReads {
+		return s.readViews()
+	}
 	views = append(views, s.active)
 	for _, name := range sortedVaultNames(s.active.cfg.Vaults) {
 		// The launch vault is already in the set, under its own name. Skipping it before the
@@ -299,7 +329,7 @@ func (s *Server) servedViews() (views []*vaultView, unavailable []vaultInfo) {
 			// the workspace runs — an unmounted drive, a cloud folder that stopped syncing. Its index
 			// lives in the cache directory and would keep answering, so re-check that the vault is
 			// still there and report it as a gap rather than serving notes from a vault that is gone.
-			if _, statErr := os.Stat(v.cfg.VaultDir); statErr != nil {
+			if _, statErr := vaultfile.Stat(v.cfg.VaultDir); statErr != nil {
 				err = fmt.Errorf("vault %q is unavailable: %v", name, statErr)
 			}
 		}
@@ -314,15 +344,47 @@ func (s *Server) servedViews() (views []*vaultView, unavailable []vaultInfo) {
 
 // closeViews releases the index handles opened for other vaults. The active vault's store belongs
 // to the caller that handed it to New.
-func (s *Server) closeViews() {
+func (s *Server) closeViews() { s.viewsCloseOnce.Do(s.closeViewsOwned) }
+
+func (s *Server) closeViewsOwned() {
+	s.watchStop.Do(func() { close(s.watchDone) })
 	s.viewsMu.Lock()
-	defer s.viewsMu.Unlock()
-	for name, v := range s.views {
-		// The launch vault's store belongs to the caller that handed it to New; only the vaults this
-		// server opened are closed here.
+	s.closed = true
+	views := []*vaultView{s.active}
+	for _, name := range sortedVaultNames(s.cfg.Vaults) {
+		if v := s.views[name]; v != nil && v != s.active {
+			views = append(views, v)
+		}
+	}
+	// Include a completed view even if a caller supplied it without a registry entry.
+	for _, v := range s.views {
+		found := false
+		for _, old := range views {
+			if v == old {
+				found = true
+				break
+			}
+		}
+		if !found {
+			views = append(views, v)
+		}
+	}
+	s.views = map[string]*vaultView{}
+	s.viewsMu.Unlock()
+	for _, v := range views {
+		// A caller may stop waiting, but ownership cannot be released over an
+		// authoritative mutation or activity update that is still running.
+		v.mutationGate().Lock()
+		v.invalidateRead()
 		if v != s.active {
 			v.store.Close()
 		}
-		delete(s.views, name)
+		v.mutationGate().Unlock()
 	}
+}
+func (v *vaultView) mutationGate() *sync.Mutex {
+	if v.sharedGate != nil {
+		return v.sharedGate
+	}
+	return &v.mutations
 }
