@@ -200,7 +200,7 @@ final class TerminationHarness: NSObject, NSApplicationDelegate {
             _ = try await evaluate("document.querySelector('button[aria-label^=\"Display mode:\"]').click(); true")
             try await waitFor("!!document.querySelector('[aria-label=\"Display mode\"]')")
             _ = try await evaluate("Array.from(document.querySelectorAll('[role=menuitemradio]')).find(b => b.textContent.trim() === 'Edit').click(); true")
-            try await waitFor("!!document.querySelector('form.note-editor textarea')")
+            try await waitFor("!!document.querySelector('form.note-editor textarea:not([readonly])')")
             if scenario != "ime-cancel" && scenario != "clean-edit-quit" {
             _ = try await evaluate("""
             (() => { const t = document.querySelector('form.note-editor textarea');

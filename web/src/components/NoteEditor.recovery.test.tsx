@@ -6,6 +6,7 @@ import { APIError, getNote, saveNote } from "../api";
 import { NoteControlsProvider, useNoteControls } from "../noteControls";
 import { queryKeys } from "../queries";
 import type { NoteResponse } from "../types";
+import { NoteRailControls } from "./NoteRailControls";
 import { NoteEditor } from "./NoteEditor";
 import { TabsProvider, useTabs } from "./tabs/tabsStore";
 
@@ -42,7 +43,7 @@ function Navigation() {
 
 const disposals: (() => void)[] = [];
 function mount({ path = "/notes/a", homeNote = false }: { path?: string; homeNote?: boolean } = {}) {
-  const root = createRootRoute({ component: () => <TabsProvider><NoteControlsProvider><Navigation /><Outlet /></NoteControlsProvider></TabsProvider> });
+  const root = createRootRoute({ component: () => <TabsProvider><NoteControlsProvider><NoteRailControls /><Navigation /><Outlet /></NoteControlsProvider></TabsProvider> });
   const home = createRoute({ getParentRoute: () => root, path: "/", component: () => homeNote ? <NoteEditor noteID="home" /> : <p>Home</p> });
   const empty = createRoute({ getParentRoute: () => root, path: "/empty", component: () => <p>Workspace</p> });
   const reader = createRoute({ getParentRoute: () => root, path: "/notes/$noteId", component: () => {
@@ -211,4 +212,15 @@ describe("note load recovery", () => {
     expect(screen.queryByText("Late a")).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
   });
+});
+
+it("allows read-only layout controls while retaining save protection", async () => {
+  const response = note(); response.note.read_only = true;
+  vi.mocked(getNote).mockResolvedValue(response);
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "Display mode: Preview" }));
+  fireEvent.click(screen.getByRole("menuitemradio", { name: "Edit" }));
+  expect(await screen.findByRole("textbox", { name: "Note body" })).toHaveAttribute("readonly");
+  expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  expect(saveNote).not.toHaveBeenCalled();
 });

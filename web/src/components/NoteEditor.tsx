@@ -172,8 +172,9 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
   });
 
   useEffect(() => {
-    if(readOnly || !noteQuery.data?.note){setActions(null);return}
+    if (!noteQuery.data?.note) { setActions(null); return; }
     setActions({
+      readOnly,
       getBody: () => railBodyRef.current,
       onMeta: () => railMetaRef.current(),
       onDelete: () => railDeleteRef.current(),

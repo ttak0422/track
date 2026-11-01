@@ -5,6 +5,7 @@ import { hoverOpen } from "./hoverOpen";
 import { railAnchor } from "./railAnchor";
 
 interface NoteActionsMenuProps {
+  readOnly?: boolean;
   // A getter, not the body: the menu lives in the floating rail now, and holding the body as a prop
   // there would re-render the rail on every keystroke. It is only read when an item is clicked.
   getBody: () => string;
@@ -16,7 +17,7 @@ interface NoteActionsMenuProps {
 // behind a single overflow trigger so the control bar keeps only Follow and the mode switch inline. The
 // two copy items own their clipboard handlers (portable Markdown as plain text, rich HTML for Confluence)
 // and briefly acknowledge with "Copied"; Meta and Delete defer to the editor's existing dialogs.
-export function NoteActionsMenu({ getBody, onMeta, onDelete }: NoteActionsMenuProps) {
+export function NoteActionsMenu({ getBody, onMeta, onDelete, readOnly = false }: NoteActionsMenuProps) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState<"md" | "html" | null>(null);
   // Where to draw the panel. It lives in the floating rail, which clips its overflow, so the panel is
@@ -115,9 +116,10 @@ export function NoteActionsMenu({ getBody, onMeta, onDelete }: NoteActionsMenuPr
           <button
             type="button"
             role="menuitem"
+            disabled={readOnly}
             onClick={() => {
               setOpen(false);
-              onMeta();
+              if (!readOnly) onMeta();
             }}
           >
             Meta…
@@ -126,9 +128,10 @@ export function NoteActionsMenu({ getBody, onMeta, onDelete }: NoteActionsMenuPr
             type="button"
             role="menuitem"
             className="danger-item"
+            disabled={readOnly}
             onClick={() => {
               setOpen(false);
-              onDelete();
+              if (!readOnly) onDelete();
             }}
           >
             Delete…
