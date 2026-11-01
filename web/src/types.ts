@@ -307,9 +307,10 @@ export interface GraphNode {
   path?: string;
   title: string;
   center?: boolean;
-  // The note's precomputed size grade (1–5), absolute across views. Absent (an older bundle, an
-  // orphan report) means the client falls back to its own degree-based sizing.
+  // Original absolute outgoing-link grade (integer 1–5), retained for older clients.
   size?: number;
+  // Continuous area score [1, 5]. Live graphs use the authorized vault; exports use public edges.
+  area_score?: number;
 }
 
 export interface GraphEdge {
