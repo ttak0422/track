@@ -83,7 +83,6 @@ func TestFullSkipsInvalidFiles(t *testing.T) {
 		before[path] = string(raw)
 	}
 	ix := New(cfg, s)
-	var previous string
 	for run := 0; run < 2; run++ {
 		warnings := captureWarnings(t, func() {
 			rep, err := ix.Full()
@@ -91,16 +90,19 @@ func TestFullSkipsInvalidFiles(t *testing.T) {
 				t.Fatalf("Full = %+v, %v", rep, err)
 			}
 		})
-		if run > 0 && warnings != previous {
-			t.Fatalf("diagnostics changed between identical runs:\n%s\n%s", previous, warnings)
+		if run > 0 {
+			if warnings != "" {
+				t.Fatalf("repeated diagnostics not deduplicated: %s", warnings)
+			}
+			continue
 		}
-		previous = warnings
+
 		for _, path := range append(slices.Clone(strays), cfg.MetadataPath(200), cfg.MetadataPath(400), cfg.NotePath(500), cfg.NotePath(501)) {
 			if !strings.Contains(warnings, path) {
 				t.Errorf("missing path %q in diagnostics: %s", path, warnings)
 			}
 		}
-		for _, reason := range []string{"invalid note filename", "yaml:", "unsupported metadata version 999", "invalid legacy metadata", "track doctor"} {
+		for _, reason := range []string{"invalid note filename", "invalid note metadata", "track doctor"} {
 			if !strings.Contains(warnings, reason) {
 				t.Errorf("missing reason %q: %s", reason, warnings)
 			}

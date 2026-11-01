@@ -46,9 +46,11 @@ export function reportStalePage(): void {
 // stale. Both entry halves need it (main.tsx guards its own chunk load, app.tsx guards data reads), so
 // it lives here beside them.
 export function reloadOnce(): boolean {
+  try {
   const last = Number(sessionStorage.getItem("track:stale-reload") ?? 0);
   if (Date.now() - last < 30_000) return false;
   sessionStorage.setItem("track:stale-reload", String(Date.now()));
+  } catch { return false; } // Without a persistent guard, automatic reload could loop.
   window.location.reload();
   return true;
 }

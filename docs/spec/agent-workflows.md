@@ -227,9 +227,8 @@ sidecars do not replace cached titles or tags with empty metadata. Cache rows, l
 state publish in one transaction. Unchanged failures retry at most every 30 seconds during
 read refresh; healthy mtime changes trigger an immediate refresh, and explicit reindex
 retries immediately. Fatal configuration, database, and authoritative write errors remain
-errors. Renames and moves require a complete index before changing files. The `id-v1`
-configuration/explicit-ID namespace audit remains strict; an unreadable namespace can still
-prevent startup in that mode. These changes do not install an arbitrary filesystem-call
+errors. Renames and moves require a complete index before changing files. The `id-v1` startup audit isolates individual unreadable/malformed sidecars. Explicit-ID target
+namespace checks remain strict, and a partial title dictionary cannot authorize creation or rename. These changes do not install an arbitrary filesystem-call
 cancellation guarantee or a mutation retry mechanism.
 
 `track doctor` is a read-only health check that never changes files. It reports vault/sidecar divergence — the kind a cloud sync (e.g. OneDrive) can introduce — as a JSON `issues` array, with `ok: true` when clean. Issue kinds: `missing_sidecar`, `orphan_sidecar`, `stray_file` (e.g. a conflict copy that breaks the `<id>.md` naming rule), `stray_sidecar` (the same copy made of a `.track/notes/<id>.yaml` sidecar), `unreadable_sidecar`, `duplicate_title`, `property_violation` (a note property breaks the configured schema), and `shadowed_title` (a title is captured by a registered vault qualifier). Finding issues is not an error, so it still exits 0; only real failures use the `{"error":...}`/exit 1 contract. Run it before a `reindex --full` if you suspect a partially synced vault, so an orphan sidecar is not mistaken for a delete.

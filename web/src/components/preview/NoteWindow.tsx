@@ -1,3 +1,4 @@
+import { RenderFailure } from "../RenderFailure";
 import { useNavigate } from "@tanstack/react-router";
 import type { NoteID } from "../../types";
 import { useNoteQuery, useRenderQuery } from "../../queries";
@@ -35,7 +36,7 @@ export function NoteWindow({ noteID, ...controls }: NoteWindowProps) {
     >
       {note.isPending || awaitingRender ? <LoadingIndicator label="Loading note" /> : null}
       {note.isError ? <p className="error">{note.error.message}</p> : null}
-      {note.data && !awaitingRender ? (
+      {rendered.isError ? <RenderFailure source={body} retry={() => { void rendered.refetch(); }} retrying={rendered.isFetching} /> : note.data && !awaitingRender ? (
         // The source path goes in, so selecting prose in a window offers the same copy actions as the
         // reader does. No portal: the popover is position: fixed and the window sets no transform, so
         // it escapes the scrolling body instead of being clipped by it, and paints inside the window's

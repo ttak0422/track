@@ -22,6 +22,7 @@ import (
 	"github.com/ttak0422/track/internal/track/store"
 	"github.com/ttak0422/track/internal/track/task"
 	tmpl "github.com/ttak0422/track/internal/track/template"
+	"github.com/ttak0422/track/internal/track/vaultfile"
 	"github.com/ttak0422/track/internal/track/vaultref"
 )
 
@@ -45,6 +46,10 @@ func (s *Server) handleNote(v *vaultView, w http.ResponseWriter, r *http.Request
 // that already resolves is refused with 409 rather than minting an ambiguous
 // duplicate.
 func (s *Server) postNote(v *vaultView, w http.ResponseWriter, r *http.Request) {
+	if _, err := index.New(v.cfg, v.store).FullStrict(); err != nil {
+		writeError(w, err, http.StatusConflict)
+		return
+	}
 	var req struct {
 		Title string `json:"title"`
 	}
@@ -157,15 +162,29 @@ func (s *Server) getNote(v *vaultView, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	path := v.cfg.PathForKind(ref.FileKind, ref.NoteID)
-	raw, err := os.ReadFile(path)
+	raw, err := vaultfile.Read(path)
 	if err != nil {
 		writeError(w, err, http.StatusInternalServerError)
 		return
 	}
 	body, _, _ := note.SplitLegacyFootmatter(string(raw))
+	readOnly := false
+	localState := store.ReadState{CheckedAt: time.Now().UnixMilli()}
+	optionalFailure := func(feature string, err error) error {
+		if err == nil {
+			return nil
+		}
+		readOnly = true
+		issue := store.FileReadIssue(id, path, v.cfg.MetadataPath(id), feature+" unavailable: "+err.Error(), false)
+		localState.Add(issue)
+		if persistErr := v.store.AddReadIssue(issue); persistErr != nil {
+			vaultfile.Warn(v.cfg.DBPath, "unable to persist partial read diagnostics")
+		}
+		return nil
+	}
 	backlinks, err := v.store.Backlinks(id)
-	if err != nil {
-		writeError(w, err, http.StatusInternalServerError)
+	if stateErr := optionalFailure("backlinks", err); stateErr != nil {
+		writeError(w, stateErr, http.StatusInternalServerError)
 		return
 	}
 	if backlinks == nil {
@@ -175,8 +194,8 @@ func (s *Server) getNote(v *vaultView, w http.ResponseWriter, r *http.Request) {
 	// Properties come from the index (refreshed above), which flattens sidecar props and inline
 	// "key:: value" fields through the same engine path everything else uses.
 	props, err := v.store.NoteProps(id)
-	if err != nil {
-		writeError(w, err, http.StatusInternalServerError)
+	if stateErr := optionalFailure("props", err); stateErr != nil {
+		writeError(w, stateErr, http.StatusInternalServerError)
 		return
 	}
 	if props == nil {
@@ -185,13 +204,13 @@ func (s *Server) getNote(v *vaultView, w http.ResponseWriter, r *http.Request) {
 	// Hierarchy navigation from the "up" relation property: the ancestor trail (root first) and the
 	// notes whose "up" points here.
 	trail, err := v.store.Trail(id)
-	if err != nil {
-		writeError(w, err, http.StatusInternalServerError)
+	if stateErr := optionalFailure("trail", err); stateErr != nil {
+		writeError(w, stateErr, http.StatusInternalServerError)
 		return
 	}
 	children, err := v.store.ChildNotes(id)
-	if err != nil {
-		writeError(w, err, http.StatusInternalServerError)
+	if stateErr := optionalFailure("children", err); stateErr != nil {
+		writeError(w, stateErr, http.StatusInternalServerError)
 		return
 	}
 	if trail == nil {
@@ -214,7 +233,8 @@ func (s *Server) getNote(v *vaultView, w http.ResponseWriter, r *http.Request) {
 		"body":      body,
 		// etag is a content hash of the file as read; clients echo it back on PUT so a save can be
 		// rejected when the file changed underneath (e.g. an OneDrive sync) since this read.
-		"etag": note.ContentETag(raw),
+		"etag":      note.ContentETag(raw),
+		"read_only": readOnly,
 	}
 	// Timestamps: created is the sidecar string verbatim (its format is config.DateFormat, and
 	// `track export --frontmatter` emits the same string — reformatting here would let the two
@@ -240,10 +260,7 @@ func (s *Server) getNote(v *vaultView, w http.ResponseWriter, r *http.Request) {
 		}
 		noteJSON["flags"] = flags
 	} else {
-		if stateErr := v.store.AddReadIssue(store.FileReadIssue(id, path, v.cfg.MetadataPath(id), err.Error(), true)); stateErr != nil {
-			writeError(w, stateErr, http.StatusInternalServerError)
-			return
-		}
+		optionalFailure("metadata", err)
 	}
 	if ref.Mtime != 0 {
 		noteJSON["updated"] = ref.Mtime
@@ -267,7 +284,19 @@ func (s *Server) getNote(v *vaultView, w http.ResponseWriter, r *http.Request) {
 		out["external"] = external
 		out["unavailable"] = unavailable
 	}
-	writeReadJSON(w, v, out)
+	state, stateErr := viewReadState(v)
+	if stateErr != nil {
+		optionalFailure("read diagnostics", stateErr)
+	} else {
+		for _, issue := range state.Issues {
+			localState.Add(issue)
+		}
+	}
+	if localState.Partial {
+		out["read_state"] = localState
+	}
+	noteJSON["read_only"] = readOnly
+	writeJSON(w, out)
 }
 
 // externalBacklinks lists the [[vault:title]] references other vaults make to a title, or reports

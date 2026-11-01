@@ -4,6 +4,7 @@ package note
 
 import (
 	"fmt"
+	"github.com/ttak0422/track/internal/track/vaultfile"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -114,17 +115,21 @@ func ParseFile(path string, c *config.Config) (*Note, error) { return parseFile(
 func ReadFile(path string, c *config.Config) (*Note, error) { return parseFile(path, c, false) }
 
 func parseFile(path string, c *config.Config, migrate bool) (*Note, error) {
+	return parseFileWithStat(path, c, migrate, os.Stat)
+}
+
+func parseFileWithStat(path string, c *config.Config, migrate bool, stat func(string) (os.FileInfo, error)) (*Note, error) {
 	id, err := IDFromPath(path)
 	if err != nil {
 		return nil, &ParseError{Path: path, Err: fmt.Errorf("invalid note filename (expected a numeric id): %w", err)}
 	}
-	raw, err := os.ReadFile(path)
+	raw, err := vaultfile.Read(path)
 	if err != nil {
 		return nil, err
 	}
-	info, err := os.Stat(path)
+	info, err := stat(path)
 	if err != nil {
-		return nil, err
+		return nil, vaultfile.ReadError(path, err)
 	}
 	kind, ok := c.KindFromPath(path)
 	if !ok {

@@ -1,3 +1,4 @@
+import { RenderFailure } from "./RenderFailure";
 import { MarkdownView } from "./MarkdownView";
 import { LineHint } from "./LineHint";
 import { TaskBoardContext } from "./markdown/context";
@@ -66,7 +67,7 @@ export function NoteReaderStatic({ noteID }: { noteID: NoteID }) {
           <section className="note-preview" aria-label="Rendered note">
             {/* The published site reads only, so the rough source-line marker is always live. */}
             <LineHint />
-            {body.trim() !== "" && rendered.data?.markdown === undefined ? (
+            {rendered.isError ? <RenderFailure source={body} retry={() => { void rendered.refetch(); }} retrying={rendered.isFetching} /> : body.trim() !== "" && rendered.data?.markdown === undefined ? (
               <LoadingIndicator label="Loading note" />
             ) : (
               <TaskBoardContext.Provider

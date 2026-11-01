@@ -160,6 +160,9 @@ func parentTitleFromPath(cfg *config.Config, path string) string {
 // extraBody is written as the note body without injecting a title heading; it is mutually exclusive
 // with template (callers enforce that). tags are stored on the sidecar metadata.
 func createTitledNote(cfg *config.Config, s *store.Store, noteID int64, title string, template string, extraBody string, tags []string, parent string) (map[string]any, error) {
+	if _, err := index.New(cfg, s).FullStrict(); err != nil {
+		return nil, err
+	}
 	if err := config.ValidateLinkTitle(cfg.LinkFormat, title); err != nil {
 		return nil, err
 	}
@@ -497,6 +500,15 @@ func cmdMeta(args []string) int {
 		// write; an empty title in the document means "leave the title unchanged".
 		newTitle := strings.TrimSpace(doc.Title)
 		if newTitle != "" {
+			current, _, err := s.ReadMetadata(noteID, cfg.MetadataPath(noteID))
+			if err != nil {
+				return fail("read metadata: %v", err)
+			}
+			if newTitle != current.Title {
+				if _, err := index.New(cfg, s).FullStrict(); err != nil {
+					return fail("rename preflight: %v", err)
+				}
+			}
 			if ref, ok, err := s.ResolveTerm(newTitle); err != nil {
 				return fail("resolve: %v", err)
 			} else if ok && ref.NoteID != noteID {

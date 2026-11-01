@@ -9,7 +9,9 @@
 package search
 
 import (
+	"errors"
 	"fmt"
+	"github.com/ttak0422/track/internal/track/vaultfile"
 	"os"
 	"path/filepath"
 	"slices"
@@ -211,6 +213,10 @@ func bodySearchFTS(cfg *config.Config, s *store.Store, query string, limit int, 
 		var readErr error
 		hit.Line, hit.Snippet, readErr = fileLineMatchGroups(hit.Path, groups)
 		if readErr != nil {
+			var local *vaultfile.Error
+			if !errors.As(readErr, &local) {
+				return nil, readErr
+			}
 			if err := s.AddReadIssue(store.FileReadIssue(hit.NoteID, hit.Path, cfg.MetadataPath(hit.NoteID), readErr.Error(), true)); err != nil {
 				return nil, err
 			}
@@ -246,8 +252,12 @@ func bodySearchScan(cfg *config.Config, s *store.Store, groups [][]string, limit
 		if err != nil || !indexed || skip[id] {
 			continue
 		}
-		raw, err := os.ReadFile(path)
+		raw, err := vaultfile.Read(path)
 		if err != nil {
+			var local *vaultfile.Error
+			if !errors.As(err, &local) {
+				return nil, err
+			}
 			if err := s.AddReadIssue(store.FileReadIssue(id, path, cfg.MetadataPath(id), err.Error(), true)); err != nil {
 				return nil, err
 			}
@@ -374,7 +384,7 @@ func bodyLineMatchGroups(body string, groups [][]string) (int, string) {
 // fileLineMatchGroups reads path and locates the best matching line for the query's OR groups. A read
 // error yields the title-only sentinel rather than failing the search: the FTS hit is authoritative.
 func fileLineMatchGroups(path string, groups [][]string) (int, string, error) {
-	raw, err := os.ReadFile(path)
+	raw, err := vaultfile.Read(path)
 	if err != nil {
 		return 0, "", err
 	}

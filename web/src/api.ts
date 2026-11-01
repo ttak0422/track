@@ -68,7 +68,11 @@ export async function api<T>(path: string, options: APIOptions = {}): Promise<T>
 }
 
 async function handleResponse<T>(response: Response): Promise<T> {
-  const body = await response.json().catch(() => ({}));
+  let body: unknown;
+  try { body = await response.json(); }
+  catch {
+    throw new APIError(response.ok ? 502 : response.status, response.ok ? "Invalid JSON response" : `${response.status} ${response.statusText}`);
+  }
   if (!response.ok) {
     const message =
       typeof body === "object" && body !== null && "error" in body
@@ -106,6 +110,7 @@ export function searchNotes(query: string, limit = 100, vault = ""): Promise<Sea
   }
   const params = new URLSearchParams({ limit: String(limit), q: query });
   return api<SearchResponse>(`/api/search?${params}${vaultParams(vault)}`).then((data) => {
+    if (!Array.isArray(data?.results)) throw new APIError(502,"Invalid search response");
     adoptReadState(data.results);
     return data;
   });
@@ -118,7 +123,7 @@ export function searchNotes(query: string, limit = 100, vault = ""): Promise<Sea
 // one note renders one useResolveQuery per link term, and without sharing the same dictionary was
 // fetched, decrypted, and parsed once per term (18 fetches observed on the help top page).
 let notesFile: Promise<SearchResult[]> | null = null;
-let corpus: Promise<SearchDoc[]> | null = null;
+let corpus: Promise<{docs:SearchDoc[];unavailable?:boolean}> | null = null;
 let resolveFile: Promise<Record<string, ResolveResponse["note"]>> | null = null;
 
 function staticNotes(): Promise<SearchResult[]> {
@@ -132,15 +137,15 @@ function staticNotes(): Promise<SearchResult[]> {
   return notesFile;
 }
 
-function searchCorpus(): Promise<SearchDoc[]> {
+function searchCorpus(): Promise<{docs:SearchDoc[];unavailable?:boolean}> {
   corpus ??= staticData<SearchCorpus>("search.json").then(
-    (data) => data.docs ?? [],
+    (data) => ({docs:data.docs ?? []}),
     () => {
       // A bundle built before search.json existed has no corpus, and the site should still answer
       // title-and-tag rather than fail a search it can half-answer. Drop the cache on the way out
       // so a transient failure costs one search rather than the whole session.
       corpus = null;
-      return [];
+      return {docs:[],unavailable:true};
     },
   );
   return corpus;
@@ -155,8 +160,10 @@ async function staticSearch(query: string, limit: number): Promise<SearchRespons
     return { results: titles };
   }
   const skip = new Set(titles.map((note) => String(note.note_id)));
-  const docs = await searchCorpus();
-  return { results: [...titles, ...bodyHits(notes, docs, query, limit - titles.length, skip)] };
+  const corpus = await searchCorpus();
+  return { results: [...titles, ...bodyHits(notes, corpus.docs, query, limit - titles.length, skip)],
+    ...(corpus.unavailable?{read_state:{partial:true,cache_used:false,checked_at:Date.now(),issues:[{path:dataURL("search.bin"),reason:"Full-text index unavailable"}]}}:{}) };
+
 }
 
 // getHierarchy reads the vault's whole "up" tree for the rail's hierarchy menu. Both sides hand over
@@ -174,6 +181,7 @@ export function listNotes(): Promise<NotesResponse> {
     return staticData<NotesResponse>("notes.json");
   }
   return api<NotesResponse>("/api/notes").then((data) => {
+    if(!Array.isArray(data?.notes))throw new APIError(502,"Invalid notes response");
     adoptReadState(data.notes);
     return data;
   });
@@ -271,15 +279,14 @@ export function openJournal(date: string, vault = ""): Promise<JournalResponse> 
 }
 
 export function getNote(noteID: NoteID): Promise<NoteResponse> {
-  if (STATIC_MODE) {
-    return staticData<NoteResponse>(`note/${noteID}.json`);
-  }
-  return api<NoteResponse>(`/api/note?${idParams(noteID)}`).then((data) => {
+  const request = STATIC_MODE ? staticData<NoteResponse>(`note/${noteID}.json`) : api<NoteResponse>(`/api/note?${idParams(noteID)}`);
+  return request.then((data) => {
     // The open note and its reference lists carry the shared reading milestones; adopting them at
     // the boundary is what lets a note another device already read stop reading as NEW here before
     // any listing is fetched. The published bundle carries no milestones (per-visitor there), so
     // the static branch has nothing to adopt.
-    adoptReadState([data.note, ...data.backlinks, ...(data.trail ?? []), ...(data.children ?? [])]);
+    if (!data?.note || typeof data.note.body !== "string" || typeof data.note.etag !== "string" || !Array.isArray(data.backlinks)) throw new APIError(502,"Invalid note response");
+    if(!STATIC_MODE)adoptReadState([data.note, ...data.backlinks, ...(data.trail ?? []), ...(data.children ?? [])]);
     return data;
   });
 }
@@ -291,6 +298,9 @@ export function saveNote(noteID: NoteID, request: SaveNoteRequest): Promise<Save
   return api<SaveNoteResponse>(`/api/note?${idParams(noteID)}`, {
     method: "PUT",
     body: request,
+  }).then((data)=>{
+    if(data?.saved!==true||typeof data.etag!=="string")throw new APIError(502,"Invalid save acknowledgement; reload to verify the saved state");
+    return data;
   });
 }
 
@@ -308,6 +318,14 @@ export function createNote(title: string, vault = ""): Promise<{ note_id: NoteID
   });
 }
 
+function verifiedMetadata(data:NoteMetaResponse):NoteMetaResponse {
+ const fields=["title","kind","description","image","icon","props"] as const;
+ if(!data || typeof data.etag!=="string" || data.etag.length===0 || fields.some((field)=>typeof data[field]!=="string") || !Array.isArray(data.tags) || !data.tags.every((tag)=>typeof tag==="string") || !Array.isArray(data.flags) || !data.flags.every((flag)=>typeof flag==="string")) {
+  throw new APIError(502,"Incomplete metadata response; reload before editing or verifying a save");
+ }
+ return data;
+}
+
 // getNoteMeta / saveNoteMeta read and edit a note's editable sidecar metadata (tags, description,
 // cover image, props) as one YAML document. The static site has no meta editor, so both are
 // live-server only.
@@ -315,7 +333,7 @@ export function getNoteMeta(noteID: NoteID): Promise<NoteMetaResponse> {
   if (STATIC_MODE) {
     return readOnly();
   }
-  return api<NoteMetaResponse>(`/api/note/meta?${idParams(noteID)}`);
+  return api<NoteMetaResponse>(`/api/note/meta?${idParams(noteID)}`).then(verifiedMetadata);
 }
 
 export function saveNoteMeta(noteID: NoteID, request: SaveNoteMetaRequest): Promise<NoteMetaResponse> {
@@ -325,7 +343,7 @@ export function saveNoteMeta(noteID: NoteID, request: SaveNoteMetaRequest): Prom
   return api<NoteMetaResponse>(`/api/note/meta?${idParams(noteID)}`, {
     method: "POST",
     body: request,
-  });
+  }).then(verifiedMetadata);
 }
 
 // setTaskState moves one task line of a note into a named state through the engine's shared write
@@ -349,6 +367,9 @@ export function setTaskDate(
   return api<TasksResponse>(`/api/task?${idParams(noteID)}`, {
     method: "POST",
     body: { line, [field]: date, expect, etag },
+  }).then((data)=>{
+    if(typeof data?.etag!=="string"||!Array.isArray(data.tasks?.items))throw new APIError(502,"Invalid task acknowledgement; reload to verify the saved state");
+    return data;
   });
 }
 
@@ -367,6 +388,9 @@ export function setTaskState(
   return api<TasksResponse>(`/api/task?${idParams(noteID)}`, {
     method: "POST",
     body: { line, state, expect, etag },
+  }).then((data)=>{
+    if(typeof data?.etag!=="string"||!Array.isArray(data.tasks?.items))throw new APIError(502,"Invalid task acknowledgement; reload to verify the saved state");
+    return data;
   });
 }
 
@@ -421,7 +445,10 @@ export function renderMarkdown(body: string, vault = ""): Promise<RenderResponse
     return Promise.resolve({ markdown: body });
   }
   return api<RenderResponse>(`/api/render${vaultParams(vault, "?")}`, { method: "POST", body: { body } })
-    .then((rendered) => ({ ...rendered, sourceBody: body }));
+    .then((rendered) => {
+      if(typeof rendered?.markdown!=="string" || (rendered.includes!==undefined&&!Array.isArray(rendered.includes)) || (rendered.drawio_fences!==undefined&&!Array.isArray(rendered.drawio_fences))) throw new APIError(502,"Invalid preview response");
+      return {...rendered,sourceBody:body};
+    });
 }
 
 // renderViewSpec asks the server to resolve a fenced ```viewspec block (View Spec JSON) to its

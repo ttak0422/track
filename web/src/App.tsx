@@ -1,3 +1,4 @@
+import { retryRead } from "./queries";
 import {
   type RouterHistory,
   RouterProvider,
@@ -183,7 +184,7 @@ export function AppTree({ queryClient, children }: { queryClient: QueryClient; c
 // The client's shared query client. On the static site the prerender inlines its dehydrated react-query
 // cache as window.__TRACK_STATE__, locked like every other published data file (ADR 0069) — so opening it
 // is async, and main.tsx awaits hydratePrerenderedState() before the first render.
-export const queryClient = new QueryClient();
+export const queryClient = new QueryClient({defaultOptions:{queries:{retry:retryRead},mutations:{retry:false}}});
 
 // hydratePrerenderedState seeds the cache from the page's inlined state, so the client reuses the
 // prerendered content instead of refetching and flashing. A blob that will not open is not fatal: the

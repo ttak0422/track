@@ -103,6 +103,17 @@ func (s *Server) handleNoteMeta(v *vaultView, w http.ResponseWriter, r *http.Req
 		// write; an empty title means "leave the title unchanged".
 		newTitle := strings.TrimSpace(doc.Title)
 		if newTitle != "" {
+			current, _, err := v.store.ReadMetadata(id, v.cfg.MetadataPath(id))
+			if err != nil {
+				writeError(w, err, http.StatusConflict)
+				return
+			}
+			if newTitle != current.Title {
+				if _, err := index.New(v.cfg, v.store).FullStrict(); err != nil {
+					writeError(w, err, http.StatusConflict)
+					return
+				}
+			}
 			if err := config.ValidateLinkTitle(v.cfg.LinkFormat, newTitle); err != nil {
 				writeError(w, err, http.StatusBadRequest)
 				return

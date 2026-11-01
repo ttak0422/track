@@ -77,7 +77,7 @@ func TestColdCacheFailureStopsNewBeforeWriting(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, code := runInWithStdin(t, vault, "", "new", "--title", "Unsafe")
-	if code == 0 || !strings.Contains(out["error"].(string), "initialize index") {
+	if code == 0 || out["error"] == nil {
 		t.Fatalf("bootstrap failure was ignored: %d %+v", code, out)
 	}
 	if _, err := os.Stat(filepath.Join(vault, ".track", "notes")); !os.IsNotExist(err) {

@@ -296,6 +296,7 @@ describe("getOgp in the live workspace", () => {
 // The vault-scoped activity and new-notes requests ride the same ?vault=<name> param as every other
 // scoped endpoint; the launch vault sends none, so a single-vault workspace's URLs are unchanged.
 describe("vault-scoped activity and new-notes requests", () => {
+ beforeEach(()=>{vi.stubGlobal("fetch",async(url:string)=>{fetched.push(url);return new Response(JSON.stringify({days:[]}))})});
   it("appends the vault to the activity request", async () => {
     const { getActivity } = await import("./api");
     await getActivity("2026-01-01", "2026-01-31", "work");
@@ -352,4 +353,27 @@ describe("response ID normalization boundary", () => {
     await expect(request).rejects.toBeInstanceOf(APIError);
     await expect(request).rejects.toMatchObject({ status: 409, message: "7" });
   });
+});
+
+describe("malformed success is a local failure",()=>{
+ it("rejects malformed JSON, then permits a later healthy search",async()=>{
+  vi.stubGlobal("fetch",vi.fn().mockResolvedValueOnce(new Response("{" )).mockResolvedValueOnce(new Response(JSON.stringify({results:[]}))));
+  const api=await import("./api");
+  await expect(api.searchNotes("bad")).rejects.toMatchObject({status:502});
+  await expect(api.searchNotes("healthy")).resolves.toMatchObject({results:[]});
+ });
+ it("rejects a malformed preview instead of leaving first load pending",async()=>{
+  vi.stubGlobal("fetch",async()=>new Response(JSON.stringify({markdown:null})));
+  const api=await import("./api");await expect(api.renderMarkdown("readable source")).rejects.toMatchObject({status:502,message:"Invalid preview response"});
+ });
+ it("rejects a missing save acknowledgement without retrying the mutation",async()=>{
+  const fetch=vi.fn(async()=>new Response("{}"));vi.stubGlobal("fetch",fetch);
+  const api=await import("./api");await expect(api.saveNote("1",{body:"draft",etag:"original"})).rejects.toMatchObject({status:502});
+  expect(fetch).toHaveBeenCalledOnce();
+ });
+});
+
+it("rejects incomplete metadata instead of seeding a destructive full replacement",async()=>{
+ vi.stubGlobal("fetch",async()=>new Response(JSON.stringify({etag:"valid",title:"Keep",kind:"note",tags:[],image:"",icon:"",props:""})));
+ const api=await import("./api");await expect(api.getNoteMeta("1")).rejects.toMatchObject({status:502});
 });

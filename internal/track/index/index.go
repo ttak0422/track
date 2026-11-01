@@ -15,6 +15,7 @@ import (
 	"github.com/ttak0422/track/internal/track/note"
 	"github.com/ttak0422/track/internal/track/store"
 	tmpl "github.com/ttak0422/track/internal/track/template"
+	"github.com/ttak0422/track/internal/track/vaultfile"
 )
 
 type Indexer struct {
@@ -101,8 +102,14 @@ func (ix *Indexer) full(prune bool, activity map[int64]int64) (Report, error) {
 		n, err := note.ReadFile(path, ix.cfg)
 		if err != nil {
 			var invalid *note.ParseError
-			if errors.As(err, &invalid) {
+			var local *vaultfile.Error
+			if !errors.As(err, &invalid) && !errors.As(err, &local) {
+				return rep, err
+			}
+			if invalid != nil {
 				warnSkipped(invalid)
+			} else {
+				vaultfile.Warn(local.Path, local.Reason)
 			}
 			reject(err.Error())
 			continue
@@ -123,6 +130,11 @@ func (ix *Indexer) full(prune bool, activity map[int64]int64) (Report, error) {
 			// Reparse after the activity write so the cache matches the exact saved metadata.
 			n, err = note.ReadFile(path, ix.cfg)
 			if err != nil {
+				var invalid *note.ParseError
+				var local *vaultfile.Error
+				if !errors.As(err, &invalid) && !errors.As(err, &local) {
+					return rep, err
+				}
 				reject(err.Error())
 				continue
 			}
@@ -131,6 +143,8 @@ func (ix *Indexer) full(prune bool, activity map[int64]int64) (Report, error) {
 				continue
 			}
 		}
+		vaultfile.Recovered(path)
+		vaultfile.Recovered(ix.cfg.MetadataPath(id))
 		notes = append(notes, n)
 	}
 	var missing []int64
@@ -164,7 +178,11 @@ func (ix *Indexer) full(prune bool, activity map[int64]int64) (Report, error) {
 	if err != nil {
 		return rep, err
 	}
-	if state.Partial && previousFormat != ix.cfg.LinkFormat {
+	initialized, err := ix.store.Initialized()
+	if err != nil {
+		return rep, err
+	}
+	if state.Partial && initialized && previousFormat != ix.cfg.LinkFormat {
 		return rep, fmt.Errorf("cannot change link format with an incomplete index")
 	}
 	err = ix.store.Atomic(func(tx *store.Store) error {
@@ -374,7 +392,11 @@ func (ix *Indexer) scanMtimes() (map[int64]int64, map[int64]bool, []*note.ParseE
 }
 
 func warnSkipped(err *note.ParseError) {
-	fmt.Fprintf(os.Stderr, "track: warning: skipping %q: %v; run 'track doctor' to inspect vault files\n", err.Path, err.Err)
+	reason := "invalid note metadata"
+	if _, idErr := note.IDFromPath(err.Path); idErr != nil && filepath.Ext(err.Path) != ".yaml" {
+		reason = "invalid note filename"
+	}
+	vaultfile.Warn(err.Path, reason)
 }
 
 func sameMtimes(disk, indexed map[int64]int64) bool {

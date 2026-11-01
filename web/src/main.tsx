@@ -1,3 +1,4 @@
+import { showBootFailure } from "./recovery";
 // The page's first script, and deliberately almost the only thing it loads before first paint.
 //
 // The prerendered markup is the whole first paint: title, body, rail. Everything the client adds —
@@ -68,5 +69,5 @@ export function afterFirstPaint(boot: () => void): void {
 
 afterFirstPaint(() => {
   loadFontStylesheet();
-  void import("./boot");
+  void import("./boot").catch(showBootFailure);
 });

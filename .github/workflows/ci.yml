@@ -88,6 +88,10 @@ jobs:
       - name: Web tests
         run: nix develop --command bash -euo pipefail -c 'cd web && npm ci && npm test'
 
+      - name: Neovim JSON transport isolation E2E
+        timeout-minutes: 2
+        run: TRACK_TEST_TMP="$RUNNER_TEMP/track-json-transport" nix run .#test-nvim -- --headless -u NONE -i NONE -n -l scripts/e2e/nvim_json_transport.lua
+
       - name: Neovim readable editor view E2E
         timeout-minutes: 3
         run: nix run .#test-nvim -- --headless '+luafile scripts/e2e/nvim_editor_view.lua'
