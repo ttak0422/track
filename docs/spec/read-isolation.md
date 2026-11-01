@@ -43,3 +43,9 @@ responses have a 128-entry/32 MiB bound and generation keys. POST previews never
 draft's response. Late results cannot seed a newer generation. Cache opens and peer opens retain
 admission until actual return; retries cannot multiply blocked opens. Shutdown bounds its wait and
 never represents a pending authoritative write as successfully cancelled.
+
+A read-only initial note response may arrive after a concurrent storage-ready invalidation. The
+editor retries that read only after a successful ready poll newer than the response, at most twice
+per note/generation/continuous read-only episode. Errors stop automatic recovery; manual retry
+remains available. Draft adoption and write guards are unchanged. Retiring a backend ends its SSE
+streams, so clients reconnect to the new generation instead of silently losing later updates.

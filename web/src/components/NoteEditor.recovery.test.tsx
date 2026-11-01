@@ -6,6 +6,7 @@ import { APIError, getNote, saveNote } from "../api";
 import { NoteControlsProvider, useNoteControls } from "../noteControls";
 import { queryKeys } from "../queries";
 import type { NoteResponse } from "../types";
+import { StorageNotice } from "../storage";
 import { NoteRailControls } from "./NoteRailControls";
 import { NoteEditor } from "./NoteEditor";
 import { TabsProvider, useTabs } from "./tabs/tabsStore";
@@ -42,8 +43,8 @@ function Navigation() {
 }
 
 const disposals: (() => void)[] = [];
-function mount({ path = "/notes/a", homeNote = false }: { path?: string; homeNote?: boolean } = {}) {
-  const root = createRootRoute({ component: () => <TabsProvider><NoteControlsProvider><NoteRailControls /><Navigation /><Outlet /></NoteControlsProvider></TabsProvider> });
+function mount({ path = "/notes/a", homeNote = false, storageReady = false }: { path?: string; homeNote?: boolean; storageReady?: boolean } = {}) {
+  const root = createRootRoute({ component: () => <TabsProvider><NoteControlsProvider>{storageReady && <StorageNotice />}<NoteRailControls /><Navigation /><Outlet /></NoteControlsProvider></TabsProvider> });
   const home = createRoute({ getParentRoute: () => root, path: "/", component: () => homeNote ? <NoteEditor noteID="home" /> : <p>Home</p> });
   const empty = createRoute({ getParentRoute: () => root, path: "/empty", component: () => <p>Workspace</p> });
   const reader = createRoute({ getParentRoute: () => root, path: "/notes/$noteId", component: () => {
@@ -53,6 +54,7 @@ function mount({ path = "/notes/a", homeNote = false }: { path?: string; homeNot
   const history = createMemoryHistory({ initialEntries: [path] });
   const router = createRouter({ routeTree: root.addChildren([home, empty, reader]), history, defaultPendingMinMs: 0 });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { retry: false } } });
+  if (storageReady) client.setQueryData(["storage-status"], { phase: "ready", read_only: false, generation: 1 });
   const view = render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>);
   disposals.push(() => { view.unmount(); history.destroy(); client.clear(); });
   return { client, router, history };
@@ -222,5 +224,43 @@ it("allows read-only layout controls while retaining save protection", async () 
   fireEvent.click(screen.getByRole("menuitemradio", { name: "Edit" }));
   expect(await screen.findByRole("textbox", { name: "Note body" })).toHaveAttribute("readonly");
   expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  expect(saveNote).not.toHaveBeenCalled();
+});
+
+it("revalidates a read-only response arriving after storage's ready invalidation", async () => {
+  let complete!: (response: NoteResponse) => void;
+  vi.mocked(getNote).mockImplementationOnce(() => new Promise(resolve => { complete = resolve; }))
+    .mockResolvedValue(note());
+  const { client } = mount({ storageReady: true });
+  await waitFor(() => expect(getNote).toHaveBeenCalledTimes(1));
+  const snapshot = note(); snapshot.note.read_only = true;
+  await act(async () => complete(snapshot));
+  await screen.findByText("Reading remains available. Editing is disabled until the index recovers.");
+  // A fresh verified poll, rather than another phase transition, must release the late snapshot.
+  await act(async () => { client.setQueryData(["storage-status"], { phase: "ready", read_only: false, generation: 1 },
+    { updatedAt: Date.now() + 1 }); });
+  await waitFor(() => expect(screen.queryByText("Reading remains available. Editing is disabled until the index recovers.")).toBeNull());
+  expect(getNote).toHaveBeenCalledTimes(2);
+  expect(saveNote).not.toHaveBeenCalled();
+});
+
+it("bounds automatic read-only recovery and retains an explicit retry", async () => {
+  const snapshot = note(); snapshot.note.read_only = true;
+  vi.mocked(getNote).mockResolvedValue(snapshot);
+  const { client } = mount();
+  await screen.findByRole("button", { name: "Retry note" });
+  for (const offset of [1000, 2000]) {
+    await act(async () => { client.setQueryData(["storage-status"], { phase: "ready", read_only: false, generation: 1 },
+      { updatedAt: Date.now() + offset }); });
+    await waitFor(() => expect(getNote).toHaveBeenCalledTimes(offset === 1000 ? 2 : 3));
+  }
+  await act(async () => { client.setQueryData(["storage-status"], { phase: "ready", read_only: false, generation: 1 },
+    { updatedAt: Date.now() + 3000 }); });
+  expect(getNote).toHaveBeenCalledTimes(3);
+  await act(async () => { client.setQueryData(["storage-status"], { phase: "ready", read_only: false, generation: 2 },
+    { updatedAt: Date.now() + 4000 }); });
+  await waitFor(() => expect(getNote).toHaveBeenCalledTimes(4));
+  fireEvent.click(screen.getByRole("button", { name: "Retry note" }));
+  await waitFor(() => expect(getNote).toHaveBeenCalledTimes(5));
   expect(saveNote).not.toHaveBeenCalled();
 });

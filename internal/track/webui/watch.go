@@ -108,6 +108,8 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	for {
 		select {
+		case <-s.watchDone:
+			return // Retired backends release SSE clients so they reconnect to the current generation.
 		case <-ctx.Done():
 			return
 		case <-ping.C:

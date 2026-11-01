@@ -1,3 +1,4 @@
+import { useStorageStatus } from "../storage";
 import { RenderFailure } from "./RenderFailure";
 import { useBlocker, useNavigate } from "@tanstack/react-router";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -43,6 +44,27 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
   // clobbering unsaved local edits below.
   const noteQuery = useNoteQuery(noteID, { live: true });
   const readOnly = noteQuery.isError || noteQuery.data?.note.read_only === true;
+  const storage = useStorageStatus();
+  const recovery = useRef({ noteID, generation: storage.data?.generation, attempts: 0, checkedAt: 0 });
+  useEffect(() => {
+    if (recovery.current.noteID !== noteID || recovery.current.generation !== storage.data?.generation) {
+      recovery.current = { noteID, generation: storage.data?.generation, attempts: 0, checkedAt: 0 };
+    }
+    if (noteQuery.data?.note.read_only !== true) {
+      recovery.current.attempts = 0; recovery.current.checkedAt = 0;
+      return;
+    }
+    // A first read-only response can arrive after the "ready" invalidation while
+    // its initial request was still pending. Only a newer verified storage poll
+    // authorizes a bounded read retry; saves are never replayed.
+    if (noteQuery.isError || noteQuery.isFetching || storage.isError || storage.data?.phase !== "ready" ||
+        storage.dataUpdatedAt < noteQuery.dataUpdatedAt || recovery.current.attempts >= 2 ||
+        recovery.current.checkedAt === storage.dataUpdatedAt) return;
+    recovery.current.attempts++;
+    recovery.current.checkedAt = storage.dataUpdatedAt;
+    void noteQuery.refetch({ cancelRefetch: false });
+  }, [noteID, noteQuery.dataUpdatedAt, noteQuery.data?.note.read_only, noteQuery.isError,
+      noteQuery.isFetching, noteQuery.refetch, storage.dataUpdatedAt, storage.data?.phase, storage.data?.generation, storage.isError]);
   const saveNote = useSaveNoteMutation(noteID);
   const deleteNote = useDeleteNoteMutation(noteID);
   const {
@@ -504,7 +526,11 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
             {/* Author-assigned flags (ADR 0074) stamp the note's own surface, in every mode; the
                 overlay is pointer-transparent so editing underneath is unaffected. */}
             {data.read_state?.partial ? <p className="muted">Some information is unavailable or cached. Results may be incomplete.</p> : null}
-      {data.note.read_only ? <p className="muted">Reading remains available. Editing is disabled until the index recovers.</p> : null}
+      {data.note.read_only ? <div>
+        <p className="muted">Reading remains available. Editing is disabled until the index recovers.</p>
+        <button type="button" className="note-recovery-action" disabled={noteQuery.isFetching}
+          onClick={() => { void noteQuery.refetch({ cancelRefetch: false }); }}>Retry note</button>
+      </div> : null}
       <NoteStamps flags={note.flags} />
             <div className={`editor-grid editor-grid-${editorMode}`}>
               {editorMode !== "preview" ? (
