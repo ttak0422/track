@@ -381,6 +381,11 @@ Rules run horizontally only, and only where they separate something.
 
 The strip is a line of titles on the sheet, not a bar of chrome.
 
+- The row keeps its title-line height and vertical padding even with no tabs open, including
+  before session restore. The working-vault switcher stays at the right edge and the reader starts
+  at the same vertical position when the first tab opens or the last one closes. An empty row has
+  no placeholder tab or keyboard stop.
+
 - **Most recent first**, so the note being read is the leftmost tab and the
   strip behind it is the order you visited things in. The tab you are on is
   therefore always in the same place, and never in the overflow.

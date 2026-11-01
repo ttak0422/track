@@ -94,6 +94,11 @@ describe("transient layer ordering", () => {
 });
 
 describe("tab strip", () => {
+  it("reserves one font-scaled row instead of adding placeholder padding around an empty strip", () => {
+    expect(ruleBody(".tabbar")).toMatch(/font-size:\s*calc\(14px \* var\(--font-scale, 1\)\)/);
+    expect(ruleBody(".tabbar")).toMatch(/min-height:\s*calc\(1lh \+ 16px\)/);
+    expect(ruleBody(".reader-pane")).not.toMatch(/padding-top:/);
+  });
   // A tab sized to its own title puts the close button somewhere different on every one, which is what
   // made closing a run of them a chase.
   it("gives every tab the same frame", () => {
