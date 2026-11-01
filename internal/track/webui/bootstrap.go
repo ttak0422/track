@@ -51,6 +51,7 @@ type Bootstrap struct {
 	load             func(context.Context, string, bool) (*config.Config, error)
 	lease            func(*config.Config) (func(), error)
 	release          func()
+	leaseDone        chan struct{}
 }
 
 func NewBootstrap(ctx context.Context, lease func(*config.Config) (func(), error)) *Bootstrap {
@@ -132,6 +133,8 @@ func (b *Bootstrap) start() {
 		b.cfgGeneration = generation
 		b.cfg = cfg
 		b.openPending = true
+		leaseDone := make(chan struct{})
+		b.leaseDone = leaseDone
 		b.progress = map[int64]*note.Note{}
 		b.bytes = 0
 		b.mu.Unlock()
@@ -166,6 +169,9 @@ func (b *Bootstrap) start() {
 		openedDB := make(chan openResult)
 		go func() {
 			defer func() { b.mu.Lock(); b.openPending = false; b.mu.Unlock() }()
+			var leaseFinished sync.Once
+			finishLease := func() { leaseFinished.Do(func() { close(leaseDone) }) }
+			defer finishLease()
 			release := oldRelease
 			freshLease := false
 			var err error
@@ -201,6 +207,7 @@ func (b *Bootstrap) start() {
 					return
 				}
 			}
+			finishLease()
 			// Ownership depends on verified configuration, not a responsive cache.
 			// Stop/retry can identify this server even while database opening stalls.
 			var st *store.Store
@@ -611,6 +618,7 @@ func (b *Bootstrap) Close() {
 	srv := b.server
 	peers := b.peers
 	release := b.release
+	leaseDone := b.leaseDone
 	b.mu.Unlock()
 	if srv != nil {
 		srv.active.invalidateRead()
@@ -620,6 +628,11 @@ func (b *Bootstrap) Close() {
 	finished := make(chan struct{})
 	go func() {
 		defer close(finished)
+		// Do not let normal process exit race an acquisition that may have just
+		// written its PID file but has not transferred or cleaned it yet.
+		if leaseDone != nil {
+			<-leaseDone
+		}
 		if peers != nil {
 			peers.closeViews()
 		}

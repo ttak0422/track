@@ -484,3 +484,43 @@ func TestMutationInvalidatesStartupProgressWithoutHidingCurrentCache(t *testing.
 		t.Fatalf("current cache hidden by invalid initial snapshot: %d %s", w.Code, w.Body.String())
 	}
 }
+
+func TestCloseWaitsForInFlightOwnershipCleanupWithoutOpeningCache(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "note"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{VaultDir: root, DBPath: filepath.Join(t.TempDir(), "cache.db"), Extensions: []string{".md"}}
+	entered := make(chan struct{})
+	finish := make(chan struct{})
+	closed := make(chan struct{})
+	var owned atomic.Bool
+	var releases, opens atomic.Int32
+	b := newBootstrap(context.Background(), func(context.Context, string, bool) (*config.Config, error) { return cfg, nil }, func(string) (*store.Store, error) {
+		opens.Add(1)
+		return nil, errors.New("must not open after shutdown")
+	}, func(*config.Config) (func(), error) {
+		owned.Store(true)
+		close(entered)
+		<-finish
+		return func() { owned.Store(false); releases.Add(1) }, nil
+	})
+	b.start()
+	<-entered
+	go func() { b.Close(); close(closed) }()
+	waitBoot(t, func() bool { b.mu.Lock(); defer b.mu.Unlock(); return b.closed })
+	select {
+	case <-closed:
+		t.Fatal("shutdown escaped acquisition cleanup")
+	default:
+	}
+	close(finish)
+	select {
+	case <-closed:
+	case <-time.After(time.Second):
+		t.Fatal("ownership cleanup did not finish")
+	}
+	if owned.Load() || releases.Load() != 1 || opens.Load() != 0 {
+		t.Fatal("late ownership side effects survived close", owned.Load(), releases.Load(), opens.Load())
+	}
+}
