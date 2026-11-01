@@ -159,3 +159,31 @@ func writeError(w http.ResponseWriter, err error, status int) {
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 }
+
+func writeReadJSON(w http.ResponseWriter, v *vaultView, result map[string]any) {
+	state, err := viewReadState(v)
+	if err != nil {
+		state.Add(store.ReadIssue{Path: v.cfg.DBPath, Reason: "read-state verification unavailable: " + err.Error()})
+	}
+	if state.Partial {
+		result["read_state"] = state
+	}
+	writeJSON(w, result)
+}
+
+func viewReadState(v *vaultView) (store.ReadState, error) {
+	v.reindexMu.Lock()
+	defer v.reindexMu.Unlock()
+	state, err := v.store.ReadState()
+	if err != nil {
+		return state, err
+	}
+	if v.refreshErr != nil {
+		rows, err := v.store.NoteMtimes()
+		if err != nil {
+			return state, err
+		}
+		state.Add(store.ReadIssue{Path: v.cfg.VaultDir, Reason: "refresh failed: " + v.refreshErr.Error(), Cached: len(rows) > 0})
+	}
+	return state, nil
+}

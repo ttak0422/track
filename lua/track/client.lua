@@ -49,29 +49,34 @@ function M.bin()
    return find_binary()
 end
 
--- run executes the CLI with args and returns raw stdout.
-function M.run(args, input)
+-- Capture the JSON contract separately from diagnostics. Waiting here preserves
+-- existing synchronous callers; no automatic retry can repeat a committed write.
+local function execute(args, input)
    local cmd = { find_binary() }
-   for _, item in ipairs(args) do
-      table.insert(cmd, item)
-   end
-   if input ~= nil then
-      return vim.fn.system(cmd, input)
-   end
-   return vim.fn.system(cmd)
+   for _, item in ipairs(args) do table.insert(cmd, item) end
+   return vim.system(cmd, { text = true, stdin = input }):wait()
 end
 
--- run_json executes the CLI and decodes its JSON.
--- Returns (table) on success, or (nil, errmsg) when stdout is not JSON or carries an {"error":...} payload.
+-- run returns stdout for raw-output callers such as Markdown export.
+function M.run(args, input)
+   return execute(args, input).stdout or ""
+end
+
+local function failure(result, message)
+   local diagnostic = (result.stderr or ""):sub(1, 512):gsub("%s+$", "")
+   local status = string.format(" (exit %s, signal %s)", result.code, result.signal)
+   return "track: " .. message .. status .. (diagnostic ~= "" and ": " .. diagnostic or "")
+end
+
+-- Successful warnings remain diagnostics, without a repeated intrusive popup.
+-- Partial data is represented in the decoded payload's read_state.
 function M.run_json(args, input)
-   local out = M.run(args, input)
-   local ok, decoded = pcall(vim.json.decode, out)
-   if not ok then
-      return nil, "track: invalid JSON output: " .. tostring(out)
-   end
-   if type(decoded) == "table" and decoded.error then
-      return nil, decoded.error
-   end
+   local launched, result = pcall(execute, args, input)
+   if not launched then return nil, "track: could not run CLI: " .. tostring(result):sub(1, 512) end
+   local ok, decoded = pcall(vim.json.decode, result.stdout or "")
+   if ok and type(decoded) == "table" and decoded.error then return nil, decoded.error end
+   if result.code ~= 0 or result.signal ~= 0 then return nil, failure(result, "CLI failed") end
+   if not ok then return nil, failure(result, "invalid JSON output") end
    return decoded
 end
 

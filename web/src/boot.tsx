@@ -1,3 +1,4 @@
+import { reportRecoverable } from "./recovery";
 // The app boot, loaded after first paint by main.tsx. Keeping the split lets the prerendered markup
 // be the whole story of the first paint: the reader sees the full note while the router, React, and
 // the markdown stack are still downloading, instead of competing with them for bandwidth during it.
@@ -32,7 +33,8 @@ setStalePageHandler(reloadOnce);
 // content immediately with no refetch flash. Loading the router before the first render keeps that render
 // from briefly showing a pending state over the prerendered content. The live app has an empty #root and
 // mounts the same way.
-void Promise.all([clientAppRouter().load(), hydratePrerenderedState()]).finally(() => {
+void Promise.allSettled([clientAppRouter().load(), hydratePrerenderedState()]).then((results) => {
+  results.forEach((result) => { if (result.status === "rejected") reportRecoverable("startup preparation",result.reason); });
   createRoot(root).render(
     <StrictMode>
       <App />

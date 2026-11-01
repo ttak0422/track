@@ -1063,6 +1063,21 @@ func TestCompletionResponseMarshalsForLSP(t *testing.T) {
 
 func TestCodeActionCreatesUnresolvedNote(t *testing.T) {
 	srv, vault := setupServer(t)
+	if err := os.MkdirAll(srv.cfg.NoteDir(), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(srv.cfg.NotePath(100), []byte("Go"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(vault, "note"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(vault, "note", "200.md"), []byte("see [[Rust]]"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := note.WriteMetadata(srv.cfg.MetadataPath(200), note.Metadata{Title: "Source"}); err != nil {
+		t.Fatal(err)
+	}
 	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
 	if err := srv.store.UpsertNote(&note.Note{
 		ID:   200,

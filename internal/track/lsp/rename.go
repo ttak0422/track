@@ -14,6 +14,7 @@ import (
 // backlinks that spell the old title. It returns nil when pos does not target a renamable note
 // (e.g. an unresolved link).
 func (s *Server) rename(uri string, pos position, newName string) (*workspaceEdit, error) {
+
 	if !s.inVault(uri) {
 		return nil, nil
 	}
@@ -35,6 +36,9 @@ func (s *Server) rename(uri string, pos position, newName string) (*workspaceEdi
 	}
 	if !ok || oldTitle == "" || oldTitle == newName {
 		return nil, nil
+	}
+	if _, err := index.New(s.cfg, s.store).FullStrict(); err != nil {
+		return nil, err
 	}
 	if ref, found, err := s.store.ResolveTerm(newName); err != nil {
 		return nil, err
@@ -98,7 +102,7 @@ func (s *Server) rename(uri string, pos position, newName string) (*workspaceEdi
 	if err := note.WriteMetadata(s.cfg.MetadataPath(targetID), meta); err != nil {
 		return nil, err
 	}
-	if _, err := index.New(s.cfg, s.store).Full(); err != nil {
+	if _, err := index.New(s.cfg, s.store).FullStrict(); err != nil {
 		return nil, err
 	}
 

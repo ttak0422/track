@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from "react";
+import { FeatureBoundary } from "./FeatureBoundary";
 import { useVisible } from "../hooks/useVisible";
 import type { GraphCanvasProps } from "./GraphCanvas";
 
@@ -7,11 +8,13 @@ import type { GraphCanvasProps } from "./GraphCanvas";
 // graph is decorative/secondary in every place it appears (per-note side panel, full graph route), so
 // the fallback is empty — the canvas fills in a frame later without shifting the primary content.
 // Consumers import GraphCanvas from here instead of ./GraphCanvas.
-const GraphCanvasInner = lazy(() =>
-  import("./GraphCanvas").then((m) => ({ default: m.GraphCanvas })),
-);
+function graphComponent() {
+ return lazy(() => import("./GraphCanvas").then((m)=>({default:m.GraphCanvas})));
+}
 
 export function GraphCanvas(props: GraphCanvasProps) {
+ const [GraphCanvasInner,setGraph] = useState(graphComponent);
+ const [attempt,setAttempt] = useState(0);
   // Render nothing until mounted on the client. renderToString does not support a lazy/Suspense boundary
   // cleanly, so a prerendered page would emit a Suspense fallback that mismatches on hydration; gating on
   // mount makes the server and the first client render agree (both empty), then the canvas loads. The
@@ -30,9 +33,9 @@ export function GraphCanvas(props: GraphCanvasProps) {
   return (
     <div ref={ref} className="graph-canvas-host" aria-hidden={!ready || undefined}>
       {ready ? (
-        <Suspense fallback={null}>
+        <FeatureBoundary key={attempt} name="Graph" fallback={<div><p className="muted">Graph is unavailable. Other content remains usable.</p><button type="button" className="note-recovery-action" onClick={()=>{setGraph(()=>graphComponent());setAttempt((n)=>n+1);}}>Retry graph</button></div>}><Suspense fallback={null}>
           <GraphCanvasInner {...props} />
-        </Suspense>
+        </Suspense></FeatureBoundary>
       ) : null}
     </div>
   );

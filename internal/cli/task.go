@@ -239,7 +239,7 @@ func cmdTasks(args []string) int {
 	for i := range rows {
 		rows[i].Path = cfg.PathForKind(rows[i].FileKind, rows[i].NoteID)
 	}
-	return emit(map[string]any{"tasks": rows})
+	return emitRead(s, map[string]any{"tasks": rows})
 }
 
 // cmdTaskDate writes a task's scheduled and/or due date. An empty value clears that token, so

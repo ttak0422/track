@@ -1,6 +1,7 @@
 package store
 
-// Initialized reports whether a complete index build has finished. A missing
+// Initialized reports whether an initial read pass has finished. ReadState's partial
+// flag separately determines whether the dictionary can authorize mutations. A missing
 // marker is distinct from the empty link format used by legacy title links, and
 // an empty vault can still have a completed build.
 func (s *Store) Initialized() (bool, error) {

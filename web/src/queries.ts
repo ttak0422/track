@@ -216,6 +216,11 @@ export function useResolveQuery(term: string, vault = "") {
 // SSE change stream (see useLiveEvents); this only covers a dropped stream.
 const liveRefetchInterval = 30000;
 
+export function retryRead(failureCount: number,error: Error): boolean {
+ if(error instanceof APIError && error.status>=400 && error.status<500)return false;
+ return failureCount<1;
+}
+
 export function useNoteQuery(noteID: NoteID, options: { live?: boolean; enabled?: boolean } = {}) {
   return useQuery({
     queryKey: queryKeys.note(noteID),
@@ -236,6 +241,7 @@ export function useRenderQuery(body: string, vault = "", debounceMs = 0) {
   return useQuery({
     queryKey: queryKeys.render(source, vault),
     queryFn: () => renderMarkdown(source, vault),
+    retry: false,
     enabled: source.trim() !== "",
     // Sanitization is a pure function of the body and the server caches nothing per-note, so an identical
     // body never needs re-posting within a session.

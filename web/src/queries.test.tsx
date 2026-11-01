@@ -6,6 +6,7 @@ import { APIError, getGraph, searchNotes, setTaskState } from "./api";
 import { NotificationProvider, NotificationToast } from "./notifications";
 import {
   queryKeys,
+  retryRead,
   useActivityQuery,
   useGraphQuery,
   useNewNotesQuery,
@@ -198,5 +199,19 @@ describe("whole-vault graph scoping", () => {
       await client.invalidateQueries({ queryKey: ["graph"] });
     });
     expect(getGraph).toHaveBeenCalledTimes(2);
+  });
+});
+
+
+describe("bounded workspace read retries", () => {
+  it.each([[503, 2], [404, 1]])("bounds a %i read to %i attempts", async (status, attempts) => {
+    vi.mocked(getGraph).mockReset().mockRejectedValue(new APIError(status, "unavailable"));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: retryRead, retryDelay: 0 } } });
+    const view = renderHook(() => useGraphQuery(true), {
+      wrapper: ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>,
+    });
+    await waitFor(() => expect(view.result.current.isError).toBe(true));
+    expect(getGraph).toHaveBeenCalledTimes(attempts);
+    view.unmount(); client.clear();
   });
 });

@@ -1,3 +1,4 @@
+import { reportRecoverable } from "../../recovery";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useThemeVersion } from "../../hooks/useThemeVersion";
@@ -16,7 +17,7 @@ const CHART_BASE_HEIGHT = 360;
 // server endpoint live, or baked in at export time statically), so no chart resolution happens here.
 let echartsModule: Promise<typeof import("echarts")> | undefined;
 function loadECharts() {
-  echartsModule ??= import("echarts");
+  echartsModule ??= import("echarts").catch((error: unknown) => { echartsModule = undefined; throw error; });
   return echartsModule;
 }
 
@@ -30,6 +31,7 @@ interface EChartsBlockProps {
 // is kept across option updates (live re-renders apply in place via setOption) and disposed only on
 // unmount.
 export function EChartsBlock({ option }: EChartsBlockProps) {
+ const [failed,setFailed]=useState(false);
   const seriesKey = chartSeriesKey(option);
   const { ref: containerRef, visible } = useVisible<HTMLDivElement>();
   const navigate = useNavigate();
@@ -71,6 +73,7 @@ export function EChartsBlock({ option }: EChartsBlockProps) {
       return;
     }
     let disposed = false;
+    setFailed(false);
     let chart: import("echarts").ECharts | undefined;
     let observer: ResizeObserver | undefined;
     void loadECharts().then((echarts) => {
@@ -135,6 +138,9 @@ export function EChartsBlock({ option }: EChartsBlockProps) {
         });
         observer.observe(el);
       }
+    }).catch((error: unknown) => {
+      if (!disposed) setFailed(true);
+      reportRecoverable("chart rendering",error);
     });
     return () => {
       disposed = true;
@@ -147,7 +153,7 @@ export function EChartsBlock({ option }: EChartsBlockProps) {
     const el = containerRef.current;
     return () => {
       if (el) {
-        void loadECharts().then((echarts) => echarts.getInstanceByDom(el)?.dispose());
+        void echartsModule?.then((echarts) => echarts.getInstanceByDom(el)?.dispose()).catch((error: unknown) => reportRecoverable("chart cleanup",error));
       }
     };
   }, []);
@@ -204,6 +210,7 @@ export function EChartsBlock({ option }: EChartsBlockProps) {
   // legend and the plot (offsetTop = the option's original grid top).
   return (
     <figure className="viewspec-chart-wrap">
+      {failed ? <><p className="muted">Chart is unavailable. Showing its data.</p><CodeBlock lang="json" text={JSON.stringify(option,null,2)} /></> : null}
       {chartHost}
       {rail.boxes.length > 0 ? (
         <>

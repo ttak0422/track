@@ -25,6 +25,9 @@ func Do(cfg *config.Config, s *store.Store, noteID int64, to string) (Result, er
 	if err := config.ValidateLinkTitle(cfg.LinkFormat, to); err != nil {
 		return Result{}, err
 	}
+	if _, err := index.New(cfg, s).FullStrict(); err != nil {
+		return Result{}, err
+	}
 	meta, found, err := note.ReadMetadata(cfg.MetadataPath(noteID))
 	if err != nil {
 		return Result{}, fmt.Errorf("read metadata: %w", err)
@@ -77,7 +80,7 @@ func Do(cfg *config.Config, s *store.Store, noteID int64, to string) (Result, er
 	if err := note.WriteMetadata(cfg.MetadataPath(noteID), meta); err != nil {
 		return Result{}, fmt.Errorf("write metadata: %w", err)
 	}
-	if _, err := index.New(cfg, s).Full(); err != nil {
+	if _, err := index.New(cfg, s).FullStrict(); err != nil {
 		return Result{}, fmt.Errorf("reindex: %w", err)
 	}
 	return res, nil

@@ -23,6 +23,7 @@ export function NoteMetaDialog({ noteID, onClose }: { noteID: NoteID; onClose: (
   // as checkboxes. Seeded from the fetched metadata like every other field.
   const [flags, setFlags] = useState<string[]>([]);
   const [props, setProps] = useState("");
+  const [loadedETag,setLoadedETag]=useState("");
   const [loadedFor, setLoadedFor] = useState<NoteID | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   // A journal's title is derived from its date; the engine keeps that mechanical, so title editing is
@@ -39,14 +40,16 @@ export function NoteMetaDialog({ noteID, onClose }: { noteID: NoteID; onClose: (
       setIcon(meta.data.icon);
       setFlags(meta.data.flags ?? []);
       setProps(meta.data.props);
+      setLoadedETag(meta.data.etag ?? "");
       setLoadedFor(noteID);
     }
   }, [meta.data, loadedFor, noteID]);
 
   async function submit() {
-    if (save.isPending) return;
+    if (save.isPending || meta.isError || loadedFor!==noteID || !loadedETag) return;
     try {
       await save.mutateAsync({
+        etag:loadedETag,
         title: title.trim(),
         tags: tags
           .split(",")
@@ -220,14 +223,14 @@ export function NoteMetaDialog({ noteID, onClose }: { noteID: NoteID; onClose: (
             onKeyDown={escapeCloses}
           />
         </label>
-        {meta.isError ? <p className="error">{meta.error.message}</p> : null}
+        {meta.isError ? <><p className="error">{meta.error.message}</p><button type="button" className="note-recovery-action" disabled={meta.isFetching} onClick={()=>{void meta.refetch();}}>Retry metadata</button></> : null}
         {upload.isError ? <p className="error">{upload.error.message}</p> : null}
         {save.isError ? <p className="error">{save.error.message}</p> : null}
         <div className="modal-actions">
           <button type="button" onClick={onClose}>
             Cancel
           </button>
-          <button type="button" disabled={meta.isPending || save.isPending} onClick={submit}>
+          <button type="button" disabled={meta.isPending || meta.isError || loadedFor!==noteID || !loadedETag || save.isPending} onClick={submit}>
             {save.isPending ? "Saving..." : "Save"}
           </button>
         </div>

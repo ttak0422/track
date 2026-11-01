@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"fmt"
 	"strings"
 
@@ -36,100 +37,97 @@ type NoteRef struct {
 
 // UpsertNote inserts or updates a note row and replaces its tags in a single transaction.
 func (s *Store) UpsertNote(n *note.Note) error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
+	return s.atomic(func(tx *sql.Tx) error {
 
-	kind := n.Kind
-	if kind == "" {
-		kind = "note"
-	}
-	if _, err := tx.Exec(
-		`INSERT INTO notes (id, kind, title, created, mtime, meta_mtime, icon, seen_at, read_at, flags)
+		kind := n.Kind
+		if kind == "" {
+			kind = "note"
+		}
+		if _, err := tx.Exec(
+			`INSERT INTO notes (id, kind, title, created, mtime, meta_mtime, icon, seen_at, read_at, flags)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET
 		   kind=excluded.kind, title=excluded.title, created=excluded.created, mtime=excluded.mtime, meta_mtime=excluded.meta_mtime, icon=excluded.icon,
 		   seen_at=excluded.seen_at, read_at=excluded.read_at, flags=excluded.flags`,
-		n.ID, kind, n.Meta.Title, n.Meta.Created, n.Mtime, n.MetaMtime, n.Meta.Icon,
-		note.StampUnix(n.Meta.SeenAt), note.StampUnix(n.Meta.ReadAt),
-		// The index carries the normalized flags as one char(31)-joined column, the same separator
-		// searchColumns splits on, so search can demote DEPRECATED notes and listings can badge them.
-		strings.Join(n.Meta.Flags, "\x1f"),
-	); err != nil {
-		return err
-	}
-
-	// Keep the FTS body index in step with the note row so --scope body search stays consistent
-	// with the vault after every reindex. Delete-then-insert covers both new and updated notes.
-	if _, err := tx.Exec(`DELETE FROM notes_fts WHERE rowid = ?`, n.ID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`INSERT INTO notes_fts (rowid, body) VALUES (?, ?)`, n.ID, n.Body); err != nil {
-		return err
-	}
-
-	if _, err := tx.Exec(`DELETE FROM tags WHERE note_id = ?`, n.ID); err != nil {
-		return err
-	}
-	// note.CollectTags owns tag flattening (sidecar tags plus inline #tags from the body), so the
-	// index's tags table and the sidecar never disagree about what tags a note carries.
-	for _, tg := range note.CollectTags(n.Meta, n.Body) {
-		if tg == "" {
-			continue
-		}
-		if _, err := tx.Exec(`INSERT OR IGNORE INTO tags (note_id, tag) VALUES (?, ?)`, n.ID, tg); err != nil {
-			return err
-		}
-	}
-
-	if _, err := tx.Exec(`DELETE FROM tasks WHERE note_id = ?`, n.ID); err != nil {
-		return err
-	}
-	for _, t := range n.Tasks {
-		if _, err := tx.Exec(
-			`INSERT INTO tasks (note_id, line, state, done, priority, scheduled, due, completed, text)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			n.ID, t.Line, t.State, t.Done, t.Priority, t.Scheduled, t.Due, t.Completed, t.Text,
+			n.ID, kind, n.Meta.Title, n.Meta.Created, n.Mtime, n.MetaMtime, n.Meta.Icon,
+			note.StampUnix(n.Meta.SeenAt), note.StampUnix(n.Meta.ReadAt),
+			// The index carries the normalized flags as one char(31)-joined column, the same separator
+			// searchColumns splits on, so search can demote DEPRECATED notes and listings can badge them.
+			strings.Join(n.Meta.Flags, "\x1f"),
 		); err != nil {
 			return err
 		}
-	}
 
-	if _, err := tx.Exec(`DELETE FROM note_days WHERE note_id = ?`, n.ID); err != nil {
-		return err
-	}
-	// note.ActivityDays owns which days a note surfaces on (journals none, created-day fallback), so the
-	// index and the static-site export apply the same rule.
-	for _, d := range note.ActivityDays(kind, n.Meta) {
-		if d == "" {
-			continue
-		}
-		if _, err := tx.Exec(`INSERT OR IGNORE INTO note_days (note_id, day) VALUES (?, ?)`, n.ID, d); err != nil {
+		// Keep the FTS body index in step with the note row so --scope body search stays consistent
+		// with the vault after every reindex. Delete-then-insert covers both new and updated notes.
+		if _, err := tx.Exec(`DELETE FROM notes_fts WHERE rowid = ?`, n.ID); err != nil {
 			return err
 		}
-	}
-
-	if _, err := tx.Exec(`DELETE FROM props WHERE note_id = ?`, n.ID); err != nil {
-		return err
-	}
-	// note.CollectProps owns property flattening and typing (sidecar props plus inline body fields), so
-	// the index, the web note view, and doctor all see the same values.
-	for i, p := range note.CollectProps(n.Meta, n.Body) {
-		if _, err := tx.Exec(`INSERT INTO props (note_id, key, value, type, line, ord) VALUES (?, ?, ?, ?, ?, ?)`,
-			n.ID, p.Key, p.Value, p.Type, p.Line, i); err != nil {
+		if _, err := tx.Exec(`INSERT INTO notes_fts (rowid, body) VALUES (?, ?)`, n.ID, n.Body); err != nil {
 			return err
 		}
-	}
 
-	return tx.Commit()
+		if _, err := tx.Exec(`DELETE FROM tags WHERE note_id = ?`, n.ID); err != nil {
+			return err
+		}
+		// note.CollectTags owns tag flattening (sidecar tags plus inline #tags from the body), so the
+		// index's tags table and the sidecar never disagree about what tags a note carries.
+		for _, tg := range note.CollectTags(n.Meta, n.Body) {
+			if tg == "" {
+				continue
+			}
+			if _, err := tx.Exec(`INSERT OR IGNORE INTO tags (note_id, tag) VALUES (?, ?)`, n.ID, tg); err != nil {
+				return err
+			}
+		}
+
+		if _, err := tx.Exec(`DELETE FROM tasks WHERE note_id = ?`, n.ID); err != nil {
+			return err
+		}
+		for _, t := range n.Tasks {
+			if _, err := tx.Exec(
+				`INSERT INTO tasks (note_id, line, state, done, priority, scheduled, due, completed, text)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				n.ID, t.Line, t.State, t.Done, t.Priority, t.Scheduled, t.Due, t.Completed, t.Text,
+			); err != nil {
+				return err
+			}
+		}
+
+		if _, err := tx.Exec(`DELETE FROM note_days WHERE note_id = ?`, n.ID); err != nil {
+			return err
+		}
+		// note.ActivityDays owns which days a note surfaces on (journals none, created-day fallback), so the
+		// index and the static-site export apply the same rule.
+		for _, d := range note.ActivityDays(kind, n.Meta) {
+			if d == "" {
+				continue
+			}
+			if _, err := tx.Exec(`INSERT OR IGNORE INTO note_days (note_id, day) VALUES (?, ?)`, n.ID, d); err != nil {
+				return err
+			}
+		}
+
+		if _, err := tx.Exec(`DELETE FROM props WHERE note_id = ?`, n.ID); err != nil {
+			return err
+		}
+		// note.CollectProps owns property flattening and typing (sidecar props plus inline body fields), so
+		// the index, the web note view, and doctor all see the same values.
+		for i, p := range note.CollectProps(n.Meta, n.Body) {
+			if _, err := tx.Exec(`INSERT INTO props (note_id, key, value, type, line, ord) VALUES (?, ?, ?, ?, ?, ?)`,
+				n.ID, p.Key, p.Value, p.Type, p.Line, i); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
 }
 
 // NoteProps returns a note's flattened properties as indexed: sidecar props first (line 0, sorted by
 // key), then inline fields in body order, list items in written order.
 func (s *Store) NoteProps(id int64) ([]note.Prop, error) {
-	rows, err := s.db.Query(`SELECT key, value, type, line FROM props WHERE note_id = ? ORDER BY line, key, ord`, id)
+	rows, err := s.runner().Query(`SELECT key, value, type, line FROM props WHERE note_id = ? ORDER BY line, key, ord`, id)
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +147,7 @@ func (s *Store) NoteProps(id int64) ([]note.Prop, error) {
 // AllProps returns every note's flattened properties keyed by note id, each list in the same order
 // NoteProps reads a single note's. One scan instead of a query per note, for the query evaluator.
 func (s *Store) AllProps() (map[int64][]note.Prop, error) {
-	rows, err := s.db.Query(`SELECT note_id, key, value, type, line FROM props ORDER BY note_id, line, key, ord`)
+	rows, err := s.runner().Query(`SELECT note_id, key, value, type, line FROM props ORDER BY note_id, line, key, ord`)
 	if err != nil {
 		return nil, err
 	}
@@ -170,33 +168,32 @@ func (s *Store) AllProps() (map[int64][]note.Prop, error) {
 // DeleteNote removes a note; tags and links cascade. The FTS body row is not a foreign-key child of
 // notes (virtual tables can't cascade), so it is deleted explicitly.
 func (s *Store) DeleteNote(id int64) error {
-	if _, err := s.db.Exec(`DELETE FROM notes_fts WHERE rowid = ?`, id); err != nil {
+	return s.atomic(func(tx *sql.Tx) error {
+		if _, err := tx.Exec(`DELETE FROM notes_fts WHERE rowid=?`, id); err != nil {
+			return err
+		}
+		_, err := tx.Exec(`DELETE FROM notes WHERE id=?`, id)
 		return err
-	}
-	_, err := s.db.Exec(`DELETE FROM notes WHERE id = ?`, id)
-	return err
+	})
 }
 
 // ReplaceLinks sets the outgoing links for srcID, ignoring self-links.
 func (s *Store) ReplaceLinks(srcID int64, dstIDs []int64) error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
+	return s.atomic(func(tx *sql.Tx) error {
 
-	if _, err := tx.Exec(`DELETE FROM links WHERE src_id = ?`, srcID); err != nil {
-		return err
-	}
-	for _, dst := range dstIDs {
-		if dst == srcID {
-			continue
-		}
-		if _, err := tx.Exec(`INSERT OR IGNORE INTO links (src_id, dst_id) VALUES (?, ?)`, srcID, dst); err != nil {
+		if _, err := tx.Exec(`DELETE FROM links WHERE src_id = ?`, srcID); err != nil {
 			return err
 		}
-	}
-	return tx.Commit()
+		for _, dst := range dstIDs {
+			if dst == srcID {
+				continue
+			}
+			if _, err := tx.Exec(`INSERT OR IGNORE INTO links (src_id, dst_id) VALUES (?, ?)`, srcID, dst); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // ExtRef is one outgoing cross-vault reference: the registered name of the target vault and the
@@ -222,21 +219,18 @@ func NewExtRef(vault, key, format string) (ExtRef, bool) {
 
 // ReplaceExtLinks sets the outgoing cross-vault references for srcID.
 func (s *Store) ReplaceExtLinks(srcID int64, refs []ExtRef) error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
+	return s.atomic(func(tx *sql.Tx) error {
 
-	if _, err := tx.Exec(`DELETE FROM ext_links WHERE src_id = ?`, srcID); err != nil {
-		return err
-	}
-	for _, ref := range refs {
-		if _, err := tx.Exec(`INSERT OR IGNORE INTO ext_links (src_id, vault, title, target_id) VALUES (?, ?, ?, ?)`, srcID, ref.Vault, ref.Title, ref.TargetID); err != nil {
+		if _, err := tx.Exec(`DELETE FROM ext_links WHERE src_id = ?`, srcID); err != nil {
 			return err
 		}
-	}
-	return tx.Commit()
+		for _, ref := range refs {
+			if _, err := tx.Exec(`INSERT OR IGNORE INTO ext_links (src_id, vault, title, target_id) VALUES (?, ?, ?, ?)`, srcID, ref.Vault, ref.Title, ref.TargetID); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // ExtBacklinks returns the notes in THIS store that reference (one of vaultNames, title) across
@@ -258,7 +252,7 @@ func (s *Store) ExtBacklinksTo(vaultNames []string, title string, targetID int64
 		args = append(args, name)
 	}
 	args = append(args, title, targetID, targetID)
-	rows, err := s.db.Query(
+	rows, err := s.runner().Query(
 		`SELECT DISTINCT n.id, n.kind, n.title, n.flags
 		 FROM ext_links e JOIN notes n ON n.id = e.src_id
 		 WHERE e.vault IN (`+placeholders+`) AND ((e.title = ? AND e.target_id = 0) OR (? > 0 AND e.target_id = ?))
@@ -272,7 +266,7 @@ func (s *Store) ExtBacklinksTo(vaultNames []string, title string, targetID int64
 
 // Keywords returns the full auto-link dictionary (note titles).
 func (s *Store) Keywords() ([]Keyword, error) {
-	rows, err := s.db.Query(
+	rows, err := s.runner().Query(
 		`SELECT k.term, k.note_id, n.kind, k.kind
 		 FROM keywords k JOIN notes n ON n.id = k.note_id
 		 WHERE n.kind IN ('note', 'journal') ORDER BY n.id`,
@@ -338,7 +332,7 @@ func (s *Store) ResolveLink(key, format string) (NoteRef, bool, error) {
 		return NoteRef{}, false, nil
 	}
 	var ref NoteRef
-	err := s.db.QueryRow(`SELECT id, kind, title FROM notes WHERE id = ? AND kind IN ('note', 'journal')`, id).Scan(&ref.NoteID, &ref.FileKind, &ref.Title)
+	err := s.runner().QueryRow(`SELECT id, kind, title FROM notes WHERE id = ? AND kind IN ('note', 'journal')`, id).Scan(&ref.NoteID, &ref.FileKind, &ref.Title)
 	if isNoRows(err) {
 		return NoteRef{}, false, nil
 	}
@@ -353,7 +347,7 @@ func (s *Store) ResolveLink(key, format string) (NoteRef, bool, error) {
 // riding on SQLite's unordered LIMIT 1.
 func (s *Store) ResolveTerm(term string) (NoteRef, bool, error) {
 	var ref NoteRef
-	err := s.db.QueryRow(
+	err := s.runner().QueryRow(
 		`SELECT k.note_id, n.kind, n.title
 		 FROM keywords k JOIN notes n ON n.id = k.note_id
 		 WHERE k.term = ? AND n.kind IN ('note', 'journal')
@@ -372,7 +366,7 @@ func (s *Store) ResolveTerm(term string) (NoteRef, bool, error) {
 // Backlinks returns notes that link to the given note id, most recently updated first — the one
 // ordering every note-list surface shares (see sortRefs in webui and the static bundle).
 func (s *Store) Backlinks(id int64) ([]NoteRef, error) {
-	rows, err := s.db.Query(
+	rows, err := s.runner().Query(
 		`SELECT n.id, n.kind, n.title, n.flags
 		 FROM links l JOIN notes n ON n.id = l.src_id
 		 WHERE l.dst_id = ? ORDER BY n.mtime DESC, n.id`,
@@ -389,7 +383,7 @@ func (s *Store) Backlinks(id int64) ([]NoteRef, error) {
 // recently updated first — the shared note-list order, so a calendar cell's visible titles and the day
 // page it opens read identically.
 func (s *Store) NotesOnDay(day string) ([]NoteRef, error) {
-	rows, err := s.db.Query(
+	rows, err := s.runner().Query(
 		`SELECT n.id, n.kind, n.title, n.flags
 		 FROM note_days d JOIN notes n ON n.id = d.note_id
 		 WHERE d.day = ? ORDER BY n.mtime DESC, n.id`,
@@ -404,7 +398,7 @@ func (s *Store) NotesOnDay(day string) ([]NoteRef, error) {
 
 // AllNotes returns every note as a NoteRef, ordered by id.
 func (s *Store) AllNotes() ([]NoteRef, error) {
-	rows, err := s.db.Query(`SELECT id, kind, title, flags FROM notes ORDER BY id`)
+	rows, err := s.runner().Query(`SELECT id, kind, title, flags FROM notes ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -424,7 +418,7 @@ func (s *Store) NoteMetaMtimes() (map[int64]int64, error) {
 }
 
 func (s *Store) mtimeColumn(column string) (map[int64]int64, error) {
-	rows, err := s.db.Query(`SELECT id, ` + column + ` FROM notes`)
+	rows, err := s.runner().Query(`SELECT id, ` + column + ` FROM notes`)
 	if err != nil {
 		return nil, err
 	}
@@ -444,7 +438,7 @@ func (s *Store) mtimeColumn(column string) (map[int64]int64, error) {
 // IndexedLinkFormat is the body-link grammar used by the last complete rebuild.
 func (s *Store) IndexedLinkFormat() (string, error) {
 	var format string
-	err := s.db.QueryRow(`SELECT value FROM index_state WHERE key = 'link_format'`).Scan(&format)
+	err := s.runner().QueryRow(`SELECT value FROM index_state WHERE key = 'link_format'`).Scan(&format)
 	if isNoRows(err) {
 		return "", nil
 	}
@@ -452,6 +446,6 @@ func (s *Store) IndexedLinkFormat() (string, error) {
 }
 
 func (s *Store) SetIndexedLinkFormat(format string) error {
-	_, err := s.db.Exec(`INSERT INTO index_state (key,value) VALUES ('link_format',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, format)
+	_, err := s.runner().Exec(`INSERT INTO index_state (key,value) VALUES ('link_format',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, format)
 	return err
 }

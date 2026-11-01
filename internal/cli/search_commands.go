@@ -33,7 +33,7 @@ func cmdKeywords(args []string) int {
 	for i := range kws {
 		kws[i].Path = cfg.PathForKind(kws[i].FileKind, kws[i].NoteID)
 	}
-	return emit(map[string]any{"keywords": kws})
+	return emitRead(s, map[string]any{"keywords": kws})
 }
 
 func cmdResolve(args []string) int {
@@ -70,9 +70,9 @@ func cmdResolve(args []string) int {
 			return fail("resolve %s:%s: %v", vault, title, err)
 		}
 		if !found {
-			return emit(map[string]any{"found": false, "vault": vault})
+			return emitRead(s, map[string]any{"found": false, "vault": vault})
 		}
-		return emit(map[string]any{"found": true, "vault": vault, "note_id": resolved.NoteID, "path": resolved.Path})
+		return emitRead(s, map[string]any{"found": true, "vault": vault, "note_id": resolved.NoteID, "path": resolved.Path})
 	}
 
 	ref, found, err := s.ResolveTerm(keyword)
@@ -80,9 +80,9 @@ func cmdResolve(args []string) int {
 		return fail("resolve: %v", err)
 	}
 	if !found {
-		return emit(map[string]any{"found": false})
+		return emitRead(s, map[string]any{"found": false})
 	}
-	return emit(map[string]any{"found": true, "note_id": ref.NoteID, "path": cfg.PathForKind(ref.FileKind, ref.NoteID)})
+	return emitRead(s, map[string]any{"found": true, "note_id": ref.NoteID, "path": cfg.PathForKind(ref.FileKind, ref.NoteID)})
 }
 
 func cmdSearch(args []string) int {
@@ -131,7 +131,7 @@ func cmdSearch(args []string) int {
 	if results == nil {
 		results = []store.SearchResult{}
 	}
-	return emit(map[string]any{"results": results})
+	return emitRead(s, map[string]any{"results": results})
 }
 
 // cmdNotes lists indexed notes as JSON, most recently updated first — the CLI counterpart of the web
@@ -178,7 +178,7 @@ func cmdNotes(args []string) int {
 	if *limit > 0 && len(notes) > *limit {
 		notes = notes[:*limit]
 	}
-	return emit(map[string]any{"notes": notes})
+	return emitRead(s, map[string]any{"notes": notes})
 }
 
 func cmdBacklinks(args []string) int {
@@ -223,7 +223,18 @@ func cmdBacklinks(args []string) int {
 	// They are keyed by this note's title, and a vault that cannot be consulted is reported —
 	// a missing backlink must be distinguishable from a missing vault.
 	if len(cfg.Vaults) > 0 {
-		meta, found, err := note.ReadMetadata(cfg.MetadataPath(noteID))
+		meta, found, err := s.ReadMetadata(noteID, cfg.MetadataPath(noteID))
+		if err != nil {
+			issue := store.FileReadIssue(noteID, cfg.MetadataPath(noteID), cfg.MetadataPath(noteID), err.Error(), true)
+			times, dbErr := s.NoteMtimes()
+			if dbErr != nil {
+				return fail("read state: %v", dbErr)
+			}
+			issue.BodyMtime = times[noteID]
+			if stateErr := s.AddReadIssue(issue); stateErr != nil {
+				return fail("read state: %v", stateErr)
+			}
+		}
 		if err == nil && found && meta.Title != "" {
 			r := vaultref.New(cfg)
 			defer r.Close()
@@ -238,7 +249,7 @@ func cmdBacklinks(args []string) int {
 			out["unavailable"] = unavailable
 		}
 	}
-	return emit(out)
+	return emitRead(s, out)
 }
 
 // cmdNav prints a note's hierarchy navigation, built from the "up" relation property: the ancestor
@@ -306,7 +317,7 @@ func cmdNav(args []string) int {
 			refs[i].Path = cfg.PathForKind(refs[i].FileKind, refs[i].NoteID)
 		}
 	}
-	return emit(map[string]any{"trail": trail, "children": children})
+	return emitRead(s, map[string]any{"trail": trail, "children": children})
 }
 
 // cmdAgenda serves two views of one day, selected by --mode. The default activity view lists the notes
@@ -361,7 +372,7 @@ func cmdAgendaActivity(cfg *config.Config, s *store.Store, day string) int {
 	for i := range notes {
 		notes[i].Path = cfg.PathForKind(notes[i].FileKind, notes[i].NoteID)
 	}
-	return emit(map[string]any{"date": day, "notes": notes})
+	return emitRead(s, map[string]any{"date": day, "notes": notes})
 }
 
 // cmdAgendaPlanning is the planning view of `track agenda`: it cross-sections the open dated tasks —
@@ -392,7 +403,7 @@ func cmdAgendaPlanning(cfg *config.Config, s *store.Store, day string) int {
 	for i := range sel {
 		sel[i].Path = cfg.PathForKind(sel[i].FileKind, sel[i].NoteID)
 	}
-	return emit(map[string]any{"date": day, "mode": "planning", "tasks": sel})
+	return emitRead(s, map[string]any{"date": day, "mode": "planning", "tasks": sel})
 }
 
 func cmdGraph(args []string) int {
@@ -444,5 +455,5 @@ func cmdGraph(args []string) int {
 	for i := range graph.Nodes {
 		graph.Nodes[i].Path = cfg.PathForKind(graph.Nodes[i].FileKind, graph.Nodes[i].NoteID)
 	}
-	return emit(map[string]any{"graph": graph})
+	return emitRead(s, map[string]any{"graph": graph})
 }

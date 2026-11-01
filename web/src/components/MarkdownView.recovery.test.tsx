@@ -1,0 +1,22 @@
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, expect, it, vi } from "vitest";
+import { MarkdownView } from "./MarkdownView";
+const loader=vi.hoisted(()=>vi.fn());
+vi.mock("./markdown/math",()=>({looksLikeMath:()=>true,mathPluginsIfLoaded:()=>null,loadMathPlugins:loader}));
+vi.mock("./markdown/Embed",()=>({Embed:()=>null}));
+vi.mock("./markdown/ExternalMarkdownView",()=>({ExternalMarkdownView:()=>null}));
+vi.mock("./preview/WikiLink",()=>({WikiLink:()=>null}));
+vi.mock("@tanstack/react-router",()=>({useRouterState:()=>"/",useNavigate:()=>vi.fn()}));
+afterEach(()=>vi.restoreAllMocks());
+it("keeps prose after math loader rejection, avoids a retry loop, and recovers on request",async()=>{
+ vi.spyOn(console,"warn").mockImplementation(()=>{});
+ loader.mockRejectedValueOnce(new Error("synthetic math chunk failure"));
+ render(<MarkdownView markdown="Readable prose with $x$" />);
+ expect(await screen.findByText(/Math rendering is unavailable/)).toBeTruthy();
+ expect(screen.getByText(/Readable prose with/)).toBeTruthy();
+ expect(loader).toHaveBeenCalledTimes(1);
+ loader.mockResolvedValue({remark:()=>{},rehype:()=>{}});
+ fireEvent.click(screen.getByText("Retry math"));
+ await waitFor(()=>expect(screen.queryByText(/Math rendering is unavailable/)).toBeNull());
+ expect(loader).toHaveBeenCalledTimes(2);
+});

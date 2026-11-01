@@ -19,7 +19,7 @@ func (s *Server) handleLocalGraph(v *vaultView, w http.ResponseWriter, r *http.R
 		return
 	}
 	addGraphPaths(v, graph.Nodes)
-	writeJSON(w, map[string]any{"vault": v.label, "graph": graph})
+	writeReadJSON(w, v, map[string]any{"vault": v.label, "graph": graph})
 }
 
 func (s *Server) handleGraph(v *vaultView, w http.ResponseWriter, r *http.Request) {
@@ -30,7 +30,7 @@ func (s *Server) handleGraph(v *vaultView, w http.ResponseWriter, r *http.Reques
 		return
 	}
 	addGraphPaths(v, graph.Nodes)
-	writeJSON(w, map[string]any{"vault": v.label, "graph": graph})
+	writeReadJSON(w, v, map[string]any{"vault": v.label, "graph": graph})
 }
 
 // handleHierarchy serves the whole vault's "up" tree, the rail's hierarchy menu. It is a listing like
@@ -43,7 +43,7 @@ func (s *Server) handleHierarchy(v *vaultView, w http.ResponseWriter, r *http.Re
 		writeError(w, err, http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, map[string]any{"vault": v.label, "hierarchy": tree})
+	writeReadJSON(w, v, map[string]any{"vault": v.label, "hierarchy": tree})
 }
 
 // addGraphPaths labels each node with its path and the vault it lives in, so a graph drawn over

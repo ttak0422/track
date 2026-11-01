@@ -15,6 +15,7 @@ vi.mock("../api", () => ({
 }));
 
 const seedMeta = {
+  etag:"synthetic-original",
   title: "Alpha",
   kind: "note",
   tags: ["project", "draft"],
@@ -72,6 +73,7 @@ describe("NoteMetaDialog", () => {
 
     await waitFor(() =>
       expect(saveNoteMeta).toHaveBeenCalledWith("n1", {
+        etag:"synthetic-original",
         title: "Beta",
         tags: ["go", "lua"],
         description: "New.",
@@ -153,4 +155,14 @@ describe("NoteMetaDialog", () => {
     expect(await screen.findByText(/must be one of/)).toBeInTheDocument();
     expect(screen.getByLabelText("Cover image")).toHaveValue("assets/old.png");
   });
+});
+
+it("cannot submit blank metadata after a failed initial read",async()=>{
+ saveNoteMeta.mockClear();
+ getNoteMeta.mockRejectedValue(new Error("synthetic initial metadata failure"));
+ renderDialog();
+ expect(await screen.findByText("synthetic initial metadata failure")).toBeTruthy();
+ expect(screen.getByText("Save")).toBeDisabled();
+ fireEvent.click(screen.getByText("Save"));
+ expect(saveNoteMeta).not.toHaveBeenCalled();
 });

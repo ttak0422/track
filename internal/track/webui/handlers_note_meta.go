@@ -36,7 +36,11 @@ func (s *Server) handleNoteMeta(v *vaultView, w http.ResponseWriter, r *http.Req
 	case http.MethodGet, "":
 		v.reindexMu.Lock()
 		defer v.reindexMu.Unlock()
-		meta, _, err := note.ReadMetadata(v.cfg.MetadataPath(id))
+		if err := v.store.RequireMetadata(id, v.cfg.MetadataPath(id)); err != nil {
+			writeError(w, err, http.StatusConflict)
+			return
+		}
+		meta, _, err := v.store.ReadMetadata(id, v.cfg.MetadataPath(id))
 		if err != nil {
 			writeError(w, err, http.StatusInternalServerError)
 			return
@@ -61,8 +65,12 @@ func (s *Server) handleNoteMeta(v *vaultView, w http.ResponseWriter, r *http.Req
 		// External CLI/cloud writers do not take this lock.
 		v.reindexMu.Lock()
 		defer v.reindexMu.Unlock()
+		if err := v.store.RequireMetadata(id, v.cfg.MetadataPath(id)); err != nil {
+			writeError(w, err, http.StatusConflict)
+			return
+		}
 		if req.ETag != nil {
-			current, _, err := note.ReadMetadata(v.cfg.MetadataPath(id))
+			current, _, err := v.store.ReadMetadata(id, v.cfg.MetadataPath(id))
 			if err != nil {
 				writeError(w, err, http.StatusInternalServerError)
 				return
@@ -95,6 +103,17 @@ func (s *Server) handleNoteMeta(v *vaultView, w http.ResponseWriter, r *http.Req
 		// write; an empty title means "leave the title unchanged".
 		newTitle := strings.TrimSpace(doc.Title)
 		if newTitle != "" {
+			current, _, err := v.store.ReadMetadata(id, v.cfg.MetadataPath(id))
+			if err != nil {
+				writeError(w, err, http.StatusConflict)
+				return
+			}
+			if newTitle != current.Title {
+				if _, err := index.New(v.cfg, v.store).FullStrict(); err != nil {
+					writeError(w, err, http.StatusConflict)
+					return
+				}
+			}
 			if err := config.ValidateLinkTitle(v.cfg.LinkFormat, newTitle); err != nil {
 				writeError(w, err, http.StatusBadRequest)
 				return
@@ -108,7 +127,7 @@ func (s *Server) handleNoteMeta(v *vaultView, w http.ResponseWriter, r *http.Req
 			}
 		}
 		if ref.FileKind == config.KindJournal && newTitle != "" {
-			current, _, err := note.ReadMetadata(v.cfg.MetadataPath(id))
+			current, _, err := v.store.ReadMetadata(id, v.cfg.MetadataPath(id))
 			if err != nil {
 				writeError(w, err, http.StatusInternalServerError)
 				return

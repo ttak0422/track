@@ -136,7 +136,7 @@ func cmdEditorView(args []string) int {
 		}
 		rows = append(rows, editorRow(cfg, e))
 	}
-	return emit(map[string]any{"root": root, "entries": rows})
+	return emitRead(s, map[string]any{"root": root, "entries": rows})
 }
 
 // canonicalEditorArgs translates only approved aliases, before ordinary CLI ID parsing. Canonical

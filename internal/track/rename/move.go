@@ -47,7 +47,7 @@ func Move(srcCfg, dstCfg *config.Config, srcStore *store.Store, srcPath, dstName
 	if policy != RefuseBrokenLinks && policy != UnlinkBrokenLinks && policy != QualifyBrokenLinks {
 		return res, fmt.Errorf("unknown broken-link policy %q", policy)
 	}
-	if _, err := index.New(srcCfg, srcStore).Full(); err != nil {
+	if _, err := index.New(srcCfg, srcStore).FullStrict(); err != nil {
 		return res, fmt.Errorf("reindex source before move: %w", err)
 	}
 
@@ -232,7 +232,7 @@ func Move(srcCfg, dstCfg *config.Config, srcStore *store.Store, srcPath, dstName
 		return res, fmt.Errorf("open destination index: %w", err)
 	}
 	defer dstStore.Close()
-	if _, err := index.New(dstCfg, dstStore).Full(); err != nil {
+	if _, err := index.New(dstCfg, dstStore).FullStrict(); err != nil {
 		return res, fmt.Errorf("reindex destination: %w", err)
 	}
 
@@ -240,11 +240,17 @@ func Move(srcCfg, dstCfg *config.Config, srcStore *store.Store, srcPath, dstName
 	if err != nil {
 		return res, fmt.Errorf("move source to trash: %w", err)
 	}
-	if _, err := index.New(srcCfg, srcStore).Full(); err != nil {
+	if err := srcStore.DeleteNote(noteID); err != nil {
+		if restoreErr := trashed.Restore(); restoreErr != nil {
+			return res, fmt.Errorf("delete source index: %w; restore failed: %v", err, restoreErr)
+		}
+		return res, fmt.Errorf("delete source index: %w (source restored)", err)
+	}
+	if _, err := index.New(srcCfg, srcStore).FullStrict(); err != nil {
 		if restoreErr := trashed.Restore(); restoreErr != nil {
 			return res, fmt.Errorf("reindex source: %w; source restore failed: %v", err, restoreErr)
 		}
-		_, _ = index.New(srcCfg, srcStore).Full()
+		_, _ = index.New(srcCfg, srcStore).FullStrict()
 		return res, fmt.Errorf("reindex source: %w (source restored)", err)
 	}
 	return res, nil

@@ -3,6 +3,7 @@ package note
 import (
 	"errors"
 	"fmt"
+	"github.com/ttak0422/track/internal/track/vaultfile"
 	"os"
 	"path/filepath"
 	"slices"
@@ -48,9 +49,14 @@ func supportedVersion(v int) bool {
 
 // ReadMetadata reads a versioned metadata sidecar. found=false means the note has no sidecar yet.
 func ReadMetadata(path string) (meta Metadata, found bool, err error) {
-	raw, err := os.ReadFile(path)
+	raw, err := vaultfile.Read(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
+			if _, linkErr := os.Lstat(path); linkErr == nil {
+				return Metadata{}, false, vaultfile.ReadError(path, err)
+			} else if !errors.Is(linkErr, os.ErrNotExist) {
+				return Metadata{}, false, vaultfile.ReadError(path, linkErr)
+			}
 			return Metadata{}, false, nil
 		}
 		return Metadata{}, false, err

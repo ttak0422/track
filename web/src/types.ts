@@ -68,7 +68,16 @@ export interface VaultsResponse {
   unavailable?: UnavailableVault[];
 }
 
+export interface PartialReadState {
+  partial: boolean;
+  cache_used: boolean;
+  checked_at: number;
+  issues: { note_id?: NoteID; path: string; reason: string; cached?: boolean }[];
+}
+
 export interface SearchResponse {
+  read_state?: PartialReadState;
+  partial?: { name: string; read_state: PartialReadState }[];
   results: SearchResult[];
   unavailable?: UnavailableVault[];
 }
@@ -187,6 +196,7 @@ export interface NoteProp {
 }
 
 export interface NoteDetail extends SearchResult {
+  read_only?: boolean;
   copy_path: string;
   body: string;
   etag: string;
@@ -210,6 +220,7 @@ export interface ExternalRef {
 }
 
 export interface NoteResponse {
+  read_state?: PartialReadState;
   note: NoteDetail;
   backlinks: NoteRef[];
   // Inbound [[vault:title]] references from other vaults, and the vaults that could not be
@@ -253,6 +264,7 @@ export interface DeleteNoteResponse {
 // stays free-form — a YAML "key: value" block the engine parses and validates. The frontend never
 // assembles YAML: it sends these fields and the engine composes/validates the document.
 export interface NoteMetaResponse {
+  etag?: string;
   title: string;
   // The note's file kind ("note" | "journal"). Journal titles are date-derived, so the editor
   // disables title editing for them.
@@ -272,6 +284,7 @@ export interface NoteMetaResponse {
 // A save request replaces the whole editable metadata; a rejected edit changes nothing. tags is the
 // comma-split list (the engine dedups/normalizes); props is the free-form block, parsed server-side.
 export interface SaveNoteMetaRequest {
+  etag?: string;
   title: string;
   tags: string[];
   description: string;

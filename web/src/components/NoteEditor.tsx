@@ -1,3 +1,4 @@
+import { RenderFailure } from "./RenderFailure";
 import { useBlocker, useNavigate } from "@tanstack/react-router";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { DrawioEditorDialog } from "./DrawioEditorDialog";
@@ -41,6 +42,7 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
   // Poll so the note reflects edits made elsewhere; we still guard against
   // clobbering unsaved local edits below.
   const noteQuery = useNoteQuery(noteID, { live: true });
+  const readOnly = noteQuery.isError || noteQuery.data?.note.read_only === true;
   const saveNote = useSaveNoteMutation(noteID);
   const deleteNote = useDeleteNoteMutation(noteID);
   const {
@@ -128,7 +130,7 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
   }, [body]);
 
   useEffect(() => {
-    if (noteQuery.isPending) return;
+    if (noteQuery.isPending || readOnly || !noteQuery.data?.note) return;
     markSeen(noteID);
     let last = Date.now();
     const flush = () => {
@@ -146,7 +148,7 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
       document.removeEventListener("visibilitychange", onVisibility);
       flush();
     };
-  }, [noteID, noteQuery.isPending]);
+  }, [noteID, noteQuery.isPending, readOnly, !!noteQuery.data?.note]);
 
   useEffect(() => {
     editorModeRef.current = editorMode;
@@ -170,13 +172,14 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
   });
 
   useEffect(() => {
+    if(readOnly || !noteQuery.data?.note){setActions(null);return}
     setActions({
       getBody: () => railBodyRef.current,
       onMeta: () => railMetaRef.current(),
       onDelete: () => railDeleteRef.current(),
     });
     return () => setActions(null);
-  }, [setActions]);
+  }, [setActions,readOnly,!!noteQuery.data?.note]);
 
   useEffect(() => {
     const incoming = noteQuery.data?.note;
@@ -199,13 +202,14 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
   }, [noteID, noteQuery.data?.note.etag, diagram]);
 
   const dirty = body !== loadedRef.current.body;
+  const currentRender = renderQuery.data?.sourceBody === body && loadedRef.current.noteID === noteID && !renderQuery.isError && !renderQuery.isPlaceholderData;
   const protectedDraft = dirty || diagram !== null;
   // Memoized so a disk refresh (which swaps only tasksRef.current) does not re-render the controls:
   // the value identity is what the consumers re-render on, and noteID is the only part of it that
   // changes their rendered output (the inert/read-only blanking while the buffer is dirty).
   const taskBoardValue = useMemo(
-    () => ({ noteID: dirty ? "" : noteID, tasksRef }),
-    [dirty, noteID, tasksRef],
+    () => ({ noteID: dirty || readOnly || !currentRender ? "" : noteID, tasksRef }),
+    [dirty, readOnly, currentRender, noteID, tasksRef],
   );
 
   useBlocker({
@@ -372,7 +376,7 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!dirty || saveNote.isPending || diagram) return;
+    if (!dirty || readOnly || saveNote.isPending || diagram) return;
     try {
       const response = await saveNote.mutateAsync({
         body,
@@ -387,7 +391,7 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
   const deleteConfirmed = deleteConfirmText.trim() === note.title.trim();
 
   async function confirmDelete() {
-    if (!deleteConfirmed || deleteNote.isPending) return;
+    if (!deleteConfirmed || readOnly || deleteNote.isPending) return;
     try {
       await deleteNote.mutateAsync();
       // Skip the unsaved-changes guard, drop the dirty marker, then close this note's tab — which moves
@@ -473,7 +477,7 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
               <button
                 type="button"
                 className="danger-button"
-                disabled={!deleteConfirmed || deleteNote.isPending}
+                disabled={!deleteConfirmed || readOnly || deleteNote.isPending}
                 onClick={confirmDelete}
               >
                 {deleteNote.isPending ? "Deleting..." : "Delete note"}
@@ -496,6 +500,8 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
           />
 
           <form className="note-editor" onSubmit={submit}>
+            {data.read_state?.partial ? <p className="muted">Some information is unavailable or cached. Results may be incomplete.</p> : null}
+            {data.note.read_only ? <p className="muted">Reading remains available. Editing is disabled until the index recovers.</p> : null}
             <div className={`editor-grid editor-grid-${editorMode}`}>
               {editorMode !== "preview" ? (
                 <div className="note-surface note-source">
@@ -504,6 +510,7 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
                     aria-label="Note body"
                     ref={textareaRef}
                     value={body}
+                    readOnly={readOnly}
                     onChange={(event) => {
                       setBody(event.currentTarget.value);
                       revealTextareaCaret(event.currentTarget);
@@ -527,7 +534,7 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
                     {editorMode === "preview" ? <LineHint /> : null}
                     {/* A non-empty body with no render yet is still loading — show a spinner rather than let
                       MarkdownView flash "Empty note." for a body that is not actually empty. */}
-                    {body.trim() !== "" &&
+                    {renderQuery.isError ? <RenderFailure source={body} retry={() => { void renderQuery.refetch(); }} retrying={renderQuery.isFetching} /> : body.trim() !== "" &&
                     renderQuery.data?.markdown === undefined ? (
                       <LoadingIndicator label="Loading note" />
                     ) : (
@@ -548,8 +555,8 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
                           vault={noteVault}
                           includes={renderQuery.data?.includes}
                           copyPath={note.copy_path}
-                          drawioEditing={renderQuery.data?.sourceBody === body && loadedRef.current.noteID === noteID && !saveNote.isPending ? {
-                            fences: renderQuery.data.drawio_fences ?? [],
+                          drawioEditing={currentRender && !readOnly && !saveNote.isPending ? {
+                            fences: renderQuery.data?.drawio_fences ?? [],
                             open: (fence) => setDiagram({ id: crypto.randomUUID(), noteID, source: body, fence }),
                           } : null}
                         />
@@ -575,7 +582,7 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
                 <button
                   className="primary-button"
                   type="submit"
-                  disabled={!dirty || saveNote.isPending || diagram !== null}
+                  disabled={!dirty || readOnly || saveNote.isPending || diagram !== null}
                 >
                   {saveNote.isPending ? "Saving..." : "Save"}
                 </button>

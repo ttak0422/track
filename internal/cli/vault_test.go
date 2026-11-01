@@ -779,14 +779,16 @@ func TestFederatedSearchDegradesAVaultWhoseSearchFails(t *testing.T) {
 	if len(results) != 1 || results[0].(map[string]any)["title"] != "Home" {
 		t.Fatalf("the vault that could answer must still answer, got %v", results)
 	}
-	unavailable := decoded["unavailable"].([]any)
-	if len(unavailable) != 1 {
-		t.Fatalf("the vault whose query failed must be reported, got %v", unavailable)
+	partial := decoded["partial"].([]any)
+	if len(partial) != 1 {
+		t.Fatalf("missing per-file partial state: %v", decoded)
 	}
-	gap := unavailable[0].(map[string]any)
-	if gap["name"] != "work" || gap["path"] != work || gap["error"] == "" {
-		t.Fatalf("the gap must name the vault, where it lives, and why it failed, got %v", gap)
+	gap := partial[0].(map[string]any)
+	state := gap["read_state"].(map[string]any)
+	if gap["name"] != "work" || state["partial"] != true || state["cache_used"] != true {
+		t.Fatalf("wrong partial state: %v", gap)
 	}
+
 }
 
 func TestCrossVaultRefsResolveAndBacklinks(t *testing.T) {
