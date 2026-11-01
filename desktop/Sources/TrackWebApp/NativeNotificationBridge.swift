@@ -24,14 +24,20 @@ final class AppleActivityNotificationDriver: NSObject, ActivityNotificationDrive
     func permission() async -> String {
         // SwiftPM test executables are not app bundles and cannot use Notification Center.
         guard Bundle.main.bundleIdentifier != nil else { return "Unavailable" }
-        let settings = await center.notificationSettings()
-        switch settings.authorizationStatus {
-        case .notDetermined: return "Not requested"
-        case .denied: return "Denied in System Settings"
-        case .authorized, .provisional, .ephemeral:
-            return settings.alertSetting == .enabled || settings.notificationCenterSetting == .enabled
-                ? "Allowed" : "Delivery disabled in System Settings"
-        @unknown default: return "Unavailable"
+        // Older SDKs do not mark UNNotificationSettings as Sendable. Read it inside its callback.
+        return await withCheckedContinuation { continuation in
+            center.getNotificationSettings { settings in
+                let state: String
+                switch settings.authorizationStatus {
+                case .notDetermined: state = "Not requested"
+                case .denied: state = "Denied in System Settings"
+                case .authorized, .provisional, .ephemeral:
+                    state = settings.alertSetting == .enabled || settings.notificationCenterSetting == .enabled
+                        ? "Allowed" : "Delivery disabled in System Settings"
+                @unknown default: state = "Unavailable"
+                }
+                continuation.resume(returning: state)
+            }
         }
     }
 
