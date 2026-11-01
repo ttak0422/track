@@ -44,7 +44,12 @@ final class AppleActivityNotificationDriver: NSObject, ActivityNotificationDrive
     func authorize() async throws -> Bool {
         // Only the explicit Enable menu action may request permission.
         if await permission() == "Not requested" {
-            return try await center.requestAuthorization(options: [.alert])
+            return try await withCheckedThrowingContinuation { continuation in
+                center.requestAuthorization(options: [.alert]) { allowed, error in
+                    if let error { continuation.resume(throwing: error) }
+                    else { continuation.resume(returning: allowed) }
+                }
+            }
         }
         return await permission() == "Allowed"
     }
@@ -54,7 +59,13 @@ final class AppleActivityNotificationDriver: NSObject, ActivityNotificationDrive
         content.title = "Track"
         content.body = "Your vault has new activity. Open Track to view it."
         // No note titles, bodies, paths or identifiers reach Notification Center or the lock screen.
-        try await center.add(UNNotificationRequest(identifier: identifier, content: content, trigger: nil))
+        let request = UNNotificationRequest(identifier: identifier, content: content, trigger: nil)
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            center.add(request) { error in
+                if let error { continuation.resume(throwing: error) }
+                else { continuation.resume() }
+            }
+        }
     }
 
     func remove(identifiers: [String]) {
