@@ -40,7 +40,7 @@ func (s *Server) handleTasks(v *vaultView, w http.ResponseWriter, r *http.Reques
 		}
 		// The vault label qualifies each row's note id client-side, as the journal and search
 		// responses do — two vaults hold different notes under the same number.
-		writeJSON(w, map[string]any{"vault": v.label, "tasks": rows})
+		writeReadJSON(w, v, map[string]any{"vault": v.label, "tasks": rows})
 		return
 	}
 	id, err := parseID(r)

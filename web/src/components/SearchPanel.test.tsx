@@ -34,6 +34,7 @@ type MockResult = {
 };
 
 const searchState = vi.hoisted(() => ({
+  partial: false,
   results: [
     { note_id: "1", file_kind: "note", path: "", title: "Titled", match: "title", tags: ["daily"] },
     { note_id: "2", file_kind: "note", path: "", title: "Bodied", match: "body" },
@@ -64,7 +65,7 @@ vi.mock("../queries", () => ({
   useSearchQuery: (...args: unknown[]) => {
     searchCalls.push(args);
     return {
-      data: { results: searchState.results, unavailable: [] },
+      data: { results: searchState.results, unavailable: [], read_state: searchState.partial ? {partial:true} : undefined },
       isPending: false,
       isError: false,
     };
@@ -192,4 +193,15 @@ describe("SearchPanel groups", () => {
     expect(badge).not.toBeNull();
     expect(badge).toHaveTextContent("DEPRECATED");
   });
+});
+
+it("explains partial cached results without hiding accessible hits", () => {
+ const previous = searchState.results;
+ searchState.results = [{note_id:"1",file_kind:"note",path:"",title:"Synthetic accessible",match:"title"}];
+ searchState.partial = true;
+ try {
+  renderPanel(<SearchPanel />);
+  expect(screen.getByText(/Some files could not be checked/)).toBeTruthy();
+  expect(screen.getByText("Synthetic accessible")).toBeTruthy();
+ } finally { searchState.partial = false; searchState.results = previous; }
 });

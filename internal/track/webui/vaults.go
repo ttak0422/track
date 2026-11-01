@@ -31,8 +31,9 @@ type vaultView struct {
 	// reindexMu serializes this vault's reindexes and lastStale throttles its read-path freshness
 	// scan. Both are per vault: each vault has its own index, so one vault's rebuild must not block
 	// or throttle another's.
-	reindexMu sync.Mutex
-	lastStale time.Time
+	reindexMu  sync.Mutex
+	lastStale  time.Time
+	refreshErr error
 }
 
 // refresh reconciles one vault's index with the notes on disk before a read, so the workspace
@@ -48,8 +49,12 @@ func (s *Server) refresh(v *vaultView) {
 	changed, err := index.New(v.cfg, v.store).RefreshIfStale()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "track web: refresh-if-stale failed for vault %q: %v\n", v.name, err)
+		// A failed DB write may prevent persisting the status, so retain the
+		// error on this view as well for every response during throttling.
+		v.refreshErr = err
 		return
 	}
+	v.refreshErr = nil
 	if changed {
 		s.events.broadcastChange()
 	}

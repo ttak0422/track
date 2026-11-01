@@ -108,7 +108,12 @@ var MetadataKeyOrder = []string{
 // The sidecar metadata is authoritative for the title and other structured fields: the body is plain
 // content. A note's title comes from the sidecar and changes only through the create/rename commands,
 // never by editing a body heading, so the body may contain any headings (including a leading H1).
-func ParseFile(path string, c *config.Config) (*Note, error) {
+func ParseFile(path string, c *config.Config) (*Note, error) { return parseFile(path, c, true) }
+
+// ReadFile parses without migrating legacy metadata or creating sidecars.
+func ReadFile(path string, c *config.Config) (*Note, error) { return parseFile(path, c, false) }
+
+func parseFile(path string, c *config.Config, migrate bool) (*Note, error) {
 	id, err := IDFromPath(path)
 	if err != nil {
 		return nil, &ParseError{Path: path, Err: fmt.Errorf("invalid note filename (expected a numeric id): %w", err)}
@@ -146,7 +151,7 @@ func ParseFile(path string, c *config.Config) (*Note, error) {
 
 	// A freshly migrated legacy footmatter note has no sidecar yet; persist one so later reads are
 	// metadata-driven. Sidecars that already exist are never rewritten from the body.
-	if !found && metadataSource {
+	if migrate && !found && metadataSource {
 		if err := WriteMetadata(metaPath, meta); err != nil {
 			return nil, err
 		}

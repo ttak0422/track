@@ -63,7 +63,7 @@ func cmdExportSite(args []string) int {
 
 	// Reindex so the published link graph reflects every note's current links: a note that links to one
 	// created later only gets that edge on a full reindex, which export should not miss.
-	if _, err := index.New(cfg, s).Full(); err != nil {
+	if _, err := index.New(cfg, s).FullStrict(); err != nil {
 		return fail("reindex: %v", err)
 	}
 

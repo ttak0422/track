@@ -106,21 +106,31 @@ func sweepVaults(targets []vaultTarget, fn func(*config.Config) (map[string]any,
 	return rows, ok
 }
 
-// reindexVault resets and rebuilds one vault's index.
+// reindexVault rebuilds accessible data without discarding the existing cache.
 func reindexVault(cfg *config.Config) (map[string]any, error) {
-	if err := store.Reset(cfg.DBPath); err != nil {
-		return nil, fmt.Errorf("reset index db: %v", err)
-	}
+	return reindexVaultWithPrune(cfg, false)
+}
+
+func reindexVaultWithPrune(cfg *config.Config, prune bool) (map[string]any, error) {
 	s, err := store.Open(cfg.DBPath)
 	if err != nil {
 		return nil, err
 	}
 	defer s.Close()
-	rep, err := index.New(cfg, s).Full()
+	ix := index.New(cfg, s)
+	var rep index.Report
+	if prune {
+		rep, err = ix.ReconcileMissing()
+	} else {
+		rep, err = ix.Full()
+	}
 	if err != nil {
 		return nil, fmt.Errorf("reindex: %v", err)
 	}
 	out := map[string]any{"indexed": rep.Indexed, "deleted": rep.Deleted, "links": rep.Links}
+	if rep.ReadState != nil {
+		out["read_state"] = rep.ReadState
+	}
 	if rep.Skipped > 0 {
 		out["skipped"] = rep.Skipped
 	}
@@ -151,7 +161,9 @@ func refreshVault(cfg *config.Config) (map[string]any, error) {
 
 func cmdReindex(args []string) int {
 	fs := flag.NewFlagSet("reindex", flag.ContinueOnError)
-	fs.Bool("full", false, "full rebuild (default and only mode for now). The index is deleted and rebuilt\nfrom the notes and sidecars on disk; with a vaults: registry and no --vault\nthis happens to every registered vault")
+	fs.Bool("full", false, "rebuild accessible files, retaining unavailable cached data")
+	prune := fs.Bool("prune-missing", false, "confirm intentional external deletions and prune missing index entries; refuses incomplete scans")
+	rebuild := func(cfg *config.Config) (map[string]any, error) { return reindexVaultWithPrune(cfg, *prune) }
 	if code, ok := parseArgs(fs, args); !ok {
 		return code
 	}
@@ -161,7 +173,7 @@ func cmdReindex(args []string) int {
 		return fail("%v", err)
 	}
 	if cross {
-		rows, ok := sweepVaults(targets, reindexVault)
+		rows, ok := sweepVaults(targets, rebuild)
 		return emit(map[string]any{"vaults": rows, "ok": ok})
 	}
 
@@ -173,7 +185,7 @@ func cmdReindex(args []string) int {
 		return fail("%v", err)
 	}
 	start := time.Now()
-	rep, err := reindexVault(cfg)
+	rep, err := rebuild(cfg)
 	if err != nil {
 		return fail("%v", err)
 	}
@@ -228,9 +240,6 @@ func cmdDoctor(args []string) int {
 			"skipped": rep.Skipped,
 		}
 		if rep.Changed {
-			if err := store.Reset(cfg.DBPath); err != nil {
-				return fail("reset index db: %v", err)
-			}
 			s, err := store.Open(cfg.DBPath)
 			if err != nil {
 				return fail("%v", err)
@@ -239,6 +248,9 @@ func cmdDoctor(args []string) int {
 			ix, err := index.New(cfg, s).Full()
 			if err != nil {
 				return fail("reindex: %v", err)
+			}
+			if ix.ReadState != nil {
+				out["read_state"] = ix.ReadState
 			}
 			out["reindexed"] = ix.Indexed
 		}

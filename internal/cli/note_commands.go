@@ -314,7 +314,7 @@ func cmdAppend(args []string) int {
 	}
 
 	if len(addTags) > 0 {
-		meta, found, err := note.ReadMetadata(cfg.MetadataPath(noteID))
+		meta, found, err := s.ReadMetadata(noteID, cfg.MetadataPath(noteID))
 		if err != nil {
 			return fail("read metadata: %v", err)
 		}
@@ -387,7 +387,7 @@ func cmdUpdate(args []string) int {
 
 	tagsUpdated := len(addTags) > 0 || *clearTags
 	if tagsUpdated {
-		meta, found, err := note.ReadMetadata(cfg.MetadataPath(noteID))
+		meta, found, err := s.ReadMetadata(noteID, cfg.MetadataPath(noteID))
 		if err != nil {
 			return fail("read metadata: %v", err)
 		}
@@ -528,7 +528,7 @@ func cmdMeta(args []string) int {
 			return fail("index note: %v", err)
 		}
 	default:
-		meta, _, err = note.ReadMetadata(cfg.MetadataPath(noteID))
+		meta, _, err = s.ReadMetadata(noteID, cfg.MetadataPath(noteID))
 		if err != nil {
 			return fail("read metadata: %v", err)
 		}
@@ -632,14 +632,35 @@ func cmdRm(args []string) int {
 		return fail("move to trash: %v", err)
 	}
 
+	if err := s.DeleteNote(noteID); err != nil {
+		if restoreErr := trashed.Restore(); restoreErr != nil {
+			return fail("delete index: %v; restore: %v", err, restoreErr)
+		}
+		return fail("delete index: %v (source restored)", err)
+	}
 	if _, err := index.New(cfg, s).Full(); err != nil {
 		return fail("reindex: %v", err)
 	}
-	return emit(map[string]any{"id": noteID, "path": notePath, "trash": trashed.TrashedNote})
+	return emitRead(s, map[string]any{"id": noteID, "path": notePath, "trash": trashed.TrashedNote})
 }
 
 // resolveNotePath turns one of --id/--title/--path into a concrete, existing note file path.
 func resolveNotePath(cfg *config.Config, s *store.Store, id int64, title, path string) (string, error) {
+	resolved, err := resolveExistingNotePath(cfg, s, id, title, path)
+	if err != nil {
+		return "", err
+	}
+	noteID, err := note.IDFromPath(resolved)
+	if err != nil {
+		return "", err
+	}
+	if err := s.RequireMetadata(noteID, cfg.MetadataPath(noteID)); err != nil {
+		return "", err
+	}
+	return resolved, nil
+}
+
+func resolveExistingNotePath(cfg *config.Config, s *store.Store, id int64, title, path string) (string, error) {
 	switch {
 	case path != "":
 		if _, ok := cfg.KindFromPath(path); !ok {

@@ -163,10 +163,10 @@ func TestRefreshSkipsBadMetadataWithoutDeletingCachedNote(t *testing.T) {
 		t.Fatalf("expected one contextual warning: %s", warnings)
 	}
 	rows, err := s.AllNotes()
-	if err != nil || len(rows) != 2 {
-		t.Fatalf("cached and new note must survive, deleted note must leave: %+v, %v", rows, err)
+	if err != nil || len(rows) != 3 {
+		t.Fatalf("cached, missing, and new notes must survive: %+v %v", rows, err)
 	}
-	if rows[0].NoteID != 100 || rows[0].Title != "Cached" || rows[1].NoteID != 300 {
+	if rows[0].NoteID != 100 || rows[0].Title != "Cached" || rows[2].NoteID != 300 {
 		t.Fatalf("unexpected rows: %+v", rows)
 	}
 	raw, _ := os.ReadFile(cfg.MetadataPath(100))
@@ -198,8 +198,8 @@ func TestRefreshWarnsAboutConflictWithUnchangedIndex(t *testing.T) {
 	path := filepath.Join(cfg.NoteDir(), "100 (conflicted copy).md")
 	fixtureFile(t, path, "conflict")
 	warnings := captureWarnings(t, func() {
-		if changed, err := ix.RefreshIfStale(); err != nil || changed {
-			t.Fatalf("conflict must not cause a rebuild: %v, %v", changed, err)
+		if changed, err := ix.RefreshIfStale(); err != nil || !changed {
+			t.Fatalf("conflict must publish partial status: %v, %v", changed, err)
 		}
 	})
 	if !strings.Contains(warnings, path) || !strings.Contains(warnings, "invalid note filename") {
@@ -207,16 +207,19 @@ func TestRefreshWarnsAboutConflictWithUnchangedIndex(t *testing.T) {
 	}
 }
 
-func TestDirectoryFailureIsFatal(t *testing.T) {
+func TestDirectoryFailureReportsPartialFirstRun(t *testing.T) {
 	cfg, s := setup(t)
-	// A root that is a file used to be swallowed as if the directory did not exist.
 	fixtureFile(t, cfg.NoteDir(), "not a directory")
 	ix := New(cfg, s)
-	if _, err := ix.Full(); err == nil {
-		t.Fatal("Full swallowed directory failure")
+	rep, err := ix.Full()
+	if err != nil || rep.ReadState == nil || rep.ReadState.CacheUsed {
+		t.Fatalf("first-run failure hidden: %+v %v", rep, err)
 	}
-	if _, err := ix.RefreshIfStale(); err == nil {
-		t.Fatal("RefreshIfStale swallowed directory failure")
+	if _, err := ix.FullStrict(); err == nil {
+		t.Fatal("directory failure allowed strict mutation")
+	}
+	if _, err := ix.ReconcileMissing(); err == nil {
+		t.Fatal("directory failure allowed pruning")
 	}
 }
 
@@ -232,7 +235,7 @@ func TestFullReportsOnlyInvalidFiles(t *testing.T) {
 func TestConflictCopiesCannotBypassEmptyScanGuard(t *testing.T) {
 	cfg, s := setup(t)
 	ix := New(cfg, s)
-	for id := int64(1); id <= emptyScanGuardMin; id++ {
+	for id := int64(1); id <= 5; id++ {
 		writeNote(t, cfg, id, "body", note.Metadata{Title: "Cached"})
 	}
 	if _, err := ix.Full(); err != nil {
@@ -242,15 +245,15 @@ func TestConflictCopiesCannotBypassEmptyScanGuard(t *testing.T) {
 		t.Fatal(err)
 	}
 	fixtureFile(t, filepath.Join(cfg.NoteDir(), "1 (conflicted copy).md"), "stray")
-	if _, err := ix.Full(); err == nil {
-		t.Fatal("stray copies bypassed empty-scan guard")
+	if rep, err := ix.Full(); err != nil || rep.ReadState == nil {
+		t.Fatalf("stray copies hid incomplete state: %+v %v", rep, err)
 	}
-	if rows, err := s.AllNotes(); err != nil || len(rows) != emptyScanGuardMin {
+	if rows, err := s.AllNotes(); err != nil || len(rows) != 5 {
 		t.Fatalf("guard lost existing rows: %+v, %v", rows, err)
 	}
 }
 
-func TestUnreadableVaultFilesAreFatal(t *testing.T) {
+func TestUnreadableVaultFilesReportPartial(t *testing.T) {
 	for _, target := range []string{"body", "sidecar", "directory"} {
 		t.Run(target, func(t *testing.T) {
 			cfg, s := setup(t)
@@ -276,8 +279,8 @@ func TestUnreadableVaultFilesAreFatal(t *testing.T) {
 			if !errors.Is(probeErr, os.ErrPermission) {
 				t.Skip("host does not enforce permission fixture")
 			}
-			if _, err := New(cfg, s).Full(); !errors.Is(err, os.ErrPermission) {
-				t.Fatalf("access failure must be fatal, got %v", err)
+			if rep, err := New(cfg, s).Full(); err != nil || rep.ReadState == nil || !rep.ReadState.Partial {
+				t.Fatalf("access failure not marked partial: %+v %v", rep, err)
 			}
 		})
 	}

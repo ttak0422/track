@@ -73,5 +73,5 @@ func cmdQuery(args []string) int {
 	if err != nil {
 		return fail("body search: %v", err)
 	}
-	return emit(map[string]any{"columns": res.Columns, "rows": res.Rows, "count": len(res.Rows)})
+	return emitRead(s, map[string]any{"columns": res.Columns, "rows": res.Rows, "count": len(res.Rows)})
 }

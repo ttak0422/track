@@ -222,7 +222,7 @@ func (s *Server) getNote(v *vaultView, w http.ResponseWriter, r *http.Request) {
 	// along as unix seconds so a freshly opened browser adopts what other devices already recorded.
 	// Each is omitted when absent, including when the sidecar cannot be read: a note stays readable
 	// without its dates.
-	if meta, _, err := note.ReadMetadata(v.cfg.MetadataPath(id)); err == nil {
+	if meta, _, err := v.store.ReadMetadata(id, v.cfg.MetadataPath(id)); err == nil {
 		if meta.Created != "" {
 			noteJSON["created"] = meta.Created
 		}
@@ -239,6 +239,11 @@ func (s *Server) getNote(v *vaultView, w http.ResponseWriter, r *http.Request) {
 			flags = []string{}
 		}
 		noteJSON["flags"] = flags
+	} else {
+		if stateErr := v.store.AddReadIssue(store.FileReadIssue(id, path, v.cfg.MetadataPath(id), err.Error(), true)); stateErr != nil {
+			writeError(w, stateErr, http.StatusInternalServerError)
+			return
+		}
 	}
 	if ref.Mtime != 0 {
 		noteJSON["updated"] = ref.Mtime
@@ -262,7 +267,7 @@ func (s *Server) getNote(v *vaultView, w http.ResponseWriter, r *http.Request) {
 		out["external"] = external
 		out["unavailable"] = unavailable
 	}
-	writeJSON(w, out)
+	writeReadJSON(w, v, out)
 }
 
 // externalBacklinks lists the [[vault:title]] references other vaults make to a title, or reports
@@ -343,6 +348,11 @@ func (s *Server) putNote(v *vaultView, w http.ResponseWriter, r *http.Request) {
 	}
 
 	path := v.cfg.PathForKind(ref.FileKind, ref.NoteID)
+	if err := v.store.RequireMetadata(id, v.cfg.MetadataPath(id)); err != nil {
+		writeError(w, err, http.StatusConflict)
+		return
+	}
+
 	current, err := os.ReadFile(path)
 	if err != nil {
 		writeError(w, err, http.StatusInternalServerError)
@@ -406,7 +416,10 @@ func (s *Server) handleNoteRead(v *vaultView, w http.ResponseWriter, r *http.Req
 	metaPath := v.cfg.MetadataPath(id)
 	path := v.cfg.PathForKind(ref.FileKind, ref.NoteID)
 	if err := v.write(func() error {
-		meta, _, err := note.ReadMetadata(metaPath)
+		if err := v.store.RequireMetadata(id, metaPath); err != nil {
+			return err
+		}
+		meta, _, err := v.store.ReadMetadata(id, metaPath)
 		if err != nil {
 			return fmt.Errorf("read sidecar: %w", err)
 		}
@@ -421,7 +434,7 @@ func (s *Server) handleNoteRead(v *vaultView, w http.ResponseWriter, r *http.Req
 		writeError(w, fmt.Errorf("record read state: %w", err), http.StatusInternalServerError)
 		return
 	}
-	meta, _, _ := note.ReadMetadata(metaPath)
+	meta, _, _ := v.store.ReadMetadata(id, metaPath)
 	out := map[string]any{"vault": v.label, "note_id": ref.NoteID}
 	if sec := note.StampUnix(meta.SeenAt); sec != 0 {
 		out["seen_at"] = sec
@@ -429,7 +442,7 @@ func (s *Server) handleNoteRead(v *vaultView, w http.ResponseWriter, r *http.Req
 	if sec := note.StampUnix(meta.ReadAt); sec != 0 {
 		out["read_at"] = sec
 	}
-	writeJSON(w, out)
+	writeReadJSON(w, v, out)
 }
 
 // handleRender sanitizes a raw note body into the Markdown the frontend renders: track action links
@@ -481,7 +494,7 @@ func (s *Server) handleRender(v *vaultView, w http.ResponseWriter, r *http.Reque
 			// cover's stand-in on cards without one, resolved by the one resolver every surface uses.
 			// Body conditions resolve through the FTS5 index, the same notes_fts table search uses.
 			markdown = query.ExpandBlocksWithResolver(markdown, v.cfg.Queries, rows, func(id int64) (string, string) {
-				meta, _, _ := note.ReadMetadata(v.cfg.MetadataPath(id))
+				meta, _, _ := v.store.ReadMetadata(id, v.cfg.MetadataPath(id))
 				return meta.Image, v.cfg.NoteIcon(kinds[id], meta.Tags, meta.Icon)
 			}, query.StoreBodyResolver(v.cfg, v.store, len(rows)), v.cfg.LinkFormat)
 		}

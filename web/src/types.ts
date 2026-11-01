@@ -68,7 +68,16 @@ export interface VaultsResponse {
   unavailable?: UnavailableVault[];
 }
 
+export interface PartialReadState {
+  partial: boolean;
+  cache_used: boolean;
+  checked_at: number;
+  issues: { note_id?: NoteID; path: string; reason: string; cached?: boolean }[];
+}
+
 export interface SearchResponse {
+  read_state?: PartialReadState;
+  partial?: { name: string; read_state: PartialReadState }[];
   results: SearchResult[];
   unavailable?: UnavailableVault[];
 }

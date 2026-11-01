@@ -208,7 +208,13 @@ func bodySearchFTS(cfg *config.Config, s *store.Store, query string, limit int, 
 			continue
 		}
 		hit.Path = cfg.PathForKind(hit.FileKind, hit.NoteID)
-		hit.Line, hit.Snippet = fileLineMatchGroups(hit.Path, groups)
+		var readErr error
+		hit.Line, hit.Snippet, readErr = fileLineMatchGroups(hit.Path, groups)
+		if readErr != nil {
+			if err := s.AddReadIssue(store.FileReadIssue(hit.NoteID, hit.Path, cfg.MetadataPath(hit.NoteID), readErr.Error(), true)); err != nil {
+				return nil, err
+			}
+		}
 		out = append(out, hit)
 		if len(out) >= limit {
 			break
@@ -229,7 +235,7 @@ func bodySearchScan(cfg *config.Config, s *store.Store, groups [][]string, limit
 	for _, n := range notes {
 		refs[n.NoteID] = n
 	}
-	paths, err := scanSearchFiles(cfg)
+	paths, err := scanSearchFiles(cfg, s)
 	if err != nil {
 		return nil, err
 	}
@@ -242,7 +248,10 @@ func bodySearchScan(cfg *config.Config, s *store.Store, groups [][]string, limit
 		}
 		raw, err := os.ReadFile(path)
 		if err != nil {
-			return nil, err
+			if err := s.AddReadIssue(store.FileReadIssue(id, path, cfg.MetadataPath(id), err.Error(), true)); err != nil {
+				return nil, err
+			}
+			continue
 		}
 		body, _, _ := note.SplitLegacyFootmatter(string(raw))
 		if !bodyMatchesAnyGroup(body, groups) {
@@ -279,15 +288,18 @@ func cmpDesc[T ~int64](a, b T) int {
 	}
 }
 
-func scanSearchFiles(cfg *config.Config) ([]string, error) {
+func scanSearchFiles(cfg *config.Config, s *store.Store) ([]string, error) {
 	var out []string
 	for _, root := range []string{cfg.NoteDir(), cfg.JournalDir()} {
 		err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 			if err != nil {
-				if d == nil {
+				if os.IsNotExist(err) && path == root {
 					return nil
 				}
-				return err
+				if stateErr := s.AddReadIssue(store.ReadIssue{Path: path, Reason: err.Error()}); stateErr != nil {
+					return stateErr
+				}
+				return nil
 			}
 			if d.IsDir() {
 				if path != root {
@@ -361,13 +373,14 @@ func bodyLineMatchGroups(body string, groups [][]string) (int, string) {
 
 // fileLineMatchGroups reads path and locates the best matching line for the query's OR groups. A read
 // error yields the title-only sentinel rather than failing the search: the FTS hit is authoritative.
-func fileLineMatchGroups(path string, groups [][]string) (int, string) {
+func fileLineMatchGroups(path string, groups [][]string) (int, string, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return 0, ""
+		return 0, "", err
 	}
 	body, _, _ := note.SplitLegacyFootmatter(string(raw))
-	return bodyLineMatchGroups(body, groups)
+	line, snippet := bodyLineMatchGroups(body, groups)
+	return line, snippet, nil
 }
 
 func truncateSearchSnippet(s string, max int) string {
