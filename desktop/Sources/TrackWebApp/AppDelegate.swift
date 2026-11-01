@@ -23,6 +23,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var webView: WKWebView?
     private var tabMouseMonitor: Any?
     private var coordinator: WebViewCoordinator?
+    private lazy var notificationBridge = NativeNotificationBridge(
+        origin: workspaceOrigin,
+        driver: AppleActivityNotificationDriver(),
+        enabled: !(smokeMode || shutdownTestMode || searchTestMode)
+            && UserDefaults.standard.bool(forKey: "track.activityNotifications"),
+        saveEnabled: { UserDefaults.standard.set($0, forKey: "track.activityNotifications") }
+    )
     private var textFinder: WebViewFindController?
     private var findBarContainerView: SearchFindBarContainerView?
     private var statusView: NSView?
@@ -322,6 +329,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         )
         let configuration = WKWebViewConfiguration()
         coordinator.speechBridge.install(in: configuration)
+        notificationBridge.install(in: configuration)
         installReadingShortcutsMarker(in: configuration, workspaceOrigin: coordinator.workspaceOrigin)
         // The production workspace keeps its tabs and settings at the stable loopback origin across
         // launches. The smoke test is fully isolated from a user's WebKit website data.
@@ -342,6 +350,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         coordinator.window = nil
         coordinator.webView = webView
         coordinator.speechBridge.webView = webView
+        notificationBridge.webView = webView
+        coordinator.notificationBridge = notificationBridge
         coordinator.restartFixture = restartFixture
         coordinator.smokeMode = smokeMode && !searchTestMode
         if recoveryTestMode {
@@ -829,6 +839,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
         appMenu.addItem(NSMenuItem(title: "About Track", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""))
+        appMenu.addItem(notificationBridge.menuItem())
         appMenu.addItem(.separator())
         appMenu.addItem(NSMenuItem(title: "Hide Track", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"))
         appMenu.addItem(NSMenuItem(title: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h").also { $0.keyEquivalentModifierMask = [.command, .option] })

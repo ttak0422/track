@@ -13,7 +13,7 @@ const POLL_MS = 60_000;
 // sync landing files under the vault. It renders nothing; the live workspace mounts one.
 export function VaultActivityWatcher() {
   const queryClient = useQueryClient();
-  const { notify } = useNotifications();
+  const { notifyActivity } = useNotifications();
   // Shares the notes cache with the calendar and the home lists; the interval is what keeps it fresh.
   const query = useQuery({ queryKey: queryKeys.notes(), queryFn: listNotes, refetchInterval: POLL_MS });
   const notes = query.data?.notes;
@@ -27,9 +27,9 @@ export function VaultActivityWatcher() {
       // behind the toast. Do not invalidate the parent notes key here and restart our own poll.
       void refreshNewNotes(queryClient);
       // The toast announces what changed; it is clickable, so it names the note it can jump to.
-      notify(activityMessage(active.map((note) => note.title)), active[0].note_id);
+      notifyActivity(activityMessage(active.map((note) => note.title)), active[0].note_id, today());
     }
-  }, [notes, notify, queryClient]);
+  }, [notes, notifyActivity, queryClient]);
 
   return null;
 }

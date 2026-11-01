@@ -319,25 +319,41 @@ describe("date hover titles", () => {
 });
 
 describe("note flags", () => {
-  it("stamps each flag over the article and stacks two flags vertically", () => {
+  it("separates both flags in repeating decorative masks with one accessible label", () => {
     const { container } = render(<NoteStamps flags={["DEPRECATED", "CONFIDENTIAL"]} />);
 
     const stamps = container.querySelectorAll(".stamp");
     expect(stamps).toHaveLength(2);
     expect(stamps[0]).toHaveClass("stamp-deprecated");
-    expect(stamps[0]).toHaveTextContent("DEPRECATED");
+    expect(stamps[0]).toBeEmptyDOMElement();
     expect(stamps[1]).toHaveClass("stamp-confidential");
-    expect(stamps[1]).toHaveTextContent("CONFIDENTIAL");
-    // Each stamp carries its own top, so the second lands below the first.
-    const tops = [...stamps].map((stamp) =>
-      Number((stamp as HTMLElement).style.top.replace("px", "")),
-    );
-    expect(tops[1]).toBeGreaterThan(tops[0]);
+    expect(stamps[1]).toBeEmptyDOMElement();
+    expect(screen.getByRole("img", { name: "Note flags: DEPRECATED, CONFIDENTIAL" })).toBeInTheDocument();
+    const masks = [...stamps].map((stamp) => decodeURIComponent((stamp as HTMLElement).style.maskImage));
+    expect(masks[0]).toContain("DEPRECATED");
+    expect(masks[0]).toContain('y="165"');
+    expect(masks[1]).toContain("CONFIDENTIAL");
+    expect(masks[1]).toContain('y="315"');
+    for (const mask of masks) {
+      expect(mask).toContain('viewBox="0 0 720 480"');
+      expect(mask).toContain('font-size="76"');
+    }
   });
 
   it("stamps nothing when the note carries no flags", () => {
     const { container } = render(<NoteStamps flags={undefined} />);
     expect(container.querySelector(".note-stamps")).toBeNull();
+  });
+
+  it("replaces masks on flag changes and clears them when moving to an unflagged note", () => {
+    const { container, rerender } = render(<NoteStamps flags={["DEPRECATED", "CONFIDENTIAL"]} />);
+    rerender(<NoteStamps flags={["CONFIDENTIAL"]} />);
+    expect(container.querySelectorAll(".stamp")).toHaveLength(1);
+    expect(container.querySelector(".stamp-deprecated")).toBeNull();
+    expect(screen.getByRole("img", { name: "Note flags: CONFIDENTIAL" })).toBeInTheDocument();
+    expect(decodeURIComponent((container.querySelector(".stamp") as HTMLElement).style.maskImage)).toContain('y="240"');
+    rerender(<NoteStamps flags={[]} />);
+    expect(container).toBeEmptyDOMElement();
   });
 
   it("badges a flagged note beside its title", () => {

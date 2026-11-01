@@ -113,7 +113,7 @@ web/node_modules/.track-deps-ready: web/package.json web/package-lock.json
 	cd web && npm ci
 	@touch $@
 
-.PHONY: desktop-app desktop-verify desktop-speech-test desktop-smoke desktop-recovery-smoke desktop-termination-test desktop-clean-termination-test
+.PHONY: desktop-app desktop-verify desktop-speech-test desktop-notification-test desktop-smoke desktop-recovery-smoke desktop-termination-test desktop-clean-termination-test
 
 DESKTOP_APP ?= build/desktop/Track.app
 DESKTOP_DEVELOPER_DIR ?=
@@ -128,6 +128,9 @@ desktop-verify: desktop-app ## Build Track and run Swift + Go regression tests
 
 desktop-speech-test: ## Test native speech in WKWebView with synthetic transcripts and no microphone
 	python3 scripts/desktop-speech-test.py
+
+desktop-notification-test: ## Test native notification security and delivery with a mock center, without OS permission
+	python3 scripts/desktop-notification-test.py
 
 desktop-smoke: desktop-app ## Exercise the bundled app in WKWebView with an isolated temporary vault
 	DESKTOP_APP="$(DESKTOP_APP)" sh scripts/desktop-smoke.sh
