@@ -3963,6 +3963,37 @@ textarea.modal-input:focus-visible {
 }
 
 /* Diagram controls and their clipped pan/zoom viewport share the surrounding prose measure. */
+.diagram-renderer-controls {
+  margin-bottom: 8px;
+}
+
+.diagram-renderer-notice {
+  color: var(--muted);
+  font-size: calc(13px * var(--font-scale, 1));
+}
+
+/* Scoped to Pele: color changes inherit immediately without parsing or replacing the SVG. */
+.pele-diagram {
+  --pele-bg: var(--panel);
+  --pele-fg: var(--text);
+  --pele-muted: var(--muted);
+  --pele-line: var(--muted);
+  --pele-surface: var(--panel);
+  --pele-surface-alt: var(--panel-soft);
+  --pele-border: var(--line-node);
+  --pele-accent: var(--mark);
+  --pele-critical: var(--danger);
+  --pele-font: var(--font-sans);
+  --pele-font-mono: var(--font-mono);
+  --pele-radius: var(--radius-sm);
+  --pele-series-1: var(--chart-1);
+  --pele-series-2: var(--chart-2);
+  --pele-series-3: var(--chart-3);
+  --pele-series-4: var(--chart-4);
+  --pele-series-5: var(--chart-5);
+  --pele-series-6: var(--chart-6);
+}
+
 .markdown-view > .mermaid-diagram > .mermaid-viewport {
   width: 100%;
 }
