@@ -1,6 +1,9 @@
 package store
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 // titleSep separates hierarchy levels in a note title, Confluence-style: "foo / bar" is a child of "foo".
 const titleSep = " / "
@@ -91,11 +94,11 @@ type GraphNode struct {
 	Path   string `json:"path,omitempty"`
 	Title  string `json:"title"`
 	Center bool   `json:"center,omitempty"`
-	// Size is the note's precomputed five-level grade (1–5) from its outgoing-link count — how much
-	// this note reaches out to other notes. The grade is absolute: computed from the whole vault's
-	// links with fixed thresholds, never from the slice a view shows, so a node keeps the same size
-	// in every graph and the client draws it without computing anything.
+	// Size retains the absolute outgoing-link grade: 0 / 1 / 2–3 / 4–7 / 8+.
 	Size int `json:"size,omitempty"`
+	// AreaScore is a continuous area weight in [1, 5], relative to this vault's
+	// median positive outgoing-link count, computed before authenticated view filtering.
+	AreaScore float64 `json:"area_score,omitempty"`
 }
 
 // GraphEdge is one directed link between graph nodes.
@@ -111,10 +114,8 @@ type Graph struct {
 	Edges    []GraphEdge `json:"edges"`
 }
 
-// sizeLevel grades an outgoing-link count into one of five absolute levels: 0, 1, 2–3, 4–7, 8+.
-// Log-scaled, so a hub separates from an ordinary note without a few links blowing the top of the
-// scale. "Absolute" means the thresholds never depend on the vault's best or worst note.
-func sizeLevel(count int) int {
+// GraphSizeLevel retains the original five-level outgoing-link grade for older clients.
+func GraphSizeLevel(count int) int {
 	switch {
 	case count <= 0:
 		return 1
@@ -129,9 +130,46 @@ func sizeLevel(count int) int {
 	}
 }
 
+// GraphAreaScores maps outgoing counts to bounded area weights in the input order.
+// Callers must pass only counts from their allowed population; exports use public edges only.
+func GraphAreaScores(counts []int) []float64 {
+	positive := make([]int, 0, len(counts))
+	for _, count := range counts {
+		if count > 0 {
+			positive = append(positive, count)
+		}
+	}
+	sort.Ints(positive)
+	median := 1.0
+	if length := len(positive); length > 0 {
+		median = (float64(positive[(length-1)/2]) + float64(positive[length/2])) / 2
+	}
+	scores := make([]float64, len(counts))
+	for i, count := range counts {
+		// A bounded squared ratio adds contrast without magnifying tiny differences by rank.
+		// Twice the median gets half the available area above the minimum dot area.
+		ratio := float64(count) / (2 * median)
+		squared := ratio * ratio
+		scores[i] = 1 + 4*squared/(1+squared)
+	}
+	return scores
+}
+
+func graphSizes(notes []SearchResult, counts map[int64]int) map[int64]float64 {
+	known := make([]int, len(notes))
+	for i, n := range notes {
+		known[i] = counts[n.NoteID]
+	}
+	scores := GraphAreaScores(known)
+	sizes := make(map[int64]float64, len(notes))
+	for i, n := range notes {
+		sizes[n.NoteID] = scores[i]
+	}
+	return sizes
+}
+
 // outgoingCounts returns each note's count of links to other notes (self-links excluded) — the
-// precomputed measure the graph sizes its nodes by. One query for any graph view, so local and full
-// graphs agree on a node's grade.
+// measure the graph sizes its nodes by. One query for any graph view.
 func (s *Store) outgoingCounts() (map[int64]int, error) {
 	rows, err := s.db.Query(`SELECT src_id, COUNT(*) FROM links WHERE src_id != dst_id GROUP BY src_id`)
 	if err != nil {
@@ -167,14 +205,15 @@ func (s *Store) FullGraph() (Graph, error) {
 			Title:    n.Title,
 		})
 	}
-	// The size grade is the same for every view (absolute grading over the vault's own links), so it
-	// is precomputed once per graph build rather than derived per node on the client.
+	// Use the complete vault as the size reference before any view filters the graph.
 	counts, err := s.outgoingCounts()
 	if err != nil {
 		return Graph{}, err
 	}
+	sizes := graphSizes(notes, counts)
 	for i := range nodes {
-		nodes[i].Size = sizeLevel(counts[nodes[i].NoteID])
+		nodes[i].Size = GraphSizeLevel(counts[nodes[i].NoteID])
+		nodes[i].AreaScore = sizes[nodes[i].NoteID]
 	}
 
 	rows, err := s.db.Query(`SELECT src_id, dst_id FROM links ORDER BY src_id, dst_id`)
@@ -234,23 +273,24 @@ func (s *Store) LocalGraph(centerID int64) (Graph, error) {
 	for _, n := range notes {
 		known[n.NoteID] = n
 	}
-	// Absolute grading over the vault's own links, so the local graph's sizes match the full
-	// graph's — a node is not bigger or smaller depending on the view that shows it.
+	// Keep the same reference as the full graph, including notes outside this neighbourhood.
 	counts, err := s.outgoingCounts()
 	if err != nil {
 		return Graph{}, err
 	}
+	sizes := graphSizes(notes, counts)
 	var nodes []GraphNode
 	for _, n := range notes {
 		if !nodeIDs[n.NoteID] {
 			continue
 		}
 		nodes = append(nodes, GraphNode{
-			NoteID:   n.NoteID,
-			FileKind: n.FileKind,
-			Title:    n.Title,
-			Center:   n.NoteID == centerID,
-			Size:     sizeLevel(counts[n.NoteID]),
+			NoteID:    n.NoteID,
+			FileKind:  n.FileKind,
+			Title:     n.Title,
+			Center:    n.NoteID == centerID,
+			Size:      GraphSizeLevel(counts[n.NoteID]),
+			AreaScore: sizes[n.NoteID],
 		})
 	}
 

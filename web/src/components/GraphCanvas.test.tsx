@@ -1,6 +1,7 @@
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { GraphCanvas } from "./GraphCanvas";
+import { radiusForNode } from "./nodeRadius";
 
 interface CanvasMock {
   globalAlpha: number;
@@ -153,6 +154,32 @@ describe("GraphCanvas node painting", () => {
     await waitFor(() => {
       expect(context.measureText).toHaveBeenCalledWith(longTitleGraph.nodes[0].title);
     });
+  });
+
+  it("uses a fractional score for painting, label offset and picking", async () => {
+    const node = { note_id: "fractional", file_kind: "note", title: "Fractional", size: 2, area_score: 1.8 };
+    const radius = radiusForNode(node, "");
+    const onHover = vi.fn();
+    context.arc.mockClear();
+    context.fillText.mockClear();
+    const { container } = render(
+      <GraphCanvas
+        graph={{ center_id: "", nodes: [node], edges: [] }}
+        onSelect={vi.fn()}
+        onHover={onHover}
+        resetToken={0}
+        focusNodeID={node.note_id}
+      />,
+    );
+    const canvas = container.querySelector("canvas")!;
+    // The mock viewport is 1x1; focus has a 0.42 scale, but dots and picking use CSS pixels.
+    await waitFor(() => expect(context.arc).toHaveBeenCalled());
+    expect(context.arc.mock.calls.at(-1)![2]).toBeCloseTo(radius / 0.42);
+    fireEvent.pointerMove(canvas, { clientX: 0.5 + radius + 4, clientY: 0.5 });
+    expect(onHover).toHaveBeenLastCalledWith(node.note_id, expect.any(Object));
+    expect(context.fillText.mock.calls.at(-1)![1]).toBeCloseTo(0.5 + radius + 7);
+    fireEvent.pointerMove(canvas, { clientX: 0.5 + radius + 6, clientY: 0.5 });
+    expect(onHover).toHaveBeenLastCalledWith(null, expect.any(Object));
   });
 
   // Labels are rasterized under a devicePixelRatio-only transform at a fixed CSS-pixel font, never
