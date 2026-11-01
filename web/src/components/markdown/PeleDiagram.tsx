@@ -1,8 +1,8 @@
-import { type ReactNode, type RefObject, useEffect, useState } from "react";
+import { type RefObject, useEffect, useState } from "react";
 import { useVisible } from "../../hooks/useVisible";
 import { DiagramFrame, type DiagramState } from "./MermaidDiagram";
 
-// Compare the shared subset; keep the original engine for features requiring a fidelity adapter.
+// Keep the original engine for features that still require a Pele fidelity adapter.
 export function peleFallbackReason(source: string): string | null {
   if (/\$\$/.test(source)) return "Math labels use the existing KaTeX renderer.";
   if (/^\s*---\s*\r?\n|%%\s*\{/m.test(source)) return "Mermaid frontmatter and directives retain their original configuration.";
@@ -11,7 +11,7 @@ export function peleFallbackReason(source: string): string | null {
   return null;
 }
 
-export function PeleDiagram({ text, onFailure, toolbar }: { text: string; onFailure: (reason: string) => void; toolbar: ReactNode }) {
+export function PeleDiagram({ text, onFailure }: { text: string; onFailure: (reason: string) => void }) {
   const { ref, visible } = useVisible<HTMLDivElement>();
   const [state, setState] = useState<DiagramState>({ status: "loading" });
   const fonts = useDiagramFonts(ref);
@@ -34,10 +34,14 @@ export function PeleDiagram({ text, onFailure, toolbar }: { text: string; onFail
     return () => { cancelled = true; };
   }, [text, fonts, visible, onFailure]);
 
-  return <DiagramFrame visibilityRef={ref} state={state} source={text} sourceLang="mermaid" label="Pele diagram" className="pele-diagram" toolbar={toolbar} />;
+  return <DiagramFrame visibilityRef={ref} state={state} source={text} sourceLang="mermaid" label="Pele diagram" className="pele-diagram" />;
 }
 
 function readFonts(element: HTMLElement | null = null) {
+  // Static exports prerender the loading frame in Node; font measurement belongs to hydration.
+  if (typeof document === "undefined" || typeof getComputedStyle === "undefined") {
+    return { family: "sans-serif", mono: "monospace", revision: 0 };
+  }
   const css = getComputedStyle(element ?? document.documentElement);
   return {
     family: css.getPropertyValue("--pele-font").trim() || css.getPropertyValue("--font-sans").trim() || css.fontFamily || "sans-serif",

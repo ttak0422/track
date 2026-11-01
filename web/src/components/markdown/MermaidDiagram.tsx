@@ -4,7 +4,6 @@ import {
   type Ref,
   type ReactNode,
   useEffect,
-  useCallback,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -42,27 +41,19 @@ export type DiagramState =
 
 let renderSequence = 0;
 
-// MermaidDiagram renders fenced ```mermaid blocks in the browser. Mermaid owns parsing and SVG
-// generation; securityLevel strict keeps diagram directives from loosening the renderer. The engine
-// import and render wait until the block scrolls near the viewport (same 200px policy as charts),
-// so off-screen diagrams cost nothing on initial load.
+// Keep Mermaid source/fence compatibility while using Pele for ordinary diagrams. Both engines
+// stay lazy and wait for the viewport; Mermaid loads only for unsupported sources or Pele failures.
 export function MermaidDiagram({ text }: MermaidDiagramProps) {
-  const [renderer, setRenderer] = useState<"mermaid" | "pele">("mermaid");
-  const [failure, setFailure] = useState<{ text: string; message: string } | null>(null);
-  const onFailure = useCallback((message: string) => setFailure({ text, message }), [text]);
-  const reason = peleFallbackReason(text) ?? (failure?.text === text ? failure.message : null);
-  const toolbar = (
-    <>
-      <div className="likec4-views diagram-renderer-controls" role="group" aria-label="Diagram renderer">
-        <button type="button" aria-pressed={renderer === "mermaid"} onClick={() => setRenderer("mermaid")}>Mermaid</button>
-        <button type="button" aria-pressed={renderer === "pele"} onClick={() => { setFailure(null); setRenderer("pele"); }}>Pele (comparison)</button>
-      </div>
-      {renderer === "pele" && reason ? <p className="diagram-renderer-notice" role="status">Using Mermaid: {reason}</p> : null}
-    </>
-  );
-  return renderer === "pele" && !reason
-    ? <PeleDiagram text={text} onFailure={onFailure} toolbar={toolbar} />
-    : <MermaidRenderer text={text} toolbar={toolbar} />;
+  // A source change starts a fresh attempt and discards failures/popups from the previous source.
+  return <AutomaticDiagram key={text} text={text} />;
+}
+
+function AutomaticDiagram({ text }: MermaidDiagramProps) {
+  const [failure, setFailure] = useState<string | null>(null);
+  const reason = peleFallbackReason(text) ?? failure;
+  return reason
+    ? <MermaidRenderer text={text} toolbar={<p className="diagram-renderer-notice" role="status">Using Mermaid: {reason}</p>} />
+    : <PeleDiagram text={text} onFailure={setFailure} />;
 }
 
 function MermaidRenderer({ text, toolbar }: MermaidDiagramProps & { toolbar: ReactNode }) {
