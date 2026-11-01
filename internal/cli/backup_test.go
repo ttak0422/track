@@ -2,8 +2,11 @@ package cli
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
+	"crypto/rand"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -108,6 +111,99 @@ func TestBackupCLI(t *testing.T) {
 	if string(before) != string(after) {
 		t.Fatal("read error replaced previous archive")
 	}
+	for _, change := range []string{"directory", "symlink alias"} {
+		t.Run("destination "+change+" changed during copy", func(t *testing.T) {
+			data := make([]byte, 8<<20)
+			if _, err := rand.Read(data); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(active, "assets/large.bin"), data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			outputDir := filepath.Join(dir, "moving-output-"+strings.ReplaceAll(change, " ", "-"))
+			storageDir := outputDir
+			if change == "symlink alias" {
+				storageDir = outputDir + "-storage"
+			}
+			os.Mkdir(storageDir, 0o700)
+			if change == "symlink alias" {
+				if err := os.Symlink(storageDir, outputDir); err != nil {
+					t.Fatal(err)
+				}
+			}
+			target := filepath.Join(outputDir, "previous.tar.gz")
+			os.WriteFile(target, []byte("previous-complete"), 0o600)
+			cmd := exec.Command(binary, "backup", "--overwrite", "--out", target)
+			var output bytes.Buffer
+			cmd.Stdout = &output
+			cmd.Stderr = &output
+			if err := cmd.Start(); err != nil {
+				t.Fatal(err)
+			}
+			done := make(chan error, 1)
+			go func() { done <- cmd.Wait() }()
+			ticker := time.NewTicker(time.Millisecond)
+			defer ticker.Stop()
+			timer := time.NewTimer(10 * time.Second)
+			defer timer.Stop()
+			moved := storageDir
+			if change == "directory" {
+				moved = filepath.Join(dir, "moved-output")
+			}
+			for {
+				select {
+				case err := <-done:
+					t.Fatalf("backup finished before swap was exercised: %v %s", err, output.String())
+				case <-timer.C:
+					cmd.Process.Kill()
+					t.Fatal("copy did not make progress")
+				case <-ticker.C:
+					stages, _ := filepath.Glob(filepath.Join(outputDir, ".track-backup-*.partial"))
+					if len(stages) == 0 {
+						continue
+					}
+					info, err := os.Stat(stages[0])
+					if err != nil || info.Size() < 32<<10 {
+						continue
+					}
+					if change == "directory" {
+						if err := os.Rename(outputDir, moved); err != nil {
+							t.Fatal(err)
+						}
+					} else {
+						if err := os.Remove(outputDir); err != nil {
+							t.Fatal(err)
+						}
+					}
+					if err := os.Symlink(filepath.Join(active, "assets"), outputDir); err != nil {
+						t.Fatal(err)
+					}
+					select {
+					case err := <-done:
+						if err == nil || !strings.Contains(output.String(), "destination directory changed") {
+							t.Fatalf("changed destination accepted: %v %s", err, output.String())
+						}
+						raw, err := os.ReadFile(filepath.Join(moved, "previous.tar.gz"))
+						if err != nil || string(raw) != "previous-complete" {
+							t.Fatal("old destination changed", err)
+						}
+						leftovers, _ := filepath.Glob(filepath.Join(moved, ".track-backup-*.partial"))
+						if len(leftovers) != 0 {
+							t.Fatal("stage cleanup followed swapped ancestor", leftovers)
+						}
+						newStages, _ := filepath.Glob(filepath.Join(active, "assets/.track-backup-*"))
+						if len(newStages) != 0 {
+							t.Fatal("archive written into source", newStages)
+						}
+						return
+					case <-timer.C:
+						cmd.Process.Kill()
+						t.Fatal("copy did not finish")
+					}
+				}
+			}
+		})
+	}
 	// A FIFO machine config simulates a read that never completes. The parent
 	// deadline includes configuration resolution, before any source hydration.
 	fifo := filepath.Join(dir, "config-fifo")
@@ -206,5 +302,16 @@ func TestBackupAtomicNoClobber(t *testing.T) {
 	data, err = os.ReadFile(filepath.Join(dir, "fresh.tar.gz"))
 	if err != nil || string(data) != "new complete" {
 		t.Fatalf("commit failed: %s %v", data, err)
+	}
+}
+
+func TestBackupDirectorySyncFailureReportsCommittedOutcome(t *testing.T) {
+	output, code := capture(t, func() int { return emitBackupCommitError("fixture.tar.gz", fmt.Errorf("synthetic sync failure")) })
+	var result map[string]any
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		t.Fatal(err)
+	}
+	if code != 1 || result["commit_state"] != "committed" || result["durability"] != "uncertain" || result["complete"] == true {
+		t.Fatalf("misleading post-commit result: %s", output)
 	}
 }

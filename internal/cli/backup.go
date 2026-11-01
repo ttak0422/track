@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/ttak0422/track/internal/track/backup"
@@ -37,6 +39,7 @@ func backupArgs(args []string) ([]string, bool) {
 
 type backupOptions struct {
 	out, vault     string
+	destinationID  string
 	all, overwrite bool
 	timeout        time.Duration
 	stage          string
@@ -52,6 +55,7 @@ func parseBackup(args []string, worker bool) (backupOptions, int, bool) {
 	fs.DurationVar(&o.timeout, "timeout", 5*time.Minute, "total worker deadline, including source reads; must be positive")
 	if worker {
 		fs.StringVar(&o.stage, "stage", "", "internal staging basename")
+		fs.StringVar(&o.destinationID, "destination-id", "", "internal destination directory identity")
 	}
 	if code, ok := parseArgs(fs, args); !ok {
 		return o, code, false
@@ -89,17 +93,25 @@ func cmdBackup(args []string) int {
 		return fail("backup destination directory: %v", err)
 	}
 	defer root.Close()
+	destinationInfo, err := root.Stat(".")
+	if err != nil {
+		return fail("backup destination directory: %v", err)
+	}
 	base := filepath.Base(output)
 	if err := checkBackupDestination(root, base, o.overwrite); err != nil {
 		return fail("%v", err)
 	}
 	stage := ".track-backup-" + rand.Text() + ".partial"
-	defer root.Remove(stage)
+	defer func() {
+		if err := root.Remove(stage); err != nil && !os.IsNotExist(err) {
+			fmt.Fprintf(os.Stderr, "track backup: could not remove staging file %s from the original destination directory: %v\n", stage, err)
+		}
+	}()
 	exe, err := os.Executable()
 	if err != nil {
 		return fail("%v", err)
 	}
-	workerArgs := []string{"__backup", "--out", filepath.Join(parent, base), "--stage", stage}
+	workerArgs := []string{"__backup", "--out", filepath.Join(parent, base), "--stage", stage, "--destination-id", backupDirectoryID(destinationInfo)}
 	if o.vault != "" {
 		workerArgs = append(workerArgs, "--vault", o.vault)
 	}
@@ -128,13 +140,20 @@ func cmdBackup(args []string) int {
 	if err := checkBackupDestination(root, base, o.overwrite); err != nil {
 		return fail("%v", err)
 	}
+	currentInfo, err := os.Stat(filepath.Dir(output))
+	if err != nil || !os.SameFile(destinationInfo, currentInfo) {
+		return fail("backup destination directory changed or became unavailable; previous archive preserved")
+	}
 	if o.overwrite {
 		err = root.Rename(stage, base)
 	} else {
 		err = commitBackupExclusive(root, stage, base)
 	}
 	if err != nil {
-		return fail("commit backup: %v", err)
+		return fail("commit backup: %v; destination outcome may be uncertain; inspect the archive before retrying", err)
+	}
+	if err := syncBackupDirectory(root); err != nil {
+		return emitBackupCommitError(o.out, err)
 	}
 	return emit(map[string]any{"path": o.out, "complete": true, "format_version": backup.FormatVersion, "files": report.Files, "vaults": report.Vaults})
 }
@@ -184,11 +203,20 @@ func cmdBackupWorker(args []string) int {
 	if !strings.HasPrefix(o.stage, ".track-backup-") || filepath.Base(o.stage) != o.stage || !strings.HasSuffix(o.stage, ".partial") {
 		return fail("invalid backup stage")
 	}
+	destination, err := os.OpenRoot(filepath.Dir(o.out))
+	if err != nil {
+		return emit(map[string]any{"complete": false, "error": "backup destination directory unavailable"})
+	}
+	defer destination.Close()
+	info, err := destination.Stat(".")
+	if err != nil || o.destinationID == "" || backupDirectoryID(info) != o.destinationID {
+		return emit(map[string]any{"complete": false, "error": "backup destination directory changed"})
+	}
 	vaults, err := backupVaults(o)
 	if err != nil {
 		return emit(map[string]any{"complete": false, "error": err.Error()})
 	}
-	manifest, err := backup.Write(vaults, filepath.Join(filepath.Dir(o.out), o.stage), config.ConfigPath())
+	manifest, err := backup.WriteAt(vaults, destination, o.stage, config.ConfigPath())
 	if err != nil {
 		return emit(map[string]any{"complete": false, "error": err.Error()})
 	}
@@ -236,4 +264,28 @@ func backupVaults(o backupOptions) ([]backup.Vault, error) {
 		vaults = append(vaults, backup.Vault{Name: n, Prefix: fmt.Sprintf("vaults/%04d", i+1), Source: registry[n]})
 	}
 	return vaults, nil
+}
+
+func backupDirectoryID(info fs.FileInfo) string {
+	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
+		return fmt.Sprintf("%d:%d", stat.Dev, stat.Ino)
+	}
+	return ""
+}
+
+func syncBackupDirectory(root *os.Root) error {
+	dir, err := root.Open(".")
+	if err != nil {
+		return err
+	}
+	if err := dir.Sync(); err != nil {
+		dir.Close()
+		return err
+	}
+	return dir.Close()
+}
+
+func emitBackupCommitError(path string, err error) int {
+	emit(map[string]any{"error": fmt.Sprintf("backup committed but directory sync failed: %v; durability is uncertain; inspect the archive before retrying", err), "path": path, "commit_state": "committed", "durability": "uncertain"})
+	return 1
 }

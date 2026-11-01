@@ -166,6 +166,11 @@ func TestRoundTrip(t *testing.T) {
 
 func TestRefusesUnsafeOrIncompleteSources(t *testing.T) {
 	cases := map[string]func(*testing.T, string){
+		"Finder-name directory": func(t *testing.T, p string) {
+			os.MkdirAll(filepath.Join(p, "assets/.DS_Store"), 0o700)
+			os.WriteFile(filepath.Join(p, "assets/.DS_Store/keep.png"), []byte("essential bytes"), 0o600)
+		},
+		"Finder-name symlink":        func(t *testing.T, p string) { os.Symlink("image.png", filepath.Join(p, "assets/.DS_Store")) },
 		"missing metadata directory": func(t *testing.T, p string) { os.RemoveAll(filepath.Join(p, ".track/notes")) },
 		"legacy iCloud placeholder": func(t *testing.T, p string) {
 			os.WriteFile(filepath.Join(p, "assets/.photo.png.icloud"), []byte("placeholder"), 0o600)
@@ -393,5 +398,80 @@ func TestRejectsEditAfterEarlierFileWasCopied(t *testing.T) {
 				t.Fatal("backup did not finish")
 			}
 		}
+	}
+}
+
+func TestStageStaysInCapturedDestinationDirectory(t *testing.T) {
+	source, _ := fixture(t)
+	parent := t.TempDir()
+	output := filepath.Join(parent, "output")
+	if err := os.Mkdir(output, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	root, err := os.OpenRoot(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	moved := filepath.Join(parent, "moved-output")
+	if err := os.Rename(output, moved); err != nil {
+		t.Fatal(err)
+	}
+	redirect := t.TempDir()
+	if err := os.Symlink(redirect, output); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := WriteAt([]Vault{{Prefix: "vault", Source: source}}, root, "stage.tar.gz"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(moved, "stage.tar.gz")); err != nil {
+		t.Fatal("stage did not stay anchored", err)
+	}
+	if _, err := os.Stat(filepath.Join(redirect, "stage.tar.gz")); !os.IsNotExist(err) {
+		t.Fatal("stage followed changed ancestor")
+	}
+}
+
+func TestIndependentConfigCopiesArePreservedAsVaultContent(t *testing.T) {
+	source, _ := fixture(t)
+	config := filepath.Join(t.TempDir(), "machine.yml")
+	raw := []byte("agents:\n  token: synthetic-copy-test\n")
+	if err := os.WriteFile(config, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, ".track/copied-machine.yml"), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stage := filepath.Join(t.TempDir(), "copy.tar.gz")
+	if _, err := Write([]Vault{{Prefix: "vault", Source: source}}, stage, config); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Open(stage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	gz, err := gzip.NewReader(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gz.Close()
+	tr := tar.NewReader(gz)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			t.Fatal("independent vault file silently redacted")
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if hdr.Name != "vault/.track/copied-machine.yml" {
+			continue
+		}
+		restored, err := io.ReadAll(tr)
+		if err != nil || !bytes.Equal(restored, raw) {
+			t.Fatal("independent vault file changed", err)
+		}
+		return
 	}
 }

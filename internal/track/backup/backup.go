@@ -51,6 +51,28 @@ type Manifest struct {
 // Write creates stage exclusively. Its caller publishes it only after Write succeeds.
 // Run this in a disposable process: cloud filesystem reads may ignore cancellation.
 func Write(vaults []Vault, stage string, protectedFiles ...string) (*Manifest, error) {
+	output, err := filepath.Abs(stage)
+	if err != nil {
+		return nil, err
+	}
+	parent, err := filepath.EvalSymlinks(filepath.Dir(output))
+	if err != nil {
+		return nil, err
+	}
+	root, err := os.OpenRoot(parent)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	return WriteAt(vaults, root, filepath.Base(output), protectedFiles...)
+}
+
+// WriteAt anchors staging and cleanup to a directory already validated by the CLI.
+func WriteAt(vaults []Vault, destination *os.Root, stage string, protectedFiles ...string) (*Manifest, error) {
+	if !fs.ValidPath(stage) || strings.ContainsAny(stage, "/\\") || stage == "." {
+		return nil, fmt.Errorf("stage must be a basename")
+	}
+
 	if len(vaults) == 0 {
 		return nil, fmt.Errorf("no vaults to back up")
 	}
@@ -71,9 +93,9 @@ func Write(vaults []Vault, stage string, protectedFiles ...string) (*Manifest, e
 		CompletenessScope: "all supported canonical files observed locally; remote sync state and preexisting loss are not verified",
 		StartedAt:         time.Now().UTC(), Vaults: vaults, Entries: []Entry{},
 		Exclusions: []string{
-			"machine configuration (including retired credentials) and environment overrides",
+			"configured machine file and hard links; environment overrides (no content redaction)",
 			"external SQLite indexes and caches",
-			".git and .DS_Store",
+			"root .git and regular .DS_Store files",
 		},
 	}
 	type source struct {
@@ -101,15 +123,11 @@ func Write(vaults []Vault, stage string, protectedFiles ...string) (*Manifest, e
 		if err != nil {
 			return nil, fmt.Errorf("vault unavailable: %w", err)
 		}
-		target, err := filepath.Abs(stage)
+		parent, err := filepath.EvalSymlinks(destination.Name())
 		if err != nil {
 			return nil, err
 		}
-		parent, err := filepath.EvalSymlinks(filepath.Dir(target))
-		if err != nil {
-			return nil, err
-		}
-		if within(canonical, filepath.Join(parent, filepath.Base(target))) {
+		if within(canonical, filepath.Join(parent, stage)) {
 			return nil, fmt.Errorf("backup destination must be outside every source vault")
 		}
 		sourceInfo, err := os.Lstat(canonical)
@@ -139,7 +157,7 @@ func Write(vaults []Vault, stage string, protectedFiles ...string) (*Manifest, e
 		}
 		sources[len(sources)-1].files = files
 	}
-	out, err := os.OpenFile(stage, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	out, err := destination.OpenFile(stage, os.O_CREATE|os.O_EXCL|os.O_WRONLY|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return nil, err
 	}
@@ -147,7 +165,7 @@ func Write(vaults []Vault, stage string, protectedFiles ...string) (*Manifest, e
 	defer func() {
 		out.Close()
 		if !success {
-			os.Remove(stage)
+			destination.Remove(stage)
 		}
 	}()
 	gz := gzip.NewWriter(out)
@@ -244,9 +262,19 @@ func inventory(root *os.Root, protected ...fs.FileInfo) (map[string]fs.FileInfo,
 		if name == "." {
 			return nil
 		}
-		if path.Base(name) == ".DS_Store" || name == ".git" {
+		if name == ".git" {
 			if d.IsDir() {
 				return fs.SkipDir
+			}
+			return nil
+		}
+		if path.Base(name) == ".DS_Store" {
+			info, err := root.Lstat(name)
+			if err != nil {
+				return err
+			}
+			if !info.Mode().IsRegular() {
+				return fmt.Errorf("unexpected non-file Finder metadata entry: %s", name)
 			}
 			return nil
 		}
