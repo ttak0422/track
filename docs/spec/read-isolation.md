@@ -2,6 +2,8 @@
 
 `track web` binds its owned listeners before configuration, cache open, title audit, or indexing.
 Listener readiness means the UI and ownership endpoints are reachable, not that storage is healthy.
+The loopback Markdown capability inbox is independent of vault readiness and persists across
+backend handoffs, preserving one-use tokens without granting disk access.
 Verified configuration selects the root; provisional configuration never authorizes writes. A root
 change during a retry is rejected. The shell, independent panels and healthy peer reads continue
 while unavailable storage is reported explicitly. First-run confirmed files are usable read-only.

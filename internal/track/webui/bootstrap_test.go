@@ -2,7 +2,9 @@ package webui
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -291,5 +293,94 @@ func TestReadOnlyWatcherNeverCreatesMissingVaultDirectories(t *testing.T) {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Fatalf("read-only watcher created %s: %v", path, err)
 		}
+	}
+}
+
+func TestBootstrapMarkdownInboxIsIndependentAndSurvivesBackendHandoff(t *testing.T) {
+	b := newBootstrap(context.Background(), nil, nil, nil)
+	if !b.boundary.admit("") || !b.boundary.admit("") {
+		t.Fatal("could not reserve controlled blocked vault reads")
+	}
+	defer b.boundary.release("")
+	defer b.boundary.release("")
+	defer b.Close()
+	call := func(method, path, body string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(method, "http://127.0.0.1:8765"+path, strings.NewReader(body))
+		r.RemoteAddr = "127.0.0.1:12345"
+		r.Header.Set("Content-Type", "application/json")
+		b.placeholder.guard(b).ServeHTTP(w, r)
+		return w
+	}
+	if w := call("GET", "/api/markdown", ""); w.Code != 200 || !strings.Contains(w.Body.String(), "track-markdown-v1") {
+		t.Fatalf("independent probe blocked: %d %s", w.Code, w.Body.String())
+	}
+	body := `{"active":"note.md","files":[{"path":"note.md","data":"IyBIZWxsbw=="}]}`
+	w := call("POST", "/api/markdown", body)
+	if w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	var document struct {
+		Route string `json:"route"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{VaultDir: t.TempDir(), DBPath: filepath.Join(t.TempDir(), "index.db"), Provisional: true}
+	st, err := store.Open(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := newServer(cfg, st, true)
+	srv.enableAsync()
+	b.mu.Lock()
+	b.server = srv
+	b.serverGeneration = b.generation
+	b.mu.Unlock()
+	consume := `{"token":"` + strings.TrimPrefix(document.Route, "/markdown#handoff=") + `"}`
+	if w := call("POST", "/api/markdown/consume", consume); w.Code != 200 || strings.TrimSpace(w.Body.String()) != body {
+		t.Fatalf("handoff lost or modified snapshot: %d %s", w.Code, w.Body.String())
+	}
+	if w := call("POST", "/api/markdown/consume", consume); w.Code != 410 {
+		t.Fatal("capability replay accepted", w.Code)
+	}
+}
+
+func TestMarkdownConsumeSurvivesStorageRetryAfterTokenRemoval(t *testing.T) {
+	b := newBootstrap(context.Background(), func(ctx context.Context, _ string, _ bool) (*config.Config, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}, nil, nil)
+	defer b.Close()
+	body := []byte(`{"active":"note.md","files":[{"path":"note.md","data":"IyBIZWxsbw=="}]}`)
+	token := strings.Repeat("a", 64)
+	b.placeholder.markdown.grants = map[string]markdownGrant{token: {body: body, expires: time.Now().Add(time.Minute)}}
+	consumed := make(chan struct{})
+	release := make(chan struct{})
+	finished := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest("POST", "http://127.0.0.1:8765/api/markdown/consume", strings.NewReader(`{"token":"`+token+`"}`))
+		r.RemoteAddr = "127.0.0.1:12345"
+		r.Header.Set("Content-Type", "application/json")
+		b.inboxBoundary.serve(w, r, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			b.placeholder.Handler().ServeHTTP(w, r)
+			close(consumed)
+			<-release
+		}), func(http.ResponseWriter, string) bool { return false })
+		finished <- w
+	}()
+	<-consumed
+	b.placeholder.markdown.mu.Lock()
+	remaining := len(b.placeholder.markdown.grants)
+	b.placeholder.markdown.mu.Unlock()
+	if remaining != 0 {
+		t.Fatal("fixture token was not consumed")
+	}
+	b.start() // Advances the storage generation while the successful consume is paused.
+	close(release)
+	w := <-finished
+	if w.Code != 200 || strings.TrimSpace(w.Body.String()) != string(body) {
+		t.Fatalf("storage retry discarded consumed capability: %d %s", w.Code, w.Body.String())
 	}
 }

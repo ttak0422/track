@@ -46,6 +46,7 @@ type Bootstrap struct {
 	cancel           context.CancelFunc
 	root             context.Context
 	boundary         *readBoundary
+	inboxBoundary    *readBoundary
 	open             func(string) (*store.Store, error)
 	load             func(context.Context, string, bool) (*config.Config, error)
 	lease            func(*config.Config) (func(), error)
@@ -58,7 +59,7 @@ func NewBootstrap(ctx context.Context, lease func(*config.Config) (func(), error
 	return b
 }
 func newBootstrap(ctx context.Context, load func(context.Context, string, bool) (*config.Config, error), open func(string) (*store.Store, error), lease func(*config.Config) (func(), error)) *Bootstrap {
-	return &Bootstrap{root: ctx, placeholder: New(&config.Config{Provisional: true}, nil), boundary: newReadBoundary(), progress: map[int64]*note.Note{}, load: load, open: open, lease: lease}
+	return &Bootstrap{root: ctx, placeholder: New(&config.Config{Provisional: true}, nil), boundary: newReadBoundary(), inboxBoundary: newReadBoundary(), progress: map[int64]*note.Note{}, load: load, open: open, lease: lease}
 }
 
 func (b *Bootstrap) start() {
@@ -449,6 +450,12 @@ func (b *Bootstrap) progressResponse(w http.ResponseWriter, r *http.Request, rea
 	return false
 }
 func (b *Bootstrap) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// External Markdown is a loopback capability inbox, independent of vault
+	// configuration/index readiness. Keep one inbox across backend generations.
+	if r.URL.Path == "/api/markdown" || r.URL.Path == "/api/markdown/consume" {
+		b.inboxBoundary.serve(w, r, b.placeholder.Handler(), func(http.ResponseWriter, string) bool { return false })
+		return
+	}
 	if r.URL.Path == "/api/storage" {
 		if r.Method == http.MethodPost {
 			b.start()
