@@ -82,7 +82,7 @@ local function complete_track(arg_lead, cmdline, cursor_pos)
    if cmdline:match("^['<,'>]*Track%s*$") then
       return names
    end
-   if #split <= 2 and name then
+   if #split <= 2 and name and not cmdline:sub(1, cursor_pos):match("%s$") then
       return vim.tbl_filter(function(candidate)
          return vim.startswith(candidate, name)
       end, names)
@@ -97,6 +97,12 @@ local function complete_track(arg_lead, cmdline, cursor_pos)
 end
 
 function M.setup()
+   register("backup", function(opts)
+      require("track.backup").run(opts.fargs)
+   end, { nargs = "*", complete = function(lead, line, cursor)
+      return require("track.backup").complete(lead, line, cursor)
+   end, desc = "Back up saved vault files asynchronously to a checked .tar.gz archive" })
+
    register("dump", function()
       util.open_scratch("track://dump", "json", client.run({ "dump" }))
    end, { desc = "Open a diagnostic dump of track state" })

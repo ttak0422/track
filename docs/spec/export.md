@@ -104,6 +104,13 @@ track export (--id <n> | --title <s> | --path <p>) [--out <file>] [--frontmatter
 
 The target note is given by `--id`, by `--title` (resolved through the keyword dictionary like other commands), or by `--path`. The rendered Markdown is written to stdout. With `--out`, it is written to the file instead and the command prints `{"path": <file>}` as JSON, matching the other commands. Warnings (such as a missing stored result) go to stderr and do not change the exit code.
 
+## Backup archives
+
+For recovery rather than presentation, use [`track backup`](backup.md). It preserves
+canonical bodies, sidecars, assets, data, events and vault-owned history in tar.gz,
+with a versioned checksum manifest; `export` and `export-site` do not preserve that
+complete local state.
+
 ## Static site export
 
 `track export-site` publishes a selected set of notes as a self-contained static site for GitHub Pages or any plain file server. The site is **the React web frontend in a static mode running against a pre-generated JSON bundle**, so it keeps track's real reading experience — sidebar, graph, hover previews, mermaid, media — without a server. The design is [ADR 0019](../adr/0019-static-site-export.md).

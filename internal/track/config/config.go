@@ -262,32 +262,11 @@ func loadPolicy(fixedVault string, audit bool) (*Config, error) {
 		return nil, err
 	}
 
-	configured, err := configuredVault(mc, registry)
+	displayVault, err := vaultLocation(mc, registry, fixedVault)
 	if err != nil {
 		return nil, err
 	}
-	rawVault := fixedVault
-	if rawVault == "" {
-		rawVault = configured
-		if env := os.Getenv("TRACK_VAULT"); env != "" {
-			rawVault = env
-		}
-	}
-	if rawVault == "" {
-		// With nothing configured and no TRACK_VAULT, default to $HOME/track (ADR 0015).
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil, fmt.Errorf("no vault is configured and the home directory is unavailable: %w", err)
-		}
-		rawVault = filepath.Join(home, "track")
-	}
-	// displayVault keeps the configured path absolute but symlink-intact, so user-facing paths read as
-	// the vault the user knows (e.g. ~/track) rather than its resolved target (~/OneDrive/track).
-	displayVault, err := filepath.Abs(expandHome(rawVault))
-	if err != nil {
-		return nil, err
-	}
-	vault, err := canonicalPath(rawVault)
+	vault, err := canonicalPath(displayVault)
 	if err != nil {
 		return nil, err
 	}
@@ -405,6 +384,44 @@ func loadPolicy(fixedVault string, audit bool) (*Config, error) {
 		// where the Config represents whichever vault was named rather than the configured one.
 		VaultName: activeName,
 	}, nil
+}
+
+// VaultLocation resolves only machine-owned paths. Unlike Load, it never reads
+// vault configuration or sidecars, so backup can inspect placeholders first.
+func VaultLocation() (string, map[string]string, error) {
+	mc, err := loadMachineConfig()
+	if err != nil {
+		return "", nil, err
+	}
+	registry, _, err := resolveVaults(vaultEntries(mc))
+	if err != nil {
+		return "", nil, err
+	}
+	location, err := vaultLocation(mc, registry, "")
+	return location, registry, err
+}
+
+func vaultLocation(mc machineFileConfig, registry map[string]string, fixedVault string) (string, error) {
+	configured, err := configuredVault(mc, registry)
+	if err != nil {
+		return "", err
+	}
+	rawVault := fixedVault
+	if rawVault == "" {
+		rawVault = configured
+		if env := os.Getenv("TRACK_VAULT"); env != "" {
+			rawVault = env
+		}
+	}
+	if rawVault == "" {
+		// With nothing configured and no TRACK_VAULT, default to $HOME/track (ADR 0015).
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("no vault is configured and the home directory is unavailable: %w", err)
+		}
+		rawVault = filepath.Join(home, "track")
+	}
+	return filepath.Abs(expandHome(rawVault))
 }
 
 // vaultNamePattern constrains registry names: lowercase ASCII letters, digits, and dashes, so a name

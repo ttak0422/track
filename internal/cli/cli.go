@@ -17,6 +17,12 @@ const Version = "0.1.0"
 
 // Run dispatches a subcommand and returns a process exit code.
 func Run(args []string) int {
+	if len(args) > 0 && args[0] == "__backup" {
+		return cmdBackupWorker(args[1:])
+	}
+	if rest, ok := backupArgs(args); ok {
+		return cmdBackup(rest)
+	}
 	args, ok := applyVaultFlag(args)
 	if !ok {
 		return 1
@@ -317,6 +323,8 @@ Usage:
                                         block, cross-file collisions fail before writing (JSON)
   track babel restore (--id N | --path P) [--body-stdin]
                                         list stored source block results (JSON)
+  track backup --out F.tar.gz [--vault NAME | --all-vaults] [--overwrite] [--timeout 5m]
+                                        write canonical vault files with checksums, outside the vault (JSON)
   track export (--id N | --title S | --path P) [--out F] [--frontmatter] [--exports-default M]
                                         write a note out as Markdown (stdout, or JSON path with --out)
   track export-site (--all | --id N ...) [--root N] [--calendar] [--share]
