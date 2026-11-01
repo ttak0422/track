@@ -599,6 +599,8 @@ func (b *Bootstrap) Close() {
 // ServeBootstrapWithLifecycle binds the owned listeners before touching vault I/O.
 func ServeBootstrapWithLifecycle(ctx context.Context, b *Bootstrap, addr string, onReady func()) error {
 	defer b.Close()
+	serveCtx, cancelRequests := context.WithCancel(ctx)
+	defer cancelRequests()
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
@@ -624,8 +626,8 @@ func ServeBootstrapWithLifecycle(ctx context.Context, b *Bootstrap, addr string,
 		b.server.appsPort = appPort
 	}
 	b.mu.Unlock()
-	main := &http.Server{Handler: b.placeholder.guard(b)}
-	secondary := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	main := &http.Server{Handler: b.placeholder.guard(b), BaseContext: func(net.Listener) context.Context { return serveCtx }}
+	secondary := &http.Server{BaseContext: func(net.Listener) context.Context { return serveCtx }, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b.mu.Lock()
 		srv := b.server
 		b.mu.Unlock()
@@ -645,6 +647,9 @@ func ServeBootstrapWithLifecycle(ctx context.Context, b *Bootstrap, addr string,
 	case <-ctx.Done():
 	case err = <-errs:
 	}
+	// End owned SSE/read requests before graceful drain. Otherwise a healthy
+	// open event stream consumes the entire shutdown timeout on every quit.
+	cancelRequests()
 	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 2*time.Second)
 	_ = main.Shutdown(shutdownCtx)
 	_ = secondary.Shutdown(shutdownCtx)
