@@ -57,7 +57,9 @@ type Pool struct {
 
 func NewPool() *Pool { return newPool(WorkerCount, QueueLimit, startProcess) }
 func newPool(n, queue int, launch func() (process, error)) *Pool {
-	p := &Pool{jobs: make(chan job, queue), closed: make(chan struct{}), finished: make(chan struct{}), launch: launch, owners: map[string]int{}, ownerLimit: 2, admission: make(chan struct{}, n+queue), ownerChanged: make(chan struct{}), quarantinedOwners: map[string]int{}, tickets: map[string]int{}, waitLimit: max(1, queue/n)}
+	// Reserve at most half the waiting budget for one vault, leaving admission
+	// for independent peers while accommodating ordinary HTTP read fanout.
+	p := &Pool{jobs: make(chan job, queue), closed: make(chan struct{}), finished: make(chan struct{}), launch: launch, owners: map[string]int{}, ownerLimit: 2, admission: make(chan struct{}, n+queue), ownerChanged: make(chan struct{}), quarantinedOwners: map[string]int{}, tickets: map[string]int{}, waitLimit: max(1, queue/2)}
 	var wg sync.WaitGroup
 	for range n {
 		wg.Add(1)
@@ -99,9 +101,10 @@ func (p *Pool) call(ctx context.Context, r request) (response, error) {
 			p.ownerMu.Unlock()
 			break
 		}
-		// Quarantined slots cannot promise progress. Ordinary short concurrent
-		// reads instead wait on a bounded admission ticket, without polling.
-		if p.quarantinedOwners[owner] > 0 {
+		// A fully quarantined owner cannot promise progress. A single retiring
+		// child must not reject reads while the other owner slot can still make
+		// progress. Admitted callers wait on events under their own deadline.
+		if p.quarantinedOwners[owner] >= p.ownerLimit {
 			p.ownerMu.Unlock()
 			return response{}, ErrCapacity
 		}

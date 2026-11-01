@@ -277,6 +277,9 @@ func TestBootstrapShutdownRetainsLeaseUntilAuthoritativeWriterExits(t *testing.T
 	released := make(chan struct{})
 	b.release = func() { close(released) }
 	srv.active.mutationGate().Lock()
+	if status := b.Status(); !status.ReadOnly || status.Phase != "partial" {
+		t.Fatalf("pending writer reported editable: %+v", status)
+	}
 	b.Close() // Bounded caller wait, even while an owned writer cannot finish yet.
 	select {
 	case <-released:
@@ -433,6 +436,17 @@ func TestBootstrapLateOpenRetainsPublishedOwnershipForRetry(t *testing.T) {
 		t.Fatal("late cache cleanup dropped live listener ownership")
 	}
 	b.start()
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("retry storage status: %+v", b.Status())
+			b.mu.Lock()
+			srv := b.server
+			b.mu.Unlock()
+			if srv != nil {
+				t.Logf("retry read state: %+v", srv.active.asyncState())
+			}
+		}
+	})
 	waitBoot(t, func() bool { return b.Status().Phase == "ready" })
 	if !owned.Load() || claims.Load() != 1 || opens.Load() != 2 {
 		t.Fatal("retry reused released ownership", claims.Load(), releases.Load(), opens.Load())

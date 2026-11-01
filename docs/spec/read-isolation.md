@@ -18,9 +18,13 @@ survive parent reconstruction. File bytes are bound to descriptor and path ident
 reading; this detects ordinary concurrent replacement, not an atomic whole-filesystem snapshot.
 
 There are four filesystem slots and a 32-entry work queue. Admission allows at most 36 callers
-overall, with at most two worker reservations and eight waiting callers per vault. Ordinary
+overall, with at most two worker reservations and sixteen waiting callers per vault. Ordinary
 concurrency waits for a release notification under its original deadline; a blocked-owner burst
-cannot consume every admission ticket while other workers are idle.
+cannot consume every admission ticket while other workers are idle. A single retiring child does
+not reject admitted reads while another owner slot can still make progress; a fully quarantined
+owner fails explicitly. Readiness polls observe the writer gate without acquiring it, so a poll
+cannot be mistaken for a superseding mutation. Status is advisory; writes still acquire the gate
+and validate the source and cache.
 Caller deadlines cover admission, spawn, exchange and parse. A child not reaped after cancellation
 continues to consume its slot and owner reservation. Configuration has a separate bounded pool.
 Frames are limited to 24 MiB, text files to 16 MiB, metadata to 4 MiB, directories to 100,000 entries.

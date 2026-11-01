@@ -376,10 +376,7 @@ func (b *Bootstrap) Status() StorageStatus {
 		}
 		srv.active.progress.mu.Unlock()
 		state := srv.active.asyncState()
-		available := srv.active.mutationGate().TryLock()
-		if available {
-			srv.active.mutationGate().Unlock()
-		}
+		available := !srv.active.mutationGate().Busy()
 		if !state.Partial && !srv.cfg.Provisional && available {
 			status.Phase = "ready"
 			status.ReadOnly = false
@@ -739,10 +736,7 @@ func (b *Bootstrap) statusFor(r *http.Request) StorageStatus {
 		return status
 	}
 	state := view.asyncState()
-	available := view.mutationGate().TryLock()
-	if available {
-		view.mutationGate().Unlock()
-	}
+	available := !view.mutationGate().Busy()
 	if !view.cfg.Provisional && !state.Partial && available {
 		status.ReadOnly = false
 		status.Phase = "ready"

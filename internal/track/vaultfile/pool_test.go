@@ -264,7 +264,7 @@ func TestOrdinaryConcurrentReadsWaitWithoutPollingOrLosingBudget(t *testing.T) {
 			t.Error(err)
 		}
 	}()
-	results := make(chan error, 8)
+	results := make(chan error, 16)
 	for range 2 {
 		go func() {
 			_, err := p.call(context.Background(), request{Op: "read", Path: "/vault/note/1.md"})
@@ -278,7 +278,7 @@ func TestOrdinaryConcurrentReadsWaitWithoutPollingOrLosingBudget(t *testing.T) {
 	if _, err := p.call(expired, request{Op: "read", Path: "/vault/note/1.md"}); !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
 	}
-	for range 6 {
+	for range 14 {
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			defer cancel()
@@ -286,8 +286,25 @@ func TestOrdinaryConcurrentReadsWaitWithoutPollingOrLosingBudget(t *testing.T) {
 			results <- err
 		}()
 	}
+	deadline := time.After(time.Second)
+	for {
+		p.ownerMu.Lock()
+		admitted := p.tickets["/vault"] == 16
+		p.ownerMu.Unlock()
+		if admitted {
+			break
+		}
+		select {
+		case err := <-results:
+			t.Fatalf("ordinary fanout rejected before release: %v", err)
+		case <-deadline:
+			t.Fatal("ordinary fanout was not admitted")
+		default:
+			runtime.Gosched()
+		}
+	}
 	close(release)
-	for range 8 {
+	for range 16 {
 		if err := <-results; err != nil {
 			t.Fatal("healthy concurrency failed", err)
 		}
@@ -331,8 +348,8 @@ func TestBlockedOwnerBurstLeavesAdmissionForHealthyVault(t *testing.T) {
 	for range 36 {
 		go func() { _, err := p.call(queued, request{Op: "read", Path: "/bad/note/2.md"}); results <- err }()
 	}
-	// Two active and eight waiting tickets fill this owner's budget; the rest fail explicitly.
-	for range 28 {
+	// Two active and sixteen waiting tickets leave half the queue for other owners.
+	for range 20 {
 		select {
 		case err := <-results:
 			if !errors.Is(err, ErrCapacity) {
@@ -351,7 +368,7 @@ func TestBlockedOwnerBurstLeavesAdmissionForHealthyVault(t *testing.T) {
 	<-activeDone
 	<-activeDone
 	// Entering quarantine wakes waiting readers even though their own deadline has not elapsed.
-	for range 8 {
+	for range 16 {
 		select {
 		case err := <-results:
 			if !errors.Is(err, ErrCapacity) {
@@ -360,5 +377,91 @@ func TestBlockedOwnerBurstLeavesAdmissionForHealthyVault(t *testing.T) {
 		case <-time.After(time.Second):
 			t.Fatal("quarantine did not release owner waiters")
 		}
+	}
+}
+
+func TestOneRetiringChildDoesNotRejectHealthyOwnerRetry(t *testing.T) {
+	blocked := make(chan struct{})
+	healthy := make(chan struct{})
+	reap := make(chan struct{})
+	release := make(chan struct{})
+	p := newPool(4, 32, func() (process, error) {
+		child := &controlledProcess{stopped: make(chan struct{}), exited: make(chan struct{})}
+		child.run = func(r request) (response, error) {
+			switch r.Path {
+			case "/vault/note/blocked.md":
+				close(blocked)
+				<-reap
+			case "/vault/note/healthy.md":
+				close(healthy)
+				<-release
+			}
+			return response{Data: []byte("confirmed")}, nil
+		}
+		go func() { <-child.stopped; <-reap; close(child.exited) }()
+		return child, nil
+	})
+	defer func() {
+		close(reap)
+		ctx, stop := context.WithTimeout(context.Background(), time.Second)
+		defer stop()
+		if err := p.Close(ctx); err != nil {
+			t.Error(err)
+		}
+	}()
+	ctx, cancel := context.WithCancel(context.Background())
+	first := make(chan error, 1)
+	go func() { _, err := p.call(ctx, request{Path: "/vault/note/blocked.md"}); first <- err }()
+	<-blocked
+	cancel()
+	if err := <-first; !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+	deadline := time.After(time.Second)
+	for p.Stats().Quarantined != 1 {
+		select {
+		case <-deadline:
+			t.Fatal("child was not quarantined")
+		default:
+			runtime.Gosched()
+		}
+	}
+	second := make(chan error, 1)
+	go func() { _, err := p.call(context.Background(), request{Path: "/vault/note/healthy.md"}); second <- err }()
+	<-healthy
+	retry := make(chan error, 1)
+	go func() {
+		ctx, stop := context.WithTimeout(context.Background(), time.Second)
+		defer stop()
+		value, err := p.call(ctx, request{Path: "/vault/note/retry.md"})
+		if err == nil && string(value.Data) != "confirmed" {
+			err = errors.New("unconfirmed retry")
+		}
+		retry <- err
+	}()
+	// Prove retry was admitted before the healthy slot becomes available.
+	deadline = time.After(time.Second)
+	for {
+		p.ownerMu.Lock()
+		waiting := p.tickets["/vault"] >= 2
+		p.ownerMu.Unlock()
+		if waiting {
+			break
+		}
+		select {
+		case err := <-retry:
+			t.Fatalf("retry rejected while a healthy slot can progress: %v", err)
+		case <-deadline:
+			t.Fatal("retry not admitted")
+		default:
+			runtime.Gosched()
+		}
+	}
+	close(release)
+	if err := <-second; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-retry; err != nil {
+		t.Fatal("retiring child blocked healthy retry", err)
 	}
 }

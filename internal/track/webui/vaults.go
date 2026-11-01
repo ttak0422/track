@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ttak0422/track/internal/track/config"
@@ -21,8 +22,8 @@ import (
 // is what decides which files a request touches.
 type vaultView struct {
 	async      bool
-	mutations  sync.Mutex
-	sharedGate *sync.Mutex
+	mutations  vaultGate
+	sharedGate *vaultGate
 	progress   readProgress
 
 	// name is the vault's registry identity, used to address it (?vault=) and to list it.
@@ -382,9 +383,29 @@ func (s *Server) closeViewsOwned() {
 		v.mutationGate().Unlock()
 	}
 }
-func (v *vaultView) mutationGate() *sync.Mutex {
+func (v *vaultView) mutationGate() *vaultGate {
 	if v.sharedGate != nil {
 		return v.sharedGate
 	}
 	return &v.mutations
 }
+
+// Observers must not briefly acquire the writer gate: a concurrent read pass
+// could mistake that probe for a mutation and defer publication for its backoff.
+// Busy is advisory status only; mutation authorization still acquires the gate
+// and verifies the source/cache state.
+type vaultGate struct {
+	mu   sync.Mutex
+	busy atomic.Bool
+}
+
+func (g *vaultGate) Lock() { g.mu.Lock(); g.busy.Store(true) }
+func (g *vaultGate) TryLock() bool {
+	if !g.mu.TryLock() {
+		return false
+	}
+	g.busy.Store(true)
+	return true
+}
+func (g *vaultGate) Unlock()    { g.busy.Store(false); g.mu.Unlock() }
+func (g *vaultGate) Busy() bool { return g.busy.Load() }
