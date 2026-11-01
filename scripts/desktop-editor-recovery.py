@@ -76,6 +76,7 @@ def main():
         for source in (ROOT / 'desktop/Tests/EditorRecovery/main.swift',
                        ROOT / 'desktop/Sources/TrackWebApp/WebViewCoordinator.swift',
                        ROOT / 'desktop/Sources/TrackWebApp/NativeSpeechBridge.swift',
+                       ROOT / 'desktop/Sources/TrackWebApp/NativeNotificationBridge.swift',
                        ROOT / 'desktop/Sources/TrackWebApp/TrackServerProcess.swift',
                        ROOT / 'desktop/Sources/TrackWebApp/RestartFixture.swift'):
             (harness / source.name).symlink_to(source)
