@@ -3973,7 +3973,7 @@ textarea.modal-input:focus-visible {
 }
 
 /* Scoped to Pele: color changes inherit immediately without parsing or replacing the SVG. */
-.pele-diagram {
+.mermaid-diagram.pele-diagram {
   --pele-bg: var(--panel);
   --pele-fg: var(--text);
   --pele-muted: var(--muted);
