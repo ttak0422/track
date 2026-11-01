@@ -51,6 +51,10 @@ The `.track/` directory is **authoritative** and cannot be fully rebuilt from th
 The SQLite index is a disposable cache outside the vault. `track reindex --full` resets the cache schema in place and rebuilds it from note files and sidecar metadata, without unlinking databases held open by other Track processes.
 See [docs/spec/storage.md](docs/spec/storage.md) for details.
 
+For recovery copies, [`track backup --out /independent-backup/vault.tar.gz`](docs/spec/backup.md)
+archives canonical vault files with a versioned checksum manifest. Keep the output on
+independent storage; finish synchronization and pause editing before the backup.
+
 ## Platform support
 
 The Nix flake supports Linux (`x86_64-linux`, `aarch64-linux`) and macOS on Apple Silicon (`aarch64-darwin`).

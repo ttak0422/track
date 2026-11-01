@@ -224,6 +224,13 @@ When the scan finds no note files at all while the index still lists several not
 
 Run `track doctor` when a vault may be only partially synced: it reports orphan sidecars (and other divergence) read-only, so a sync gap is not silently treated as a deletion. See [agent-workflows.md](agent-workflows.md) and ADR 0014.
 
+## Local backup archives
+
+[`track backup`](backup.md) writes canonical vault files as a checked tar.gz archive,
+including bodies, sidecars, assets, data, events, configuration and retained history.
+Use an independent destination outside the vault; this does not verify remote sync
+completion or provide an atomic filesystem snapshot.
+
 ## Durability: do not delete `.track/notes/`
 
 The vault and cache hold two very different kinds of data:
