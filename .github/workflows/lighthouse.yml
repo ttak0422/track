@@ -34,16 +34,16 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7.0.1
 
       - name: Install Nix
-        uses: cachix/install-nix-action@v31
+        uses: cachix/install-nix-action@v31.11.3
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
 
       - name: Set up Cachix
-        uses: cachix/cachix-action@v15
+        uses: cachix/cachix-action@v17
         # Cache availability is optional, including uploads in the post-action hook.
         # Build and test steps still fail normally.
         continue-on-error: true
@@ -54,7 +54,10 @@ jobs:
 
       - name: Install Chrome
         id: chrome
-        uses: browser-actions/setup-chrome@v1
+        uses: browser-actions/setup-chrome@v2.2.0
+        with:
+          # Preserve v1's latest Chromium snapshot rather than v2's stable default.
+          chrome-version: latest
 
       - name: Build the help site
         run: nix develop --command make site
@@ -69,7 +72,7 @@ jobs:
 
       - name: Upload Lighthouse reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: lighthouse-report
           path: .lighthouseci/
