@@ -88,6 +88,10 @@ jobs:
       - name: Web tests
         run: nix develop --command bash -euo pipefail -c 'cd web && npm ci && npm test'
 
+      - name: Neovim backup command E2E
+        timeout-minutes: 2
+        run: nix run .#test-nvim -- --headless -u NONE -i NONE -l scripts/e2e/nvim_backup.lua
+
       - name: Neovim readable editor view E2E
         timeout-minutes: 3
         run: nix run .#test-nvim -- --headless '+luafile scripts/e2e/nvim_editor_view.lua'
