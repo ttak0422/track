@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { EChartsBlock } from "./EChartsBlock";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { renderMetricsDashboard, type MetricsDashboardResponse } from "../../api";
@@ -6,7 +7,7 @@ import { MetricsDashboard, MetricsSnapshot } from "./MetricsDashboard";
 import { NoteVaultContext } from "./context";
 
 vi.mock("../../api", () => ({ renderMetricsDashboard: vi.fn() }));
-vi.mock("./EChartsBlock", () => ({ EChartsBlock: ({option}: {option: {title?: {text: string}}}) => <div role="img" aria-label={option.title?.text} /> }));
+vi.mock("./EChartsBlock", () => ({ EChartsBlock: vi.fn(({option}: {option: {title?: {text: string}}}) => <div role="img" aria-label={option.title?.text} />) }));
 const view: MetricsDashboardResponse = {title:"Sectors",panels:[{title:"Level",x:0,width:12,source:"sectors.jsonl",unit:"pct",latest_observation:"2026-10-08",points:3,missing:1,gaps:[{time:"2026-10-08",entity:"A",reason:"not published"}],series:[{entity:"A",frequency:"weekly",scope:"sector"}],echarts:{title:{text:"Level"}}}]};
 function mount() {
   const client = new QueryClient({defaultOptions:{queries:{retry:false}}});
@@ -58,4 +59,15 @@ it("falls back to source for malformed snapshot metadata", () => {
   const result = render(<MetricsSnapshot text={JSON.stringify(malformed)} />);
   expect(screen.queryByRole("img")).toBeNull();
   expect(result.container.querySelector(".code-block")).not.toBeNull();
+});
+
+
+it("keeps snapshot chart options stable until the source changes", () => {
+  const text = JSON.stringify(view);
+  const result = render(<MetricsSnapshot text={text} />);
+  const initial = vi.mocked(EChartsBlock).mock.calls.at(-1)![0].option;
+  result.rerender(<MetricsSnapshot text={text} />);
+  expect(vi.mocked(EChartsBlock).mock.calls.at(-1)![0].option).toBe(initial);
+  result.rerender(<MetricsSnapshot text={text.replace("Level", "Changed")} />);
+  expect(vi.mocked(EChartsBlock).mock.calls.at(-1)![0].option).not.toBe(initial);
 });

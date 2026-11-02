@@ -1,5 +1,5 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { useContext, useState } from "react";
+import { memo, useContext, useState } from "react";
 import { renderMetricsDashboard, type MetricsDashboardResponse } from "../../api";
 import { STATIC_MODE } from "../../runtime";
 import { CodeBlock } from "./CodeBlock";
@@ -55,7 +55,7 @@ function DashboardContents({ view }: { view: MetricsDashboardResponse }) {
 }
 
 // The site exporter resolves vault bindings once. A snapshot has no live data endpoint or updates.
-export function MetricsSnapshot({ text }: { text: string }) {
+export const MetricsSnapshot = memo(function MetricsSnapshot({ text }: { text: string }) {
   try {
     const view = JSON.parse(text) as MetricsDashboardResponse;
     if (!view || typeof view.title !== "string" || !Array.isArray(view.panels) || !view.panels.every((panel) =>
@@ -72,4 +72,4 @@ export function MetricsSnapshot({ text }: { text: string }) {
       <DashboardContents view={view} />
     </section>;
   } catch { return <CodeBlock lang="json" text={text} />; }
-}
+});

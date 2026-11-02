@@ -205,6 +205,9 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
   }, [noteID, noteQuery.data?.note.etag, noteQuery.data?.note.read_only, diagram]);
 
   const dirty = body !== loadedRef.current.body;
+  // Keep a successful sanitized rendering of this exact source during a failed
+  // background refresh. Never retain a placeholder from another body or route.
+  const retainPreview = renderQuery.data?.sourceBody === body && renderQuery.data?.markdown !== undefined && loadedRef.current.noteID === noteID && !renderQuery.isPlaceholderData;
   const currentRender = renderQuery.data?.sourceBody === body && loadedRef.current.noteID === noteID && !renderQuery.isError && !renderQuery.isPlaceholderData;
   const protectedDraft = dirty || diagram !== null;
   // Memoized so a disk refresh (which swaps only tasksRef.current) does not re-render the controls:
@@ -541,7 +544,8 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
                     {editorMode === "preview" ? <LineHint /> : null}
                     {/* A non-empty body with no render yet is still loading — show a spinner rather than let
                       MarkdownView flash "Empty note." for a body that is not actually empty. */}
-                    {renderQuery.isError ? <RenderFailure source={body} retry={() => { void renderQuery.refetch(); }} retrying={renderQuery.isFetching} /> : body.trim() !== "" &&
+                    {renderQuery.isError && retainPreview ? <RenderFailure retained source={body} retry={() => { void renderQuery.refetch(); }} retrying={renderQuery.isFetching} /> : null}
+                    {renderQuery.isError && !retainPreview ? <RenderFailure source={body} retry={() => { void renderQuery.refetch(); }} retrying={renderQuery.isFetching} /> : body.trim() !== "" &&
                     renderQuery.data?.markdown === undefined ? (
                       <LoadingIndicator label="Loading note" />
                     ) : (
