@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { ReadingPositionBoundary } from "./components/ReadingPositionBoundary";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { STATIC_MODE } from "./runtime";
 
@@ -25,7 +26,8 @@ export function useStorageStatus(options: { enabled?: boolean } = {}) {
   // notifications are disabled too. Inactive recovery consumers must not repaint notes.
   return useQuery({ notifyOnChangeProps: options.enabled === false ? [] : undefined, queryKey: ["storage-status"], queryFn: fetchStorage, enabled: !STATIC_MODE && options.enabled !== false, retry: false, refetchInterval: 1000 });
 }
-export function StorageNotice() {
+export function StorageNotice({ reader, scope = "" }: { reader?: RefObject<HTMLElement | null>; scope?: string } = {}) {
+  const unusedRoot = useRef<HTMLElement>(null);
   const status = useStorageStatus();
   const client = useQueryClient();
   const previous = useRef("");
@@ -36,7 +38,7 @@ export function StorageNotice() {
     }
     previous.current = status.data?.phase ?? "";
   }, [status.data?.phase, client]);
-  if (STATIC_MODE || !status.data || status.data.phase === "ready") return null;
+  const visible = !STATIC_MODE && status.data && status.data.phase !== "ready";
   async function retry() {
     setRetrying(true);
     try { await fetch("/api/storage", { method: "POST" }); } finally {
@@ -44,9 +46,11 @@ export function StorageNotice() {
       setRetrying(false);
     }
   }
-  return <div className="note-recovery-error" role="status">
+  return <ReadingPositionBoundary root={reader ?? unusedRoot} scope={scope} revision={JSON.stringify([visible, status.data?.phase, status.data?.reason, retrying])}>
+  {visible && <div className="note-recovery-error" role="status">
     <p>{status.data.phase === "initializing" ? "Storage is initializing. Confirmed files remain available read-only." : "Storage is not fully verified. Available information may be partial or stale."}</p>
     {status.data.reason && <p className="muted">{status.data.reason}</p>}
     <button type="button" className="note-recovery-action" disabled={retrying} onClick={() => { void retry().catch(() => {}); }}>Retry storage</button>
-  </div>;
+  </div>}
+  </ReadingPositionBoundary>;
 }

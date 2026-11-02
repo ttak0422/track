@@ -179,7 +179,7 @@ function ShellView() {
             aria-label={readingKeys ? "Note reading area" : undefined}
             aria-description={readingKeys ? "j/k scroll; Tab/Shift+Tab switch notes. Escape returns Tab to focus navigation." : undefined}
           >
-            <StorageNotice />
+            <StorageNotice reader={readerRef} scope={`${pathname}:${mode}`} />
             <Outlet />
           </section>
         </div>

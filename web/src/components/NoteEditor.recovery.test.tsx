@@ -317,23 +317,29 @@ it("preserves a typed draft and keeps it locked until the note itself is verifie
 it("keeps draft focus, selection and scroll through unchanged background storage checks", async () => {
   const { client } = mount();
   await screen.findByText("Saved a");
-  fireEvent.click(screen.getByRole("button", { name: "Edit" }));
-  const editor = screen.getByRole<HTMLTextAreaElement>("textbox", { name: "Note body" });
-  fireEvent.change(editor, { target: { value: "Unsaved draft 日本語" } });
-  editor.focus();
-  editor.setSelectionRange(2, 6);
-  // Let the editing caret reveal finish before observing background-only updates.
-  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
-  editor.scrollTop = 42;
-  for (let tick = 1; tick <= 3; tick++) {
-    await act(async () => {
-      client.setQueryData(["storage-status"], { phase: "ready", read_only: false, generation: 1 }, { updatedAt: Date.now() + tick * 1000 });
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    });
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "requestAnimationFrame", "cancelAnimationFrame"] });
+  try {
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    const editor = screen.getByRole<HTMLTextAreaElement>("textbox", { name: "Note body" });
+    fireEvent.change(editor, { target: { value: "Unsaved draft 日本語" } });
+    editor.focus();
+    editor.setSelectionRange(2, 6);
+    // Drain selection events and their intentional caret-reveal frames before establishing
+    // the background-only scroll position. A wall-clock sleep races those frames under load.
+    await act(async () => { await vi.runAllTimersAsync(); });
+    editor.scrollTop = 42;
+    for (let tick = 1; tick <= 3; tick++) {
+      await act(async () => {
+        client.setQueryData(["storage-status"], { phase: "ready", read_only: false, generation: 1 }, { updatedAt: Date.now() + tick * 1000 });
+        await vi.runAllTimersAsync();
+      });
+    }
+    expect(screen.getByRole("textbox", { name: "Note body" })).toBe(editor);
+    expect(editor).toHaveValue("Unsaved draft 日本語");
+    expect(document.activeElement).toBe(editor);
+    expect([editor.selectionStart, editor.selectionEnd, editor.scrollTop]).toEqual([2, 6, 42]);
+    expect(saveNote).not.toHaveBeenCalled();
+  } finally {
+    vi.useRealTimers();
   }
-  expect(screen.getByRole("textbox", { name: "Note body" })).toBe(editor);
-  expect(editor).toHaveValue("Unsaved draft 日本語");
-  expect(document.activeElement).toBe(editor);
-  expect([editor.selectionStart, editor.selectionEnd, editor.scrollTop]).toEqual([2, 6, 42]);
-  expect(saveNote).not.toHaveBeenCalled();
 });

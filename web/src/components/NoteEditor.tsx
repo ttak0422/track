@@ -1,3 +1,4 @@
+import { ReadingPositionBoundary } from "./ReadingPositionBoundary";
 import { RenderFailure } from "./RenderFailure";
 import { useBlocker, useNavigate } from "@tanstack/react-router";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -105,6 +106,7 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
   const noteIDRef = useRef(noteID);
   const editorModeRef = useRef(editorMode);
   const pendingFollowRef = useRef<FollowState | null>(null);
+  const articleRef = useRef<HTMLElement>(null);
   const previewRef = useRef<HTMLElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   useNativeEditorState({
@@ -411,7 +413,8 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
   }
 
   return (
-    <article
+    <ReadingPositionBoundary root={articleRef} scope={`${noteID}:${editorMode}`} revision={JSON.stringify([noteQuery.isError, noteQuery.error?.message, noteQuery.isError && noteQuery.isFetching, data.read_state?.partial, readOnly, renderQuery.isError, renderQuery.isError && renderQuery.isFetching])}>
+    <article ref={articleRef}
       className={`note-reader${editorMode === "split" ? " note-reader-split" : ""}`}
     >
 
@@ -614,5 +617,6 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
         />
       </div>
     </article>
+    </ReadingPositionBoundary>
   );
 }

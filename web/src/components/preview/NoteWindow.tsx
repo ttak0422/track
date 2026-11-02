@@ -30,6 +30,8 @@ export function NoteWindow({ noteID, ...controls }: NoteWindowProps) {
 
   return (
     <FloatingWindow
+      readingScope={noteID}
+      readingRevision={JSON.stringify([note.isError, note.error?.message, rendered.isError, rendered.isError && rendered.isFetching])}
       title={title}
       copyTitle={note.data?.note.title}
       {...controls}

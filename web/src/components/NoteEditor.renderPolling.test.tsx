@@ -19,7 +19,7 @@ vi.mock("../api", async (original) => ({
 // replacement with the escaped-source fallback (and remounting) observable without canvas engines.
 vi.mock("./MarkdownView", () => ({ MarkdownView: ({ markdown, drawioEditing }: { markdown: string; drawioEditing?: DrawioEditing | null }) => {
   const taskBoard = useContext(TaskBoardContext);
-  return <div data-testid="formatted-preview" data-task-note={taskBoard?.noteID ?? ""}
+  return <div className="markdown-view" data-testid="formatted-preview" data-task-note={taskBoard?.noteID ?? ""}
     data-drawio-editable={typeof drawioEditing?.open === "function" ? "true" : "false"}>
     <h2>{markdown.replace(/^## /, "")}</h2>
   </div>;
@@ -44,7 +44,7 @@ function Navigation() {
 }
 const disposals: (() => void)[] = [];
 function mount() {
-  const root = createRootRoute({ component: () => <TabsProvider><NoteControlsProvider><Navigation /><Outlet /></NoteControlsProvider></TabsProvider> });
+  const root = createRootRoute({ component: () => <TabsProvider><NoteControlsProvider><Navigation /><div className="reader" style={{ overflowY: "auto" }}><Outlet /></div></NoteControlsProvider></TabsProvider> });
   const reader = createRoute({ getParentRoute: () => root, path: "/notes/$noteId", component: () => {
     const { noteId } = reader.useParams();
     return <NoteEditor noteID={noteId} />;
@@ -136,4 +136,35 @@ describe("render refresh resilience", () => {
     expect(screen.queryByRole("heading", { name: "Formatted a" })).toBeNull();
     expect(screen.queryByTestId("formatted-preview")).toBeNull();
   });
+});
+
+it("keeps the visible passage at the same viewport pixel when refresh notices appear and disappear", async () => {
+  const { client } = mount();
+  const heading = await screen.findByRole("heading", { name: "Formatted a" });
+  const reader = heading.closest<HTMLElement>(".reader")!;
+  // jsdom has no layout. Model a real outer reading viewport and the in-flow
+  // recovery notice's height; production query/React snapshot lifecycles run unchanged.
+  const noticeHeight = () => reader.textContent?.includes("Could not refresh the preview") ? 80 : 0;
+  let scroll = 800;
+  Object.defineProperties(reader, {
+    clientHeight: { configurable: true, get: () => 500 },
+    scrollHeight: { configurable: true, get: () => 1800 + noticeHeight() },
+    scrollTop: { configurable: true, get: () => scroll, set: (value: number) => { scroll = Math.max(0, Math.min(value, 1300 + noticeHeight())); } },
+  });
+  vi.spyOn(reader, "getBoundingClientRect").mockImplementation(() => ({ top: 0, bottom: 500, height: 500 } as DOMRect));
+  vi.spyOn(heading, "getBoundingClientRect").mockImplementation(() => {
+    const top = 900 + noticeHeight() - reader.scrollTop;
+    return { top, bottom: top + 60, height: 60 } as DOMRect;
+  });
+  expect(heading.getBoundingClientRect().top).toBe(100);
+  vi.mocked(renderMarkdown).mockRejectedValue(new Error("temporary render failure"));
+  await act(async () => { await client.invalidateQueries({ queryKey: queryKeys.render(sourceA) }); });
+  await screen.findByRole("button", { name: "Retry preview" });
+  expect.soft(heading.getBoundingClientRect().top).toBe(100);
+  expect.soft(reader.scrollTop).toBe(880);
+  vi.mocked(renderMarkdown).mockImplementation(async (body) => rendered(body));
+  fireEvent.click(screen.getByRole("button", { name: "Retry preview" }));
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Retry preview" })).toBeNull());
+  expect(heading.getBoundingClientRect().top).toBe(100);
+  expect(reader.scrollTop).toBe(800);
 });

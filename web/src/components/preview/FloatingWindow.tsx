@@ -1,3 +1,4 @@
+import { ReadingPositionBoundary } from "../ReadingPositionBoundary";
 import { type PointerEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import {
   clamp,
@@ -52,6 +53,8 @@ export interface FloatingWindowControls {
 }
 
 interface FloatingWindowProps extends FloatingWindowControls {
+  readingScope?: string;
+  readingRevision?: string;
   title: string;
   // When set, the title gets a copy button in the chrome (a note title worth copying); media windows
   // leave it undefined and no button renders.
@@ -71,6 +74,8 @@ interface DragState {
 // FloatingWindow is the draggable/resizable/collapsible chrome shared by hover previews and the pinned
 // windows in the floating layer. Content (a note body or a media embed) is passed as children.
 export function FloatingWindow({
+  readingScope = "",
+  readingRevision = "",
   title,
   copyTitle,
   initialBounds,
@@ -327,7 +332,9 @@ export function FloatingWindow({
       {collapsed ? null : (
         <div className="wiki-preview-body" ref={bodyRef}>
           <div ref={contentRef}>
+            <ReadingPositionBoundary root={bodyRef} scope={readingScope} revision={readingRevision}>
             <InFloatingWindowContext.Provider value={true}>{children}</InFloatingWindowContext.Provider>
+            </ReadingPositionBoundary>
           </div>
         </div>
       )}
