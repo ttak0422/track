@@ -5,6 +5,7 @@ import {
   attachDetailTooltip,
   detailTooltipFormatter,
   EChartsBlock,
+  EChartsFence,
   chartAriaLabel,
   plotBottomGap,
   suppressBoxLabels,
@@ -266,4 +267,20 @@ it("contains an asynchronous chart failure without hiding sibling prose",async()
  await waitFor(()=>expect(view.getByText(/Chart is unavailable/)).toBeTruthy());
  expect(view.getByText("Readable sibling")).toBeTruthy();
  view.unmount();warn.mockRestore();
+});
+
+it("does not restart a chart for unchanged fenced source on parent polling renders", async () => {
+  const text = JSON.stringify({ title: { text: "Stable chart" }, series: [{ type: "line", data: [1, 2] }] });
+  const view = render(<EChartsFence text={text} />);
+  await waitFor(() => expect(view.container.querySelector(".viewspec-chart")).not.toBeNull());
+  await waitFor(() => expect(setOption).toHaveBeenCalled());
+  const chart = view.container.querySelector(".viewspec-chart");
+  const calls = setOption.mock.calls.length;
+  view.rerender(<EChartsFence text={text} />);
+  await Promise.resolve();
+  expect(view.container.querySelector(".viewspec-chart")).toBe(chart);
+  expect(setOption).toHaveBeenCalledTimes(calls);
+  view.rerender(<EChartsFence text={text.replace("Stable chart", "Updated chart")} />);
+  await waitFor(() => expect(setOption).toHaveBeenCalledTimes(calls + 1));
+  expect(view.container.querySelector(".viewspec-chart")).toBe(chart);
 });

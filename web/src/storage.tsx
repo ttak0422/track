@@ -21,7 +21,9 @@ async function fetchStorage(): Promise<StorageStatus> {
   return data;
 }
 export function useStorageStatus(options: { enabled?: boolean } = {}) {
-  return useQuery({ queryKey: ["storage-status"], queryFn: fetchStorage, enabled: !STATIC_MODE && options.enabled !== false, retry: false, refetchInterval: 1000 });
+  // A disabled observer still receives cache updates from StorageNotice's poll unless
+  // notifications are disabled too. Inactive recovery consumers must not repaint notes.
+  return useQuery({ notifyOnChangeProps: options.enabled === false ? [] : undefined, queryKey: ["storage-status"], queryFn: fetchStorage, enabled: !STATIC_MODE && options.enabled !== false, retry: false, refetchInterval: 1000 });
 }
 export function StorageNotice() {
   const status = useStorageStatus();

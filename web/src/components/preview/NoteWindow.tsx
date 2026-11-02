@@ -20,6 +20,7 @@ export function NoteWindow({ noteID, ...controls }: NoteWindowProps) {
   const vault = vaultOf(noteID);
   const body = note.data?.note.body ?? "";
   const rendered = useRenderQuery(body, vault);
+  const retainPreview = rendered.data?.sourceBody === body && rendered.data?.markdown !== undefined && !rendered.isPlaceholderData;
   const title = note.data?.note.title ?? "Preview";
   // Hold the loading state until the sanitized body is in hand: the note and its render land in two
   // steps, and drawing an empty MarkdownView in between makes FloatingWindow's auto-fit shrink to
@@ -36,7 +37,8 @@ export function NoteWindow({ noteID, ...controls }: NoteWindowProps) {
     >
       {note.isPending || awaitingRender ? <LoadingIndicator label="Loading note" /> : null}
       {note.isError ? <p className="error">{note.error.message}</p> : null}
-      {rendered.isError ? <RenderFailure source={body} retry={() => { void rendered.refetch(); }} retrying={rendered.isFetching} /> : note.data && !awaitingRender ? (
+      {rendered.isError && retainPreview ? <RenderFailure retained source={body} retry={() => { void rendered.refetch(); }} retrying={rendered.isFetching} /> : null}
+      {rendered.isError && !retainPreview ? <RenderFailure source={body} retry={() => { void rendered.refetch(); }} retrying={rendered.isFetching} /> : note.data && !awaitingRender ? (
         // The source path goes in, so selecting prose in a window offers the same copy actions as the
         // reader does. No portal: the popover is position: fixed and the window sets no transform, so
         // it escapes the scrolling body instead of being clipped by it, and paints inside the window's

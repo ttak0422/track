@@ -112,3 +112,31 @@ describe("NoteWindow content switch", () => {
     expect(screen.getByRole("button", { name: "Retry preview" })).toBeEnabled();
   });
 });
+
+it("retains the same formatted preview through failed background renders and retry", () => {
+  noteQuery.mockReturnValue(noteLoaded("# hi"));
+  const data = { markdown: "# hi", sourceBody: "# hi" };
+  renderQuery.mockReturnValue({ data, isError: false });
+  const view = render(<NoteWindow noteID="1" {...controls} />);
+  const body = screen.getByTestId("body");
+  renderQuery.mockReturnValue({ data, isError: true, isFetching: false });
+  view.rerender(<NoteWindow noteID="1" {...controls} />);
+  expect(screen.getByTestId("body")).toBe(body);
+  expect(screen.getByText(/last rendered preview/)).toBeInTheDocument();
+  expect(view.container.querySelector("pre")).toBeNull();
+  renderQuery.mockReturnValue({ data, isError: true, isFetching: true });
+  view.rerender(<NoteWindow noteID="1" {...controls} />);
+  expect(screen.getByTestId("body")).toBe(body);
+  expect(screen.getByRole("button", { name: "Retrying…" })).toBeDisabled();
+  renderQuery.mockReturnValue({ data, isError: false });
+  view.rerender(<NoteWindow noteID="1" {...controls} />);
+  expect(screen.getByTestId("body")).toBe(body);
+});
+
+it("never retains another source's preview on a render failure", () => {
+  noteQuery.mockReturnValue(noteLoaded("# new note"));
+  renderQuery.mockReturnValue({ data: { markdown: "Old preview", sourceBody: "# old note" }, isError: true });
+  show();
+  expect(screen.queryByTestId("body")).toBeNull();
+  expect(screen.getByText("# new note", { selector: "code" })).toBeInTheDocument();
+});

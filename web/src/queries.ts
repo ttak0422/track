@@ -230,7 +230,9 @@ export function useNoteQuery(noteID: NoteID, options: { live?: boolean; enabled?
     refetchInterval: options.live ? liveRefetchInterval : false,
     enabled: options.enabled ?? true,
   });
-  const storage = useStorageStatus({ enabled: options.live === true && options.enabled !== false });
+  // Writable notes do not need the one-second recovery clock. Keep observing only
+  // while a read-only response needs a newer verified storage result to retry.
+  const storage = useStorageStatus({ enabled: options.live === true && options.enabled !== false && noteQuery.data?.note.read_only === true });
   const recovery = useRef({ noteID, generation: storage.data?.generation, attempts: 0, checkedAt: 0 });
   useEffect(() => {
     if (recovery.current.noteID !== noteID || recovery.current.generation !== storage.data?.generation) {

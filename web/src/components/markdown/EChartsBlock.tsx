@@ -414,7 +414,9 @@ interface EChartsFenceProps {
 }
 
 export function EChartsFence({ text }: EChartsFenceProps) {
-  const option = parseOption(text);
+  // Keep the chart option identity through unrelated parent updates (including polls),
+  // otherwise setOption resets the chart and restarts its animation every time.
+  const option = useMemo(() => parseOption(text), [text]);
   if (option === null) {
     return <CodeBlock lang="json" text={text} />;
   }
