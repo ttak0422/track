@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"reflect"
 	"strconv"
 	"sync"
 	"time"
@@ -18,6 +19,7 @@ type readProgress struct {
 	mu                sync.Mutex
 	generation        uint64
 	running           bool
+	verified          bool
 	cancel            context.CancelFunc
 	last              time.Time
 	state             store.ReadState
@@ -30,6 +32,20 @@ type readProgress struct {
 
 const maxProgressBytes = 32 << 20
 const asyncRefreshInterval = 5 * time.Second
+
+// beginPass retains completed health during routine revalidation. Running is not
+// evidence of unreadable storage; unknown initial/mutated snapshots remain partial.
+// The caller holds p.mu.
+func (p *readProgress) beginPass(path string) {
+	if !p.verified {
+		p.state.Add(store.ReadIssue{Path: path, Reason: "read pass in progress"})
+	}
+}
+
+func sameReadHealth(a, b store.ReadState) bool {
+	a.CheckedAt, b.CheckedAt = 0, 0
+	return reflect.DeepEqual(a, b)
+}
 
 func (s *Server) refreshAsync(v *vaultView) {
 	s.viewsMu.Lock()
@@ -58,7 +74,9 @@ func (s *Server) refreshAsync(v *vaultView) {
 	generation := p.generation
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	p.cancel = cancel
-	p.state.Add(store.ReadIssue{Path: v.cfg.VaultDir, Reason: "read pass in progress"})
+	previousState := p.state
+	wasVerified := p.verified
+	p.beginPass(v.cfg.VaultDir)
 	p.notes = map[int64]*note.Note{}
 	p.bytes = 0
 	previous := make(map[int64]*vaultfile.NoteRead, len(p.versions))
@@ -85,9 +103,31 @@ func (s *Server) refreshAsync(v *vaultView) {
 				p.home = strconv.FormatInt(n.ID, 10)
 			}
 			p.bytes += len(n.Body) + len(n.Snapshot.Metadata) + len(n.Tasks)*512
-			s.events.broadcastChange()
+			if !wasVerified || previousState.Partial {
+				s.events.broadcastChange()
+			}
 		})
-		if err == nil && v.mutationGate().TryLock() {
+		unchanged := err == nil && wasVerified && !previousState.Partial && !snap.State.Partial && len(snap.Notes) == 0 && len(snap.Activity) == 0 && sameReadHealth(previousState, snap.State)
+		cacheHealthChanged := false
+		if unchanged {
+			// Query-time read failures are persisted independently of progress.
+			// A healthy recheck must publish their recovery, not retain stale write guards.
+			var stored store.ReadState
+			stored, err = v.store.ReadState()
+			if err == nil {
+				cacheHealthChanged = !sameReadHealth(stored, snap.State)
+			}
+			unchanged = err == nil && !cacheHealthChanged
+		}
+		if unchanged {
+			// A verified no-op needs neither a write transaction nor a client invalidation.
+			// Retain Publish's revision guard for independent CLI/cache writers.
+			var revision int64
+			revision, err = v.store.Revision()
+			if err == nil && revision != snap.Revision {
+				err = index.ErrSuperseded
+			}
+		} else if err == nil && v.mutationGate().TryLock() {
 			p.mu.Lock()
 			valid := p.generation == generation
 			p.mu.Unlock()
@@ -119,6 +159,9 @@ func (s *Server) refreshAsync(v *vaultView) {
 			p.state.Add(store.ReadIssue{Path: v.cfg.VaultDir, Reason: err.Error()})
 		} else {
 			p.state = snap.State
+			if !snap.State.Partial {
+				p.verified = true
+			}
 			if p.versions == nil {
 				p.versions = map[int64]*vaultfile.NoteRead{}
 			}
@@ -128,7 +171,9 @@ func (s *Server) refreshAsync(v *vaultView) {
 				}
 			}
 		}
-		s.events.broadcastChange()
+		if !wasVerified || !sameReadHealth(previousState, p.state) || (err == nil && (len(snap.Notes) > 0 || cacheHealthChanged)) {
+			s.events.broadcastChange()
+		}
 	}()
 }
 func (v *vaultView) invalidateRead() {
@@ -143,6 +188,7 @@ func (v *vaultView) invalidateRead() {
 	p.cancel = nil
 	p.notes = nil
 	p.initialSuperseded = true
+	p.verified = false
 	p.versions = nil
 	p.bytes = 0
 }
@@ -152,6 +198,9 @@ func (v *vaultView) asyncState() store.ReadState {
 	defer p.mu.Unlock()
 	out := p.state
 	out.Issues = append([]store.ReadIssue(nil), out.Issues...)
+	if !p.verified && out.CheckedAt == 0 && !out.Partial {
+		out.Add(store.ReadIssue{Path: v.cfg.VaultDir, Reason: "read pass in progress"})
+	}
 	return out
 }
 func (s *Server) enableAsync() { s.asyncReads = true; s.active.async = true }

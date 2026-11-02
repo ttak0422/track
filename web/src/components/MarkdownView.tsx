@@ -289,7 +289,7 @@ function VaultMarkdownView({
             ) : null}
             {markdown.trim() === "" ? <p className="muted">Empty note.</p> : null}
             {mathFailed ? <p className="muted">Math rendering is unavailable; formulas remain as source. <button type="button" className="note-recovery-action" onClick={()=>setMathAttempt((n)=>n+1)}>Retry math</button></p> : null}
-            <FeatureBoundary key={documentIdentity + source} name="Note preview" fallback={<div><p className="muted">Preview is unavailable. Showing the note source.</p><pre><code>{source}</code></pre></div>}>
+            <FeatureBoundary key={documentIdentity} resetKey={source} name="Note preview" fallback={<div><p className="muted">Preview is unavailable. Showing the note source.</p><pre><code>{source}</code></pre></div>}>
             <Markdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={markdownComponents}>
               {source}
             </Markdown>
