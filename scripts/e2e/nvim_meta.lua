@@ -18,6 +18,10 @@ local created, cerr = client.run_json({ "open", "--title", "Meta target" })
 assert_true(created ~= nil, "create note failed: " .. tostring(cerr))
 
 vim.cmd.edit(vim.fn.fnameescape(created.path))
+-- Keep a second ordinary window so an erroneous :wq of the source cannot exit headless
+-- Neovim before the assertions below run. The active source window itself must survive.
+vim.cmd.vsplit()
+local source_win = vim.api.nvim_get_current_win()
 
 -- Open the metadata popup: a floating YAML buffer seeded with the full editable document.
 require("track.meta").edit()
@@ -56,6 +60,7 @@ vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
 })
 local write_ok, write_err = pcall(vim.cmd, "wq")
 assert_true(write_ok, ":wq failed: " .. tostring(write_err))
+assert_true(vim.api.nvim_win_is_valid(source_win), ":wq closed the source window")
 assert_true(not vim.api.nvim_win_is_valid(win), "popup should close after a successful :wq")
 assert_true(vim.api.nvim_buf_is_valid(buf) == false, "meta buffer should be wiped after :wq")
 
