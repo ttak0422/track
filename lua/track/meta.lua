@@ -61,29 +61,31 @@ function M.edit()
    end
    vim.keymap.set("n", "q", close, { buffer = buf, desc = "Close the meta popup" })
 
+   local write_generation = 0
    vim.api.nvim_create_autocmd("BufWriteCmd", {
       buffer = buf,
       callback = function()
+         write_generation = write_generation + 1
+         local generation = write_generation
          -- The buffer text is the document; header lines are YAML comments the CLI ignores. No
          -- client-side parsing — the engine validates and applies the whole document atomically.
          local safe, problem = require("track.editor_view").validate(source_buf)
          if not safe then
-            vim.notify(problem, vim.log.levels.ERROR)
-            return
+            -- Abort the write even if the buffer was initially unmodified (e.g. :wq).
+            error(problem, 0)
          end
          local doc = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n") .. "\n"
          local saved, save_err = client.run_json({ "meta", "--path", note_path, "--edit", "-" }, doc)
          if not saved then
-            -- Validation failed: report and keep the popup (and its modified state) for another try.
-            vim.notify("track meta: " .. save_err, vim.log.levels.ERROR)
-            return
+            -- Abort even for an initially unmodified buffer; :wq must not close on failure.
+            error("track meta: " .. save_err, 0)
          end
          vim.bo[buf].modified = false
          vim.notify("track meta: saved", vim.log.levels.INFO)
          -- Defer closing until BufWriteCmd has returned. :wq will close its own popup;
          -- closing it here would make :wq close the source window as well.
          vim.schedule(function()
-            if vim.api.nvim_buf_is_valid(buf) and not vim.bo[buf].modified
+            if generation == write_generation and vim.api.nvim_buf_is_valid(buf) and not vim.bo[buf].modified
                and vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_buf(win) == buf then
                close()
             end

@@ -89,6 +89,40 @@ vim.cmd.write()
 assert_true(vim.wait(1000, function() return not vim.api.nvim_win_is_valid(write_win) end), ":w should close the popup")
 assert_true(vim.api.nvim_win_is_valid(source_win), ":w must preserve the source window")
 
+-- A failed write from an unchanged popup must also abort :wq instead of closing it.
+require("track.meta").edit()
+local unchanged_buf = vim.api.nvim_get_current_buf()
+local unchanged_win = vim.api.nvim_get_current_win()
+assert_true(not vim.bo[unchanged_buf].modified, "new popup should be unmodified")
+-- Schedule a successful close, then fail a later write before that callback runs.
+vim.cmd.write()
+local real_run_json = client.run_json
+client.run_json = function(args, input)
+   if args[1] == "meta" and args[4] == "--edit" then
+      return nil, "simulated save failure"
+   end
+   return real_run_json(args, input)
+end
+local failed_ok = pcall(vim.cmd, "wq")
+client.run_json = real_run_json
+vim.wait(100, function() return false end)
+assert_true(not failed_ok, "unchanged failed :wq must report an error")
+assert_true(vim.api.nvim_win_is_valid(unchanged_win), "unchanged failed :wq must keep popup")
+assert_true(vim.api.nvim_win_is_valid(source_win), "unchanged failed :wq must keep source")
+vim.cmd("q!")
+
+-- An edit made before the deferred close is a new draft, and must not be discarded.
+require("track.meta").edit()
+local draft_buf = vim.api.nvim_get_current_buf()
+local draft_win = vim.api.nvim_get_current_win()
+vim.api.nvim_buf_set_lines(draft_buf, 0, -1, false, { "description: saved once" })
+vim.cmd.write()
+vim.api.nvim_buf_set_lines(draft_buf, 0, -1, false, { "description: newer draft" })
+vim.wait(100, function() return false end)
+assert_true(vim.api.nvim_win_is_valid(draft_win), "deferred close discarded a newer draft")
+assert_true(vim.bo[draft_buf].modified, "newer draft lost its modified state")
+vim.cmd("q!")
+
 vim.defer_fn(function()
    print("track-e2e: PASS meta")
    vim.cmd("qa!")
