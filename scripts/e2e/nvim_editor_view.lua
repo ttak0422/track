@@ -96,7 +96,19 @@ local function test()
    vim.api.nvim_set_current_buf(target_buf)
 
    -- Aliases stay pinned indefinitely, including after title changes. Metadata titles refresh.
-   call({ "meta", "--path", target_info.editor_path, "--edit", "-" }, "title: Readable renamed 75% 日本語\n")
+   -- Exercise the popup's real :wq path on a pinned alias. A second normal window prevents an
+   -- accidental source-window quit from terminating Neovim before assertions can run.
+   vim.cmd.vsplit()
+   local source_win = vim.api.nvim_get_current_win()
+   require("track.meta").edit()
+   local meta_buf = vim.api.nvim_get_current_buf()
+   local meta_win = vim.api.nvim_get_current_win()
+   vim.api.nvim_buf_set_lines(meta_buf, 0, -1, false, { "title: Readable renamed 75% 日本語" })
+   vim.cmd("wq")
+   check(not vim.api.nvim_win_is_valid(meta_win), ":wq did not close metadata popup")
+   check(vim.api.nvim_win_is_valid(source_win), ":wq closed the source window")
+   check(vim.api.nvim_win_get_buf(source_win) == target_buf, ":wq changed the source buffer")
+   vim.cmd.close()
    local renamed = check(editor.info(target.path))
    check(renamed.editor_path == target_info.editor_path, "pinned alias moved after title change")
    check(uv.fs_lstat(target_info.editor_path).type == "link", "old alias was removed")
