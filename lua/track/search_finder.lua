@@ -96,7 +96,7 @@ function M.new(opts)
          if not live() then return end
          cancel_search = nil
          if not data then finish_error(err); return end
-         if type(data) ~= "table" or type(data.results) ~= "table" then
+         if type(data) ~= "table" or not vim.islist(data.results) then
             finish_error("invalid search results")
             return
          end
