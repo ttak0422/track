@@ -4,6 +4,12 @@ local payloads = {}
 vim = {
    trim = function(s) return (s:gsub('^%s+', ''):gsub('%s+$', '')) end,
    schedule = function(cb) scheduled[#scheduled + 1] = cb end,
+   islist = function(t)
+      if type(t) ~= 'table' or getmetatable(t) then return false end
+      local n = #t
+      for k in pairs(t) do if type(k) ~= 'number' or k < 1 or k > n or k % 1 ~= 0 then return false end end
+      return true
+   end,
    json = { decode = function(s) if payloads[s] == nil then error('bad json') end return payloads[s] end },
    notify = function(s) notices[#notices + 1] = s end,
    log = { levels = { ERROR = 3 } },
@@ -109,6 +115,9 @@ assert(invalid_done == 2 and invalid.status == 'error' and not invalid:can_selec
 invalid('missing results', function() error('missing results must not be emitted') end, function() invalid_done=invalid_done+1 end)
 payloads.missing = {}; exit(jobs[#jobs], 'missing')
 assert(invalid_done == 3 and invalid.status == 'error' and not invalid:can_select('missing results'))
+invalid('object results', function() error('object results must not be emitted') end, function() invalid_done=invalid_done+1 end)
+payloads.object = {results=setmetatable({}, {})}; exit(jobs[#jobs], 'object')
+assert(invalid_done == 4 and invalid.status == 'error' and not invalid:can_select('object results'))
 
 -- Exercise the real eligibility check and CLI alias validation.
 package.loaded['track.editor_view'] = nil
@@ -119,12 +128,12 @@ vim.fn = {fnamemodify = function(path) return path end}
 local editor = require('track.editor_view')
 local resolved
 editor.preferred_async('/outside/file.md', function(path) resolved = path end)
-assert(resolved == '/outside/file.md' and #jobs == 12)
+assert(resolved == '/outside/file.md' and #jobs == 13)
 editor.preferred_async('/vault/note/123.md', function(path, err) resolved = path or err end)
-assert(#jobs == 13 and jobs[13].argv[2] == 'editor-path')
+assert(#jobs == 14 and jobs[14].argv[2] == 'editor-path')
 payloads.alias = {path='/vault/note/123.md', editor_path='/view/title.md'}
-exit(jobs[13], 'alias'); assert(resolved == '/view/title.md')
+exit(jobs[14], 'alias'); assert(resolved == '/view/title.md')
 vim.env.TRACK_EDITOR_VIEW = ''
 editor.preferred_async('/vault/note/456.md', function(path) resolved = path end)
-assert(resolved == '/vault/note/456.md' and #jobs == 13)
+assert(resolved == '/vault/note/456.md' and #jobs == 14)
 print('async search finder tests passed')
