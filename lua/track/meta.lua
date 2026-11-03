@@ -1,9 +1,9 @@
 -- Metadata editor: a floating YAML buffer over the current note's editable sidecar metadata —
 -- title, tags, description, cover image, icon, and typed props — saved through `track meta --edit -` so
 -- parsing and validation live in the CLI (a changed title renames the note, backlinks included).
--- Saving (:w) applies the whole document atomically; a rejected document (e.g. an image that is
--- not a vault asset, or a prop breaking the configured schema) surfaces the CLI error and keeps
--- the popup open, a successful save closes it.
+-- Saving (:w) validates and applies the document through the CLI. A failed save keeps the popup
+-- open; title changes can update multiple files, so errors may require checking their state before
+-- retrying. A successful save closes the popup.
 local client = require("track.client")
 
 local M = {}
@@ -68,7 +68,7 @@ function M.edit()
          write_generation = write_generation + 1
          local generation = write_generation
          -- The buffer text is the document; header lines are YAML comments the CLI ignores. No
-         -- client-side parsing — the engine validates and applies the whole document atomically.
+         -- client-side parsing — the engine validates and applies the document.
          local safe, problem = require("track.editor_view").validate(source_buf)
          if not safe then
             -- Abort the write even if the buffer was initially unmodified (e.g. :wq).
@@ -78,7 +78,7 @@ function M.edit()
          local saved, save_err = client.run_json({ "meta", "--path", note_path, "--edit", "-" }, doc)
          if not saved then
             -- Abort even for an initially unmodified buffer; :wq must not close on failure.
-            error("track meta: " .. save_err, 0)
+            error("track meta: " .. save_err .. ". A title change may have partially updated metadata or backlinks; verify before retrying.", 0)
          end
          vim.bo[buf].modified = false
          vim.notify("track meta: saved", vim.log.levels.INFO)
