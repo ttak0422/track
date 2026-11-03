@@ -54,8 +54,10 @@ vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
    "  status: draft",
    "  rating: 8",
 })
-vim.cmd.write()
-assert_true(not vim.api.nvim_win_is_valid(win), "popup should close after a successful save")
+local write_ok, write_err = pcall(vim.cmd, "wq")
+assert_true(write_ok, ":wq failed: " .. tostring(write_err))
+assert_true(not vim.api.nvim_win_is_valid(win), "popup should close after a successful :wq")
+assert_true(vim.api.nvim_buf_is_valid(buf) == false, "meta buffer should be wiped after :wq")
 
 -- The engine round-trips the document: title renamed, tags deduplicated, props typed.
 local meta, merr = client.run_json({ "meta", "--path", created.path })
