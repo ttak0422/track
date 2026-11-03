@@ -103,10 +103,11 @@ client.run_json = function(args, input)
    end
    return real_run_json(args, input)
 end
-local failed_ok = pcall(vim.cmd, "wq")
+local failed_ok, failed_err = pcall(vim.cmd, "wq")
 client.run_json = real_run_json
 vim.wait(100, function() return false end)
 assert_true(not failed_ok, "unchanged failed :wq must report an error")
+assert_true(tostring(failed_err):find("simulated save failure", 1, true), "wrong failure: " .. tostring(failed_err))
 assert_true(vim.api.nvim_win_is_valid(unchanged_win), "unchanged failed :wq must keep popup")
 assert_true(vim.api.nvim_win_is_valid(source_win), "unchanged failed :wq must keep source")
 vim.cmd("q!")
@@ -121,6 +122,7 @@ vim.api.nvim_buf_set_lines(draft_buf, 0, -1, false, { "description: newer draft"
 vim.wait(100, function() return false end)
 assert_true(vim.api.nvim_win_is_valid(draft_win), "deferred close discarded a newer draft")
 assert_true(vim.bo[draft_buf].modified, "newer draft lost its modified state")
+assert_true(vim.api.nvim_buf_get_lines(draft_buf, 0, 1, false)[1] == "description: newer draft", "newer draft text changed")
 vim.cmd("q!")
 
 vim.defer_fn(function()
