@@ -41,8 +41,10 @@ vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
    "  - go",
    "image: assets/nope.png",
 })
-pcall(vim.cmd.write)
+pcall(vim.cmd, "wq")
 assert_true(vim.api.nvim_win_is_valid(win), "popup should stay open on a validation error")
+assert_true(vim.api.nvim_win_is_valid(source_win), "failed :wq must preserve the source window")
+assert_true(vim.bo[buf].modified, "failed :wq must preserve the metadata draft")
 
 -- A valid document (a new title, tags with a duplicate, a description, and props) saves and
 -- closes the popup; the title change goes through the rename path.
@@ -77,6 +79,15 @@ assert_true(
    type(meta.props) == "table" and meta.props.status == "draft" and meta.props.rating == 8,
    "props did not round-trip: " .. vim.inspect(meta.props)
 )
+
+-- Plain :w still closes the popup on the next event loop turn, without closing the source.
+require("track.meta").edit()
+local write_buf = vim.api.nvim_get_current_buf()
+local write_win = vim.api.nvim_get_current_win()
+vim.api.nvim_buf_set_lines(write_buf, 0, -1, false, { "description: another summary" })
+vim.cmd.write()
+assert_true(vim.wait(1000, function() return not vim.api.nvim_win_is_valid(write_win) end), ":w should close the popup")
+assert_true(vim.api.nvim_win_is_valid(source_win), ":w must preserve the source window")
 
 vim.defer_fn(function()
    print("track-e2e: PASS meta")

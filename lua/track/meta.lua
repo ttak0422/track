@@ -80,7 +80,14 @@ function M.edit()
          end
          vim.bo[buf].modified = false
          vim.notify("track meta: saved", vim.log.levels.INFO)
-         close()
+         -- Defer closing until BufWriteCmd has returned. :wq will close its own popup;
+         -- closing it here would make :wq close the source window as well.
+         vim.schedule(function()
+            if vim.api.nvim_buf_is_valid(buf) and not vim.bo[buf].modified
+               and vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_buf(win) == buf then
+               close()
+            end
+         end)
       end,
    })
 end
