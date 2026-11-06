@@ -44,6 +44,9 @@ jobs:
       - name: Frontend dependency synchronization tests
         run: python3 -B -m unittest discover -s tests/web_dependencies -v
 
+      - name: Desktop build identity tests
+        run: python3 -B -m unittest discover -s tests/desktop_build_info -v
+
       - name: Flake checks
         run: nix flake check
 

@@ -34,8 +34,17 @@ class WebDependenciesTests(unittest.TestCase):
         for name in ("MAKEFLAGS", "MFLAGS", "MAKELEVEL", "DESKTOP_APP"):
             self.env.pop(name, None)
         self.executable(self.bin / "uname", "printf 'Darwin\\n'\n")
-        for name in ("go", "node", "python3"):
+        for name in ("go", "node"):
             self.executable(self.bin / name, "exit 99\n")
+        # Metadata generation is covered separately. Permit only its preparation call;
+        # all later Python/app operations must remain unreachable after the tsc fixture.
+        self.executable(self.bin / "python3", '''set -eu
+if [ "$#" = 3 ] && [ "$1" = "$PWD/scripts/desktop-build-info.py" ] \
+    && [ "$2" = "$PWD" ] && [ "$3" = "$PWD/build/desktop-package" ]; then
+    exit 0
+fi
+exit 99
+''')
         self.executable(self.bin / "npm", '''set -eu
 test "$*" = ci
 printf 'npm\\n' >> "$WEB_DEPS_TEST_LOG"

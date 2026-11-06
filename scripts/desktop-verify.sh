@@ -5,6 +5,8 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 ROOT=$(dirname "$SCRIPT_DIR")
 cd "$ROOT"
 
+python3 -B -m unittest discover -s tests/desktop_build_info -v
+
 MODULE_CACHE="$ROOT/build/desktop-clang-module-cache"
 
 CLANG_MODULE_CACHE_PATH="$MODULE_CACHE" sh "$SCRIPT_DIR/apple-toolchain.sh" desktop swift \

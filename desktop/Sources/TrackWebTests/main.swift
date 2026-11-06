@@ -8,6 +8,7 @@ struct TrackWebTestRunner {
     private static var failures = 0
 
     static func main() async {
+        await run("embedded build identity and unknown fallback") { try testBuildInfo() }
         await run("registered vault launch arguments") { try testRegisteredVaultArguments() }
         await run("explicit vault-path launch argument") { try testVaultPathArgument() }
         await run("unsafe or conflicting launch arguments") { try testInvalidLaunchArguments() }
@@ -26,7 +27,7 @@ struct TrackWebTestRunner {
         await run("native speech lifecycle without audio or OS permission requests") { try await NativeSpeechTests.run() }
 
         if failures == 0 {
-            print("All 15 Track logic regression tests passed.")
+            print("All 16 Track logic regression tests passed.")
         } else {
             fputs("\(failures) Track logic regression test(s) failed.\n", stderr)
             exit(EXIT_FAILURE)
@@ -45,6 +46,21 @@ struct TrackWebTestRunner {
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) throws {
         if !condition() { throw TestFailure(message) }
+    }
+
+    private static func testBuildInfo() throws {
+        let revision = "0123456789abcdef0123456789abcdef01234567"
+        let clean = BuildInfo(revision: revision, state: "clean", builtAt: "2026-01-01T00:00:00Z")
+        try expect(clean.summary == "Commit 0123456789ab", "clean summary must use the short revision")
+        try expect(clean.details.contains("Commit: " + revision), "copyable details must retain the full revision")
+        try expect(clean.details.contains("Built (UTC): 2026-01-01T00:00:00Z"), "build time must be labelled")
+        let modified = BuildInfo(revision: revision, state: "modified", builtAt: "unknown")
+        try expect(modified.summary == "Commit 0123456789ab (modified)", "modified source must not look clean")
+        let unknown = BuildInfo(revision: "unknown", state: "unknown", builtAt: "unknown")
+        try expect(unknown.summary == "Unknown source revision", "missing metadata must be explicit")
+        #if !TRACK_BUILD_METADATA
+        try expect(BuildInfo.current.details == unknown.details, "direct SwiftPM builds must not reuse a previous stamp")
+        #endif
     }
 
     private static func testRegisteredVaultArguments() throws {
