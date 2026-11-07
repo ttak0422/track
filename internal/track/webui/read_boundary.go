@@ -16,6 +16,22 @@ import (
 const readResponseBudget = time.Second
 const responseByteLimit = 24 << 20
 
+// Keep work and waiting memory bounded independently. Ordinary UI refreshes fan
+// out into more than two reads; wait inside the existing response deadline
+// rather than turn a short, healthy burst into an immediate preview failure.
+const readOwnerLimit = 2
+const readActiveLimit = 16
+const readOwnerQueueLimit = 32
+const readQueueLimit = 128
+
+var errReadCapacity = errors.New("read capacity is unavailable; previously verified information may be stale")
+
+type readWaiter struct {
+	owner    string
+	ready    chan struct{}
+	admitted bool
+}
+
 type responseSnapshot struct {
 	body    []byte
 	header  http.Header
@@ -24,6 +40,7 @@ type responseSnapshot struct {
 type readBoundary struct {
 	mu         sync.Mutex
 	active     map[string]int
+	waiting    []*readWaiter
 	cache      map[string]responseSnapshot
 	order      []string
 	bytes      int
@@ -33,29 +50,101 @@ type readBoundary struct {
 func newReadBoundary() *readBoundary {
 	return &readBoundary{active: map[string]int{}, cache: map[string]responseSnapshot{}}
 }
+
+// admit is the non-waiting admission used by internal bounded read fanout.
 func (b *readBoundary) admit(owner string) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.active[owner] >= 2 {
+	if !b.available(owner) {
+		return false
+	}
+	b.active[owner]++
+	return true
+}
+
+// acquire waits without starting a handler. The caller supplies the response
+// context, so queueing and execution share one budget. A canceled waiter is
+// removed; a canceled handler keeps its active slot until it actually returns.
+func (b *readBoundary) acquire(ctx context.Context, owner string) error {
+	b.mu.Lock()
+	if err := ctx.Err(); err != nil {
+		b.mu.Unlock()
+		return err
+	}
+	if b.available(owner) {
+		b.active[owner]++
+		b.mu.Unlock()
+		return nil
+	}
+	owned := 0
+	for _, pending := range b.waiting {
+		if pending.owner == owner {
+			owned++
+		}
+	}
+	if owned >= readOwnerQueueLimit || len(b.waiting) >= readQueueLimit {
+		b.mu.Unlock()
+		return errReadCapacity
+	}
+	pending := &readWaiter{owner: owner, ready: make(chan struct{})}
+	b.waiting = append(b.waiting, pending)
+	b.mu.Unlock()
+	select {
+	case <-pending.ready:
+		// Execution still checks cancellation before launching the handler.
+		return nil
+	case <-ctx.Done():
+		b.mu.Lock()
+		if pending.admitted {
+			// release won the handoff concurrently with cancellation.
+			b.releaseLocked(owner)
+		} else {
+			for i, waiter := range b.waiting {
+				if waiter == pending {
+					b.waiting = append(b.waiting[:i], b.waiting[i+1:]...)
+					break
+				}
+			}
+		}
+		b.mu.Unlock()
+		return ctx.Err()
+	}
+}
+
+// available and releaseLocked require b.mu.
+func (b *readBoundary) available(owner string) bool {
+	if b.active[owner] >= readOwnerLimit {
 		return false
 	}
 	total := 0
 	for _, n := range b.active {
 		total += n
 	}
-	if total >= 16 {
-		return false
-	}
-	b.active[owner]++
-	return true
+	return total < readActiveLimit
 }
-func (b *readBoundary) release(owner string) {
-	b.mu.Lock()
+func (b *readBoundary) releaseLocked(owner string) {
 	b.active[owner]--
 	if b.active[owner] == 0 {
 		delete(b.active, owner)
 	}
-	b.mu.Unlock()
+	// FIFO among eligible requests. A blocked vault cannot prevent another
+	// vault from using a free global slot, and each owner's order is retained.
+	for i := 0; i < len(b.waiting); {
+		pending := b.waiting[i]
+		if !b.available(pending.owner) {
+			i++
+			continue
+		}
+		b.waiting = append(b.waiting[:i], b.waiting[i+1:]...)
+		b.active[pending.owner]++
+		pending.admitted = true
+		close(pending.ready)
+	}
+}
+func (b *readBoundary) release(owner string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.releaseLocked(owner)
 }
 func (b *readBoundary) remember(key string, r *limitedResponse) {
 	if r.Code != 200 || r.err != nil {
@@ -137,12 +226,28 @@ func (b *readBoundary) serve(w http.ResponseWriter, r *http.Request, next http.H
 		}
 		writeError(w, errors.New(reason), http.StatusServiceUnavailable)
 	}
-	if !b.admit(owner) {
-		fail("read capacity is unavailable; previously verified information may be stale")
-		return
-	}
 	ctx, cancel := context.WithTimeout(r.Context(), readResponseBudget)
 	defer cancel()
+	if err := b.acquire(ctx, owner); err != nil {
+		if errors.Is(err, errReadCapacity) {
+			fail(err.Error())
+		} else {
+			fail("read deadline reached; storage has not been fully verified")
+		}
+		return
+	}
+	b.mu.Lock()
+	current := generation == b.generation
+	b.mu.Unlock()
+	if !current || ctx.Err() != nil {
+		b.release(owner)
+		if !current {
+			writeError(w, errors.New("storage generation changed; retry this read"), 503)
+		} else {
+			fail("read deadline reached; storage has not been fully verified")
+		}
+		return
+	}
 	result := make(chan *limitedResponse, 1)
 	go func() {
 		defer b.release(owner)

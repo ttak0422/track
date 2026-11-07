@@ -538,3 +538,34 @@ func TestCloseWaitsForInFlightOwnershipCleanupWithoutOpeningCache(t *testing.T) 
 		t.Fatal("late ownership side effects survived close", owned.Load(), releases.Load(), opens.Load())
 	}
 }
+
+func TestBootstrapRendersDraftAfterHealthyReadBurst(t *testing.T) {
+	vault := t.TempDir()
+	writeVaultNote(t, vault, 1, "Saved note", "Saved body must not change\n")
+	cfg := &config.Config{VaultDir: vault, VaultDirDisplay: vault, DBPath: filepath.Join(t.TempDir(), "index.db"), Extensions: []string{".md"}, DateFormat: "2006-01-02", JournalOff: true, GenOff: true}
+	b := newBootstrap(context.Background(), func(context.Context, string, bool) (*config.Config, error) { return cfg, nil }, store.Open, nil)
+	defer b.Close()
+	b.start()
+	waitBoot(t, func() bool { return b.Status().Phase == "ready" })
+	if !b.boundary.admit("") || !b.boundary.admit("") {
+		t.Fatal("could not reserve concurrent reads")
+	}
+	defer b.boundary.release("")
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		done <- bootRequest(b, "POST", "/api/render", `{"body":"## Unsaved draft\n\n[track:open](track:open)"}`)
+	}()
+	waitReadQueue(t, b.boundary, 1)
+	b.boundary.release("")
+	response := <-done
+	if response.Code != 200 || !strings.Contains(response.Body.String(), "## Unsaved draft") {
+		t.Fatalf("real preview endpoint rejected healthy fanout: %d %s", response.Code, response.Body.String())
+	}
+	body, err := os.ReadFile(cfg.NotePath(1))
+	if err != nil || string(body) != "Saved body must not change\n" {
+		t.Fatalf("render wrote a draft to disk: %q %v", body, err)
+	}
+	if len(b.boundary.cache) != 0 {
+		t.Fatal("preview body entered shared GET cache")
+	}
+}

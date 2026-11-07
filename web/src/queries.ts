@@ -266,7 +266,8 @@ export function useRenderQuery(body: string, vault = "", debounceMs = 0) {
   const source = debounceMs === 0 ? body : debounced;
   return useQuery({
     queryKey: queryKeys.render(source, vault),
-    queryFn: () => renderMarkdown(source, vault),
+    // Superseded drafts and closed previews must not keep queued server reads alive.
+    queryFn: ({ signal }) => renderMarkdown(source, vault, signal),
     retry: false,
     enabled: source.trim() !== "",
     // Sanitization is a pure function of the body and the server caches nothing per-note, so an identical
