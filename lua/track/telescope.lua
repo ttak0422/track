@@ -62,12 +62,7 @@ end
 -- Fields shared by every entry regardless of scope. lnum is the 1-based line the
 -- grep previewer scrolls to and highlights; nil means no known location, which
 -- leaves the preview at the top of the file. Opening jumps via value.line instead.
-local function base_entry(result, lnum)
-   local path, err = editor_view.preferred(result.path or "")
-   if not path then
-      vim.notify("track: " .. tostring(err), vim.log.levels.ERROR)
-      return nil
-   end
+local function base_entry(result, lnum, path)
    return {
       value = result,
       path = path,
@@ -81,10 +76,10 @@ end
 -- matched line, and positions the previewer/cursor on that line.
 local function make_entry_maker(telescope, scope)
    if scope ~= "body" then
-      return function(result)
+      return function(result, path)
          -- Title hits carry no matched line, so no lnum: the preview shows the top
          -- of the note instead of pointlessly highlighting line 1.
-         local entry = base_entry(result, nil)
+         local entry = base_entry(result, nil, path)
          if not entry then
             return nil
          end
@@ -98,11 +93,11 @@ local function make_entry_maker(telescope, scope)
       separator = "  ",
       items = { { width = 30 }, { remaining = true } },
    })
-   return function(result)
+   return function(result, path)
       -- line can be 0: the CLI's sentinel for "matched, but no single line holds the
       -- query terms" — treated like a title hit (no jump) rather than faked as line 1.
       local line = (result.line and result.line > 0) and result.line or nil
-      local entry = base_entry(result, line)
+      local entry = base_entry(result, line, path)
       if not entry then
          return nil
       end
@@ -128,14 +123,14 @@ local function open_note(selection)
    end
 end
 
-local function copy_mapping(telescope, map, source_path)
+local function copy_mapping(telescope, map, source_path, allowed)
    if not map then
       return
    end
    for _, mode in ipairs({ "i", "n" }) do
       map(mode, "<C-y>", function()
          local selection = telescope.action_state.get_selected_entry()
-         if selection and selection.value and selection.value.path then
+         if selection and selection.value and selection.value.path and (not allowed or allowed(selection)) then
             editor_view.copy_link(selection.value.path, source_path)
          end
       end)
@@ -155,14 +150,19 @@ end
 -- search matched nothing—create a note titled with the current prompt. Note
 -- creation is gated behind <CR> alone so that moving through the results
 -- (e.g. <C-n>) never mints a note by accident.
-local function select_or_create(telescope, prompt_bufnr)
+local function select_or_create(telescope, prompt_bufnr, finder, prompt)
    local selection = telescope.action_state.get_selected_entry()
-   local title = vim.trim(telescope.action_state.get_current_line() or "")
-   telescope.actions.close(prompt_bufnr)
-   if selection and selection.value and selection.value.path then
+   local title = vim.trim(prompt)
+   if selection and finder:owns(selection) and selection.value and selection.value.path then
+      telescope.actions.close(prompt_bufnr)
       open_note(selection)
       return
    end
+   if finder.result_count > 0 then
+      vim.notify("track: search results are still being selected", vim.log.levels.WARN)
+      return
+   end
+   telescope.actions.close(prompt_bufnr)
    if title == "" then
       vim.notify("track: type a title to create a note", vim.log.levels.WARN)
       return
@@ -252,27 +252,23 @@ local function pick(scope, opts)
       default_text = opts.default_text or opts.query,
    })
    local scope_suffix = active_suffix()
+   local finder = require("track.search_finder").new({
+      scope = scope,
+      limit = limit,
+      entry_maker = make_entry_maker(telescope, scope),
+   })
+   local function current_prompt(prompt_bufnr)
+      local picker = telescope.action_state.get_current_picker(prompt_bufnr)
+      local line = vim.api.nvim_buf_get_lines(prompt_bufnr, 0, 1, false)[1] or ""
+      return line:sub(#picker.prompt_prefix + 1)
+   end
 
    telescope.pickers
       .new(picker_opts, {
          prompt_title = "Track " .. scope .. " search" .. scope_suffix,
-         finder = telescope.finders.new_dynamic({
-            fn = function(prompt)
-               local query = vim.trim(prompt or "")
-               if query == "" then
-                  return {}
-               end
-               local data, err = client.run_json({ "search", "--scope", scope, "--query", query, "--limit", limit })
-               if not data then
-                  vim.notify("track: " .. tostring(err), vim.log.levels.ERROR)
-                  return {}
-               end
-               return data.results or {}
-            end,
-            entry_maker = make_entry_maker(telescope, scope),
-         }),
+         finder = finder,
          -- The CLI already ranks results (title exact > prefix > mtime DESC) and the
-         -- dynamic finder re-runs the query on each keystroke, so the backend is the
+         -- finder re-runs the query on each keystroke, so the backend is the
          -- source of truth for both filtering and order. An identity sorter preserves
          -- that order; generic_sorter would re-rank by fuzzy proximity to the prompt,
          -- demoting frequently-updated notes and dropping non-fuzzy-matching hits.
@@ -283,12 +279,25 @@ local function pick(scope, opts)
          -- scope, the line-0 sentinel) preview from the top as before.
          previewer = telescope.conf.grep_previewer(picker_opts),
          attach_mappings = function(prompt_bufnr, map)
-            copy_mapping(telescope, map, source_path)
+            local picker = telescope.action_state.get_current_picker(prompt_bufnr)
+            if finder:reopen(current_prompt(prompt_bufnr)) and type(picker.cache_picker) == "table" then
+               picker.cache_picker.is_cached = false
+            end
+            copy_mapping(telescope, map, source_path, function(selection)
+               return finder:can_select(current_prompt(prompt_bufnr)) and finder:owns(selection)
+            end)
             -- <CR> opens the highlighted note, or creates one titled with the prompt when the
             -- search finds nothing. Creation lives on <CR> alone so list navigation never
             -- creates a note by accident.
             telescope.actions.select_default:replace(function()
-               select_or_create(telescope, prompt_bufnr)
+               -- Telescope updates get_current_line only when its debounced finder runs.
+               -- Read the buffer itself so a just-typed prompt cannot open an old hit.
+               local prompt = current_prompt(prompt_bufnr)
+               if not finder:can_select(prompt) then
+                  vim.notify("track: search is still pending or failed", vim.log.levels.WARN)
+                  return
+               end
+               select_or_create(telescope, prompt_bufnr, finder, prompt)
             end)
             return true
          end,
@@ -456,3 +465,4 @@ function M.files(opts)
 end
 
 return M
+

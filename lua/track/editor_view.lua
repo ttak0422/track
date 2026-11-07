@@ -76,6 +76,24 @@ function M.preferred(path)
    return info.editor_path, nil, info
 end
 
+
+-- Resolve the same alias as preferred(), without blocking Telescope's input loop.
+-- The returned function cancels the subprocess and suppresses its callback.
+function M.preferred_async(path, callback)
+   if not M.enabled() or not track_path(path) then
+      callback(path)
+      return function() end
+   end
+   return require("track.search_finder").run_json_async({ "editor-path", "--path", path }, function(info, err)
+      if not info then callback(nil, err); return end
+      if type(info) ~= "table" or type(info.path) ~= "string" or type(info.editor_path) ~= "string" then
+         callback(nil, "editor-path returned an incomplete identity")
+         return
+      end
+      callback(info.editor_path, nil, info)
+   end)
+end
+
 local function conflict(buf, reason)
    local message = "track editor view: " .. tostring(reason)
       .. ". Write blocked; preserve this buffer and any replacement file, compare them with the canonical note, and recover manually. No file was copied back or removed."
@@ -298,3 +316,4 @@ function M.generic_files(opts)
 end
 
 return M
+
