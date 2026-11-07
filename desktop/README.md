@@ -40,6 +40,38 @@ TRACK_CACHE_DIR="$HOME/Library/Caches/track" \
 "build/desktop/Track.app/Contents/MacOS/Track"
 ```
 
+## Identify the running build
+
+Choose **Track > About Track** for the source commit, whether the checkout had local changes,
+and the build time in UTC. **Track > Copy Build Info** copies the same details, including the
+full commit hash, for a bug report. This information is compiled into the running executable;
+changing your checkout or replacing an app bundle does not relabel an already running process.
+Quit and reopen Track after updating it.
+
+The bundled executable can print this identity without starting a window or Go server:
+
+```sh
+"build/desktop/Track.app/Contents/MacOS/Track" --version
+```
+
+`make desktop-app` captures the checked-out commit (also for detached release/tag checkouts).
+A modified checkout is labelled **modified**, including staged changes and untracked files.
+Ignored build products do not mark a build modified. A modified commit identifies its base only,
+not an exact reproducible source tree. No branch name or guessed release number is substituted
+for the commit. The template's marketing version is not the source identity.
+
+The build stages a fresh copy of the Swift sources in `build/desktop-package`, adds a generated
+identity, and compiles it with `TRACK_BUILD_METADATA`. Its incremental SwiftPM cache stays in
+that directory. The generated sources do not modify the tracked desktop package. The build
+checks for a changed commit/clean-state before reporting success and verifies the executable's
+`--version` against the captured stamp. Do not edit sources while a build is running; this is not
+an atomic snapshot of the Go, web, and Swift source trees.
+
+Direct `swift build --package-path desktop` builds, source archives without Git metadata,
+and unavailable/unreadable Git metadata report **unknown** rather than reusing an older stamp
+or guessing from a parent checkout. An archive assembled by `make desktop-app` still records
+its build time. Previously built apps must be rebuilt to gain these controls.
+
 ## Verification
 
 ```sh

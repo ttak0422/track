@@ -36,7 +36,10 @@ FRONTEND_DIST="$ROOT/build/desktop-web-dist"
 OVERLAY="$ROOT/build/desktop-embed-overlay.json"
 MODULE_CACHE="$ROOT/build/desktop-clang-module-cache"
 
+PACKAGE="$ROOT/build/desktop-package"
+
 mkdir -p "$ROOT/build"
+python3 "$SCRIPT_DIR/desktop-build-info.py" "$ROOT" "$PACKAGE"
 (
 	cd "$ROOT/web"
 	./node_modules/.bin/tsc -b
@@ -47,11 +50,12 @@ mkdir -p "$ROOT/build"
 python3 "$SCRIPT_DIR/desktop-embed-overlay.py" "$ROOT" "$FRONTEND_DIST" "$OVERLAY"
 
 CLANG_MODULE_CACHE_PATH="$MODULE_CACHE" sh "$SCRIPT_DIR/apple-toolchain.sh" desktop swift \
-	build --package-path "$ROOT/desktop" -c release --product TrackWeb
+	build --package-path "$PACKAGE" -c release --product TrackWeb \
+	-Xswiftc -DTRACK_BUILD_METADATA
 
 rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources"
-cp "$ROOT/desktop/.build/release/TrackWeb" "$APP_BUNDLE/Contents/MacOS/Track"
+cp "$PACKAGE/.build/release/TrackWeb" "$APP_BUNDLE/Contents/MacOS/Track"
 go build -trimpath -overlay="$OVERLAY" \
 	-o "$APP_BUNDLE/Contents/Resources/track" ./cmd/track
 cp "$ROOT/desktop/Resources/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
@@ -62,5 +66,9 @@ chmod 755 "$APP_BUNDLE/Contents/MacOS/Track" "$APP_BUNDLE/Contents/Resources/tra
 if command -v plutil >/dev/null 2>&1; then
 	plutil -lint "$APP_BUNDLE/Contents/Info.plist"
 fi
+
+python3 "$SCRIPT_DIR/desktop-build-info.py" "$ROOT" "$PACKAGE" --verify \
+	--executable "$APP_BUNDLE/Contents/MacOS/Track"
+"$APP_BUNDLE/Contents/MacOS/Track" --version
 
 printf 'Built unsigned app: %s\n' "$APP_BUNDLE"

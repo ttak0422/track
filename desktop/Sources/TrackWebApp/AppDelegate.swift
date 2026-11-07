@@ -833,12 +833,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         }
     }
 
+    @objc private func showAbout(_ sender: Any?) {
+        application.orderFrontStandardAboutPanel(options: [
+            .applicationName: "Track",
+            .applicationVersion: BuildInfo.current.summary,
+            .version: "",
+            .credits: NSAttributedString(string: BuildInfo.current.details),
+        ])
+    }
+
+    @objc private func copyBuildInfo(_ sender: Any?) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(BuildInfo.current.details, forType: .string)
+    }
+
     private func installMenu() {
         let menu = NSMenu()
 
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(NSMenuItem(title: "About Track", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""))
+        appMenu.addItem(NSMenuItem(title: "About Track", action: #selector(showAbout(_:)), keyEquivalent: "").also { $0.target = self })
+        appMenu.addItem(NSMenuItem(title: "Copy Build Info", action: #selector(copyBuildInfo(_:)), keyEquivalent: "").also { $0.target = self })
         appMenu.addItem(notificationBridge.menuItem())
         appMenu.addItem(.separator())
         appMenu.addItem(NSMenuItem(title: "Hide Track", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"))
