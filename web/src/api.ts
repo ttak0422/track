@@ -440,11 +440,11 @@ export function getFollowState(): Promise<FollowResponse> {
 // Posting the live (possibly unsaved) body keeps the engine the single source of truth for track-specific
 // Markdown rules instead of duplicating them in the frontend. In static mode the exported note body is
 // already sanitized, so this is the identity.
-export function renderMarkdown(body: string, vault = ""): Promise<RenderResponse> {
+export function renderMarkdown(body: string, vault = "", signal?: AbortSignal): Promise<RenderResponse> {
   if (STATIC_MODE) {
     return Promise.resolve({ markdown: body });
   }
-  return api<RenderResponse>(`/api/render${vaultParams(vault, "?")}`, { method: "POST", body: { body } })
+  return api<RenderResponse>(`/api/render${vaultParams(vault, "?")}`, { method: "POST", body: { body }, signal })
     .then((rendered) => {
       if(typeof rendered?.markdown!=="string" || (rendered.includes!=null&&!Array.isArray(rendered.includes)) || (rendered.drawio_fences!=null&&!Array.isArray(rendered.drawio_fences))) throw new APIError(502,"Invalid preview response");
       // Go serializes nil optional slices as null; those are valid empty collections.
