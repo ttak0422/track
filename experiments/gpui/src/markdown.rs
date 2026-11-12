@@ -1,6 +1,7 @@
 //! Native, read-only CommonMark subset. Unsupported content stays inert and visible.
 use gpui::{
-    Div, FontStyle, FontWeight, StyledText, TextRun, UnderlineStyle, div, font, prelude::*, px, rgb,
+    AnyElement, App, Div, FontStyle, FontWeight, ScrollAnchor, ScrollHandle, SharedString,
+    StyledText, TextRun, UnderlineStyle, Window, div, font, prelude::*, px, rgb,
 };
 use pulldown_cmark::{Alignment, Event, Options, Parser, Tag};
 use std::ops::Range;
@@ -66,6 +67,106 @@ pub struct Table {
     pub rows: Vec<Vec<Cell>>,
 }
 
+/// A native-reader anchor, not a promise of reference-renderer URL slug parity.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OutlineEntry {
+    pub anchor: String,
+    pub title: String,
+    pub level: u8,
+    pub block_index: usize,
+}
+
+/// Stable for unchanged heading text/order, including when non-heading blocks change.
+/// Duplicate headings receive deterministic suffixes; editing/reordering duplicates
+/// may change their suffixes. Non-Latin letters are retained, punctuation is omitted.
+pub fn outline(blocks: &[Block]) -> Vec<OutlineEntry> {
+    let mut used = std::collections::HashSet::new();
+    blocks
+        .iter()
+        .enumerate()
+        .filter_map(|(block_index, block)| {
+            let BlockKind::Heading(level) = block.kind else {
+                return None;
+            };
+            let mut base = String::new();
+            for ch in block.text.chars().flat_map(char::to_lowercase) {
+                if ch.is_alphanumeric() || ch == '_' {
+                    base.push(ch);
+                } else if (ch.is_whitespace() || ch == '-')
+                    && !base.is_empty()
+                    && !base.ends_with('-')
+                {
+                    base.push('-');
+                }
+            }
+            let base = base.trim_end_matches('-');
+            let base = if base.is_empty() { "section" } else { base };
+            let mut anchor = base.to_owned();
+            let mut suffix = 2;
+            while !used.insert(anchor.clone()) {
+                anchor = format!("{base}-{suffix}");
+                suffix += 1;
+            }
+            Some(OutlineEntry {
+                anchor,
+                title: block.text.clone(),
+                level,
+                block_index,
+            })
+        })
+        .collect()
+}
+
+/// Request scrolling after the next layout. Caller must notify its GPUI context.
+/// The tracked container MUST contain render_block_elements_themed's elements
+/// directly, following exactly `prefix_children` title/meta/etc. children.
+/// Call against the currently displayed document, not a stale outline selection.
+pub fn scroll_to_heading(
+    blocks: &[Block],
+    anchor: &str,
+    handle: &ScrollHandle,
+    prefix_children: usize,
+) -> bool {
+    let Some(entry) = outline(blocks)
+        .into_iter()
+        .find(|entry| entry.anchor == anchor)
+    else {
+        return false;
+    };
+    let Some(index) = prefix_children.checked_add(entry.block_index) else {
+        return false;
+    };
+    handle.scroll_to_top_of_item(index);
+    true
+}
+
+/// Retain this alongside the displayed document. Rebuild when its headings or
+/// reader ScrollHandle change; do not recreate on each render (anchors hold layout).
+pub struct HeadingAnchors {
+    targets: std::collections::HashMap<String, ScrollAnchor>,
+}
+
+impl HeadingAnchors {
+    pub fn new(blocks: &[Block], handle: &ScrollHandle) -> Self {
+        Self {
+            targets: outline(blocks)
+                .into_iter()
+                .map(|entry| (entry.anchor, ScrollAnchor::for_handle(handle.clone())))
+                .collect(),
+        }
+    }
+
+    /// Call after the document has laid out. Supports nested article/aside layout.
+    /// Request a frame with cx.notify() in the calling view after this returns true.
+    pub fn scroll_to(&self, anchor: &str, window: &mut Window, cx: &mut App) -> bool {
+        let Some(target) = self.targets.get(anchor) else {
+            return false;
+        };
+        target.scroll_to(window, cx);
+        true
+    }
+}
+
 struct Node<'a> {
     event: Event<'a>,
     range: Range<usize>,
@@ -117,7 +218,8 @@ fn inline(node: &Node<'_>, source: &str, out: &mut Cell, mut style: InlineStyle)
             out.append(text, style);
         }
         Event::Text(text) | Event::Html(text) | Event::InlineHtml(text) => out.append(text, style),
-        Event::SoftBreak | Event::HardBreak => out.append("\n", style),
+        Event::SoftBreak => out.append(" ", style),
+        Event::HardBreak => out.append("\n", style),
         _ => out.append(&source[node.range.clone()], style),
     }
 }
@@ -325,6 +427,16 @@ pub fn render(blocks: &[Block]) -> Div {
 /// Uses the system sans fallback; exact IBM Plex Sans JP typography is not claimed.
 /// No HTML execution, network fetching, or link navigation is performed.
 pub fn render_themed(blocks: &[Block], dark: bool) -> Div {
+    render_reader(blocks, dark, None)
+}
+
+/// Anchor-aware variant that preserves nested article layout. The outer reader
+/// must track the same handle used to construct `anchors`.
+pub fn render_themed_with_anchors(blocks: &[Block], dark: bool, anchors: &HeadingAnchors) -> Div {
+    render_reader(blocks, dark, Some(anchors))
+}
+
+fn render_reader(blocks: &[Block], dark: bool, anchors: Option<&HeadingAnchors>) -> Div {
     let theme = ReaderTheme::new(dark);
     div()
         .w_full()
@@ -335,13 +447,43 @@ pub fn render_themed(blocks: &[Block], dark: bool) -> Div {
         .line_height(px(29.6))
         .font_family(".SystemUIFont")
         .text_color(rgb(theme.ink))
-        .children(blocks.iter().enumerate().map(|(index, block)| {
-            let mut row = div().w_full().min_w_0().pl(px((block.indent * 16) as f32));
+        .children(render_elements(blocks, dark, anchors))
+}
+
+/// Direct block children for a shell-owned tracked scroller. Keep each element
+/// as one direct child; wrapping the returned vector defeats child-index anchors.
+/// Each row carries the same body metrics as render_themed.
+pub fn render_block_elements_themed(blocks: &[Block], dark: bool) -> Vec<AnyElement> {
+    render_elements(blocks, dark, None)
+}
+
+fn render_elements(
+    blocks: &[Block],
+    dark: bool,
+    anchors: Option<&HeadingAnchors>,
+) -> Vec<AnyElement> {
+    let theme = ReaderTheme::new(dark);
+    let entries = outline(blocks);
+    blocks
+        .iter()
+        .enumerate()
+        .map(|(index, block)| {
+            let mut row = div()
+                .w_full()
+                .min_w_0()
+                .text_size(px(16.))
+                .line_height(px(29.6))
+                .font_family(".SystemUIFont")
+                .text_color(rgb(theme.ink))
+                .pl(px((block.indent * 16) as f32));
             if block.quoted {
                 row = row.border_l_2().border_color(rgb(theme.strong_line)).pl_3();
             }
             if let Some(table) = &block.table {
-                return row.mt(px(13.)).child(render_table(table, theme));
+                return row
+                    .mt(px(13.))
+                    .child(render_table(table, theme))
+                    .into_any_element();
             }
             let text = block.marker.as_ref().map_or_else(
                 || block.text.clone(),
@@ -386,8 +528,23 @@ pub fn render_themed(blocks: &[Block], dark: bool) -> Div {
                 }
             };
             let offset = text.len() - block.text.len();
-            row.child(styled_text(text, &block.spans, offset, theme, mono, bold))
-        }))
+            let row = row.child(styled_text(text, &block.spans, offset, theme, mono, bold));
+            if let Some(entry) = entries.iter().find(|entry| entry.block_index == index) {
+                row.id(SharedString::from(format!(
+                    "markdown-heading:{}",
+                    entry.anchor
+                )))
+                .anchor_scroll(
+                    anchors
+                        .and_then(|anchors| anchors.targets.get(&entry.anchor))
+                        .cloned(),
+                )
+                .into_any_element()
+            } else {
+                row.into_any_element()
+            }
+        })
+        .collect()
 }
 
 fn styled_text(
@@ -497,6 +654,40 @@ fn render_table(table: &Table, theme: ReaderTheme) -> Div {
 mod tests {
     use super::*;
     #[test]
+    fn outline_anchors_are_unique_unicode_and_non_heading_stable() {
+        let blocks =
+            parse("# 日本語 Hello!\n\nparagraph\n\n## Hello\n\n## Hello\n\n## Hello-2\n\n# 🦀");
+        let entries = outline(&blocks);
+        assert_eq!(
+            entries
+                .iter()
+                .map(|e| e.anchor.as_str())
+                .collect::<Vec<_>>(),
+            vec!["日本語-hello", "hello", "hello-2", "hello-2-2", "section"]
+        );
+        assert_eq!(entries[1].block_index, 2);
+        assert_eq!(entries[1].level, 2);
+        let mut changed = blocks.clone();
+        changed.insert(0, parse("extra paragraph").remove(0));
+        assert_eq!(
+            outline(&changed)
+                .iter()
+                .map(|e| &e.anchor)
+                .collect::<Vec<_>>(),
+            entries.iter().map(|e| &e.anchor).collect::<Vec<_>>()
+        );
+        assert_eq!(outline(&changed)[1].block_index, 3);
+    }
+    #[test]
+    fn outline_navigation_validates_current_document_anchor() {
+        let blocks = parse("intro\n\n# Target");
+        let handle = ScrollHandle::new();
+        assert!(scroll_to_heading(&blocks, "target", &handle, 2));
+        assert!(!scroll_to_heading(&blocks, "missing", &handle, 2));
+        assert!(!scroll_to_heading(&blocks, "target", &handle, usize::MAX));
+        assert!(outline(&parse("```\n# not a heading\n```")).is_empty());
+    }
+    #[test]
     fn themed_runs_use_neutral_code_and_ink_links() {
         for dark in [false, true] {
             let theme = ReaderTheme::new(dark);
@@ -594,7 +785,7 @@ mod tests {
     fn malformed_table_is_visible_and_code_is_not_styled() {
         assert_eq!(
             parse("| a | b |\nnot a delimiter")[0].text,
-            "| a | b |\nnot a delimiter"
+            "| a | b | not a delimiter"
         );
         let parsed = parse("```\n**plain** `plain`\n```");
         assert!(parsed[0].spans.is_empty());
@@ -606,7 +797,16 @@ mod tests {
         assert_eq!(parsed[0].kind, BlockKind::Heading(1));
         assert_eq!(parsed[0].text, "日本語 🦀");
         assert_eq!(parsed[1].kind, BlockKind::Heading(6));
-        assert_eq!(parsed[2].text, "第一行\n第二行");
+        assert_eq!(parsed[2].text, "第一行 第二行");
+    }
+    #[test]
+    fn source_softbreaks_flow_as_spaces_but_explicit_breaks_remain() {
+        let blocks =
+            parse("Connect them with\nexplicit links.\n\n**first\nsecond**  \nthird\\\nfourth");
+        assert_eq!(blocks[0].text, "Connect them with explicit links.");
+        assert_eq!(blocks[1].text, "first second\nthird\nfourth");
+        assert!(blocks[1].spans.iter().all(|span| span.style.strong));
+        assert_eq!(parse("```\nfirst\nsecond\n```")[0].text, "first\nsecond\n");
     }
     #[test]
     fn all_heading_levels_and_hard_breaks() {
@@ -675,7 +875,7 @@ mod tests {
         assert_eq!(parsed[0].marker.as_deref(), Some("3."));
         assert_eq!(parsed[1].marker.as_deref(), Some("4."));
         assert!(parsed[2].quoted);
-        assert_eq!(parsed[2].text, "quoted\nnext");
+        assert_eq!(parsed[2].text, "quoted next");
         assert!(parse("").is_empty());
     }
 }

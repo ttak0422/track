@@ -8,6 +8,12 @@ pub struct ShellState {
     pub dark: Option<bool>,
     pub diagnostics: bool,
     pub tab_menu: bool,
+    reader_focus: Option<gpui::FocusHandle>,
+    reader_scrolls: std::collections::HashMap<tabs::TabKey, gpui::ScrollHandle>,
+    tab_cycle: Vec<tabs::TabKey>,
+    tab_cycle_index: usize,
+    heading_anchors:
+        std::collections::HashMap<tabs::TabKey, (String, std::rc::Rc<markdown::HeadingAnchors>)>,
 }
 
 impl Default for ShellState {
@@ -18,6 +24,11 @@ impl Default for ShellState {
             dark: None,
             diagnostics: false,
             tab_menu: false,
+            reader_focus: None,
+            reader_scrolls: Default::default(),
+            tab_cycle: Vec::new(),
+            tab_cycle_index: 0,
+            heading_anchors: Default::default(),
         }
     }
 }
@@ -191,8 +202,19 @@ fn reference_row(
             }))
     }))
 }
+fn cycle_index(index: usize, len: usize, backwards: bool) -> usize {
+    if len == 0 {
+        return 0;
+    }
+    if backwards {
+        (index + len - 1) % len
+    } else {
+        (index + 1) % len
+    }
+}
 impl Workspace {
     fn activate_tab(&mut self, key: tabs::TabKey, cx: &mut Context<Self>) {
+        self.shell.tab_cycle.clear();
         if !self.tabs.activate(&key) {
             return;
         }
@@ -221,6 +243,9 @@ impl Workspace {
         cx.notify();
     }
     fn close_tab(&mut self, key: &tabs::TabKey, cx: &mut Context<Self>) {
+        self.shell.tab_cycle.clear();
+        self.shell.reader_scrolls.remove(key);
+        self.shell.heading_anchors.remove(key);
         let was_active = self.tabs.active().is_some_and(|tab| &tab.key == key);
         if !self.tabs.close(key) {
             return;
@@ -230,18 +255,8 @@ impl Workspace {
             if let Some(next) = self.tabs.active().map(|tab| tab.key.clone()) {
                 self.activate_tab(next, cx);
             } else {
-                // Final close must not reopen the configured home note or let an old
-                // async completion resurrect the tab that was just closed.
-                self.request += 1;
-                self.graph_request += 1;
-                self.query_epoch
-                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                self.shell.home = true;
-                self.selected = None;
-                self.content.clear();
-                self.current_note = None;
-                self.current_related.clear();
-                self.show_graph = false;
+                // Do not reopen a configured home or accept an older async response.
+                self.show_empty_home();
             }
         }
         cx.notify();
@@ -276,6 +291,18 @@ impl Workspace {
             })
             .map(|(index, _)| index)
     }
+    fn show_empty_home(&mut self) {
+        self.request += 1;
+        self.graph_request += 1;
+        self.query_epoch
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.shell.home = true;
+        self.selected = None;
+        self.content.clear();
+        self.current_note = None;
+        self.current_related.clear();
+        self.show_graph = false;
+    }
     fn open_home(&mut self, cx: &mut Context<Self>) {
         self.shell.tab_menu = false;
         self.shell.search_open = false;
@@ -288,11 +315,11 @@ impl Workspace {
             .and_then(|session| session.initial_storage.as_ref())
             .is_some_and(|storage| storage.home_note_id.is_some())
         {
-            self.shell.home = true;
+            self.show_empty_home();
             self.load_live_notes(cx);
         } else {
             self.tabs.open_home();
-            self.shell.home = true;
+            self.show_empty_home();
         }
         cx.notify();
     }
@@ -336,12 +363,43 @@ impl Render for Workspace {
             .or_else(|| note.as_ref().map(|n| n.title.clone()))
             .or_else(|| self.tabs.active().map(|tab| tab.title.clone()))
             .unwrap_or_default();
-        let headings: Vec<_> = self
-            .content
-            .iter()
-            .filter(|b| matches!(b.kind, markdown::BlockKind::Heading(_)))
-            .map(|b| b.text.clone())
-            .collect();
+        let reader_focus = self
+            .shell
+            .reader_focus
+            .get_or_insert_with(|| cx.focus_handle())
+            .clone();
+        let reader_key = self
+            .tabs
+            .active()
+            .map(|tab| tab.key.clone())
+            .unwrap_or(tabs::TabKey::Home);
+        let reader_scroll = self
+            .shell
+            .reader_scrolls
+            .entry(reader_key.clone())
+            .or_default()
+            .clone();
+        let content_ready = self.current_note.is_some() || !self.content.is_empty();
+        let headings = markdown::outline(&self.content);
+        let outline_signature = format!("{headings:?}");
+        let anchor_entry = self
+            .shell
+            .heading_anchors
+            .entry(reader_key.clone())
+            .or_insert_with(|| {
+                (
+                    outline_signature.clone(),
+                    std::rc::Rc::new(markdown::HeadingAnchors::new(&self.content, &reader_scroll)),
+                )
+            });
+        if anchor_entry.0 != outline_signature {
+            *anchor_entry = (
+                outline_signature,
+                std::rc::Rc::new(markdown::HeadingAnchors::new(&self.content, &reader_scroll)),
+            );
+        }
+        let heading_anchors = anchor_entry.1.clone();
+        let minimum_heading_level = headings.iter().map(|entry| entry.level).min().unwrap_or(1);
         let tab_layout = self
             .tabs
             .layout(f32::from(window.viewport_size().width).max(0.) as u32);
@@ -559,13 +617,28 @@ impl Render for Workspace {
                     ))
                 })
                 .when(headings.len() > 1, |aside| {
-                    aside.child(
-                        div().mb_8().child(label("CONTENTS", p)).children(
-                            headings
-                                .into_iter()
-                                .map(|heading| div().mb_2().child(heading)),
-                        ),
-                    )
+                    aside.child(div().mb_8().child(label("CONTENTS", p)).children(
+                        headings.into_iter().enumerate().map(|(index, heading)| {
+                            let anchors = heading_anchors.clone();
+                            let anchor = heading.anchor;
+                            div()
+                                .id(("outline", index))
+                                .mb_2()
+                                .pl(px((heading.level.saturating_sub(minimum_heading_level)
+                                    as f32)
+                                    * 28.))
+                                .cursor_pointer()
+                                .child(heading.title)
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    if anchors.scroll_to(&anchor, window, cx) {
+                                        cx.notify();
+                                    }
+                                    if let Some(focus) = &this.shell.reader_focus {
+                                        window.focus(focus);
+                                    }
+                                }))
+                        }),
+                    ))
                 });
         let aside = aside.when(
             self.current_related
@@ -689,7 +762,11 @@ impl Render for Workspace {
             .pt(px(32.))
             .child(
                 div()
-                    .id("note-reader")
+                    .id(gpui::SharedString::from(format!(
+                        "note-reader:{reader_key:?}"
+                    )))
+                    .track_focus(&reader_focus)
+                    .when(content_ready, |reader| reader.track_scroll(&reader_scroll))
                     .flex_1()
                     .max_w(px(880.))
                     .min_w_0()
@@ -768,7 +845,19 @@ impl Render for Workspace {
                                     .mb(px(6.))
                                     .child(title),
                             )
-                            .child(markdown::render_themed(&self.content, dark)),
+                            .child(markdown::render_themed_with_anchors(
+                                &self.content,
+                                dark,
+                                &heading_anchors,
+                            ))
+                            .on_mouse_down(
+                                gpui::MouseButton::Left,
+                                cx.listener(|this, _, window, _| {
+                                    if let Some(focus) = &this.shell.reader_focus {
+                                        window.focus(focus);
+                                    }
+                                }),
+                            ),
                     )
                     .when(!wide, |body| body.child(aside.take().unwrap())),
             );
@@ -901,10 +990,84 @@ impl Render for Workspace {
             );
         div()
             .id("workspace-shell")
-            .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
-                if event.keystroke.key == "escape" && this.shell.search_open {
-                    this.shell.search_open = false;
-                    cx.notify();
+            .on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener(|this, _, _, _| this.shell.tab_cycle.clear()),
+            )
+            .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
+                if event.keystroke.key == "escape" {
+                    if this.shell.search_open {
+                        this.shell.search_open = false;
+                        if let Some(focus) = &this.shell.reader_focus {
+                            window.focus(focus);
+                        }
+                        cx.notify();
+                        cx.stop_propagation();
+                        return;
+                    }
+                    if this.shell.tab_menu {
+                        this.shell.tab_menu = false;
+                        cx.notify();
+                        cx.stop_propagation();
+                        return;
+                    }
+                    if this
+                        .shell
+                        .reader_focus
+                        .as_ref()
+                        .is_some_and(|focus| focus.is_focused(window))
+                    {
+                        window.blur();
+                        cx.stop_propagation();
+                    }
+                    return;
+                }
+                if this.shell.search_open
+                    || this.shell.tab_menu
+                    || !this
+                        .shell
+                        .reader_focus
+                        .as_ref()
+                        .is_some_and(|focus| focus.is_focused(window))
+                {
+                    return;
+                }
+                let modifiers = event.keystroke.modifiers;
+                if event.keystroke.key == "w"
+                    && modifiers.platform
+                    && !modifiers.control
+                    && !modifiers.alt
+                    && !modifiers.shift
+                {
+                    if let Some(key) = this.tabs.active().map(|tab| tab.key.clone()) {
+                        this.close_tab(&key, cx);
+                        cx.stop_propagation();
+                    }
+                } else if event.keystroke.key == "tab"
+                    && !modifiers.platform
+                    && !modifiers.control
+                    && !modifiers.alt
+                {
+                    if this.tabs.entries().len() > 1 {
+                        let mut order = std::mem::take(&mut this.shell.tab_cycle);
+                        if order.len() != this.tabs.entries().len()
+                            || !order.iter().all(|key| this.tabs.get(key).is_some())
+                        {
+                            order = this
+                                .tabs
+                                .entries()
+                                .iter()
+                                .map(|tab| tab.key.clone())
+                                .collect();
+                            this.shell.tab_cycle_index = 0;
+                        }
+                        let index =
+                            cycle_index(this.shell.tab_cycle_index, order.len(), modifiers.shift);
+                        this.activate_tab(order[index].clone(), cx);
+                        this.shell.tab_cycle = order;
+                        this.shell.tab_cycle_index = index;
+                        cx.stop_propagation();
+                    }
                 }
             }))
             .relative()
@@ -1053,5 +1216,43 @@ mod reference_tests {
         ] {
             assert!(reference_key(&value, "source").is_none(), "{value}");
         }
+    }
+}
+
+#[cfg(test)]
+mod reader_navigation_tests {
+    use super::*;
+    #[test]
+    fn tab_cycle_wraps_both_directions() {
+        assert_eq!(cycle_index(0, 3, false), 1);
+        assert_eq!(cycle_index(2, 3, false), 0);
+        assert_eq!(cycle_index(0, 3, true), 2);
+        assert_eq!(cycle_index(0, 0, true), 0);
+    }
+    #[test]
+    fn reader_offsets_are_isolated_by_vault_and_survive_unbound_loading() {
+        let mut shell = ShellState::default();
+        let a = tabs::TabKey::Note {
+            vault: "a".into(),
+            note_id: 42,
+        };
+        let b = tabs::TabKey::Note {
+            vault: "b".into(),
+            note_id: 42,
+        };
+        shell
+            .reader_scrolls
+            .entry(a.clone())
+            .or_default()
+            .set_offset(point(px(0.), px(-200.)));
+        shell
+            .reader_scrolls
+            .entry(b.clone())
+            .or_default()
+            .set_offset(point(px(0.), px(-80.)));
+        assert_eq!(shell.reader_scrolls[&a].offset().y, px(-200.));
+        assert_eq!(shell.reader_scrolls[&b].offset().y, px(-80.));
+        shell.reader_scrolls.remove(&a);
+        assert_eq!(shell.reader_scrolls[&b].offset().y, px(-80.));
     }
 }

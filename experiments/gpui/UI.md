@@ -22,14 +22,15 @@ acceptance baseline.
 Fresh current-Web reference captures use the public help vault, 1280×800 viewport,
 light/dark themes, configured Home, note reader and search. They demonstrate the
 reference only, not native equivalence. The native shell is compile/unit-tested;
-matched native captures are pending. Use an isolated application instance and disposable fixtures for comparison.
+the first independent native fixture confirms the new shell renders, while matched-size/theme comparisons are still pending. Use an isolated application instance and disposable fixtures for comparison.
 
-Remaining gaps include tab persistence and restored reading positions, all dock destinations/actions,
-keyboard search-result navigation, Home activity, exact fonts, clickable outline
-navigation, rich-format fidelity, reading-position preservation and
+Remaining gaps include tab persistence, all dock destinations/actions,
+keyboard search-result navigation, Home activity, exact fonts, rich-format fidelity, persistent reading positions and
 full accessibility/IME behavior. Missing actions must not look functional.
 
 Compare both implementations at 900×650, 1280×800 and 1600×1000, both themes and
 text sizes, with the same fixture. Include empty/error/partial/loading states,
 search cancel and repeated navigation, narrow context stacking and graph pan/zoom.
 Retain actual measured differences instead of declaring parity from compilation.
+
+In-memory tab scroll positions, reader-focused tab shortcuts, and heading jumps are implemented. Native interaction verification remains pending. Markdown source soft breaks render as spaces; explicit hard breaks remain line breaks.
