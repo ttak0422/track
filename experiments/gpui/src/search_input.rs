@@ -32,6 +32,7 @@ actions!(
 pub struct SearchChanged(pub String);
 
 pub struct SearchInput {
+    dark: bool,
     focus: FocusHandle,
     text: String,
     anchor: usize,
@@ -97,6 +98,19 @@ fn single_line(text: &str) -> String {
 }
 
 impl SearchInput {
+    pub fn query(&self) -> &str {
+        &self.text
+    }
+    pub fn clear(&mut self, cx: &mut Context<Self>) {
+        self.text.clear();
+        self.anchor = 0;
+        self.caret = 0;
+        self.marked = None;
+        cx.notify();
+    }
+    pub fn set_dark(&mut self, dark: bool) {
+        self.dark = dark;
+    }
     pub fn new(cx: &mut Context<Self>) -> Self {
         // Scoped bindings do not interfere with workspace navigation.
         cx.bind_keys([
@@ -120,6 +134,7 @@ impl SearchInput {
             KeyBinding::new("cmd-v", Paste, Some("TrackSearch")),
         ]);
         Self {
+            dark: false,
             focus: cx.focus_handle(),
             text: String::new(),
             anchor: 0,
@@ -260,17 +275,25 @@ impl EntityInputHandler for SearchInput {
 }
 
 impl Render for SearchInput {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let input = cx.entity();
+        let dark = self.dark;
+        let focused = self.focus.is_focused(window);
         div()
             .w_full()
             .min_w_0()
             .p_2()
-            .bg(rgb(0x18242e))
-            .border_1()
-            .border_color(rgb(0x405565))
-            .text_color(rgb(0xe7edf4))
-            .text_size(px(14.))
+            .bg(rgb(if dark { 0x191c1e } else { 0xffffff }))
+            .border_b_1()
+            .border_color(rgb(if focused {
+                if dark { 0xf4785e } else { 0xc13a1e }
+            } else if dark {
+                0x3e4347
+            } else {
+                0xc7c5bd
+            }))
+            .text_color(rgb(if dark { 0xe9e9e4 } else { 0x1a1a18 }))
+            .text_size(px(16.))
             .key_context("TrackSearch")
             .track_focus(&self.focus)
             .cursor(CursorStyle::IBeam)
@@ -365,7 +388,7 @@ impl Render for SearchInput {
                                 len: display.len(),
                                 font: style.font(),
                                 color: if s.text.is_empty() {
-                                    rgb(0x8798a7).into()
+                                    rgb(if dark { 0x969792 } else { 0x878780 }).into()
                                 } else {
                                     style.color
                                 },
@@ -376,7 +399,7 @@ impl Render for SearchInput {
                             let line =
                                 window
                                     .text_system()
-                                    .shape_line(display, px(14.), &[run], None);
+                                    .shape_line(display, px(16.), &[run], None);
                             let x = line.x_for_index(s.caret);
                             s.scroll = s
                                 .scroll
@@ -397,7 +420,7 @@ impl Render for SearchInput {
                                             bounds.bottom(),
                                         ),
                                     ),
-                                    rgb(0x315468),
+                                    rgb(if dark { 0x573a32 } else { 0xf2d9cf }),
                                 ));
                             }
                             let _ = line.paint(origin, bounds.size.height, window, cx);
@@ -414,7 +437,7 @@ impl Render for SearchInput {
                                             px(1.),
                                         ),
                                     ),
-                                    rgb(0x7ec9b5),
+                                    rgb(if dark { 0xf4785e } else { 0xc13a1e }),
                                 ));
                             }
                             if s.focus.is_focused(window) {
@@ -423,7 +446,7 @@ impl Render for SearchInput {
                                         point(origin.x + x, bounds.top()),
                                         size(px(1.), bounds.size.height),
                                     ),
-                                    rgb(0x7ec9b5),
+                                    rgb(if dark { 0xf4785e } else { 0xc13a1e }),
                                 ));
                             }
                             window.handle_input(

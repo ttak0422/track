@@ -1,5 +1,7 @@
 //! Native, read-only CommonMark subset. Unsupported content stays inert and visible.
-use gpui::{Div, FontStyle, FontWeight, HighlightStyle, StyledText, div, prelude::*, px, rgb};
+use gpui::{
+    Div, FontStyle, FontWeight, StyledText, TextRun, UnderlineStyle, div, font, prelude::*, px, rgb,
+};
 use pulldown_cmark::{Alignment, Event, Options, Parser, Tag};
 use std::ops::Range;
 
@@ -282,79 +284,189 @@ fn fallback(text: &str, out: &mut Vec<Block>) {
     }
 }
 
-/// Render pre-parsed blocks. Put this inside a width-constrained scrolling parent.
-/// No HTML execution, network fetching, or link navigation is performed.
+#[derive(Clone, Copy)]
+struct ReaderTheme {
+    ink: u32,
+    muted: u32,
+    soft: u32,
+    line: u32,
+    strong_line: u32,
+}
+
+impl ReaderTheme {
+    fn new(dark: bool) -> Self {
+        if dark {
+            Self {
+                ink: 0xe9e9e4,
+                muted: 0xa2a29b,
+                soft: 0x212528,
+                line: 0x282c2f,
+                strong_line: 0x3e4347,
+            }
+        } else {
+            Self {
+                ink: 0x1a1a18,
+                muted: 0x5e5d58,
+                soft: 0xf3f2ee,
+                line: 0xe6e4de,
+                strong_line: 0xc7c5bd,
+            }
+        }
+    }
+}
+
+/// Compatibility wrapper for the original dark experiment shell.
+#[allow(dead_code)]
 pub fn render(blocks: &[Block]) -> Div {
+    render_themed(blocks, true)
+}
+
+/// Native read-only prose. The shell owns the sheet ground and outer 880px cap.
+/// Uses the system sans fallback; exact IBM Plex Sans JP typography is not claimed.
+/// No HTML execution, network fetching, or link navigation is performed.
+pub fn render_themed(blocks: &[Block], dark: bool) -> Div {
+    let theme = ReaderTheme::new(dark);
     div()
         .w_full()
         .min_w_0()
         .flex()
         .flex_col()
-        .gap_3()
-        .children(blocks.iter().map(|block| {
+        .text_size(px(16.))
+        .line_height(px(29.6))
+        .font_family(".SystemUIFont")
+        .text_color(rgb(theme.ink))
+        .children(blocks.iter().enumerate().map(|(index, block)| {
             let mut row = div().w_full().min_w_0().pl(px((block.indent * 16) as f32));
             if block.quoted {
-                row = row.border_l_2().border_color(rgb(0x7ec9b5)).pl_3();
+                row = row.border_l_2().border_color(rgb(theme.strong_line)).pl_3();
             }
             if let Some(table) = &block.table {
-                return row.child(render_table(table));
+                return row.mt(px(13.)).child(render_table(table, theme));
             }
             let text = block.marker.as_ref().map_or_else(
                 || block.text.clone(),
                 |marker| format!("{marker} {}", block.text),
             );
-            row = match block.kind {
-                BlockKind::Heading(level) => row.text_size(px(match level {
-                    1 => 28.,
-                    2 => 24.,
-                    3 => 21.,
-                    4 => 18.,
-                    _ => 16.,
-                })),
-                BlockKind::Code | BlockKind::Literal => {
-                    row.font_family("Menlo").text_sm().p_3().bg(rgb(0x18222c))
+            let (mono, bold) = match block.kind {
+                BlockKind::Heading(level) => {
+                    let (size, margin) = match level {
+                        1 => (26., 44.),
+                        2 => (23., 44.),
+                        3 => (21., 32.),
+                        4 => (19., 26.),
+                        _ => (18., 22.),
+                    };
+                    row = row
+                        .max_w(px(640.))
+                        .mx_auto()
+                        .text_size(px(size))
+                        .line_height(px(size * 1.5))
+                        .mt(px(if index == 0 { 0. } else { margin }));
+                    (false, true)
                 }
-                BlockKind::Paragraph | BlockKind::Table => row.text_base(),
+                BlockKind::Code | BlockKind::Literal => {
+                    row = row
+                        .mt(px(13.))
+                        .p_3()
+                        .rounded(px(4.))
+                        .bg(rgb(theme.soft))
+                        .text_size(px(14.))
+                        .line_height(px(23.));
+                    (true, false)
+                }
+                _ => {
+                    row = row.max_w(px(640.)).mx_auto().mt(px(if index == 0 {
+                        0.
+                    } else if block.indent > 0 {
+                        7.
+                    } else {
+                        13.
+                    }));
+                    (false, false)
+                }
             };
             let offset = text.len() - block.text.len();
-            row.child(styled_text(text, &block.spans, offset))
+            row.child(styled_text(text, &block.spans, offset, theme, mono, bold))
         }))
 }
 
-fn styled_text(text: String, spans: &[Span], offset: usize) -> StyledText {
-    StyledText::new(text).with_highlights(spans.iter().map(|span| {
-        let s = span.style;
-        (
-            span.range.start + offset..span.range.end + offset,
-            HighlightStyle {
-                font_weight: s.strong.then_some(FontWeight::BOLD),
-                font_style: s.emphasis.then_some(FontStyle::Italic),
-                background_color: s.code.then(|| rgb(0x30404e).into()),
-                color: if s.link {
-                    Some(rgb(0x7ec9b5).into())
-                } else if s.code {
-                    Some(rgb(0xf1cf91).into())
-                } else {
-                    None
-                },
-                ..Default::default()
-            },
-        )
-    }))
+fn styled_text(
+    text: String,
+    spans: &[Span],
+    offset: usize,
+    theme: ReaderTheme,
+    mono: bool,
+    bold: bool,
+) -> StyledText {
+    let mut runs = Vec::new();
+    let mut cursor = 0;
+    for span in spans {
+        let start = span.range.start + offset;
+        let end = span.range.end + offset;
+        if start > cursor {
+            runs.push(text_run(
+                start - cursor,
+                InlineStyle::default(),
+                theme,
+                mono,
+                bold,
+            ));
+        }
+        runs.push(text_run(end - start, span.style, theme, mono, bold));
+        cursor = end;
+    }
+    if cursor < text.len() {
+        runs.push(text_run(
+            text.len() - cursor,
+            InlineStyle::default(),
+            theme,
+            mono,
+            bold,
+        ));
+    }
+    StyledText::new(text).with_runs(runs)
 }
 
-fn render_table(table: &Table) -> Div {
+fn text_run(len: usize, style: InlineStyle, theme: ReaderTheme, mono: bool, bold: bool) -> TextRun {
+    let mut face = font(if mono || style.code {
+        "Menlo"
+    } else {
+        ".SystemUIFont"
+    });
+    if bold || style.strong {
+        face.weight = FontWeight::BOLD;
+    }
+    if style.emphasis {
+        face.style = FontStyle::Italic;
+    }
+    TextRun {
+        len,
+        font: face,
+        color: rgb(if style.code { theme.muted } else { theme.ink }).into(),
+        background_color: None,
+        underline: style.link.then(|| UnderlineStyle {
+            thickness: px(1.),
+            color: Some(rgb(theme.strong_line).into()),
+            wavy: false,
+        }),
+        strikethrough: None,
+    }
+}
+
+fn render_table(table: &Table, theme: ReaderTheme) -> Div {
     div()
         .w_full()
         .min_w_0()
         .flex()
         .flex_col()
+        .text_size(px(14.))
+        .line_height(px(23.))
         .border_1()
-        .border_color(rgb(0x30404e))
+        .border_color(rgb(theme.line))
         .children(table.rows.iter().enumerate().map(|(index, cells)| {
             let mut row = div().w_full().min_w_0().flex();
             if index == 0 {
-                row = row.bg(rgb(0x254853)).font_weight(FontWeight::BOLD);
+                row = row.bg(rgb(theme.soft));
             }
             row.children(cells.iter().enumerate().map(|(column, cell)| {
                 let mut view = div()
@@ -363,13 +475,20 @@ fn render_table(table: &Table) -> Div {
                     .p_2()
                     .border_b_1()
                     .border_r_1()
-                    .border_color(rgb(0x30404e));
+                    .border_color(rgb(theme.line));
                 view = match table.alignments.get(column) {
                     Some(Alignment::Center) => view.text_center(),
                     Some(Alignment::Right) => view.text_right(),
                     _ => view,
                 };
-                view.child(styled_text(cell.text.clone(), &cell.spans, 0))
+                view.child(styled_text(
+                    cell.text.clone(),
+                    &cell.spans,
+                    0,
+                    theme,
+                    false,
+                    index == 0,
+                ))
             }))
         }))
 }
@@ -377,6 +496,46 @@ fn render_table(table: &Table) -> Div {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn themed_runs_use_neutral_code_and_ink_links() {
+        for dark in [false, true] {
+            let theme = ReaderTheme::new(dark);
+            let code = text_run(
+                4,
+                InlineStyle {
+                    code: true,
+                    ..Default::default()
+                },
+                theme,
+                false,
+                false,
+            );
+            assert_eq!(code.font.family.as_ref(), "Menlo");
+            assert_eq!(code.color, rgb(theme.muted).into());
+            assert!(code.background_color.is_none());
+            let link = text_run(
+                4,
+                InlineStyle {
+                    link: true,
+                    ..Default::default()
+                },
+                theme,
+                false,
+                false,
+            );
+            assert_eq!(link.color, rgb(theme.ink).into());
+            assert_eq!(
+                link.underline.unwrap().color,
+                Some(rgb(theme.strong_line).into())
+            );
+            assert_eq!(
+                text_run(4, InlineStyle::default(), theme, false, true)
+                    .font
+                    .weight,
+                FontWeight::BOLD
+            );
+        }
+    }
     #[test]
     fn inline_styles_are_composed_on_utf8_byte_ranges() {
         let parsed = parse("- 日本語 **太い *斜体🦀*** と `code` [**link**](https://example.com)");

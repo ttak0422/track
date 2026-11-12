@@ -21,6 +21,8 @@ pub struct GraphView {
     hovered: Option<i64>,
     pan_from: Option<Point>,
     node_drag: Option<(i64, Point)>,
+    compact: bool,
+    dark: bool,
     layout_generation: u64,
     layout_status: &'static str,
 }
@@ -38,13 +40,19 @@ impl GraphView {
             hovered: None,
             pan_from: None,
             node_drag: None,
+            compact: false,
+            dark: false,
             layout_generation: 0,
             layout_status: "circular initial layout",
         }
     }
     pub fn set_graph(&mut self, graph: Graph, cx: &mut Context<Self>) {
         let generation = self.layout_generation.wrapping_add(1);
+        let dark = self.dark;
+        let compact = self.compact;
         *self = Self::new(graph);
+        self.dark = dark;
+        self.compact = compact;
         self.layout_generation = generation;
         // Keep oversized local graphs intact; do not silently apply overview filtering.
         if self.nodes.len() > 1000 {
@@ -73,6 +81,18 @@ impl GraphView {
         .detach();
         cx.notify();
     }
+    pub fn set_compact(&mut self, compact: bool, cx: &mut Context<Self>) {
+        if self.compact != compact {
+            self.compact = compact;
+            cx.notify();
+        }
+    }
+    pub fn set_dark(&mut self, dark: bool, cx: &mut Context<Self>) {
+        if self.dark != dark {
+            self.dark = dark;
+            cx.notify();
+        }
+    }
     pub fn selected(&self) -> Option<i64> {
         self.selected
     }
@@ -85,6 +105,33 @@ impl GraphView {
 }
 impl Render for GraphView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let (panel, ink, muted, line, outline, mark) = if self.dark {
+            (0x191c1e, 0xe9e9e4, 0xa2a29b, 0x282c2f, 0x6e7478, 0xf4785e)
+        } else {
+            (0xffffff, 0x1a1a18, 0x5e5d58, 0xe6e4de, 0x8e8c84, 0xc13a1e)
+        };
+        let compact = self.compact;
+        let labels: Vec<_> = if compact {
+            self.nodes
+                .iter()
+                .filter(|n| {
+                    n.node.note_id == self.graph.center_id
+                        || n.node.center
+                        || Some(n.node.note_id) == self.hovered
+                        || Some(n.node.note_id) == self.selected
+                })
+                .map(|n| {
+                    (
+                        n.node.note_id,
+                        n.node.title.clone(),
+                        self.viewport.world_to_screen(n.position),
+                        graph::node_radius(&n.node, self.graph.center_id, n.degree),
+                    )
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
         let entity = cx.entity();
         let nodes = self.nodes.clone();
         let edges = self.graph.edges.clone();
@@ -106,7 +153,7 @@ impl Render for GraphView {
             .relative()
             .size_full()
             .overflow_hidden()
-            .bg(rgb(0x111820))
+            .bg(rgb(panel))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, event: &gpui::MouseDownEvent, _, cx| {
@@ -241,7 +288,7 @@ impl Render for GraphView {
                             if let Ok(path) = path.build() {
                                 window.paint_path(
                                     path,
-                                    rgb(if active { 0x7ec9b5 } else { 0x30404e }),
+                                    rgb(if active { outline } else { line }),
                                 );
                             }
                         }
@@ -251,14 +298,14 @@ impl Render for GraphView {
                             let active = highlighted
                                 .as_ref()
                                 .is_none_or(|ids| ids.contains(&n.node.note_id));
-                            let color = if selected == Some(n.node.note_id) {
-                                0xf2b66d
+                            let color = if selected == Some(n.node.note_id) || n.node.note_id == center_id || n.node.center {
+                                mark
                             } else if hovered == Some(n.node.note_id) {
-                                0xffffff
+                                ink
                             } else if active {
-                                0x7ec9b5
+                                outline
                             } else {
-                                0x384b57
+                                line
                             };
                             let mut dot = fill(
                                 Bounds::new(
@@ -267,6 +314,11 @@ impl Render for GraphView {
                                 ),
                                 rgb(color),
                             );
+                            if compact && color != mark {
+                                dot.background = rgb(panel).into();
+                                dot.border_color = rgb(color).into();
+                                dot.border_widths = px(0.75).into();
+                            }
                             dot.corner_radii = px(r).into();
                             window.paint_quad(dot);
                         }
@@ -274,23 +326,40 @@ impl Render for GraphView {
                 )
                 .size_full(),
             )
-            .child(
+            .children(labels.into_iter().map(|(id,title,p,r)| {
+                div().id(("graph-label", id as usize)).absolute()
+                    .left(px((p.x+r+5.) as f32)).top(px((p.y-8.) as f32))
+                    .max_w(px(170.)).overflow_hidden().text_xs().text_color(rgb(ink))
+                    .cursor_pointer().child(title)
+                    .on_mouse_down(MouseButton::Left, |_,_,cx|cx.stop_propagation())
+                    .on_click(cx.listener(move |_,_,_,cx| { cx.emit(OpenNote(id)); cx.stop_propagation(); }))
+            }))
+            .when(compact, |el| el.child(
+                div().id("graph-reset").absolute().right_1().top_1()
+                    .text_xs().text_color(rgb(muted)).cursor_pointer().child("↺")
+                    .on_mouse_down(MouseButton::Left, |_,_,cx|cx.stop_propagation())
+                    .on_click(cx.listener(|this,_,_,cx| {
+                        this.viewport.offset=Point::default(); this.viewport.scale=1.;
+                        this.pan_from=None; this.node_drag=None; cx.stop_propagation(); cx.notify();
+                    }))
+            ))
+            .when(!compact, |el| el.child(
                 div().absolute().bottom_3().left_3().right_3().p_3()
-                    .bg(rgb(0x18222c)).border_1().border_color(rgb(0x30404e))
-                    .text_color(rgb(0xe7edf4)).text_sm()
+                    .bg(rgb(panel)).border_1().border_color(rgb(line))
+                    .text_color(rgb(ink)).text_sm()
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .child(div().text_xs().text_color(rgb(0x9daebe)).child(self.layout_status))
+                    .child(div().text_xs().text_color(rgb(muted)).child(self.layout_status))
                     .children(detail.map(|node| {
                         let id = node.note_id;
                         div().flex().flex_col().gap_1()
                             .child(div().child(node.title))
-                            .child(div().text_xs().text_color(rgb(0x9daebe)).child(format!(
+                            .child(div().text_xs().text_color(rgb(muted)).child(format!(
                                 "ID {} · {} · vault {}", id,
                                 node.file_kind.as_deref().unwrap_or("note"),
                                 node.vault.as_deref().unwrap_or("unspecified"))))
                             .child(div().text_xs().overflow_hidden().child(node.path.unwrap_or_default()))
                             .child(div().id("graph-open-note").cursor_pointer()
-                                .text_color(rgb(0x7ec9b5)).child("Open note →")
+                                .text_color(rgb(ink)).child("Open note →")
                                 .on_click(cx.listener(move |_, _, _, cx| {
                                     cx.emit(OpenNote(id)); cx.stop_propagation();
                                 })))
@@ -298,6 +367,6 @@ impl Render for GraphView {
                     .when(self.hovered.is_none() && self.selected.is_none(), |el| {
                         el.child("Hover to identify · click to select · double-click to open · drag node or background · Ctrl/Shift-wheel to zoom")
                     })
-            )
+            ))
     }
 }

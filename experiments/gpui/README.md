@@ -20,8 +20,7 @@ Install a current Rust toolchain and Apple's Command Line Tools, then run:
 cargo run --release --manifest-path experiments/gpui/Cargo.toml
 ```
 
-The default is a synthetic 10,000-note fixture. Scroll and select notes to exercise
-the virtualized list and inspector. GPUI uses native Metal rendering, not WKWebView.
+The default is a synthetic 10,000-note fixture. Use the floating search action to find and select notes in a virtualized overlay. GPUI uses native Metal rendering, not WKWebView.
 Runtime shader compilation avoids requiring the full Xcode Metal compiler.
 If a Nix-provided GCC shadows Apple’s toolchain, set `CC=/usr/bin/clang`,
 `CXX=/usr/bin/clang++`, and
@@ -42,10 +41,9 @@ a warning. Malformed input fails before opening a window.
 
 ## Scope and evaluation
 
-- Virtualized, fixed-height note list; selection; native inspector; partial-read warning.
-- The footer reports the last virtualized range, not a frame-rate benchmark. Click a
-  row to refresh the displayed count after scrolling.
-- No editor, full Markdown parity, live updates, force graph layout, search, persistence,
+- One-sheet reader, floating rail, title strip, virtualized search overlay and context aside.
+- Read failures and partial data remain visible; full diagnostics are a separate toggle.
+- No editor, full Markdown parity, live updates, full graph interaction parity, persistence,
   accessibility/IME parity, or integration into the shipping app yet.
 - macOS is the initial target; Linux/Windows support is not configured or verified.
 - GPUI is pinned and Cargo.lock is committed. Keep this experiment outside the main
@@ -89,10 +87,10 @@ updates, and full Markdown rendering are still tracked as incomplete in `PARITY.
 
 ## Native graph
 
-Select **Local graph** to read the selected note's CLI graph. The synthetic mode
+The context aside shows the selected note’s local graph. The synthetic mode
 uses a 100-node fixture. Pan by dragging the background or scrolling; hold Ctrl or
 Shift while scrolling to zoom around the pointer. Click a node to select it, drag
-to move it, and double-click or choose **Open note** to navigate. Hover/selection
+to move it, and double-click to navigate. Hover/selection
 shows metadata. Leaving the canvas ends dragging.
 
 Placement starts circular, then settles a bounded deterministic force snapshot on
@@ -112,6 +110,14 @@ parent loss relies on Go's existing parent watchdog and is not yet validated her
 HTTP mode reads source Markdown (not portable export) and provides native search
 across all served vaults. Search preserves vault-scoped note identities and ignores
 outdated navigation/storage-generation responses. Editing and SSE refresh are not
-implemented; use Reload vault for manual refresh. Graph controls currently remain
-CLI-mode only. Japanese IME uses the native input protocol but real composition is
+implemented; use Reload vault for manual refresh. Local graphs use the selected HTTP note’s own vault scope. Japanese IME uses the native input protocol but real composition is
 unverified; cursor movement is Unicode-scalar, not grapheme-cluster aware.
+
+## UI compatibility
+
+The previous dashboard-style experiment has been replaced by the existing Track
+shell composition and palette. See [UI.md](UI.md). The current Web reference was
+captured with public help fixtures in an isolated headless browser. The revised
+native shell has compile/unit coverage but still requires fresh matched native
+captures; earlier screenshots do not validate this layout. Full tabs, activity
+Home, keyboard result navigation and complete dock actions remain incomplete.

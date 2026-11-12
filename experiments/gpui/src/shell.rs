@@ -1,0 +1,758 @@
+//! Native one-sheet shell. Only backed actions are interactive.
+use super::*;
+use gpui::{Div, Focusable, PathBuilder, Stateful, WindowAppearance, canvas, point};
+
+pub struct ShellState {
+    pub home: bool,
+    pub search_open: bool,
+    pub dark: Option<bool>,
+    pub diagnostics: bool,
+}
+
+impl Default for ShellState {
+    fn default() -> Self {
+        Self {
+            home: true,
+            search_open: false,
+            dark: None,
+            diagnostics: false,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Palette {
+    bg: u32,
+    paper: u32,
+    ink: u32,
+    muted: u32,
+    line: u32,
+    mark: u32,
+}
+impl Palette {
+    fn new(dark: bool) -> Self {
+        if dark {
+            Self {
+                bg: 0x141618,
+                paper: 0x191c1e,
+                ink: 0xe9e9e4,
+                muted: 0xa2a29b,
+                line: 0x282c2f,
+                mark: 0xf4785e,
+            }
+        } else {
+            Self {
+                bg: 0xfbfaf8,
+                paper: 0xffffff,
+                ink: 0x1a1a18,
+                muted: 0x5e5d58,
+                line: 0xe6e4de,
+                mark: 0xc13a1e,
+            }
+        }
+    }
+}
+fn rail_button(id: &'static str, glyph: &'static str, p: Palette, active: bool) -> Stateful<Div> {
+    let color = if active { p.mark } else { p.muted };
+    div()
+        .id(id)
+        .w(px(40.))
+        .h(px(40.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_md()
+        .cursor_pointer()
+        .child(
+            canvas(
+                |_, _, _| (),
+                move |bounds, _, window, _| {
+                    let mut path = PathBuilder::stroke(px(1.5));
+                    let at = |x: f32, y: f32| {
+                        point(
+                            bounds.left() + px(x * 20. / 24.),
+                            bounds.top() + px(y * 20. / 24.),
+                        )
+                    };
+                    let segments: Vec<Vec<(f32, f32)>> = match glyph {
+                        "home" => vec![
+                            vec![(3., 11.), (12., 3.), (21., 11.)],
+                            vec![
+                                (5., 10.),
+                                (5., 21.),
+                                (10., 21.),
+                                (10., 14.),
+                                (14., 14.),
+                                (14., 21.),
+                                (19., 21.),
+                                (19., 10.),
+                            ],
+                        ],
+                        "search" => {
+                            let mut ring: Vec<_> = (0..=32)
+                                .map(|i| {
+                                    let a = i as f32 * std::f32::consts::TAU / 32.;
+                                    (10.5 + 6.5 * a.cos(), 10.5 + 6.5 * a.sin())
+                                })
+                                .collect();
+                            ring.push((15.1, 15.1));
+                            vec![ring, vec![(15.1, 15.1), (21., 21.)]]
+                        }
+                        "info" => vec![vec![(12., 5.), (12., 6.)], vec![(12., 10.), (12., 19.)]],
+                        "reload" => {
+                            let arc = (0..=24)
+                                .map(|i| {
+                                    let a = 0.6 + i as f32 * 5.0 / 24.;
+                                    (12. + 8. * a.cos(), 12. + 8. * a.sin())
+                                })
+                                .collect();
+                            vec![arc, vec![(21., 3.), (21., 9.), (15., 9.)]]
+                        }
+                        _ => {
+                            let ring = (0..=32)
+                                .map(|i| {
+                                    let a = i as f32 * std::f32::consts::TAU / 32.;
+                                    (12. + 8. * a.cos(), 12. + 8. * a.sin())
+                                })
+                                .collect();
+                            vec![ring, vec![(12., 4.), (12., 20.)]]
+                        }
+                    };
+                    for points in segments {
+                        for (i, (x, y)) in points.into_iter().enumerate() {
+                            if i == 0 {
+                                path.move_to(at(x, y));
+                            } else {
+                                path.line_to(at(x, y));
+                            }
+                        }
+                    }
+                    if let Ok(path) = path.build() {
+                        window.paint_path(path, rgb(color));
+                    }
+                },
+            )
+            .w(px(20.))
+            .h(px(20.)),
+        )
+}
+
+fn label(text: &'static str, p: Palette) -> Div {
+    div()
+        .font_family("monospace")
+        .text_size(px(10.))
+        .text_color(rgb(p.muted))
+        .mb_3()
+        .child(text)
+}
+fn display_date(seconds: i64) -> Option<String> {
+    let seconds: libc::time_t = seconds.try_into().ok()?;
+    let mut date: libc::tm = unsafe { std::mem::zeroed() };
+    if unsafe { libc::localtime_r(&seconds, &mut date) }.is_null() {
+        return None;
+    }
+    Some(format!(
+        "{:04}-{:02}-{:02}",
+        date.tm_year + 1900,
+        date.tm_mon + 1,
+        date.tm_mday
+    ))
+}
+impl Workspace {
+    pub fn configured_home_index(&self) -> Option<usize> {
+        let id = self
+            .live
+            .as_ref()?
+            .initial_storage
+            .as_ref()?
+            .home_note_id
+            .as_ref()?
+            .parse::<i64>()
+            .ok()?;
+        let active_vault = self
+            .live
+            .as_ref()?
+            .initial_vaults
+            .get("active")
+            .and_then(|v| v.get("name"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        self.snapshot
+            .notes
+            .iter()
+            .enumerate()
+            .find(|(index, note)| {
+                note.note_id == id
+                    && self.live_notes.get(*index).is_some_and(|live_note| {
+                        live_note.vault.is_empty() || live_note.vault == active_vault
+                    })
+            })
+            .map(|(index, _)| index)
+    }
+    fn open_home(&mut self, cx: &mut Context<Self>) {
+        self.shell.search_open = false;
+        if let Some(index) = self.configured_home_index() {
+            self.shell.home = false;
+            self.select(index, cx);
+        } else if self
+            .live
+            .as_ref()
+            .and_then(|session| session.initial_storage.as_ref())
+            .is_some_and(|storage| storage.home_note_id.is_some())
+        {
+            self.shell.home = true;
+            self.load_live_notes(cx);
+        } else {
+            self.shell.home = true;
+        }
+        cx.notify();
+    }
+}
+impl Render for Workspace {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let dark = self.shell.dark.unwrap_or(matches!(
+            window.appearance(),
+            WindowAppearance::Dark | WindowAppearance::VibrantDark
+        ));
+        let p = Palette::new(dark);
+        let wide = window.viewport_size().width >= px(1100.);
+        let height = window.viewport_size().height;
+        let note = self
+            .selected
+            .and_then(|i| self.snapshot.notes.get(i))
+            .cloned();
+        let home = self.shell.home || note.is_none();
+        self.search.update(cx, |search, _| search.set_dark(dark));
+        self.graph_view.update(cx, |graph, cx| {
+            graph.set_dark(dark, cx);
+            graph.set_compact(true, cx);
+        });
+        let title = note.as_ref().map(|n| n.title.clone()).unwrap_or_default();
+        let headings: Vec<_> = self
+            .content
+            .iter()
+            .filter(|b| matches!(b.kind, markdown::BlockKind::Heading(_)))
+            .map(|b| b.text.clone())
+            .collect();
+        let tab = div()
+            .h(px(38.))
+            .flex()
+            .items_center()
+            .border_b_1()
+            .border_color(rgb(p.line))
+            .when(
+                !home && self.selected != self.configured_home_index(),
+                |bar| {
+                    bar.child(
+                        div()
+                            .w(px(336.))
+                            .h_full()
+                            .px_3()
+                            .flex()
+                            .items_center()
+                            .overflow_hidden()
+                            .border_b_2()
+                            .border_color(rgb(p.mark))
+                            .text_size(px(14.))
+                            .font_weight(gpui::FontWeight::MEDIUM)
+                            .child(title.clone()),
+                    )
+                },
+            );
+        let rail = div()
+            .absolute()
+            .left(px(8.))
+            .top((height - px(250.)) / 2.)
+            .w(px(50.))
+            .py_2()
+            .flex()
+            .flex_col()
+            .items_center()
+            .gap_1()
+            .bg(rgb(p.paper))
+            .border_1()
+            .border_color(rgb(p.line))
+            .rounded_lg()
+            .child(
+                rail_button("home", "home", p, home).on_click(cx.listener(|this, _, _, cx| {
+                    this.open_home(cx);
+                })),
+            )
+            .child(
+                rail_button("search", "search", p, self.shell.search_open).on_click(cx.listener(
+                    |this, _, window, cx| {
+                        this.shell.search_open = !this.shell.search_open;
+                        if this.shell.search_open {
+                            window.focus(&this.search.focus_handle(cx));
+                        }
+                        cx.notify();
+                    },
+                )),
+            )
+            .child(
+                rail_button("reload", "reload", p, false)
+                    .on_click(cx.listener(|this, _, _, cx| this.load_notes(cx))),
+            )
+            .child(div().w(px(24.)).h(px(1.)).my_1().bg(rgb(p.line)))
+            .child(
+                rail_button("theme", "theme", p, false).on_click(cx.listener(
+                    move |this, _, _, cx| {
+                        this.shell.dark = Some(!dark);
+                        cx.notify();
+                    },
+                )),
+            )
+            .child(
+                rail_button("diagnostics", "info", p, self.shell.diagnostics).on_click(
+                    cx.listener(|this, _, _, cx| {
+                        this.shell.diagnostics = !this.shell.diagnostics;
+                        cx.notify();
+                    }),
+                ),
+            );
+        let aside =
+            div()
+                .id("context-rail")
+                .overflow_y_scroll()
+                .w(px(
+                    (f32::from(window.viewport_size().width) * 0.24).clamp(240., 380.)
+                ))
+                .flex_shrink_0()
+                .when(wide, |aside| aside.h_full())
+                .pt(px(48.))
+                .pr_6()
+                .text_size(px(14.))
+                .text_color(rgb(p.muted))
+                .when(note.as_ref().is_some_and(|n| !n.tags.is_empty()), |aside| {
+                    aside.child(div().mb_8().child(label("TAGS", p)).children(
+                        note.as_ref().unwrap().tags.iter().map(|tag| {
+                            div().mb_2().text_color(rgb(p.ink)).child(format!("#{tag}"))
+                        }),
+                    ))
+                })
+                .when(headings.len() > 1, |aside| {
+                    aside.child(
+                        div().mb_8().child(label("CONTENTS", p)).children(
+                            headings
+                                .into_iter()
+                                .map(|heading| div().mb_2().child(heading)),
+                        ),
+                    )
+                });
+        let aside = aside.when(
+            self.current_related
+                .get("children")
+                .and_then(|v| v.as_array())
+                .is_some_and(|children| !children.is_empty()),
+            |aside| {
+                aside.child(
+                    div().mt_6().child(label("CHILDREN", p)).children(
+                        self.current_related["children"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .filter_map(|entry| {
+                                entry
+                                    .get("title")
+                                    .and_then(|v| v.as_str())
+                                    .map(|title| div().py_1().child(title.to_owned()))
+                            }),
+                    ),
+                )
+            },
+        );
+        let aside = aside.when(self.current_related.contains_key("backlinks"), |aside| {
+            let links = self
+                .current_related
+                .get("backlinks")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default();
+            aside.child(
+                div()
+                    .mt_6()
+                    .child(label("BACKLINKS", p))
+                    .when(links.is_empty(), |section| section.child("No backlinks."))
+                    .children(links.into_iter().filter_map(|link| {
+                        link.get("title")
+                            .and_then(|v| v.as_str())
+                            .map(|title| div().py_1().child(title.to_owned()))
+                    })),
+            )
+        });
+        let aside = aside.when(self.live.is_some() || self.backend.is_some(), |aside| {
+            aside.child(
+                div()
+                    .mb_4()
+                    .border_t_1()
+                    .border_color(rgb(p.line))
+                    .mt_6()
+                    .pt_4()
+                    .child(label("GRAPH", p))
+                    .when(!self.show_graph, |graph| {
+                        graph.child(
+                            div()
+                                .id("load-local-graph")
+                                .cursor_pointer()
+                                .text_color(rgb(p.mark))
+                                .child("Show connections")
+                                .on_click(cx.listener(|this, _, _, cx| this.load_graph(cx))),
+                        )
+                    })
+                    .when(self.show_graph, |graph| {
+                        graph.child(div().h(px(280.)).child(self.graph_view.clone()))
+                    }),
+            )
+        });
+        let mut aside = Some(aside);
+        let metadata: Vec<(String, String)> = self
+            .current_note
+            .as_ref()
+            .map(|body| {
+                let mut fields: Vec<_> = body
+                    .props
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|prop| {
+                        let key = prop.get("key")?.as_str()?;
+                        if key == "up" {
+                            return None;
+                        }
+                        Some((key.to_uppercase(), prop.get("value")?.as_str()?.to_owned()))
+                    })
+                    .collect();
+                if let Some(created) = body.note.additional.get("created").and_then(|v| v.as_str())
+                {
+                    fields.push(("CREATED".into(), created.into()));
+                }
+                if let Some(updated) = body
+                    .note
+                    .additional
+                    .get("updated")
+                    .and_then(|v| v.as_i64())
+                    .and_then(display_date)
+                {
+                    fields.push(("UPDATED".into(), updated));
+                }
+                fields
+            })
+            .unwrap_or_default();
+        let trail: Vec<String> = self
+            .current_related
+            .get("trail")
+            .and_then(|v| v.as_array())
+            .map(|trail| {
+                trail
+                    .iter()
+                    .filter_map(|entry| {
+                        entry
+                            .get("title")
+                            .and_then(|v| v.as_str())
+                            .map(str::to_owned)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let reader = div()
+            .flex_1()
+            .min_w_0()
+            .h_full()
+            .flex()
+            .justify_center()
+            .pl(px(64.))
+            .pr(px(32.))
+            .pt(px(32.))
+            .child(
+                div()
+                    .id("note-reader")
+                    .flex_1()
+                    .max_w(px(880.))
+                    .min_w_0()
+                    .h_full()
+                    .overflow_y_scroll()
+                    .pb_12()
+                    .when(!trail.is_empty(), |reader| {
+                        reader.child(div().text_size(px(13.)).mb_4().child(trail.join(" › ")))
+                    })
+                    .when(!metadata.is_empty(), |reader| {
+                        reader.child(div().flex().gap(px(28.)).mb(px(36.)).children(
+                            metadata.into_iter().map(|(key, value)| {
+                                div()
+                                    .child(
+                                        div()
+                                            .font_family("monospace")
+                                            .text_size(px(11.))
+                                            .text_color(rgb(p.muted))
+                                            .child(key),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_size(px(13.))
+                                            .text_color(rgb(p.muted))
+                                            .child(value),
+                                    )
+                            }),
+                        ))
+                    })
+                    .when(
+                        self.current_note.is_some()
+                            && self
+                                .current_note
+                                .as_ref()
+                                .is_some_and(|note| note.props.is_null())
+                            && trail.is_empty(),
+                        |reader| {
+                            reader.child(
+                                div()
+                                    .text_size(px(11.))
+                                    .text_color(rgb(p.muted))
+                                    .mb_6()
+                                    .child("Additional metadata is unavailable in this response."),
+                            )
+                        },
+                    )
+                    .child(
+                        div()
+                            .max_w(px(656.))
+                            .pl(px(16.))
+                            .text_size(px(16.))
+                            .line_height(px(29.6))
+                            .child(
+                                div()
+                                    .text_size(px(26.))
+                                    .line_height(px(36.4))
+                                    .font_weight(gpui::FontWeight::MEDIUM)
+                                    .mb(px(6.))
+                                    .child(title),
+                            )
+                            .child(markdown::render_themed(&self.content, dark)),
+                    )
+                    .when(!wide, |body| body.child(aside.take().unwrap())),
+            );
+        let home_view = div()
+            .flex_1()
+            .flex()
+            .flex_col()
+            .items_center()
+            .justify_center()
+            .pl(px(70.))
+            .pb(px(100.))
+            .child(
+                div()
+                    .w(px(520.))
+                    .max_w_full()
+                    .text_size(px(11.))
+                    .text_color(rgb(p.muted))
+                    .mb_8()
+                    .child("Activity history is not available in this preview."),
+            )
+            .when(!self.shell.search_open, |home| {
+                home.child(
+                    div()
+                        .id("home-search")
+                        .w(px(520.))
+                        .max_w_full()
+                        .child(self.search.clone())
+                        .on_mouse_down(
+                            gpui::MouseButton::Left,
+                            cx.listener(|this, _, _, cx| {
+                                this.shell.search_open = true;
+                                cx.notify();
+                            }),
+                        ),
+                )
+            });
+        let query = self.search.read(cx).query().to_lowercase();
+        let result_indices: Vec<usize> = if query.trim().is_empty() {
+            vec![]
+        } else if self.live.is_some() {
+            (0..self.search_results.len()).collect()
+        } else {
+            self.snapshot
+                .notes
+                .iter()
+                .enumerate()
+                .filter(|(_, note)| {
+                    note.title.to_lowercase().contains(&query)
+                        || note
+                            .tags
+                            .iter()
+                            .any(|tag| tag.to_lowercase().contains(&query))
+                })
+                .map(|(i, _)| i)
+                .collect()
+        };
+        let search_panel = div()
+            .absolute()
+            .left(
+                (window.viewport_size().width
+                    - px(640.).min(window.viewport_size().width - px(48.)))
+                    / 2.,
+            )
+            .top(height * 0.12)
+            .h(if query.trim().is_empty() {
+                px(72.)
+            } else {
+                (px(74.) + px(result_indices.len().max(1) as f32 * 64.)).min(height * 0.70)
+            })
+            .w(px(640.).min(window.viewport_size().width - px(48.)))
+            .bg(rgb(p.paper))
+            .border_1()
+            .border_color(rgb(p.line))
+            .rounded_lg()
+            .flex()
+            .flex_col()
+            .overflow_hidden()
+            .child(div().px_4().py_3().child(self.search.clone()))
+            .child(
+                uniform_list(
+                    "notes",
+                    result_indices.len(),
+                    cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
+                        this.rendered_rows = range.len();
+                        range
+                            .filter_map(|row| {
+                                let i = *result_indices.get(row)?;
+                                let (title, tags) = if this.live.is_some() {
+                                    let note = this.search_results.get(i)?;
+                                    (note.title.clone(), note.tags.join(" · "))
+                                } else {
+                                    let note = this.snapshot.notes.get(i)?;
+                                    (note.title.clone(), note.tags.join(" · "))
+                                };
+                                Some(
+                                    div()
+                                        .id(i)
+                                        .h(px(64.))
+                                        .px_5()
+                                        .py_3()
+                                        .overflow_hidden()
+                                        .cursor_pointer()
+                                        .border_b_1()
+                                        .border_color(rgb(p.line))
+                                        .text_color(rgb(p.ink))
+                                        .child(div().text_size(px(13.)).child(title))
+                                        .child(
+                                            div()
+                                                .text_size(px(10.))
+                                                .text_color(rgb(p.muted))
+                                                .child(tags),
+                                        )
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            this.shell.home = false;
+                                            this.shell.search_open = false;
+                                            this.search.update(cx, |search, cx| search.clear(cx));
+                                            if this.live.is_some() {
+                                                this.select_search_result(i, cx);
+                                            } else {
+                                                this.select(i, cx);
+                                            }
+                                        })),
+                                )
+                            })
+                            .collect()
+                    }),
+                )
+                .flex_1()
+                .min_h_0(),
+            );
+        div()
+            .id("workspace-shell")
+            .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
+                if event.keystroke.key == "escape" && this.shell.search_open {
+                    this.shell.search_open = false;
+                    cx.notify();
+                }
+            }))
+            .relative()
+            .size_full()
+            .flex()
+            .flex_col()
+            .bg(rgb(p.paper))
+            .text_color(rgb(p.ink))
+            .font_family(".SystemUIFont")
+            .child(tab)
+            .when(
+                self.partial_read
+                    || self
+                        .snapshot
+                        .read_state
+                        .as_ref()
+                        .is_some_and(|state| state.partial),
+                |root| {
+                    root.child(
+                        div()
+                            .pl(px(64.))
+                            .py_1()
+                            .text_size(px(11.))
+                            .text_color(rgb(p.mark))
+                            .child("Some notes could not be read. Open diagnostics for details."),
+                    )
+                },
+            )
+            .when(self.read_error.is_some(), |root| {
+                root.child(
+                    div()
+                        .pl(px(64.))
+                        .py_1()
+                        .text_size(px(11.))
+                        .text_color(rgb(p.mark))
+                        .child("A read failed. Open diagnostics for details."),
+                )
+            })
+            .when(home, |root| root.child(home_view))
+            .when(!home, |root| {
+                root.child(
+                    div()
+                        .flex()
+                        .flex_1()
+                        .min_h_0()
+                        .child(reader)
+                        .when(wide, |row| row.child(aside.take().unwrap())),
+                )
+            })
+            .child(rail)
+            .when(self.shell.diagnostics, |root| {
+                root.child(
+                    div()
+                        .id("diagnostics-drawer")
+                        .absolute()
+                        .right(px(16.))
+                        .top(px(48.))
+                        .w(px(420.))
+                        .max_w_full()
+                        .h(px(240.))
+                        .overflow_y_scroll()
+                        .p_4()
+                        .bg(rgb(p.paper))
+                        .border_1()
+                        .border_color(rgb(p.line))
+                        .rounded_lg()
+                        .text_size(px(11.))
+                        .text_color(rgb(p.muted))
+                        .child(format!(
+                            "{}\n{}\n{}\n{}",
+                            self.source,
+                            self.list_status,
+                            self.status,
+                            self.read_error.as_deref().unwrap_or("")
+                        )),
+                )
+            })
+            .when(self.shell.search_open, |root| {
+                root.child(
+                    div()
+                        .id("search-backdrop")
+                        .absolute()
+                        .size_full()
+                        .bg(gpui::rgba(0x00000047))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.shell.search_open = false;
+                            cx.notify();
+                        })),
+                )
+                .child(search_panel)
+            })
+    }
+}

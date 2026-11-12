@@ -8,6 +8,7 @@ mod graph_view;
 mod live;
 mod markdown;
 mod search_input;
+mod shell;
 mod workspace_live;
 use backend::{Backend, Note, Snapshot};
 actions!(native_workspace, [Quit]);
@@ -28,12 +29,17 @@ fn fixture(count: usize) -> Snapshot {
 }
 
 struct Workspace {
+    shell: shell::ShellState,
     snapshot: Snapshot,
     selected: Option<usize>,
     rendered_rows: usize,
     source: String,
     backend: Option<Backend>,
     content: Vec<markdown::Block>,
+    current_note: Option<live::NoteBody>,
+    read_error: Option<String>,
+    partial_read: bool,
+    current_related: std::collections::BTreeMap<String, serde_json::Value>,
     status: String,
     list_status: String,
     request: u64,
@@ -43,6 +49,7 @@ struct Workspace {
     subscriptions: Vec<gpui::Subscription>,
     live: Option<live::Session>,
     live_notes: Vec<live::Note>,
+    search_results: Vec<live::Note>,
     search: gpui::Entity<search_input::SearchInput>,
     query_epoch: std::sync::Arc<std::sync::atomic::AtomicU64>,
     quit_session: std::sync::Arc<std::sync::Mutex<Option<live::Session>>>,
@@ -50,10 +57,16 @@ struct Workspace {
 
 impl Workspace {
     fn load_graph(&mut self, cx: &mut Context<Self>) {
+        if self.live.is_some() {
+            self.load_live_graph(cx);
+            return;
+        }
         self.show_graph = true;
         self.graph_request += 1;
         let request = self.graph_request;
         let Some(backend) = self.backend.clone() else {
+            self.graph_view
+                .update(cx, |view, cx| view.set_graph(graph::fixture(100), cx));
             cx.notify();
             return;
         };
@@ -75,11 +88,15 @@ impl Workspace {
                 }
                 match result {
                     Ok(response) => {
+                        this.read_error = None;
                         this.graph_view
                             .update(cx, |view, cx| view.set_graph(response.value, cx));
                         this.status = response.warnings;
                     }
-                    Err(error) => this.status = error.to_string(),
+                    Err(error) => {
+                        this.status = error.to_string();
+                        this.read_error = Some(error.to_string());
+                    }
                 }
                 cx.notify();
             });
@@ -110,7 +127,9 @@ impl Workspace {
                 }
                 match result {
                     Ok(response) => {
+                        this.read_error = None;
                         this.snapshot = response.value;
+                        this.partial_read = this.snapshot.read_state.as_ref().is_some_and(|s|s.partial);
                         this.list_status = response.warnings;
                         if let Some(state) = &this.snapshot.read_state {
                             this.list_status.push_str(&format!("\nRead state: partial={}, cached={}, checked={}, omitted={}, issues={:?}, extra={:?}", state.partial, state.cache_used, state.checked_at, state.omitted, state.issues, state.additional));
@@ -121,7 +140,7 @@ impl Workspace {
                             this.select(0, cx);
                         }
                     }
-                    Err(error) => this.status = error.to_string(),
+                    Err(error) => { this.status = error.to_string(); this.read_error = Some(error.to_string()); },
                 }
                 cx.notify();
             });
@@ -131,11 +150,15 @@ impl Workspace {
     }
 
     fn select(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.query_epoch
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         self.graph_request += 1;
         self.show_graph = false;
         self.selected = Some(index);
         self.request += 1;
         self.content.clear();
+        self.current_note = None;
+        self.current_related.clear();
         if self.live.is_some() {
             self.select_live(index, cx);
             return;
@@ -158,64 +181,20 @@ impl Workspace {
                 }
                 match result {
                     Ok(response) => {
+                        this.read_error = None;
                         this.content = markdown::parse(&response.value);
                         this.status = response.warnings;
                     }
-                    Err(error) => this.status = error.to_string(),
+                    Err(error) => {
+                        this.status = error.to_string();
+                        this.read_error = Some(error.to_string());
+                    }
                 }
                 cx.notify();
             });
         })
         .detach();
         cx.notify();
-    }
-}
-
-impl Render for Workspace {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let note = self
-            .selected
-            .and_then(|i| self.snapshot.notes.get(i))
-            .cloned();
-        let partial = self.snapshot.read_state.as_ref().is_some_and(|s| s.partial);
-        div().size_full().flex().flex_col().bg(rgb(0x111820)).text_color(rgb(0xe7edf4))
-            .child(div().p_5().border_b_1().border_color(rgb(0x30404e))
-                .child(div().text_xl().child("TRACK / Native canvas"))
-                .child(div().text_sm().text_color(rgb(0x9daebe)).child(format!(
-                    "GPUI experiment · {} notes · {} · {}", self.snapshot.notes.len(), self.source,
-                    if partial { "WARNING: partial snapshot" } else if self.live.is_some() { "owned HTTP server / read-only" } else if self.backend.is_some() { "read-only / manual refresh" } else { "read-only snapshot" }))))
-            .child(div().flex().p_3().gap_3()
-                .child(div().id("reload").cursor_pointer().text_color(rgb(0x7ec9b5)).child("Reload vault")
-                    .on_click(cx.listener(|this, _, _, cx| this.load_notes(cx))))
-                .when(self.live.is_none(), |bar| bar.child(div().id("graph-toggle").cursor_pointer().text_color(rgb(0x7ec9b5)).child(if self.show_graph { "Read note" } else { "Local graph" })
-                    .on_click(cx.listener(|this, _, _, cx| { if this.show_graph { this.show_graph = false; this.graph_request += 1; cx.notify(); } else { this.load_graph(cx); } }))))
-                .child(div().id("status").flex_1().min_w_0().max_h(px(80.)).overflow_y_scroll().text_sm().child(format!("{} {}", self.list_status, self.status))))
-            .when(self.live.is_some(), |root| root.child(div().px_3().pb_3().child("Search all served vaults").child(self.search.clone())))
-            .child(div().flex().flex_1().min_h_0()
-                .child(div().w(px(360.)).h_full().border_r_1().border_color(rgb(0x30404e))
-                    .child(uniform_list("notes", self.snapshot.notes.len(), cx.processor(|this, range: std::ops::Range<usize>, _, cx| {
-                        this.rendered_rows = range.len();
-                        range.map(|i| {
-                            let note = &this.snapshot.notes[i];
-                            div().id(i).h(px(64.)).overflow_hidden().p_3().cursor_pointer()
-                                .bg(rgb(if this.selected == Some(i) { 0x254853 } else { 0x18222c }))
-                                .border_b_1().border_color(rgb(0x27343f))
-                                .child(div().text_sm().overflow_hidden().child(note.title.clone()))
-                                .child(div().text_xs().text_color(rgb(0x7ec9b5)).child(note.tags.join(" / ")))
-                                .on_click(cx.listener(move |this, _, _, cx| { this.select(i, cx); }))
-                        }).collect()
-                    })).h_full()))
-                .child(div().flex_1().min_w_0().p_8().flex().flex_col().gap_4()
-                    .child(div().text_sm().text_color(rgb(0x7ec9b5)).child("NOTE INSPECTOR"))
-                    .child(div().text_2xl().child(note.as_ref().map(|n| n.title.clone()).unwrap_or("Select a note to read".into())))
-                    .child(div().text_color(rgb(0x9daebe)).child(note.as_ref().map(|n| format!("ID {}  ·  {}  ·  {}\n{}", n.note_id, n.file_kind, n.tags.join(" / "), n.path.display())).unwrap_or_default()))
-                    .child(div().text_sm().text_color(rgb(0x9daebe)).child(
-                        if self.live.is_some() { "Raw Markdown · HTTP read only · no editing yet" } else if self.backend.is_some() { "Portable Markdown · read only · not editable source" } else { "Snapshot mode includes metadata only. Use --vault and --track-bin to read note content." }))
-                    .when(self.show_graph, |panel| panel.child(div().flex_1().min_h_0().child(self.graph_view.clone())))
-                    .when(!self.show_graph, |panel| panel.child(div().id(("content", self.request as usize)).flex_1().min_h_0().overflow_y_scroll().text_sm()
-                        .child(markdown::render(&self.content))))))
-            .child(div().p_3().text_xs().border_t_1().border_color(rgb(0x30404e))
-                .child(format!("Last list layout: {} visible rows / {} total · Select to refresh this counter · Close window to quit", self.rendered_rows, self.snapshot.notes.len())))
     }
 }
 
@@ -330,12 +309,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 cx.new(|cx| {
                     let backend_is_fixture = backend.is_none();
                     let mut workspace = Workspace {
+                        shell: shell::ShellState::default(),
                         selected: (!snapshot.notes.is_empty()).then_some(0),
                         snapshot,
                         rendered_rows: 0,
                         source,
                         backend,
                         content: Vec::new(),
+                        current_note: None,
+                        read_error: None,
+                        partial_read: false,
+                        current_related: Default::default(),
                         status: String::new(),
                         list_status: String::new(),
                         request: 0,
@@ -351,6 +335,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         subscriptions: Vec::new(),
                         live: None,
                         live_notes: Vec::new(),
+                        search_results: Vec::new(),
                         search: cx.new(search_input::SearchInput::new),
                         query_epoch: Default::default(),
                         quit_session: quit_session.clone(),
@@ -358,6 +343,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     workspace.subscriptions.push(cx.subscribe(
                         &workspace.graph_view,
                         |this: &mut Workspace, _, event: &graph_view::OpenNote, cx| {
+                            if this.live.is_some() {
+                                this.open_live_note(event.0, cx);
+                                return;
+                            }
                             if let Some(index) = this
                                 .snapshot
                                 .notes
@@ -375,7 +364,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     workspace.subscriptions.push(cx.subscribe(
                         &workspace.search,
                         |this: &mut Workspace, _, event: &search_input::SearchChanged, cx| {
-                            this.search_live(event.0.clone(), cx)
+                            this.search_live(event.0.clone(), cx);
+                            cx.notify();
                         },
                     ));
                     if let Some(config) = live_config {

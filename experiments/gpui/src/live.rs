@@ -275,6 +275,28 @@ impl ReadClient {
         }
         Ok(data)
     }
+    pub fn local_graph(&self, key: &NoteKey) -> Result<(crate::graph::Graph, Fields), Error> {
+        let mut args = vault_query(&key.vault);
+        args.push(("id", key.note_id.to_string()));
+        let value: Value = self.get("/api/graph/local", &args)?;
+        if value
+            .get("vault")
+            .and_then(Value::as_str)
+            .is_some_and(|vault| vault != key.vault)
+        {
+            return Err(Error::Shape("graph vault identity mismatch".into()));
+        }
+        let response: crate::graph::GraphResponse =
+            serde_json::from_value(value.clone()).map_err(|e| Error::Shape(e.to_string()))?;
+        if response.graph.center_id != key.note_id {
+            return Err(Error::Shape("graph center identity mismatch".into()));
+        }
+        let mut diagnostics: Fields =
+            serde_json::from_value(value).map_err(|e| Error::Shape(e.to_string()))?;
+        diagnostics.remove("graph");
+        Ok((response.graph, diagnostics))
+    }
+
     pub fn note(&self, key: &NoteKey) -> Result<NoteResponse, Error> {
         let mut args = vault_query(&key.vault);
         args.push(("id", key.note_id.to_string()));
@@ -627,6 +649,38 @@ fn drain(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn local_graph_preserves_scope_and_partial_state() {
+        let (client, request) = mock(
+            200,
+            r#"{"vault":"work","graph":{"center_id":42,"nodes":[],"edges":[]},"read_state":{"partial":true}}"#,
+        );
+        let (graph, fields) = client
+            .local_graph(&NoteKey {
+                vault: "work".into(),
+                note_id: 42,
+            })
+            .unwrap();
+        assert_eq!(graph.center_id, 42);
+        assert!(graph.nodes.is_empty());
+        assert_eq!(fields["read_state"]["partial"], true);
+        let request = request.join().unwrap();
+        assert!(request.contains("/api/graph/local?vault=work&id=42"));
+        let (client, request) = mock(
+            200,
+            r#"{"vault":"other","graph":{"center_id":42,"nodes":[],"edges":[]}}"#,
+        );
+        assert!(
+            client
+                .local_graph(&NoteKey {
+                    vault: "work".into(),
+                    note_id: 42
+                })
+                .is_err()
+        );
+        request.join().unwrap();
+    }
+
     #[test]
     fn null_metadata_and_diagnostics_survive() {
         let data: Notes = serde_json::from_str(r#"{"notes":[{"note_id":42,"title":"日本語","file_kind":"note","path":"x","tags":null,"days":null,"flags":null}],"read_state":{"partial":true},"storage_state":"partial"}"#).unwrap();
