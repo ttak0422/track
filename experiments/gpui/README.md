@@ -45,7 +45,7 @@ a warning. Malformed input fails before opening a window.
 - Virtualized, fixed-height note list; selection; native inspector; partial-read warning.
 - The footer reports the last virtualized range, not a frame-rate benchmark. Click a
   row to refresh the displayed count after scrolling.
-- No editor, Markdown rendering, live updates, graph layout, search, persistence,
+- No editor, full Markdown parity, live updates, graph layout, search, persistence,
   accessibility/IME parity, or integration into the shipping app yet.
 - macOS is the initial target; Linux/Windows support is not configured or verified.
 - GPUI is pinned and Cargo.lock is committed. Keep this experiment outside the main
@@ -79,7 +79,10 @@ a 30-second deadline terminates only the owned CLI process. The adapter drains b
 output pipes concurrently. The specified executable should be Track itself, not a
 wrapper spawning descendants that inherit pipes.
 
-The body is plain portable Markdown, not the fully rendered Track document. Export
+The body supports native headings, paragraphs, lists, quotes and code blocks. Links
+remain inert text; tables, HTML, images and other unsupported blocks remain literal.
+Inline emphasis and syntax coloring are not implemented, and blocks are not yet
+virtualized. This is not the fully rendered Track document. Export
 normalizes links and other constructs: it must **never** be used as editable source.
 Editing will use the existing raw-body/etag HTTP contract instead. Search, live
-updates, and Markdown rendering are still tracked as incomplete in `PARITY.md`.
+updates, and full Markdown rendering are still tracked as incomplete in `PARITY.md`.

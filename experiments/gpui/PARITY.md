@@ -12,7 +12,7 @@ of support. Use disposable fixture vaults, never a configured personal vault, fo
 | Capability | Implemented | Parity validated | Reference |
 | --- | :---: | :---: | --- |
 | Synthetic/JSON snapshot list and metadata selection | [x] | [ ] | `experiments/gpui/src/main.rs` |
-| Explicit read-only vault list and plain portable Markdown | [x] | [ ] | `src/backend.rs`; native QA with public help fixture |
+| Explicit read-only vault list and portable Markdown | [x] | [ ] | `src/backend.rs`; native QA with public help fixture |
 | Live vault switching and federated search | [ ] | [ ] | `VaultSwitcher`, `SearchPanel`, `api.ts` |
 | Note body, tags, flags, hierarchy and backlinks | [ ] | [ ] | `NoteReader`, `HierarchyMenu`, `types.ts` |
 | Tabs, history, navigation and floating previews | [ ] | [ ] | `components/tabs`, `components/preview` |
@@ -20,7 +20,8 @@ of support. Use disposable fixture vaults, never a configured personal vault, fo
 | Create, edit, save, delete and metadata editing | [ ] | [ ] | `NoteEditor`, `NoteMetaDialog`, `NoteActionsMenu` |
 | Conflict detection, dirty-state protection and draft recovery | [ ] | [ ] | `NoteEditor.recovery`, `recovery.ts`, desktop termination tests |
 | Attachments and draw.io editing | [ ] | [ ] | `DrawioEditorDialog`, `NoteEditor.drawio`, `/api/asset` |
-| Basic Markdown, tables, code highlighting and math | [ ] | [ ] | `MarkdownView`, `components/markdown` |
+| Basic Markdown blocks | [x] | [ ] | `src/markdown.rs`; public help headings/wrapping/scroll QA |
+| Tables, inline styling, code highlighting and math | [ ] | [ ] | `MarkdownView`, `components/markdown` |
 | Wiki links, transclusion, outline and line-copy links | [ ] | [ ] | `wikiLinks`, `toc`, `copyRange`, `NoteInclude` |
 | Diagram fences: Mermaid, D2, Graphviz, LikeC4, draw.io, Pele, mindmap | [ ] | [ ] | `components/markdown/*Diagram*` |
 | Charts, ViewSpec, metrics, query views and task boards | [ ] | [ ] | `EChartsBlock`, `ViewSpecChart`, `MetricsDashboard`, `QueryView`, `TaskBoard` |

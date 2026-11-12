@@ -1,9 +1,11 @@
 use gpui::{
-    App, Application, Bounds, Context, Window, WindowBounds, WindowOptions, div, prelude::*, px,
-    rgb, size, uniform_list,
+    App, Application, Bounds, Context, KeyBinding, Menu, MenuItem, Window, WindowBounds,
+    WindowOptions, actions, div, prelude::*, px, rgb, size, uniform_list,
 };
 mod backend;
+mod markdown;
 use backend::{Backend, Note, Snapshot};
+actions!(native_workspace, [Quit]);
 
 fn fixture(count: usize) -> Snapshot {
     Snapshot {
@@ -26,7 +28,7 @@ struct Workspace {
     rendered_rows: usize,
     source: String,
     backend: Option<Backend>,
-    content: Vec<String>,
+    content: Vec<markdown::Block>,
     status: String,
     list_status: String,
     request: u64,
@@ -93,7 +95,7 @@ impl Workspace {
                 }
                 match result {
                     Ok(response) => {
-                        this.content = response.value.lines().map(str::to_owned).collect();
+                        this.content = markdown::parse(&response.value);
                         this.status = response.warnings;
                     }
                     Err(error) => this.status = error.to_string(),
@@ -143,8 +145,8 @@ impl Render for Workspace {
                     .child(div().text_color(rgb(0x9daebe)).child(note.as_ref().map(|n| format!("ID {}  ·  {}  ·  {}\n{}", n.note_id, n.file_kind, n.tags.join(" / "), n.path.display())).unwrap_or_default()))
                     .child(div().text_sm().text_color(rgb(0x9daebe)).child(
                         if self.backend.is_some() { "Portable Markdown · read only · not editable source" } else { "Snapshot mode includes metadata only. Use --vault and --track-bin to read note content." }))
-                    .child(div().id(("content", self.request as usize)).flex_1().min_h_0().overflow_y_scroll().font_family("Menlo").text_sm()
-                        .child(self.content.join("\n")))))
+                    .child(div().id(("content", self.request as usize)).flex_1().min_h_0().overflow_y_scroll().text_sm()
+                        .child(markdown::render(&self.content)))))
             .child(div().p_3().text_xs().border_t_1().border_color(rgb(0x30404e))
                 .child(format!("Last list layout: {} visible rows / {} total · Select to refresh this counter · Close window to quit", self.rendered_rows, self.snapshot.notes.len())))
     }
@@ -213,6 +215,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("expected a single JSON path or explicit vault options".into());
     };
     Application::new().run(move |cx: &mut App| {
+        cx.on_action(|_: &Quit, cx| cx.quit());
+        cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
+        cx.set_menus(vec![Menu {
+            name: "Track Native".into(),
+            items: vec![MenuItem::action("Quit", Quit)],
+        }]);
         let bounds = Bounds::centered(None, size(px(1120.), px(720.)), cx);
         cx.open_window(
             WindowOptions {
