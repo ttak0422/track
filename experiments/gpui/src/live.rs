@@ -150,6 +150,43 @@ pub struct Search {
     #[serde(flatten)]
     pub diagnostics: Fields,
 }
+/// Resolve accepts a source scope but returns an independent target identity.
+/// In particular an omitted target vault means launch, never the source vault.
+#[derive(Clone, Debug, Deserialize)]
+pub struct ResolvedNote {
+    pub note_id: i64,
+    pub title: String,
+    pub file_kind: String,
+    #[serde(default)]
+    pub vault: String,
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default, deserialize_with = "nullable_vec")]
+    pub flags: Vec<String>,
+    #[serde(flatten)]
+    pub additional: Fields,
+}
+#[derive(Clone, Debug, Deserialize)]
+pub struct Resolution {
+    pub found: bool,
+    pub note: ResolvedNote,
+    #[serde(skip)]
+    pub source_vault: String,
+    #[serde(skip)]
+    pub term: String,
+    #[serde(skip)]
+    pub launch_generation: u64,
+    #[serde(flatten)]
+    pub diagnostics: Fields,
+}
+impl Resolution {
+    pub fn key(&self) -> Option<NoteKey> {
+        (self.found && self.note.note_id != 0).then(|| NoteKey {
+            vault: self.note.vault.clone(),
+            note_id: self.note.note_id,
+        })
+    }
+}
 #[derive(Clone, Debug, Deserialize)]
 pub struct NoteBody {
     #[serde(flatten)]
@@ -272,6 +309,23 @@ impl ReadClient {
         }
         Ok(data)
     }
+    /// The caller supplies the parsed target without label or anchor suffix.
+    /// Do not interpret ID-shaped/numeric terms or vault prefixes in this client.
+    pub fn resolve(&self, term: &str, source_vault: &str) -> Result<Resolution, Error> {
+        let mut args = vec![("term", term.to_owned())];
+        args.extend(vault_query(source_vault));
+        let mut result: Resolution = self.get("/api/resolve", &args)?;
+        if result.found && result.note.note_id == 0 {
+            return Err(Error::Shape(
+                "resolver reported found with the missing-note sentinel".into(),
+            ));
+        }
+        result.source_vault = source_vault.to_owned();
+        result.term = term.to_owned();
+        result.launch_generation = self.launch_generation;
+        Ok(result)
+    }
+
     pub fn local_graph(&self, key: &NoteKey) -> Result<(crate::graph::Graph, Fields), Error> {
         let mut args = vault_query(&key.vault);
         args.push(("id", key.note_id.to_string()));
@@ -763,6 +817,67 @@ mod tests {
         };
         (Session::from_owned(server), pid)
     }
+    #[test]
+    fn resolver_encodes_source_and_preserves_independent_target_identity() {
+        let (client, request) = mock(
+            200,
+            r#"{"found":true,"note":{"note_id":9007199254740993,"file_kind":"note","vault":"target","title":"日本語","flags":null},"read_state":{"partial":true,"cache_used":true},"future":"kept"}"#,
+        );
+        let result = client
+            .resolve("work:id:9007199254740993 & 日本語", "source & personal")
+            .unwrap();
+        assert_eq!(result.source_vault, "source & personal");
+        assert_eq!(result.launch_generation, client.launch_generation);
+        assert_eq!(result.key().unwrap(), NoteKey {
+            vault: "target".into(),
+            note_id: 9007199254740993
+        });
+        assert!(result.note.path.is_none());
+        assert!(result.note.flags.is_empty());
+        assert_eq!(result.diagnostics["read_state"]["partial"], true);
+        assert_eq!(result.diagnostics["future"], "kept");
+        let request = request.join().unwrap();
+        assert!(request.starts_with("GET /api/resolve?term=work%3Aid%3A9007199254740993+%26+%E6%97%A5%E6%9C%AC%E8%AA%9E&vault=source+%26+personal "));
+    }
+    #[test]
+    fn resolver_missing_and_unnamed_target_do_not_inherit_source_scope() {
+        let (client, request) = mock(
+            200,
+            r#"{"found":false,"note":{"note_id":0,"file_kind":"","title":""}}"#,
+        );
+        let result = client.resolve("123", "work").unwrap();
+        assert!(result.key().is_none());
+        assert_eq!(result.term, "123");
+        assert!(request.join().unwrap().contains("term=123&vault=work"));
+        let (client, request) = mock(
+            200,
+            r#"{"found":true,"note":{"note_id":123,"file_kind":"note","title":"Resolved title"}}"#,
+        );
+        let result = client.resolve("id:123", "work").unwrap();
+        assert_eq!(result.key().unwrap().vault, "");
+        assert!(request.join().unwrap().contains("term=id%3A123&vault=work"));
+    }
+    #[test]
+    fn resolver_errors_are_not_missing_results_and_never_fallback() {
+        for status in [400, 403, 500, 503] {
+            let (client, request) = mock(status, r#"{"error":"ambiguous or unavailable"}"#);
+            assert!(
+                matches!(client.resolve("work:Title", ""), Err(Error::Http { status: actual, body }) if actual == status && body.contains("unavailable"))
+            );
+            let request = request.join().unwrap();
+            assert!(request.starts_with("GET /api/resolve?term=work%3ATitle "));
+        }
+        for body in [
+            r#"{"found":"true","note":{}}"#,
+            r#"{"found":true,"note":{"note_id":0,"file_kind":"","title":""}}"#,
+            r#"{"found":true,"note":{"note_id":"123","file_kind":"note","title":"T"}}"#,
+        ] {
+            let (client, request) = mock(200, body);
+            assert!(matches!(client.resolve("123", ""), Err(Error::Shape(_))));
+            request.join().unwrap();
+        }
+    }
+
     #[test]
     fn quit_after_readiness_does_not_wait_for_storage_initialization() {
         let (session, pid) = monitored_fixture("30");

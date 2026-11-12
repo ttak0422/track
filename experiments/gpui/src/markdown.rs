@@ -1,10 +1,10 @@
 //! Native, read-only CommonMark subset. Unsupported content stays inert and visible.
 use gpui::{
-    AnyElement, App, Div, FontStyle, FontWeight, ScrollAnchor, ScrollHandle, SharedString,
-    StyledText, TextRun, UnderlineStyle, Window, div, font, prelude::*, px, rgb,
+    AnyElement, App, Div, FontStyle, FontWeight, InteractiveText, ScrollAnchor, ScrollHandle,
+    SharedString, StyledText, TextRun, UnderlineStyle, Window, div, font, prelude::*, px, rgb,
 };
 use pulldown_cmark::{Alignment, Event, Options, Parser, Tag};
-use std::ops::Range;
+use std::{ops::Range, rc::Rc};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BlockKind {
@@ -23,6 +23,7 @@ pub struct Block {
     pub quoted: bool,
     pub marker: Option<String>,
     pub spans: Vec<Span>,
+    pub links: Vec<Link>,
     pub table: Option<Table>,
 }
 
@@ -32,6 +33,7 @@ pub struct InlineStyle {
     pub strong: bool,
     pub code: bool,
     pub link: bool,
+    pub unresolved: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -45,6 +47,139 @@ pub struct Span {
 pub struct Cell {
     pub text: String,
     pub spans: Vec<Span>,
+    pub links: Vec<Link>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum LinkTarget {
+    Wiki {
+        key: String,
+        fragment: Option<String>,
+        authored_label: bool,
+    },
+    Markdown {
+        destination: String,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Link {
+    pub range: Range<usize>,
+    pub target: LinkTarget,
+}
+
+/// Shell supplies only resolved internal links. Pending, missing and errors stay inert.
+#[derive(Clone)]
+pub struct LinkCallbacks {
+    pub resolved: Rc<dyn Fn(&LinkTarget) -> bool>,
+    pub activate: Rc<dyn Fn(&LinkTarget, &mut Window, &mut App)>,
+}
+
+/// Resolver input, with source vault passed separately by the shell. Never infer
+/// numeric IDs, registered vault prefixes or id-v1 configuration here.
+pub fn resolve_term(target: &LinkTarget) -> Option<String> {
+    match target {
+        LinkTarget::Wiki { key, .. } => Some(key.clone()),
+        LinkTarget::Markdown { destination } => {
+            let raw = destination.split(['?', '#']).next()?.trim();
+            if raw.is_empty()
+                || raw.contains(':')
+                || raw.starts_with('/')
+                || raw.starts_with("assets/")
+            {
+                return None;
+            }
+            let mut bytes = Vec::new();
+            let mut iter = raw.as_bytes().iter().copied();
+            while let Some(ch) = iter.next() {
+                if ch == b'%' {
+                    let hi = (iter.next()? as char).to_digit(16)?;
+                    let lo = (iter.next()? as char).to_digit(16)?;
+                    bytes.push((hi * 16 + lo) as u8);
+                } else {
+                    bytes.push(ch);
+                }
+            }
+            let decoded = String::from_utf8(bytes).ok()?;
+            if decoded.contains(':')
+                || decoded.starts_with('/')
+                || decoded.starts_with("assets/")
+                || decoded.split('/').any(|part| part == "..")
+            {
+                return None;
+            }
+            let key = decoded.strip_suffix(".md").unwrap_or(&decoded).trim();
+            (!key.is_empty()).then(|| key.to_owned())
+        }
+    }
+}
+
+// Wiki syntax is recognized only in parser text events, never code/HTML/images.
+fn wiki_text(text: &str, out: &mut Cell, style: InlineStyle) {
+    let mut cursor = 0;
+    while let Some(relative) = text[cursor..].find("[[") {
+        let start = cursor + relative;
+        out.append(&text[cursor..start], style);
+        let mut depth = 0usize;
+        let mut end = None;
+        for (offset, ch) in text[start + 2..].char_indices() {
+            let at = start + 2 + offset;
+            if ch == '\n' || ch == '\r' {
+                break;
+            }
+            if ch == '[' {
+                depth += 1;
+            }
+            if ch == ']' {
+                if depth > 0 {
+                    depth -= 1;
+                } else if text[at..].starts_with("]]") {
+                    end = Some(at);
+                    break;
+                } else {
+                    break;
+                }
+            }
+        }
+        let Some(end) = end else {
+            out.append(&text[start..], style);
+            return;
+        };
+        let body = &text[start + 2..end];
+        let (target, label) = body
+            .split_once('|')
+            .map_or((body, None), |(a, b)| (a, Some(b.trim())));
+        let target = target.trim();
+        let (key, fragment) = target
+            .split_once('#')
+            .map_or((target, None), |(key, rest)| {
+                (key.trim(), Some(format!("#{rest}")))
+            });
+        // Includes are not ordinary links; keep the entire directive literal.
+        if key.is_empty() || text[..start].ends_with('!') {
+            out.append(&text[start..end + 2], style);
+        } else {
+            let display = label.filter(|label| !label.is_empty()).unwrap_or(target);
+            let begin = out.text.len();
+            out.append(
+                display,
+                InlineStyle {
+                    link: true,
+                    ..style
+                },
+            );
+            out.links.push(Link {
+                range: begin..out.text.len(),
+                target: LinkTarget::Wiki {
+                    key: key.to_owned(),
+                    fragment,
+                    authored_label: label.is_some_and(|label| !label.is_empty()),
+                },
+            });
+        }
+        cursor = end + 2;
+    }
+    out.append(&text[cursor..], style);
 }
 
 impl Cell {
@@ -174,7 +309,7 @@ struct Node<'a> {
 }
 
 fn nodes<'a>(events: &mut impl Iterator<Item = (Event<'a>, Range<usize>)>) -> Vec<Node<'a>> {
-    let mut result = Vec::new();
+    let mut result: Vec<Node<'_>> = Vec::new();
     while let Some((event, range)) = events.next() {
         if matches!(event, Event::End(_)) {
             break;
@@ -184,6 +319,18 @@ fn nodes<'a>(events: &mut impl Iterator<Item = (Event<'a>, Range<usize>)>) -> Ve
         } else {
             vec![]
         };
+        if let Event::Text(next) = &event {
+            if let Some(Node {
+                event: Event::Text(previous),
+                range: previous_range,
+                ..
+            }) = result.last_mut()
+            {
+                *previous = format!("{previous}{next}").into();
+                previous_range.end = range.end;
+                continue;
+            }
+        }
         result.push(Node {
             event,
             range,
@@ -198,12 +345,26 @@ fn inline(node: &Node<'_>, source: &str, out: &mut Cell, mut style: InlineStyle)
         Event::Start(Tag::Image { .. }) => out.append(&source[node.range.clone()], style),
         Event::Start(Tag::Link { dest_url, .. }) => {
             style.link = true;
+            let start = out.text.len();
             for child in &node.children {
                 inline(child, source, out, style);
             }
-            out.append(&format!(" ({dest_url})"), style);
+            out.links.push(Link {
+                range: start..out.text.len(),
+                target: LinkTarget::Markdown {
+                    destination: dest_url.to_string(),
+                },
+            });
         }
         Event::Start(tag) => {
+            if matches!(tag, Tag::CodeBlock(_)) {
+                for child in &node.children {
+                    if let Event::Text(text) = &child.event {
+                        out.append(text, style);
+                    }
+                }
+                return;
+            }
             match tag {
                 Tag::Emphasis => style.emphasis = true,
                 Tag::Strong => style.strong = true,
@@ -217,7 +378,14 @@ fn inline(node: &Node<'_>, source: &str, out: &mut Cell, mut style: InlineStyle)
             style.code = true;
             out.append(text, style);
         }
-        Event::Text(text) | Event::Html(text) | Event::InlineHtml(text) => out.append(text, style),
+        Event::Text(text) => {
+            if style.link {
+                out.append(text, style);
+            } else {
+                wiki_text(text, out, style);
+            }
+        }
+        Event::Html(text) | Event::InlineHtml(text) => out.append(text, style),
         Event::SoftBreak => out.append(" ", style),
         Event::HardBreak => out.append("\n", style),
         _ => out.append(&source[node.range.clone()], style),
@@ -244,6 +412,7 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
                     quoted,
                     marker: None,
                     spans: vec![],
+                    links: vec![],
                     table: None,
                 });
                 return;
@@ -269,6 +438,7 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
                 quoted,
                 marker: None,
                 spans: vec![],
+                links: vec![],
                 table: Some(Table {
                     alignments: alignments.clone(),
                     rows,
@@ -336,6 +506,7 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
         kind,
         text: content.text,
         spans: content.spans,
+        links: content.links,
         table: None,
         indent,
         quoted,
@@ -349,6 +520,7 @@ fn flush_run(run: &mut Cell, indent: usize, quoted: bool, out: &mut Vec<Block>) 
             kind: BlockKind::Paragraph,
             text: std::mem::take(&mut run.text),
             spans: std::mem::take(&mut run.spans),
+            links: std::mem::take(&mut run.links),
             table: None,
             indent,
             quoted,
@@ -378,6 +550,7 @@ fn fallback(text: &str, out: &mut Vec<Block>) {
             kind: BlockKind::Literal,
             text: text.to_owned(),
             spans: vec![],
+            links: vec![],
             table: None,
             indent: 0,
             quoted: false,
@@ -427,16 +600,30 @@ pub fn render(blocks: &[Block]) -> Div {
 /// Uses the system sans fallback; exact IBM Plex Sans JP typography is not claimed.
 /// No HTML execution, network fetching, or link navigation is performed.
 pub fn render_themed(blocks: &[Block], dark: bool) -> Div {
-    render_reader(blocks, dark, None)
+    render_reader(blocks, dark, None, None)
 }
 
 /// Anchor-aware variant that preserves nested article layout. The outer reader
 /// must track the same handle used to construct `anchors`.
 pub fn render_themed_with_anchors(blocks: &[Block], dark: bool, anchors: &HeadingAnchors) -> Div {
-    render_reader(blocks, dark, Some(anchors))
+    render_reader(blocks, dark, Some(anchors), None)
 }
 
-fn render_reader(blocks: &[Block], dark: bool, anchors: Option<&HeadingAnchors>) -> Div {
+pub fn render_with_links(
+    blocks: &[Block],
+    dark: bool,
+    anchors: Option<&HeadingAnchors>,
+    callbacks: &LinkCallbacks,
+) -> Div {
+    render_reader(blocks, dark, anchors, Some(callbacks))
+}
+
+fn render_reader(
+    blocks: &[Block],
+    dark: bool,
+    anchors: Option<&HeadingAnchors>,
+    callbacks: Option<&LinkCallbacks>,
+) -> Div {
     let theme = ReaderTheme::new(dark);
     div()
         .w_full()
@@ -447,20 +634,21 @@ fn render_reader(blocks: &[Block], dark: bool, anchors: Option<&HeadingAnchors>)
         .line_height(px(29.6))
         .font_family(".SystemUIFont")
         .text_color(rgb(theme.ink))
-        .children(render_elements(blocks, dark, anchors))
+        .children(render_elements(blocks, dark, anchors, callbacks))
 }
 
 /// Direct block children for a shell-owned tracked scroller. Keep each element
 /// as one direct child; wrapping the returned vector defeats child-index anchors.
 /// Each row carries the same body metrics as render_themed.
 pub fn render_block_elements_themed(blocks: &[Block], dark: bool) -> Vec<AnyElement> {
-    render_elements(blocks, dark, None)
+    render_elements(blocks, dark, None, None)
 }
 
 fn render_elements(
     blocks: &[Block],
     dark: bool,
     anchors: Option<&HeadingAnchors>,
+    callbacks: Option<&LinkCallbacks>,
 ) -> Vec<AnyElement> {
     let theme = ReaderTheme::new(dark);
     let entries = outline(blocks);
@@ -482,7 +670,7 @@ fn render_elements(
             if let Some(table) = &block.table {
                 return row
                     .mt(px(13.))
-                    .child(render_table(table, theme))
+                    .child(render_table(table, theme, callbacks, index))
                     .into_any_element();
             }
             let text = block.marker.as_ref().map_or_else(
@@ -528,7 +716,14 @@ fn render_elements(
                 }
             };
             let offset = text.len() - block.text.len();
-            let row = row.child(styled_text(text, &block.spans, offset, theme, mono, bold));
+            let visible_spans = resolved_spans(&block.spans, &block.links, callbacks);
+            let row = row.child(link_text(
+                styled_text(text, &visible_spans, offset, theme, mono, bold),
+                &block.links,
+                offset,
+                callbacks,
+                format!("md-block-{index}"),
+            ));
             if let Some(entry) = entries.iter().find(|entry| entry.block_index == index) {
                 row.id(SharedString::from(format!(
                     "markdown-heading:{}",
@@ -545,6 +740,55 @@ fn render_elements(
             }
         })
         .collect()
+}
+
+fn resolved_spans(spans: &[Span], links: &[Link], callbacks: Option<&LinkCallbacks>) -> Vec<Span> {
+    spans
+        .iter()
+        .map(|span| {
+            let mut span = span.clone();
+            if span.style.link {
+                let resolved = links.iter().any(|link| {
+                    link.range.start <= span.range.start
+                        && link.range.end >= span.range.end
+                        && resolve_term(&link.target).is_some()
+                        && callbacks.is_some_and(|callbacks| (callbacks.resolved)(&link.target))
+                });
+                span.style.link = resolved;
+                span.style.unresolved = !resolved;
+            }
+            span
+        })
+        .collect()
+}
+
+fn link_text(
+    text: StyledText,
+    links: &[Link],
+    offset: usize,
+    callbacks: Option<&LinkCallbacks>,
+    id: String,
+) -> AnyElement {
+    let Some(callbacks) = callbacks else {
+        return text.into_any_element();
+    };
+    let active: Vec<_> = links
+        .iter()
+        .filter(|link| resolve_term(&link.target).is_some() && (callbacks.resolved)(&link.target))
+        .cloned()
+        .collect();
+    let ranges = active
+        .iter()
+        .map(|link| link.range.start + offset..link.range.end + offset)
+        .collect();
+    let activate = callbacks.activate.clone();
+    InteractiveText::new(SharedString::from(id), text)
+        .on_click(ranges, move |index, window, cx| {
+            if let Some(link) = active.get(index) {
+                activate(&link.target, window, cx);
+            }
+        })
+        .into_any_element()
 }
 
 fn styled_text(
@@ -599,7 +843,12 @@ fn text_run(len: usize, style: InlineStyle, theme: ReaderTheme, mono: bool, bold
     TextRun {
         len,
         font: face,
-        color: rgb(if style.code { theme.muted } else { theme.ink }).into(),
+        color: rgb(if style.code || style.unresolved {
+            theme.muted
+        } else {
+            theme.ink
+        })
+        .into(),
         background_color: None,
         underline: style.link.then(|| UnderlineStyle {
             thickness: px(1.),
@@ -610,7 +859,12 @@ fn text_run(len: usize, style: InlineStyle, theme: ReaderTheme, mono: bool, bold
     }
 }
 
-fn render_table(table: &Table, theme: ReaderTheme) -> Div {
+fn render_table(
+    table: &Table,
+    theme: ReaderTheme,
+    callbacks: Option<&LinkCallbacks>,
+    block_index: usize,
+) -> Div {
     div()
         .w_full()
         .min_w_0()
@@ -638,13 +892,20 @@ fn render_table(table: &Table, theme: ReaderTheme) -> Div {
                     Some(Alignment::Right) => view.text_right(),
                     _ => view,
                 };
-                view.child(styled_text(
-                    cell.text.clone(),
-                    &cell.spans,
+                let visible_spans = resolved_spans(&cell.spans, &cell.links, callbacks);
+                view.child(link_text(
+                    styled_text(
+                        cell.text.clone(),
+                        &visible_spans,
+                        0,
+                        theme,
+                        false,
+                        index == 0,
+                    ),
+                    &cell.links,
                     0,
-                    theme,
-                    false,
-                    index == 0,
+                    callbacks,
+                    format!("md-table-{block_index}-{index}-{column}"),
                 ))
             }))
         }))
@@ -653,6 +914,122 @@ fn render_table(table: &Table, theme: ReaderTheme) -> Div {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn unresolved_and_unsafe_links_cannot_look_actionable() {
+        let block = parse("[[Title]] [external](https://example.com)").remove(0);
+        let pending = resolved_spans(&block.spans, &block.links, None);
+        assert!(pending.iter().filter(|span| span.style.unresolved).count() >= 2);
+        assert!(pending.iter().all(|span| !span.style.link));
+        let callbacks = LinkCallbacks {
+            resolved: Rc::new(|_| true),
+            activate: Rc::new(|_, _, _| {}),
+        };
+        let resolved = resolved_spans(&block.spans, &block.links, Some(&callbacks));
+        assert!(resolved[0].style.link);
+        assert!(resolved.last().unwrap().style.unresolved);
+    }
+    #[test]
+    fn wiki_targets_labels_and_fragments_keep_resolver_authority() {
+        for (source, display, key, fragment, authored) in [
+            ("[[123]]", "123", "123", None, false),
+            (
+                "[[ id:123##Design | 設計 ]]",
+                "設計",
+                "id:123",
+                Some("##Design"),
+                true,
+            ),
+            (
+                "[[work:id:123#^block]]",
+                "work:id:123#^block",
+                "work:id:123",
+                Some("#^block"),
+                false,
+            ),
+            ("[[日本語|別名|追加]]", "別名|追加", "日本語", None, true),
+            ("[[Title| ]]", "Title", "Title", None, false),
+            ("[[[test]]]", "[test]", "[test]", None, false),
+            (
+                "[[Plan [draft [v2]]]]",
+                "Plan [draft [v2]]",
+                "Plan [draft [v2]]",
+                None,
+                false,
+            ),
+            (
+                "[[[test]|Example [draft]]]",
+                "Example [draft]",
+                "[test]",
+                None,
+                true,
+            ),
+        ] {
+            let parsed = parse(source);
+            assert_eq!(parsed[0].text, display, "{source}");
+            assert_eq!(parsed[0].links.len(), 1, "{source}");
+            assert_eq!(
+                parsed[0].links[0].target,
+                LinkTarget::Wiki {
+                    key: key.into(),
+                    fragment: fragment.map(str::to_owned),
+                    authored_label: authored
+                }
+            );
+            assert_eq!(
+                resolve_term(&parsed[0].links[0].target).as_deref(),
+                Some(key)
+            );
+        }
+    }
+    #[test]
+    fn wiki_code_includes_and_invalid_syntax_are_inert() {
+        for source in [
+            "`[[Title]]`",
+            "```\n[[Title]]\n```",
+            "![[Title]]",
+            "![[Title#Heading]] :only-contents",
+            "[[ ]]",
+            "[[Title",
+            "[[Title\nnext]]",
+            "[[unbalanced [title]]",
+        ] {
+            let parsed = parse(source);
+            assert!(
+                parsed.iter().all(|block| block.links.is_empty()),
+                "{source}"
+            );
+        }
+        assert_eq!(parse("![[Title]]")[0].text, "![[Title]]");
+    }
+    #[test]
+    fn standard_links_preserve_label_and_restrict_resolution() {
+        let parsed = parse("[日本語](Hello%20World.md?mode=x#heading)");
+        assert_eq!(parsed[0].text, "日本語");
+        assert_eq!(
+            resolve_term(&parsed[0].links[0].target).as_deref(),
+            Some("Hello World")
+        );
+        for destination in [
+            "https://example.com",
+            "file:///tmp/secret",
+            "javascript:evil()",
+            "data:text/plain,test",
+            "command:run",
+            "#heading",
+            "assets/image.png",
+            "/apps/demo/",
+            "../secret",
+            "javascript%3Aevil",
+        ] {
+            assert!(
+                resolve_term(&LinkTarget::Markdown {
+                    destination: destination.into()
+                })
+                .is_none(),
+                "{destination}"
+            );
+        }
+    }
     #[test]
     fn outline_anchors_are_unique_unicode_and_non_heading_stable() {
         let blocks =
@@ -731,10 +1108,7 @@ mod tests {
     fn inline_styles_are_composed_on_utf8_byte_ranges() {
         let parsed = parse("- 日本語 **太い *斜体🦀*** と `code` [**link**](https://example.com)");
         let block = &parsed[0];
-        assert_eq!(
-            block.text,
-            "日本語 太い 斜体🦀 と code link (https://example.com)"
-        );
+        assert_eq!(block.text, "日本語 太い 斜体🦀 と code link");
         let styled = |text: &str| {
             block
                 .spans
@@ -747,7 +1121,6 @@ mod tests {
         assert!(styled("斜体🦀").strong && styled("斜体🦀").emphasis);
         assert!(styled("code").code);
         assert!(styled("link").link && styled("link").strong);
-        assert!(styled(" (https://example.com)").link);
         assert!(
             block
                 .spans
@@ -772,7 +1145,7 @@ mod tests {
         assert!(table.rows[1][1].spans[0].style.strong);
         assert!(table.rows[1][2].spans[0].style.code);
         assert!(table.rows[2][1].text.is_empty());
-        assert_eq!(table.rows[2][2].text, "link (https://example.com)");
+        assert_eq!(table.rows[2][2].text, "link");
     }
     #[test]
     fn excess_table_cells_fall_back_without_data_loss() {
@@ -838,10 +1211,7 @@ mod tests {
     }
     #[test]
     fn links_have_labels_and_destinations() {
-        assert_eq!(
-            parse("[日本語](https://example.com/a)")[0].text,
-            "日本語 (https://example.com/a)"
-        );
+        assert_eq!(parse("[日本語](https://example.com/a)")[0].text, "日本語");
     }
     #[test]
     fn unsupported_content_remains_visible() {
