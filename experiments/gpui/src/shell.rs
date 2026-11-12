@@ -8,6 +8,12 @@ pub struct ShellState {
     pub dark: Option<bool>,
     pub diagnostics: bool,
     pub tab_menu: bool,
+    vault_menu: bool,
+    working_scope: String,
+    vault_generation: Option<u64>,
+    vault_discovery: Option<VaultDiscovery>,
+    vault_loading: bool,
+    vault_error: Option<String>,
     reader_focus: Option<gpui::FocusHandle>,
     reader_scrolls: std::collections::HashMap<tabs::TabKey, gpui::ScrollHandle>,
     tab_cycle: Vec<tabs::TabKey>,
@@ -24,11 +30,127 @@ impl Default for ShellState {
             dark: None,
             diagnostics: false,
             tab_menu: false,
+            vault_menu: false,
+            working_scope: String::new(),
+            vault_generation: None,
+            vault_discovery: None,
+            vault_loading: false,
+            vault_error: None,
             reader_focus: None,
             reader_scrolls: Default::default(),
             tab_cycle: Vec::new(),
             tab_cycle_index: 0,
             heading_anchors: Default::default(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct VaultChoice {
+    name: String,
+    error: Option<String>,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct VaultDiscovery {
+    launch_name: String,
+    available: Vec<VaultChoice>,
+    unavailable: Vec<VaultChoice>,
+}
+impl VaultDiscovery {
+    fn parse(value: &serde_json::Value) -> Result<Self, String> {
+        if value
+            .get("storage_state")
+            .and_then(|v| v.as_str())
+            .is_some_and(|phase| phase != "ready")
+        {
+            return Err("Vault discovery is incomplete. Retry after storage is ready.".into());
+        }
+        let launch_name = value
+            .get("active")
+            .and_then(|v| v.get("name"))
+            .and_then(|v| v.as_str())
+            .ok_or("Missing launch-vault identity")?
+            .to_owned();
+        let mut names = std::collections::HashSet::new();
+        let mut parse_rows =
+            |rows: &serde_json::Value, unavailable: bool| -> Result<Vec<VaultChoice>, String> {
+                rows.as_array()
+                    .ok_or("Invalid vault list")?
+                    .iter()
+                    .map(|row| {
+                        let name = row
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .ok_or("Missing vault name")?
+                            .to_owned();
+                        if !names.insert(name.clone()) {
+                            return Err("Ambiguous duplicate vault names".into());
+                        }
+                        let error = if unavailable {
+                            Some(
+                                row.get("error")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("Unavailable")
+                                    .to_owned(),
+                            )
+                        } else {
+                            None
+                        };
+                        Ok(VaultChoice { name, error })
+                    })
+                    .collect()
+            };
+        let available = parse_rows(value.get("vaults").ok_or("Missing vault list")?, false)?;
+        let unavailable = parse_rows(
+            value
+                .get("unavailable")
+                .unwrap_or(&serde_json::Value::Array(vec![])),
+            true,
+        )?;
+        if available.is_empty() {
+            return Err("No verified available vaults in this response".into());
+        }
+        Ok(Self {
+            launch_name,
+            available,
+            unavailable,
+        })
+    }
+    fn visible(&self) -> bool {
+        self.available.len() != 1
+            || !self.launch_name.is_empty()
+            || !self.unavailable.is_empty()
+            || !self.available[0].name.is_empty()
+    }
+    fn scope_for(&self, name: &str) -> Option<String> {
+        self.available
+            .iter()
+            .find(|entry| entry.name == name)
+            .map(|_| {
+                if name == self.launch_name {
+                    String::new()
+                } else {
+                    name.to_owned()
+                }
+            })
+    }
+    fn label(&self, scope: &str) -> String {
+        let name = if scope.is_empty() {
+            &self.launch_name
+        } else {
+            scope
+        };
+        if name.is_empty() {
+            "local".into()
+        } else {
+            name.into()
+        }
+    }
+    fn reconcile_scope(&self, scope: &str) -> String {
+        if scope.is_empty() {
+            String::new()
+        } else {
+            self.scope_for(scope).unwrap_or_default()
         }
     }
 }
@@ -213,6 +335,55 @@ fn cycle_index(index: usize, len: usize, backwards: bool) -> usize {
     }
 }
 impl Workspace {
+    /// Session-only working scope for future single-vault actions. Never use this
+    /// to rewrite a note identity, scope federated search, or reinterpret Home.
+    pub fn working_vault_scope(&self) -> &str {
+        &self.shell.working_scope
+    }
+    fn refresh_vault_discovery(&mut self, cx: &mut Context<Self>) {
+        if self.shell.vault_loading {
+            return;
+        }
+        let Some(session) = self.live.clone() else {
+            return;
+        };
+        let generation = session.client().launch_generation;
+        self.shell.vault_loading = true;
+        let job = cx.background_executor().spawn(async move {
+            session
+                .client()
+                .vaults()
+                .map_err(|error| error.to_string())
+                .and_then(|value| VaultDiscovery::parse(&value))
+        });
+        cx.spawn(async move |this, cx| {
+            let result = job.await;
+            let _ = this.update(cx, |this, cx| {
+                if this.shell.vault_generation != Some(generation)
+                    || !this
+                        .live
+                        .as_ref()
+                        .is_some_and(|session| session.client().launch_generation == generation)
+                {
+                    return;
+                }
+                this.shell.vault_loading = false;
+                match result {
+                    Ok(discovery) => {
+                        this.shell.working_scope =
+                            discovery.reconcile_scope(&this.shell.working_scope);
+                        this.shell.vault_discovery = Some(discovery);
+                        this.shell.vault_error = None;
+                    }
+                    Err(error) => {
+                        this.shell.vault_error = Some(error);
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
     fn activate_tab(&mut self, key: tabs::TabKey, cx: &mut Context<Self>) {
         self.shell.tab_cycle.clear();
         if !self.tabs.activate(&key) {
@@ -331,6 +502,31 @@ impl Render for Workspace {
             WindowAppearance::Dark | WindowAppearance::VibrantDark
         ));
         let p = Palette::new(dark);
+        if let Some(session) = &self.live {
+            let generation = session.client().launch_generation;
+            if self.shell.vault_generation != Some(generation) {
+                self.shell.vault_generation = Some(generation);
+                self.shell.working_scope.clear();
+                self.shell.vault_discovery = VaultDiscovery::parse(&session.initial_vaults).ok();
+                self.shell.vault_loading = false;
+                self.shell.vault_error = None;
+                self.refresh_vault_discovery(cx);
+            }
+        }
+        let show_vault_switcher = self.live.is_some()
+            && self
+                .shell
+                .vault_discovery
+                .as_ref()
+                .map(|discovery| discovery.visible())
+                .unwrap_or(!self.shell.vault_loading && self.shell.vault_error.is_some());
+        let vault_label = self
+            .shell
+            .vault_discovery
+            .as_ref()
+            .map(|discovery| discovery.label(self.working_vault_scope()))
+            .unwrap_or_else(|| "Vaults unavailable".into());
+        let vault_width = if show_vault_switcher { 160. } else { 0. };
         let reference_vault = self
             .current_note
             .as_ref()
@@ -402,7 +598,7 @@ impl Render for Workspace {
         let minimum_heading_level = headings.iter().map(|entry| entry.level).min().unwrap_or(1);
         let tab_layout = self
             .tabs
-            .layout(f32::from(window.viewport_size().width).max(0.) as u32);
+            .layout((f32::from(window.viewport_size().width) - vault_width).max(0.) as u32);
         let tab = div()
             .h(px(38.))
             .flex_shrink_0()
@@ -433,6 +629,7 @@ impl Render for Workspace {
                                 .flex_shrink_0()
                                 .max_w(
                                     (window.viewport_size().width
+                                        - px(vault_width)
                                         - px(if tab_layout.overflow_count() > 0 {
                                             tabs::OVERFLOW_WIDTH as f32
                                         } else {
@@ -510,6 +707,41 @@ impl Render for Workspace {
                         })),
                 )
             });
+        let tab = tab.child(div().flex_1()).when(show_vault_switcher, |bar| {
+            bar.child(
+                div()
+                    .id("vault-switcher")
+                    .w(px(vault_width))
+                    .h_full()
+                    .flex_shrink_0()
+                    .px_3()
+                    .flex()
+                    .items_center()
+                    .justify_end()
+                    .text_size(px(13.))
+                    .cursor_pointer()
+                    .child(vault_label)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.shell.vault_menu = !this.shell.vault_menu;
+                        this.shell.tab_menu = false;
+                        cx.notify();
+                    })),
+            )
+        });
+        let vault_menu=div().id("vault-menu").absolute().right(px(8.)).top(px(40.)).w(px(320.)).max_h(px(460.)).overflow_y_scroll().bg(rgb(p.paper)).border_1().border_color(rgb(p.line)).rounded_lg().py_2()
+            .when_some(self.shell.vault_discovery.clone(),|menu,discovery| {
+                let launch=discovery.launch_name.clone();
+                menu.children(discovery.available.iter().enumerate().map(|(index,entry)|{
+                    let name=entry.name.clone();
+                    let label=if name.is_empty(){"local".to_owned()}else{name.clone()};
+                    let is_launch=name==launch;
+                    div().id(("available-vault",index)).px_4().py_2().text_size(px(13.)).cursor_pointer().child(format!("{}{}{}",label,if is_launch{" · launch"}else{""},if discovery.scope_for(&name).as_deref()==Some(self.working_vault_scope()){" ✓"}else{""}))
+                        .on_click(cx.listener(move|this,_,_,cx|{if let Some(scope)=this.shell.vault_discovery.as_ref().and_then(|d|d.scope_for(&name)){this.shell.working_scope=scope;this.shell.vault_menu=false;cx.notify();}}))
+                })).children(discovery.unavailable.iter().map(|entry|div().px_4().py_2().text_size(px(12.)).text_color(rgb(p.muted)).child(format!("{} · unavailable",if entry.name.is_empty(){"local"}else{&entry.name})).child(div().text_size(px(11.)).child(entry.error.clone().unwrap_or_default()))))
+            })
+            .when_some(self.shell.vault_error.clone(),|menu,error|menu.child(div().px_4().py_2().text_size(px(11.)).text_color(rgb(p.mark)).child(format!("{} {error}", if self.shell.vault_discovery.is_some() {"Discovery incomplete; prior list may be stale."} else {"Vault discovery unavailable."}))))
+            .child(div().px_4().py_2().text_size(px(11.)).text_color(rgb(p.muted)).child("Session only. Existing tabs, launch Home, and workspace search are unchanged."))
+            .child(div().id("refresh-vaults").px_4().py_2().text_size(px(12.)).when(!self.shell.vault_loading,|row|row.cursor_pointer().on_click(cx.listener(|this,_,_,cx|{this.refresh_vault_discovery(cx);cx.notify();}))).child(if self.shell.vault_loading{"Refreshing…"}else{"Refresh vault list"}));
         let tab_menu = div()
             .id("tab-overflow-menu")
             .absolute()
@@ -996,6 +1228,12 @@ impl Render for Workspace {
             )
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
                 if event.keystroke.key == "escape" {
+                    if this.shell.vault_menu {
+                        this.shell.vault_menu = false;
+                        cx.notify();
+                        cx.stop_propagation();
+                        return;
+                    }
                     if this.shell.search_open {
                         this.shell.search_open = false;
                         if let Some(focus) = &this.shell.reader_focus {
@@ -1023,6 +1261,7 @@ impl Render for Workspace {
                     return;
                 }
                 if this.shell.search_open
+                    || this.shell.vault_menu
                     || this.shell.tab_menu
                     || !this
                         .shell
@@ -1118,6 +1357,19 @@ impl Render for Workspace {
                 )
             })
             .child(rail)
+            .when(self.shell.vault_menu, |root| {
+                root.child(
+                    div()
+                        .id("vault-menu-backdrop")
+                        .absolute()
+                        .size_full()
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.shell.vault_menu = false;
+                            cx.notify();
+                        })),
+                )
+                .child(vault_menu)
+            })
             .when(self.shell.tab_menu, |root| {
                 root.child(
                     div()
@@ -1254,5 +1506,59 @@ mod reader_navigation_tests {
         assert_eq!(shell.reader_scrolls[&b].offset().y, px(-80.));
         shell.reader_scrolls.remove(&a);
         assert_eq!(shell.reader_scrolls[&b].offset().y, px(-80.));
+    }
+}
+
+#[cfg(test)]
+mod vault_scope_tests {
+    use super::*;
+    use serde_json::json;
+    fn fixture() -> serde_json::Value {
+        json!({"active":{"name":"main"},"vaults":[{"name":"main"},{"name":"work"}],"unavailable":[{"name":"archive","error":"unmounted"}]})
+    }
+    #[test]
+    fn launch_selection_is_empty_and_unavailable_is_inert() {
+        let d = VaultDiscovery::parse(&fixture()).unwrap();
+        assert_eq!(d.scope_for("main"), Some("".into()));
+        assert_eq!(d.scope_for("work"), Some("work".into()));
+        assert_eq!(d.scope_for("archive"), None);
+        assert_eq!(d.unavailable[0].error.as_deref(), Some("unmounted"));
+    }
+    #[test]
+    fn local_single_is_hidden_named_single_is_visible() {
+        let local =
+            VaultDiscovery::parse(&json!({"active":{"name":""},"vaults":[{"name":""}]})).unwrap();
+        assert!(!local.visible());
+        assert_eq!(local.label(""), "local");
+        let named =
+            VaultDiscovery::parse(&json!({"active":{"name":"main"},"vaults":[{"name":"main"}]}))
+                .unwrap();
+        assert!(named.visible());
+    }
+    #[test]
+    fn incomplete_or_malformed_is_not_empty_success() {
+        for value in [
+            json!({"active":{"name":"main"},"vaults":[],"storage_state":"initializing"}),
+            json!({"active":{"name":"main"},"vaults":[]}),
+            json!({"active":{},"vaults":[{"name":"x"}]}),
+            json!({"active":{"name":"main"},"vaults":[{"name":"main"},{"name":"main"}]}),
+        ] {
+            assert!(VaultDiscovery::parse(&value).is_err());
+        }
+    }
+    #[test]
+    fn authoritative_list_reconciles_only_working_scope() {
+        let d = VaultDiscovery::parse(&fixture()).unwrap();
+        assert_eq!(d.reconcile_scope("missing"), "");
+        assert_eq!(d.reconcile_scope("main"), "");
+        assert_eq!(d.reconcile_scope("work"), "work");
+        let key = tabs::TabKey::Note {
+            vault: "archive".into(),
+            note_id: 42,
+        };
+        let mut tabs = tabs::Tabs::default();
+        tabs.open_note("archive", 42, "Old tab");
+        let _ = d.reconcile_scope("archive");
+        assert_eq!(tabs.active().unwrap().key, key);
     }
 }
