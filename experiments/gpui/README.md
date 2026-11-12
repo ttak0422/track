@@ -45,7 +45,7 @@ a warning. Malformed input fails before opening a window.
 - Virtualized, fixed-height note list; selection; native inspector; partial-read warning.
 - The footer reports the last virtualized range, not a frame-rate benchmark. Click a
   row to refresh the displayed count after scrolling.
-- No editor, full Markdown parity, live updates, graph layout, search, persistence,
+- No editor, full Markdown parity, live updates, force graph layout, search, persistence,
   accessibility/IME parity, or integration into the shipping app yet.
 - macOS is the initial target; Linux/Windows support is not configured or verified.
 - GPUI is pinned and Cargo.lock is committed. Keep this experiment outside the main
@@ -86,3 +86,16 @@ virtualized. This is not the fully rendered Track document. Export
 normalizes links and other constructs: it must **never** be used as editable source.
 Editing will use the existing raw-body/etag HTTP contract instead. Search, live
 updates, and full Markdown rendering are still tracked as incomplete in `PARITY.md`.
+
+## Native graph
+
+Select **Local graph** to read the selected note's CLI graph. The synthetic mode
+uses a 100-node fixture. Pan by dragging the background or scrolling; hold Ctrl or
+Shift while scrolling to zoom around the pointer. Click a node to select it, drag
+to move it, and double-click or choose **Open note** to navigate. Hover/selection
+shows metadata. Leaving the canvas ends dragging.
+
+Placement is deterministic and circular, not the existing force layout: neighboring
+nodes do not follow elastically. Full-graph preview pinning, persistent positions,
+and label toggles remain incomplete. No renderer performance advantage is claimed.
+See [GRAPH.md](GRAPH.md) for research and validation limits.

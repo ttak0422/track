@@ -3,6 +3,8 @@ use gpui::{
     WindowOptions, actions, div, prelude::*, px, rgb, size, uniform_list,
 };
 mod backend;
+mod graph;
+mod graph_view;
 mod markdown;
 use backend::{Backend, Note, Snapshot};
 actions!(native_workspace, [Quit]);
@@ -32,9 +34,52 @@ struct Workspace {
     status: String,
     list_status: String,
     request: u64,
+    graph_request: u64,
+    graph_view: gpui::Entity<graph_view::GraphView>,
+    show_graph: bool,
+    subscriptions: Vec<gpui::Subscription>,
 }
 
 impl Workspace {
+    fn load_graph(&mut self, cx: &mut Context<Self>) {
+        self.show_graph = true;
+        self.graph_request += 1;
+        let request = self.graph_request;
+        let Some(backend) = self.backend.clone() else {
+            cx.notify();
+            return;
+        };
+        let Some(note) = self.selected.and_then(|i| self.snapshot.notes.get(i)) else {
+            return;
+        };
+        let id = note.note_id;
+        self.status = "Loading graph…".into();
+        self.graph_view
+            .update(cx, |view, cx| view.set_graph(graph::Graph::default(), cx));
+        let job = cx
+            .background_executor()
+            .spawn(async move { backend.graph(id) });
+        cx.spawn(async move |this, cx| {
+            let result = job.await;
+            let _ = this.update(cx, |this, cx| {
+                if request != this.graph_request {
+                    return;
+                }
+                match result {
+                    Ok(response) => {
+                        this.graph_view
+                            .update(cx, |view, cx| view.set_graph(response.value, cx));
+                        this.status = response.warnings;
+                    }
+                    Err(error) => this.status = error.to_string(),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
     fn load_notes(&mut self, cx: &mut Context<Self>) {
         let Some(backend) = self.backend.clone() else {
             return;
@@ -74,6 +119,8 @@ impl Workspace {
     }
 
     fn select(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.graph_request += 1;
+        self.show_graph = false;
         self.selected = Some(index);
         self.request += 1;
         self.content.clear();
@@ -124,6 +171,8 @@ impl Render for Workspace {
             .child(div().flex().p_3().gap_3()
                 .child(div().id("reload").cursor_pointer().text_color(rgb(0x7ec9b5)).child("Reload vault")
                     .on_click(cx.listener(|this, _, _, cx| this.load_notes(cx))))
+                .child(div().id("graph-toggle").cursor_pointer().text_color(rgb(0x7ec9b5)).child(if self.show_graph { "Read note" } else { "Local graph" })
+                    .on_click(cx.listener(|this, _, _, cx| { if this.show_graph { this.show_graph = false; this.graph_request += 1; cx.notify(); } else { this.load_graph(cx); } })))
                 .child(div().id("status").max_h(px(80.)).overflow_y_scroll().text_sm().child(format!("{} {}", self.list_status, self.status))))
             .child(div().flex().flex_1().min_h_0()
                 .child(div().w(px(360.)).h_full().border_r_1().border_color(rgb(0x30404e))
@@ -145,8 +194,9 @@ impl Render for Workspace {
                     .child(div().text_color(rgb(0x9daebe)).child(note.as_ref().map(|n| format!("ID {}  ·  {}  ·  {}\n{}", n.note_id, n.file_kind, n.tags.join(" / "), n.path.display())).unwrap_or_default()))
                     .child(div().text_sm().text_color(rgb(0x9daebe)).child(
                         if self.backend.is_some() { "Portable Markdown · read only · not editable source" } else { "Snapshot mode includes metadata only. Use --vault and --track-bin to read note content." }))
-                    .child(div().id(("content", self.request as usize)).flex_1().min_h_0().overflow_y_scroll().text_sm()
-                        .child(markdown::render(&self.content)))))
+                    .when(self.show_graph, |panel| panel.child(div().flex_1().min_h_0().child(self.graph_view.clone())))
+                    .when(!self.show_graph, |panel| panel.child(div().id(("content", self.request as usize)).flex_1().min_h_0().overflow_y_scroll().text_sm()
+                        .child(markdown::render(&self.content))))))
             .child(div().p_3().text_xs().border_t_1().border_color(rgb(0x30404e))
                 .child(format!("Last list layout: {} visible rows / {} total · Select to refresh this counter · Close window to quit", self.rendered_rows, self.snapshot.notes.len())))
     }
@@ -229,6 +279,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             },
             |_, cx| {
                 cx.new(|cx| {
+                    let backend_is_fixture = backend.is_none();
                     let mut workspace = Workspace {
                         selected: (!snapshot.notes.is_empty()).then_some(0),
                         snapshot,
@@ -239,7 +290,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         status: String::new(),
                         list_status: String::new(),
                         request: 0,
+                        graph_request: 0,
+                        graph_view: cx.new(|_| {
+                            graph_view::GraphView::new(if backend_is_fixture {
+                                graph::fixture(100)
+                            } else {
+                                graph::Graph::default()
+                            })
+                        }),
+                        show_graph: false,
+                        subscriptions: Vec::new(),
                     };
+                    workspace.subscriptions.push(cx.subscribe(
+                        &workspace.graph_view,
+                        |this: &mut Workspace, _, event: &graph_view::OpenNote, cx| {
+                            if let Some(index) = this
+                                .snapshot
+                                .notes
+                                .iter()
+                                .position(|note| note.note_id == event.0)
+                            {
+                                this.select(index, cx);
+                            } else {
+                                this.status =
+                                    "Selected node is not in the current note list".into();
+                                cx.notify();
+                            }
+                        },
+                    ));
                     workspace.load_notes(cx);
                     workspace
                 })

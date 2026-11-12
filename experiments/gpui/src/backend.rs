@@ -176,6 +176,35 @@ impl Backend {
         })
     }
 
+    pub fn graph(&self, note_id: i64) -> Result<Response<crate::graph::Graph>, BackendError> {
+        if note_id <= 0 {
+            return Err(BackendError::InvalidConfig(
+                "note id must be positive".into(),
+            ));
+        }
+        let response = self.run("graph", &["--id", &note_id.to_string()])?;
+        let value: serde_json::Value =
+            serde_json::from_str(&response.value).map_err(|error| BackendError::Decode {
+                operation: "graph",
+                detail: error.to_string(),
+                stderr: response.warnings.clone(),
+            })?;
+        let mut warnings = response.warnings;
+        if let Some(state) = value.get("read_state") {
+            warnings.push_str(&format!("\nRead state: {state}"));
+        }
+        let parsed: crate::graph::GraphResponse =
+            serde_json::from_value(value).map_err(|error| BackendError::Decode {
+                operation: "graph",
+                detail: error.to_string(),
+                stderr: warnings.clone(),
+            })?;
+        Ok(Response {
+            value: parsed.graph,
+            warnings,
+        })
+    }
+
     /// Portable Markdown for reading only, NOT source for editing/saving: export flattens Track links.
     /// The CLI does not expose read_state on this text response; failure and stderr remain preserved.
     pub fn export_markdown(&self, note_id: i64) -> Result<Response<String>, BackendError> {
@@ -323,6 +352,123 @@ fn decode_output(
 mod tests {
     use super::*;
     use std::ffi::OsStr;
+
+    #[cfg(unix)]
+    struct GraphCliFixture {
+        directory: PathBuf,
+        backend: Backend,
+    }
+
+    #[cfg(unix)]
+    impl GraphCliFixture {
+        fn new(stdout: &str, stderr: &str) -> Self {
+            use std::os::unix::fs::PermissionsExt;
+            use std::sync::atomic::{AtomicUsize, Ordering};
+            static NEXT: AtomicUsize = AtomicUsize::new(0);
+            let directory = std::env::temp_dir().join(format!(
+                "track-graph-test-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            std::fs::create_dir(&directory).unwrap();
+            let executable = directory.join("track");
+            // Fixture strings are quoted as single shell arguments, never evaluated.
+            let quote = |value: &str| format!("'{}'", value.replace('\'', "'\\''"));
+            std::fs::write(
+                &executable,
+                format!(
+                    "#!/bin/sh\n[ \"$1\" = graph ] && [ \"$2\" = --id ] && [ \"$3\" = 42 ] && [ \"$#\" = 3 ] || exit 91\nprintf '%s' {}\nprintf '%s' {} >&2\n",
+                    quote(stdout), quote(stderr)
+                ),
+            )
+            .unwrap();
+            std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+            let backend = Backend::new(executable, directory.join("unused-vault")).unwrap();
+            Self { directory, backend }
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for GraphCliFixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.directory);
+        }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn graph_decodes_cli_envelope_and_passes_id() {
+        let fixture = GraphCliFixture::new(
+            r#"{"graph":{"center_id":42,"nodes":[{"note_id":42,"title":"日本語","center":true},{"note_id":43,"title":"Neighbor"}],"edges":[{"source_id":42,"target_id":43}]}}"#,
+            "CLI warning",
+        );
+        let response = fixture.backend.graph(42).unwrap();
+        assert_eq!(response.value.center_id, 42);
+        assert_eq!(response.value.nodes.len(), 2);
+        assert_eq!(response.value.nodes[0].title, "日本語");
+        assert!(response.value.nodes[0].center);
+        assert_eq!(response.value.edges[0].source_id, 42);
+        assert_eq!(response.value.edges[0].target_id, 43);
+        assert_eq!(response.warnings, "CLI warning");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn graph_retains_partial_read_state_with_stderr() {
+        let state = serde_json::json!({"partial":true,"cache_used":true,"issues":[{"reason":"unreadable","cached":true}],"omitted":2,"future":"retained"});
+        let payload =
+            serde_json::json!({"graph":{"center_id":42,"nodes":[],"edges":[]},"read_state":state});
+        let fixture = GraphCliFixture::new(&payload.to_string(), "cache warning");
+        let response = fixture.backend.graph(42).unwrap();
+        assert!(response.value.nodes.is_empty());
+        let diagnostic = response
+            .warnings
+            .strip_prefix("cache warning\nRead state: ")
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(diagnostic).unwrap(),
+            state
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn graph_rejects_malformed_json_and_envelopes_without_losing_warnings() {
+        for payload in [
+            "{",
+            "{}",
+            r#"{"graph":{"nodes":[{"note_id":"bad","title":"Bad"}]}}"#,
+        ] {
+            let fixture = GraphCliFixture::new(payload, "decode warning");
+            match fixture.backend.graph(42).unwrap_err() {
+                BackendError::Decode {
+                    operation,
+                    detail,
+                    stderr,
+                } => {
+                    assert_eq!(operation, "graph");
+                    assert!(!detail.is_empty());
+                    assert_eq!(stderr, "decode warning");
+                }
+                other => panic!("unexpected error: {other}"),
+            }
+        }
+    }
+
+    #[test]
+    fn graph_rejects_nonpositive_ids_before_spawning() {
+        let backend = Backend::new(
+            "/nonexistent/track-test-executable".into(),
+            "/unused/vault".into(),
+        )
+        .unwrap();
+        for id in [0, -1, i64::MIN] {
+            assert!(matches!(
+                backend.graph(id),
+                Err(BackendError::InvalidConfig(_))
+            ));
+        }
+    }
 
     #[test]
     fn explicit_paths_and_arguments_are_not_shell_interpreted() {
