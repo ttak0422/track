@@ -34,3 +34,8 @@ search cancel and repeated navigation, narrow context stacking and graph pan/zoo
 Retain actual measured differences instead of declaring parity from compilation.
 
 In-memory tab scroll positions, reader-focused tab shortcuts, and heading jumps are implemented. Native interaction verification remains pending. Markdown source soft breaks render as spaces; explicit hard breaks remain line breaks.
+
+macOS native chrome now retains titled, resizable, closable and minimizable window
+styles while hiding this window's standard controls through public AppKit APIs.
+Launch bounds are 1200×800 with a 680×480 minimum. The bridge and Window menu are
+compile-checked; runtime resize, fullscreen and titlebar behavior remain unverified.

@@ -13,3 +13,9 @@ pulldown-cmark = "0.13"
 
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json"] }
 libc = "0.2"
+unicode-segmentation = "=1.12.0"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+cocoa = "=0.26.0"
+objc = "=0.2.7"
+raw-window-handle = "=0.6.2"

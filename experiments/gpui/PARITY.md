@@ -117,3 +117,25 @@ remain open; the original missing glyphs were a disabled font backend, not an OS
   editing are separate workloads. A virtualized list alone proves no editor speedup.
 - Keep normal Track.app working throughout the migration. Publish coherent increments
   with explicit missing/unverified features; do not mark parity complete on compilation alone.
+
+## Rich-content rendering boundary
+
+Keep the workspace and graph native. For static diagrams, a constrained renderer
+can produce sanitized SVG for GPUI images; HTML labels/`foreignObject` need explicit
+handling. PDF page images can use PDFKit/Core Graphics, but text selection, search,
+forms and accessibility are separate capabilities, not implied by displaying pages.
+
+Interactive HTML tools may require a narrowly isolated WKWebView. GPUI 0.2.2 exposes
+a native window handle, and Wry documents child-view hosting, but this pairing has
+not been exercised. A child native view does not inherit GPUI clipping or scene
+ordering. Before adoption, validate a disposable surface for scroll clipping,
+Retina resizing, search-overlay occlusion, focus/IME restoration and teardown.
+Use a nonpersistent WebKit data store, restricted origins/navigation/resources,
+and minimal validated IPC; ephemeral storage alone is not a security boundary.
+Do not embed the entire existing workspace and call that native parity.
+
+References:
+- [Wry child hosting](https://docs.rs/wry/latest/wry/struct.WebViewBuilder.html)
+  (0.57.2 documentation inspected; not a validated GPUI dependency pairing).
+- [WebKit website data stores](https://developer.apple.com/documentation/webkit/wkwebviewconfiguration/websitedatastore).
+- [PDFKit page drawing](https://developer.apple.com/documentation/pdfkit/pdfpage/draw(with:to:)).

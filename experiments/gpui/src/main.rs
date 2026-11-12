@@ -3,16 +3,30 @@ use gpui::{
     WindowOptions, actions, div, prelude::*, px, rgb, size, uniform_list,
 };
 mod backend;
+#[cfg(test)]
+mod editing;
+#[cfg(test)]
+mod editor_input;
 mod graph;
 mod graph_view;
 mod live;
 mod markdown;
+mod native_window;
 mod search_input;
 mod shell;
 mod tabs;
 mod workspace_live;
 use backend::{Backend, Note, Snapshot};
-actions!(native_workspace, [Quit]);
+actions!(
+    native_workspace,
+    [
+        Quit,
+        CloseWindow,
+        MinimizeWindow,
+        ZoomWindow,
+        ToggleFullscreen
+    ]
+);
 
 fn fixture(count: usize) -> Snapshot {
     Snapshot {
@@ -329,19 +343,67 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let quit_session = std::sync::Arc::new(live::LifecycleHandle::default());
         let quit_handle = quit_session.clone();
         cx.on_action(move |_: &Quit, cx| request_quit(cx, quit_handle.clone()));
-        cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
-        cx.set_menus(vec![Menu {
-            name: "Track Native".into(),
-            items: vec![MenuItem::action("Quit", Quit)],
-        }]);
-        let bounds = Bounds::centered(None, size(px(1120.), px(720.)), cx);
+        let close_handle = quit_session.clone();
+        cx.on_action(move |_: &CloseWindow, cx| request_quit(cx, close_handle.clone()));
+        cx.on_action(|_: &MinimizeWindow, cx| {
+            if let Some(handle) = cx.active_window() {
+                let _ = handle.update(cx, |_, window, _| window.minimize_window());
+            }
+        });
+        cx.on_action(|_: &ZoomWindow, cx| {
+            if let Some(handle) = cx.active_window() {
+                let _ = handle.update(cx, |_, window, _| window.zoom_window());
+            }
+        });
+        cx.on_action(|_: &ToggleFullscreen, cx| {
+            if let Some(handle) = cx.active_window() {
+                let _ = handle.update(cx, |_, window, _| window.toggle_fullscreen());
+            }
+        });
+        cx.bind_keys([
+            KeyBinding::new("cmd-q", Quit, None),
+            KeyBinding::new("cmd-m", MinimizeWindow, None),
+            KeyBinding::new("ctrl-cmd-f", ToggleFullscreen, None),
+        ]);
+        cx.set_menus(vec![
+            Menu {
+                name: "Track Native".into(),
+                items: vec![MenuItem::action("Quit", Quit)],
+            },
+            Menu {
+                name: "Window".into(),
+                items: vec![
+                    MenuItem::action("Close Window", CloseWindow),
+                    MenuItem::action("Minimize", MinimizeWindow),
+                    MenuItem::action("Zoom", ZoomWindow),
+                    MenuItem::action("Toggle Full Screen", ToggleFullscreen),
+                ],
+            },
+        ]);
+        let bounds = Bounds::centered(None, size(px(1200.), px(800.)), cx);
         cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
-                titlebar: None,
+                titlebar: if cfg!(target_os = "macos") {
+                    Some(gpui::TitlebarOptions {
+                        title: None,
+                        appears_transparent: true,
+                        traffic_light_position: None,
+                    })
+                } else {
+                    None
+                },
+                window_min_size: Some(size(px(680.), px(480.))),
+                is_movable: true,
+                is_resizable: true,
+                is_minimizable: true,
                 ..Default::default()
             },
             |window, cx| {
+                // Refuse startup if the isolated AppKit adaptation fails rather
+                // than silently launching with different visible native controls.
+                native_window::configure(window)
+                    .expect("could not configure this window's native controls safely");
                 let close_owner = quit_session.clone();
                 window.on_window_should_close(cx, move |_, cx| {
                     request_quit(cx, close_owner.clone());

@@ -108,10 +108,13 @@ impl LaunchConfig {
             ("executable", Some(&self.executable)),
             ("config", self.config.as_ref()),
             ("cache", self.cache.as_ref()),
-            ("vault", match &self.vault {
-                Vault::Path(p) => Some(p),
-                _ => None,
-            }),
+            (
+                "vault",
+                match &self.vault {
+                    Vault::Path(p) => Some(p),
+                    _ => None,
+                },
+            ),
         ] {
             if path.is_some_and(|p| !p.is_absolute()) {
                 return Err(Error::Config(format!("{name} must be absolute")));
@@ -1010,6 +1013,168 @@ fn drain(
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// Opt-in only: supply an explicit Go binary and a disposable copy of public
+    /// docs/help. The test copies that input again and mutates only its own copy.
+    #[test]
+    #[ignore = "requires TRACK_NATIVE_TEST_BINARY and TRACK_NATIVE_PUBLIC_FIXTURE_COPY; writes only a new temporary copy"]
+    fn owned_public_fixture_save_read_conflict_and_reap() {
+        fn copy_tree(
+            source: &std::path::Path,
+            destination: &std::path::Path,
+        ) -> std::io::Result<()> {
+            std::fs::create_dir(destination)?;
+            for entry in std::fs::read_dir(source)? {
+                let entry = entry?;
+                let kind = entry.file_type()?;
+                let target = destination.join(entry.file_name());
+                if kind.is_dir() {
+                    copy_tree(&entry.path(), &target)?;
+                } else if kind.is_file() {
+                    std::fs::copy(entry.path(), target)?;
+                } else {
+                    return Err(std::io::Error::other(
+                        "fixture must not contain symlinks or special files",
+                    ));
+                }
+            }
+            Ok(())
+        }
+        struct TemporaryFixture(PathBuf);
+        impl Drop for TemporaryFixture {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let executable = PathBuf::from(
+            std::env::var_os("TRACK_NATIVE_TEST_BINARY").expect("set explicit test binary"),
+        );
+        let input = PathBuf::from(
+            std::env::var_os("TRACK_NATIVE_PUBLIC_FIXTURE_COPY")
+                .expect("set explicit public docs/help fixture copy"),
+        );
+        assert!(executable.is_absolute() && input.is_absolute());
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root =
+            std::env::temp_dir().join(format!("track-native-save-{}-{unique}", std::process::id()));
+        std::fs::create_dir(&root).unwrap();
+        let fixture = TemporaryFixture(root);
+        copy_tree(&input, &fixture.0.join("vault")).unwrap();
+        std::fs::write(fixture.0.join("config.yml"), "{}\n").unwrap();
+        let port = (24000..30000)
+            .find(|port| {
+                let Ok(first) = TcpListener::bind(("127.0.0.1", *port)) else {
+                    return false;
+                };
+                let second = TcpListener::bind(("127.0.0.1", *port + 1));
+                drop(first);
+                second.is_ok()
+            })
+            .expect("free adjacent fixture ports");
+        let mut config = LaunchConfig::new(executable, Vault::Path(fixture.0.join("vault")), port);
+        config.config = Some(fixture.0.join("config.yml"));
+        config.cache = Some(fixture.0.join("cache"));
+        let mut server = OwnedServer::start(config).expect("owned fixture server readiness");
+        let pid = server.child.as_ref().unwrap().id();
+        let client = server.client();
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let storage = loop {
+            server.check_running().unwrap();
+            let state = client.storage().unwrap();
+            if state.phase == "ready" && !state.read_only {
+                break state;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "fixture did not become writable: {state:?}"
+            );
+            thread::sleep(Duration::from_millis(50));
+        };
+        let listing = client.notes("").unwrap();
+        let key = listing
+            .notes
+            .iter()
+            .find(|note| note.file_kind == "note")
+            .expect("public fixture note")
+            .key();
+        let mut source = client.note(&key).unwrap();
+        let original = source.clone();
+        // PUT storage bytes and GET's legacy-footmatter-aware read model differ.
+        // These expectations were independently verified against the public fixture.
+        const UNICODE_SOURCE: &str =
+            "# Transport fixture\n\n日本語 [[Link]]\n\n```rust\nlet value = 42;\n```";
+        for (submitted, expected_read, expected_disk) in [
+            (
+                UNICODE_SOURCE,
+                UNICODE_SOURCE,
+                "# Transport fixture\n\n日本語 [[Link]]\n\n```rust\nlet value = 42;\n```\n",
+            ),
+            ("Final LF\n", "Final LF", "Final LF\n"),
+            (
+                "Multiple final LFs\n\n",
+                "Multiple final LFs",
+                "Multiple final LFs\n\n",
+            ),
+            ("", "", ""),
+        ] {
+            let previous_etag = source.note.etag.clone();
+            let request = SaveRequest::from_source(
+                client.launch_generation,
+                &storage,
+                &source,
+                submitted.into(),
+            )
+            .unwrap();
+            let ack = client.save(&request).expect("acknowledged fixture save");
+            assert!(!ack.etag.is_empty());
+            assert_ne!(ack.etag, previous_etag);
+            source = client.note(&request.key).unwrap();
+            let disk = std::fs::read_to_string(
+                fixture
+                    .0
+                    .join("vault/note")
+                    .join(format!("{}.md", request.key.note_id)),
+            )
+            .unwrap();
+            assert_eq!(source.note.body, expected_read, "GET read-model body");
+            assert_eq!(disk, expected_disk, "stored raw bytes");
+            assert_eq!(source.note.etag, ack.etag);
+            assert_eq!(source.note.note.key(), original.note.note.key());
+            assert_eq!(source.note.note.title, original.note.note.title);
+            assert_eq!(source.note.note.tags, original.note.note.tags);
+        }
+        let stale = SaveRequest::from_source(
+            client.launch_generation,
+            &storage,
+            &original,
+            "must not overwrite".into(),
+        )
+        .unwrap();
+        let error = client.save(&stale).unwrap_err();
+        assert_eq!(error.save_disposition(), SaveDisposition::NotSent);
+        let unchanged = client.note(&stale.key).unwrap();
+        assert_eq!(unchanged.note.body, source.note.body);
+        assert_eq!(unchanged.note.etag, source.note.etag);
+        server.shutdown().expect("fixture child reaped");
+        let mut status = 0;
+        assert_eq!(
+            unsafe { libc::waitpid(pid as i32, &mut status, libc::WNOHANG) },
+            -1
+        );
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::ECHILD)
+        );
+        assert!(matches!(client.notes(""), Err(Error::Stale)));
+        assert!(TcpListener::bind(("127.0.0.1", port)).is_ok());
+        assert!(TcpListener::bind(("127.0.0.1", port + 1)).is_ok());
+        eprintln!(
+            "fixture saves, etags, title/tags preservation, stale-revision no-overwrite, child reaping and both-port release verified"
+        );
+    }
+
     fn monitored_fixture(seconds: &str) -> (Session, u32) {
         let child = Command::new("/bin/sleep").arg(seconds).spawn().unwrap();
         let pid = child.id();
@@ -1285,10 +1450,13 @@ mod tests {
             .unwrap();
         assert_eq!(result.source_vault, "source & personal");
         assert_eq!(result.launch_generation, client.launch_generation);
-        assert_eq!(result.key().unwrap(), NoteKey {
-            vault: "target".into(),
-            note_id: 9007199254740993
-        });
+        assert_eq!(
+            result.key().unwrap(),
+            NoteKey {
+                vault: "target".into(),
+                note_id: 9007199254740993
+            }
+        );
         assert!(result.note.path.is_none());
         assert!(result.note.flags.is_empty());
         assert_eq!(result.diagnostics["read_state"]["partial"], true);
