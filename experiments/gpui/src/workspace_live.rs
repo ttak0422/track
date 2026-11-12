@@ -2,15 +2,80 @@
 //! publish only if their navigation generation is still current.
 use super::*;
 impl Workspace {
+    fn watch_live_lifecycle(&mut self, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            let mut previous = None;
+            loop {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(250))
+                    .await;
+                if this
+                    .update(cx, |this, cx| {
+                        let failure = this.quit_session.failure();
+                        if failure != previous {
+                            previous = failure.clone();
+                            if let Some(error) = failure {
+                                this.request += 1;
+                                this.graph_request += 1;
+                                this.query_epoch
+                                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                                this.partial_read = true;
+                                this.accepted_storage_generation = None;
+                                this.status = format!("Owned server failure: {error}");
+                                this.read_error = Some(this.status.clone());
+                                cx.notify();
+                            }
+                        }
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// A newer epoch invalidates all previously displayed body/graph data, not just
+    /// requests whose before/after probes straddle the transition.
+    fn observe_storage(&mut self, state: &live::Storage, cx: &mut Context<Self>) {
+        if epoch_changed(self.accepted_storage_generation, state.generation) {
+            self.request += 1;
+            self.graph_request += 1;
+            self.query_epoch
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            self.content.clear();
+            self.current_note = None;
+            self.current_related.clear();
+            self.search_results.clear();
+            self.show_graph = false;
+            self.graph_view
+                .update(cx, |view, cx| view.set_graph(graph::Graph::default(), cx));
+            self.partial_read = true;
+        }
+        self.accepted_storage_generation = Some(state.generation);
+        if let Some(session) = &mut self.live {
+            session.initial_storage = Some(state.clone());
+        }
+    }
+
     pub fn start_live(&mut self, config: live::LaunchConfig, cx: &mut Context<Self>) {
         self.status = "Starting owned loopback server…".into();
+        if let Err(error) = self.quit_session.begin_start() {
+            self.read_error = Some(error.to_string());
+            cx.notify();
+            return;
+        }
+        self.watch_live_lifecycle(cx);
+        let owner = self.quit_session.clone();
         let job = cx.background_executor().spawn(async move {
-            let mut session = live::Session::start(config)?;
+            let mut session = owner.start(config)?;
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
-            while session
-                .initial_storage
-                .as_ref()
-                .is_some_and(|s| s.phase == "initializing")
+            while !owner.is_closing()
+                && session
+                    .initial_storage
+                    .as_ref()
+                    .is_some_and(|s| s.phase == "initializing")
                 && std::time::Instant::now() < deadline
             {
                 std::thread::sleep(std::time::Duration::from_millis(100));
@@ -27,6 +92,9 @@ impl Workspace {
         cx.spawn(async move |this, cx| {
             let result = job.await;
             let _ = this.update(cx, |this, cx| {
+                if this.quit_session.is_closing() {
+                    return;
+                }
                 match result {
                     Ok(session) => {
                         this.list_status = format!(
@@ -34,7 +102,6 @@ impl Workspace {
                             session.initial_storage,
                             session.storage_error.clone().unwrap_or_default()
                         );
-                        *this.quit_session.lock().unwrap() = Some(session.clone());
                         this.live = Some(session);
                         this.load_live_notes(cx);
                     }
@@ -56,6 +123,7 @@ impl Workspace {
         self.request += 1;
         let request = self.request;
         self.status = "Reading server notes…".into();
+        let expected_epoch = self.accepted_storage_generation;
         let job = cx.background_executor().spawn(async move {
             let client = session.client();
             let state = client.storage();
@@ -71,6 +139,16 @@ impl Workspace {
             let _ = this.update(cx, |this, cx| {
                 if this.request != request {
                     return;
+                }
+                if !epoch_compatible(
+                    expected_epoch,
+                    this.accepted_storage_generation,
+                    storage.as_ref().ok().map(|s| s.generation),
+                ) {
+                    return;
+                }
+                if let Ok(state) = &storage {
+                    this.observe_storage(state, cx);
                 }
                 this.list_status = match &storage {
                     Ok(state) => format!(
@@ -143,6 +221,7 @@ impl Workspace {
         };
         let current = self.query_epoch.clone();
         self.status = "Searching all served vaults…".into();
+        let expected_epoch = self.accepted_storage_generation;
         let job = cx.background_executor().spawn(async move {
             std::thread::sleep(std::time::Duration::from_millis(200));
             if current.load(std::sync::atomic::Ordering::SeqCst) != epoch {
@@ -153,9 +232,9 @@ impl Workspace {
             let result = client.search(&query, "");
             let after = client.storage();
             if !matches!((&before,&after), (Ok(a),Ok(b)) if a.generation == b.generation) {
-                return Some(Err(live::Error::Stale));
+                return Some((Err(live::Error::Stale), after));
             }
-            Some(result)
+            Some((result, after))
         });
         cx.spawn(async move |this, cx| {
             let result = job.await;
@@ -163,9 +242,19 @@ impl Workspace {
                 if this.query_epoch.load(std::sync::atomic::Ordering::SeqCst) != epoch {
                     return;
                 }
-                let Some(result) = result else {
+                let Some((result, storage)) = result else {
                     return;
                 };
+                if !epoch_compatible(
+                    expected_epoch,
+                    this.accepted_storage_generation,
+                    storage.as_ref().ok().map(|s| s.generation),
+                ) {
+                    return;
+                }
+                if let Ok(state) = &storage {
+                    this.observe_storage(state, cx);
+                }
                 match result {
                     Ok(response) => {
                         this.read_error = None;
@@ -218,6 +307,7 @@ impl Workspace {
             return;
         };
         let key = note.note.key();
+        let expected_epoch = self.accepted_storage_generation;
         self.graph_request += 1;
         let request = self.graph_request;
         self.show_graph = true;
@@ -228,16 +318,19 @@ impl Workspace {
             let before = client.storage();
             let result = client.local_graph(&key);
             let after = client.storage();
-            if !matches!((&before,&after),(Ok(a),Ok(b)) if a.generation==b.generation) {
-                return Err(live::Error::Stale);
+            if !matches!((&before,&after),(Ok(a),Ok(b)) if a.generation==b.generation && expected_epoch == Some(b.generation)) {
+                return (Err(live::Error::Stale), after);
             }
-            result
+            (result, after)
         });
         cx.spawn(async move |this, cx| {
-            let result = job.await;
+            let (result, storage) = job.await;
             let _ = this.update(cx, |this, cx| {
                 if this.graph_request != request {
                     return;
+                }
+                if let Ok(state) = &storage {
+                    this.observe_storage(state, cx);
                 }
                 match result {
                     Ok((graph, fields)) => {
@@ -280,14 +373,32 @@ impl Workspace {
         self.request += 1;
         self.graph_request += 1;
         let request = self.request;
-        let job = cx
-            .background_executor()
-            .spawn(async move { session.client().note(&key) });
+        let expected_epoch = self.accepted_storage_generation;
+        let job = cx.background_executor().spawn(async move {
+            let client = session.client();
+            let before = client.storage();
+            let result = client.note(&key);
+            let after = client.storage();
+            if !matches!((&before,&after),(Ok(a),Ok(b)) if a.generation == b.generation) {
+                return (Err(live::Error::Stale), after);
+            }
+            (result, after)
+        });
         cx.spawn(async move |this, cx| {
-            let result = job.await;
+            let (result, storage) = job.await;
             let _ = this.update(cx, |this, cx| {
                 if this.request != request {
                     return;
+                }
+                if !epoch_compatible(
+                    expected_epoch,
+                    this.accepted_storage_generation,
+                    storage.as_ref().ok().map(|s| s.generation),
+                ) {
+                    return;
+                }
+                if let Ok(state) = &storage {
+                    this.observe_storage(state, cx);
                 }
                 match result {
                     Ok(response) => {
@@ -320,6 +431,7 @@ impl Workspace {
         let key = note.key();
         let request = self.request;
         self.status = "Reading raw body (read-only)…".into();
+        let expected_epoch = self.accepted_storage_generation;
         let job = cx.background_executor().spawn(async move {
             let client = session.client();
             let before = client.storage();
@@ -328,13 +440,23 @@ impl Workspace {
             if !matches!((&before,&after), (Ok(a),Ok(b)) if a.generation == b.generation) {
                 result = Err(live::Error::Stale);
             }
-            (result, session.failure())
+            (result, after, session.failure())
         });
         cx.spawn(async move |this, cx| {
-            let (result, failure) = job.await;
+            let (result, storage, failure) = job.await;
             let _ = this.update(cx, |this, cx| {
                 if this.request != request {
                     return;
+                }
+                if !epoch_compatible(
+                    expected_epoch,
+                    this.accepted_storage_generation,
+                    storage.as_ref().ok().map(|s| s.generation),
+                ) {
+                    return;
+                }
+                if let Ok(state) = &storage {
+                    this.observe_storage(state, cx);
                 }
                 match result {
                     Ok(response) => {
@@ -346,7 +468,7 @@ impl Workspace {
                         this.load_live_graph(cx);
                         this.current_related = response.related_and_diagnostics.clone();
                         this.status = format!(
-                            "Read only: {}; diagnostics: {:?}; server: {failure:?}",
+                            "Read only: {}; diagnostics: {:?}; server failure: {failure:?}",
                             response.note.read_only,
                             diagnostics(&response.related_and_diagnostics)
                         );
@@ -362,6 +484,13 @@ impl Workspace {
         .detach();
         cx.notify();
     }
+}
+
+fn epoch_compatible(started: Option<u64>, current: Option<u64>, response: Option<u64>) -> bool {
+    current == started || response.is_some() && current == response
+}
+fn epoch_changed(accepted: Option<u64>, incoming: u64) -> bool {
+    accepted.is_some_and(|previous| previous != incoming)
 }
 
 fn diagnostics(fields: &std::collections::BTreeMap<String, serde_json::Value>) -> String {
@@ -398,6 +527,16 @@ fn partial(fields: &std::collections::BTreeMap<String, serde_json::Value>) -> bo
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn epoch_changes_invalidate_previous_results_without_assuming_numeric_order() {
+        assert!(!epoch_changed(None, 9));
+        assert!(!epoch_changed(Some(9), 9));
+        assert!(epoch_changed(Some(9), 2));
+        assert!(epoch_compatible(Some(9), Some(9), Some(2)));
+        assert!(!epoch_compatible(Some(9), Some(2), Some(9)));
+        assert!(epoch_compatible(Some(9), Some(2), Some(2)));
+        assert!(!epoch_compatible(None, Some(2), Some(9)));
+    }
     #[test]
     fn preserves_partial_and_unavailable_states() {
         let fields =

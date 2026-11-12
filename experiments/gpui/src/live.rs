@@ -80,13 +80,10 @@ impl LaunchConfig {
             ("executable", Some(&self.executable)),
             ("config", self.config.as_ref()),
             ("cache", self.cache.as_ref()),
-            (
-                "vault",
-                match &self.vault {
-                    Vault::Path(p) => Some(p),
-                    _ => None,
-                },
-            ),
+            ("vault", match &self.vault {
+                Vault::Path(p) => Some(p),
+                _ => None,
+            }),
         ] {
             if path.is_some_and(|p| !p.is_absolute()) {
                 return Err(Error::Config(format!("{name} must be absolute")));
@@ -339,7 +336,13 @@ pub struct OwnedServer {
 }
 impl OwnedServer {
     pub fn start(config: LaunchConfig) -> Result<Self, Error> {
+        Self::start_cancelable(config, &AtomicBool::new(false))
+    }
+    fn start_cancelable(config: LaunchConfig, canceled: &AtomicBool) -> Result<Self, Error> {
         config.validate()?;
+        if canceled.load(Ordering::Acquire) {
+            return Err(Error::Stale);
+        }
         // Preflight both listeners; still require the child token after release to defeat TOCTOU adoption.
         let first = TcpListener::bind(("127.0.0.1", config.port))?;
         let second = TcpListener::bind(("127.0.0.1", config.port + 1))?;
@@ -416,13 +419,19 @@ impl OwnedServer {
         let start = Instant::now();
         let mut last = String::new();
         while start.elapsed() < config.startup_timeout {
+            if canceled.load(Ordering::Acquire) {
+                owner.shutdown()?;
+                return Err(Error::Stale);
+            }
             owner.check_running()?;
             if ready.load(Ordering::Acquire) {
                 match owner.client.vaults_with_timeout(Some(
                     config
                         .startup_timeout
                         .saturating_sub(start.elapsed())
-                        .max(Duration::from_millis(1)),
+                        .max(Duration::from_millis(1))
+                        .min(config.request_timeout)
+                        .min(Duration::from_secs(3)),
                 )) {
                     Ok(v) => {
                         owner.check_running()?;
@@ -434,13 +443,19 @@ impl OwnedServer {
                                 config
                                     .startup_timeout
                                     .saturating_sub(start.elapsed())
-                                    .max(Duration::from_millis(1)),
+                                    .max(Duration::from_millis(1))
+                                    .min(config.request_timeout)
+                                    .min(Duration::from_secs(3)),
                             ),
                         ) {
                             Ok(s) => owner.initial_storage = Some(s),
                             Err(e) => owner.storage_error = Some(e.to_string()),
                         }
                         owner.check_running()?;
+                        if canceled.load(Ordering::Acquire) {
+                            owner.shutdown()?;
+                            return Err(Error::Stale);
+                        }
                         return Ok(owner);
                     }
                     Err(e) => last = e.to_string(),
@@ -448,6 +463,7 @@ impl OwnedServer {
             }
             thread::sleep(Duration::from_millis(20));
         }
+        owner.shutdown()?;
         Err(Error::Startup(format!(
             "readiness deadline exceeded; {last}\n{}",
             owner.log_tail()
@@ -546,7 +562,13 @@ pub struct Session {
 }
 impl Session {
     pub fn start(config: LaunchConfig) -> Result<Self, Error> {
-        let mut server = OwnedServer::start(config)?;
+        Self::start_cancelable(config, &AtomicBool::new(false))
+    }
+    fn start_cancelable(config: LaunchConfig, canceled: &AtomicBool) -> Result<Self, Error> {
+        let server = OwnedServer::start_cancelable(config, canceled)?;
+        Ok(Self::from_owned(server))
+    }
+    fn from_owned(mut server: OwnedServer) -> Self {
         let (tx, rx) = std::sync::mpsc::channel();
         let status = Arc::new(Mutex::new(None));
         let shutdown_done = Arc::new(AtomicBool::new(false));
@@ -576,7 +598,7 @@ impl Session {
                 Err(error) => *status.lock().unwrap() = Some(error.to_string()),
             }
         });
-        Ok(session)
+        session
     }
     pub fn client(&self) -> ReadClient {
         self.client.clone()
@@ -598,6 +620,87 @@ impl Session {
         Err(Error::Shutdown(self.failure().unwrap_or_else(|| {
             "owned process cleanup not confirmed".into()
         })))
+    }
+}
+
+/// Shared startup/quit ownership exists before the worker creates a child.
+/// Its mutex is never held across process startup, HTTP, or shutdown.
+#[derive(Default)]
+pub struct LifecycleHandle {
+    canceled: AtomicBool,
+    state: Mutex<LifecycleState>,
+}
+#[derive(Default)]
+struct LifecycleState {
+    starting: bool,
+    session: Option<Session>,
+    failure: Option<String>,
+    cleanup_unconfirmed: bool,
+}
+impl LifecycleHandle {
+    pub fn begin_start(&self) -> Result<(), Error> {
+        let mut state = self.state.lock().unwrap();
+        if state.starting || state.session.is_some() || self.canceled.load(Ordering::Acquire) {
+            return Err(Error::Config(
+                "server lifecycle already started or closing".into(),
+            ));
+        }
+        state.starting = true;
+        Ok(())
+    }
+    /// Call on a worker after begin_start. Tracks ownership even before readiness.
+    pub fn start(&self, config: LaunchConfig) -> Result<Session, Error> {
+        let result = Session::start_cancelable(config, &self.canceled);
+        let mut state = self.state.lock().unwrap();
+        state.starting = false;
+        match &result {
+            Ok(session) => state.session = Some(session.clone()),
+            Err(error) => {
+                state.failure = Some(error.to_string());
+                state.cleanup_unconfirmed = matches!(error, Error::Shutdown(_));
+            }
+        }
+        result
+    }
+    pub fn failure(&self) -> Option<String> {
+        let state = self.state.lock().unwrap();
+        state
+            .failure
+            .clone()
+            .or_else(|| state.session.as_ref().and_then(Session::failure))
+    }
+    pub fn is_closing(&self) -> bool {
+        self.canceled.load(Ordering::Acquire)
+    }
+    /// Background-only quit barrier. Cancellation interrupts startup before another probe.
+    pub fn shutdown(&self) -> Result<(), Error> {
+        self.canceled.store(true, Ordering::Release);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let (starting, session) = {
+                let state = self.state.lock().unwrap();
+                if state.cleanup_unconfirmed {
+                    return Err(Error::Shutdown(state.failure.clone().unwrap_or_default()));
+                }
+                (state.starting, state.session.clone())
+            };
+            if let Some(session) = session {
+                return session.shutdown().inspect_err(|error| {
+                    self.state.lock().unwrap().failure = Some(error.to_string());
+                });
+            }
+            if !starting {
+                return Ok(());
+            }
+            if Instant::now() >= deadline {
+                let message =
+                    "startup cancellation cleanup is not confirmed; application remains open"
+                        .to_owned();
+                self.state.lock().unwrap().failure = Some(message.clone());
+                return Err(Error::Shutdown(message));
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
     }
 }
 
@@ -649,6 +752,126 @@ fn drain(
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn monitored_fixture(seconds: &str) -> (Session, u32) {
+        let child = Command::new("/bin/sleep").arg(seconds).spawn().unwrap();
+        let pid = child.id();
+        let server = OwnedServer {
+            child: Some(child),
+            client: ReadClient { http: reqwest::blocking::Client::new(), origin: "http://127.0.0.1:1".into(), alive: Arc::new(AtomicBool::new(true)), launch_generation: 1 },
+            logs: Arc::new(Mutex::new(VecDeque::new())), initial_vaults: serde_json::json!({"active":{},"vaults":[]}),
+            initial_storage: Some(serde_json::from_value(serde_json::json!({"phase":"initializing","read_only":true,"verified":0,"generation":1})).unwrap()), storage_error: None,
+        };
+        (Session::from_owned(server), pid)
+    }
+    #[test]
+    fn quit_after_readiness_does_not_wait_for_storage_initialization() {
+        let (session, pid) = monitored_fixture("30");
+        let owner = LifecycleHandle::default();
+        owner.state.lock().unwrap().session = Some(session.clone());
+        assert_eq!(
+            session.initial_storage.as_ref().unwrap().phase,
+            "initializing"
+        );
+        owner.shutdown().unwrap();
+        let mut status = 0;
+        assert_eq!(
+            unsafe { libc::waitpid(pid as i32, &mut status, libc::WNOHANG) },
+            -1
+        );
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::ECHILD)
+        );
+        assert!(matches!(session.client().notes(""), Err(Error::Stale)));
+    }
+    #[test]
+    fn idle_exit_reaches_lifecycle_observer_without_http_requests() {
+        let (session, _) = monitored_fixture("0.05");
+        let owner = LifecycleHandle::default();
+        owner.state.lock().unwrap().session = Some(session.clone());
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while owner.failure().is_none() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(owner.failure().unwrap().contains("Exited"));
+        assert!(matches!(session.client().notes(""), Err(Error::Stale)));
+        owner.shutdown().unwrap();
+    }
+    #[test]
+    fn lifecycle_cancel_before_spawn_and_errors_remain_observable() {
+        let owner = LifecycleHandle::default();
+        owner.begin_start().unwrap();
+        owner.canceled.store(true, Ordering::Release);
+        let config = LaunchConfig::new(
+            "/missing/never-executed".into(),
+            Vault::Path("/tmp/disposable".into()),
+            23000,
+        );
+        assert!(matches!(owner.start(config), Err(Error::Stale)));
+        assert!(owner.shutdown().is_ok());
+        assert!(owner.failure().is_some());
+        assert!(owner.begin_start().is_err());
+        owner.state.lock().unwrap().cleanup_unconfirmed = true;
+        assert!(matches!(owner.shutdown(), Err(Error::Shutdown(_))));
+    }
+
+    #[test]
+    fn quit_during_startup_cancels_and_reaps_exact_child() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!(
+            "track-startup-cancel-{}-{}",
+            std::process::id(),
+            NEXT_LAUNCH.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let executable = root.join("fixture");
+        let pid_file = root.join("pid");
+        std::fs::write(
+            &executable,
+            format!(
+                "#!/bin/sh\nprintf '%s' \"$$\" > '{}'\nexec /bin/sleep 30\n",
+                pid_file.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let port = (23000..25000)
+            .find(|port| {
+                TcpListener::bind(("127.0.0.1", *port)).is_ok()
+                    && TcpListener::bind(("127.0.0.1", *port + 1)).is_ok()
+            })
+            .unwrap();
+        let mut config = LaunchConfig::new(executable, Vault::Path(root.join("vault")), port);
+        config.config = Some(root.join("config"));
+        config.cache = Some(root.join("cache"));
+        let owner = Arc::new(LifecycleHandle::default());
+        owner.begin_start().unwrap();
+        let worker_owner = owner.clone();
+        let worker = thread::spawn(move || worker_owner.start(config));
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while !pid_file.exists() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(10));
+        }
+        let started = Instant::now();
+        owner.shutdown().unwrap();
+        assert!(started.elapsed() < Duration::from_secs(4));
+        assert!(matches!(worker.join().unwrap(), Err(Error::Stale)));
+        let pid = std::fs::read_to_string(&pid_file)
+            .unwrap()
+            .parse::<i32>()
+            .unwrap();
+        let mut status = 0;
+        assert_eq!(
+            unsafe { libc::waitpid(pid, &mut status, libc::WNOHANG) },
+            -1
+        );
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::ECHILD)
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn local_graph_preserves_scope_and_partial_state() {
         let (client, request) = mock(

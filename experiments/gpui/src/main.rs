@@ -50,15 +50,22 @@ struct Workspace {
     show_graph: bool,
     subscriptions: Vec<gpui::Subscription>,
     live: Option<live::Session>,
+    live_requested: bool,
+    accepted_storage_generation: Option<u64>,
     live_notes: Vec<live::Note>,
     search_results: Vec<live::Note>,
     search: gpui::Entity<search_input::SearchInput>,
     query_epoch: std::sync::Arc<std::sync::atomic::AtomicU64>,
-    quit_session: std::sync::Arc<std::sync::Mutex<Option<live::Session>>>,
+    quit_session: std::sync::Arc<live::LifecycleHandle>,
 }
 
 impl Workspace {
     fn load_graph(&mut self, cx: &mut Context<Self>) {
+        if live_mode_waiting(self.live_requested, self.live.is_some()) {
+            self.read_error = Some("Owned server is not ready; CLI fallback is disabled.".into());
+            cx.notify();
+            return;
+        }
         if self.live.is_some() {
             self.load_live_graph(cx);
             return;
@@ -108,6 +115,11 @@ impl Workspace {
     }
 
     fn load_notes(&mut self, cx: &mut Context<Self>) {
+        if live_mode_waiting(self.live_requested, self.live.is_some()) {
+            self.read_error = Some("Owned server is not ready; CLI fallback is disabled.".into());
+            cx.notify();
+            return;
+        }
         if self.live.is_some() {
             self.load_live_notes(cx);
             return;
@@ -212,17 +224,18 @@ impl Workspace {
     }
 }
 
-fn request_quit(cx: &mut App, owner: std::sync::Arc<std::sync::Mutex<Option<live::Session>>>) {
-    let Some(session) = owner.lock().unwrap().clone() else {
-        cx.quit();
-        return;
-    };
+fn live_mode_waiting(requested: bool, has_session: bool) -> bool {
+    requested && !has_session
+}
+
+fn request_quit(cx: &mut App, owner: std::sync::Arc<live::LifecycleHandle>) {
     let job = cx
         .background_executor()
-        .spawn(async move { session.shutdown() });
+        .spawn(async move { owner.shutdown() });
     cx.spawn(async move |cx| {
         if let Err(error) = job.await {
             eprintln!("Server shutdown incomplete: {error}");
+            return; // Lifecycle polling publishes the error; never claim a completed quit.
         }
         let _ = cx.update(|cx| cx.quit());
     })
@@ -292,7 +305,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(cache) = cache {
             backend = backend.with_cache(cache)?;
         }
-        (fixture(0), "explicit vault / CLI".into(), Some(backend))
+        (
+            fixture(0),
+            if live_config.is_some() {
+                "explicit vault / owned HTTP".into()
+            } else {
+                "explicit vault / CLI".into()
+            },
+            Some(backend),
+        )
     } else if args.len() == 1 {
         (
             serde_json::from_reader(std::fs::File::open(&args[0])?)?,
@@ -305,7 +326,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("expected a single JSON path or explicit vault options".into());
     };
     Application::new().run(move |cx: &mut App| {
-        let quit_session = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let quit_session = std::sync::Arc::new(live::LifecycleHandle::default());
         let quit_handle = quit_session.clone();
         cx.on_action(move |_: &Quit, cx| request_quit(cx, quit_handle.clone()));
         cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
@@ -320,7 +341,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 titlebar: None,
                 ..Default::default()
             },
-            |_, cx| {
+            |window, cx| {
+                let close_owner = quit_session.clone();
+                window.on_window_should_close(cx, move |_, cx| {
+                    request_quit(cx, close_owner.clone());
+                    false // Keep the window available to report shutdown failures.
+                });
                 cx.new(|cx| {
                     let backend_is_fixture = backend.is_none();
                     let mut workspace = Workspace {
@@ -350,6 +376,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         show_graph: false,
                         subscriptions: Vec::new(),
                         live: None,
+                        live_requested: live_config.is_some(),
+                        accepted_storage_generation: None,
                         live_notes: Vec::new(),
                         search_results: Vec::new(),
                         search: cx.new(search_input::SearchInput::new),
@@ -394,10 +422,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             },
         )
         .expect("open GPUI window");
-        cx.on_window_closed(move |cx| {
-            request_quit(cx, quit_session.clone());
-        })
-        .detach();
         cx.activate(true);
     });
     Ok(())
@@ -406,6 +430,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn requested_live_mode_never_falls_back_to_cli_before_or_after_startup_failure() {
+        assert!(live_mode_waiting(true, false));
+        assert!(!live_mode_waiting(true, true));
+        assert!(!live_mode_waiting(false, false));
+    }
     #[test]
     fn accepts_cli_snapshot_and_partial_read() {
         let s: Snapshot = serde_json::from_str(r#"{"notes":[{"note_id":1785024017000,"title":"日本語","path":"/ignored","file_kind":"note"}],"read_state":{"partial":true,"issues":[]}}"#).unwrap();
