@@ -1,4 +1,5 @@
-//! Native GPUI canvas. Initial circular layout only: no force-directed simulation.
+//! Native GPUI canvas. Circular fallback followed by a bounded background force snapshot.
+//! This is independent initial relaxation, not continuous physics or compatibility parity.
 //! Dragging directly repositions a node and its attached edges; neighbors do not elastically
 //! rearrange. Positions last only until graph data is replaced. Leaving the canvas ends a drag.
 use crate::graph::{self, Graph, LayoutNode, Point, Viewport};
@@ -20,6 +21,8 @@ pub struct GraphView {
     hovered: Option<i64>,
     pan_from: Option<Point>,
     node_drag: Option<(i64, Point)>,
+    layout_generation: u64,
+    layout_status: &'static str,
 }
 impl gpui::EventEmitter<OpenNote> for GraphView {}
 
@@ -35,10 +38,39 @@ impl GraphView {
             hovered: None,
             pan_from: None,
             node_drag: None,
+            layout_generation: 0,
+            layout_status: "circular initial layout",
         }
     }
     pub fn set_graph(&mut self, graph: Graph, cx: &mut Context<Self>) {
+        let generation = self.layout_generation.wrapping_add(1);
         *self = Self::new(graph);
+        self.layout_generation = generation;
+        // Keep oversized local graphs intact; do not silently apply overview filtering.
+        if self.nodes.len() > 1000 {
+            self.layout_status = "circular fallback · force limit 1,000 nodes";
+            cx.notify();
+            return;
+        }
+        self.layout_status = "settling in background";
+        let graph = self.graph.clone();
+        let job = cx.background_executor().spawn(async move {
+            graph::force_layout(&graph, graph::ForceOptions::default(), &BTreeMap::new())
+        });
+        cx.spawn(async move |this, cx| {
+            let nodes = job.await;
+            let _ = this.update(cx, |this, cx| {
+                // Graph replacement or manual node movement makes an old result stale.
+                if this.layout_generation != generation {
+                    return;
+                }
+                this.nodes = nodes;
+                this.layout_status = "force snapshot · drag has no elastic physics";
+                this.hovered = None;
+                cx.notify();
+            });
+        })
+        .detach();
         cx.notify();
     }
     pub fn selected(&self) -> Option<i64> {
@@ -101,6 +133,8 @@ impl Render for GraphView {
                 let p = this.local(event.position);
                 if event.dragging() {
                     if let Some((id, previous)) = this.node_drag {
+                        this.layout_generation = this.layout_generation.wrapping_add(1);
+                        this.layout_status = "manual positions · no elastic physics";
                         graph::drag_node(
                             &mut this.nodes,
                             id,
@@ -245,6 +279,7 @@ impl Render for GraphView {
                     .bg(rgb(0x18222c)).border_1().border_color(rgb(0x30404e))
                     .text_color(rgb(0xe7edf4)).text_sm()
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .child(div().text_xs().text_color(rgb(0x9daebe)).child(self.layout_status))
                     .children(detail.map(|node| {
                         let id = node.note_id;
                         div().flex().flex_col().gap_1()

@@ -1,6 +1,6 @@
 //! Native, read-only CommonMark subset. Unsupported content stays inert and visible.
-use gpui::{Div, div, prelude::*, px, rgb};
-use pulldown_cmark::{Event, Parser, Tag};
+use gpui::{Div, FontStyle, FontWeight, HighlightStyle, StyledText, div, prelude::*, px, rgb};
+use pulldown_cmark::{Alignment, Event, Options, Parser, Tag};
 use std::ops::Range;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -9,15 +9,59 @@ pub enum BlockKind {
     Paragraph,
     Code,
     Literal,
+    Table,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Block {
     pub kind: BlockKind,
     pub text: String,
     pub indent: usize,
     pub quoted: bool,
     pub marker: Option<String>,
+    pub spans: Vec<Span>,
+    pub table: Option<Table>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct InlineStyle {
+    pub emphasis: bool,
+    pub strong: bool,
+    pub code: bool,
+    pub link: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Span {
+    /// UTF-8 byte range into the block/cell text, not character indices.
+    pub range: Range<usize>,
+    pub style: InlineStyle,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Cell {
+    pub text: String,
+    pub spans: Vec<Span>,
+}
+
+impl Cell {
+    fn append(&mut self, text: &str, style: InlineStyle) {
+        let start = self.text.len();
+        self.text.push_str(text);
+        if !text.is_empty() && style != InlineStyle::default() {
+            self.spans.push(Span {
+                range: start..self.text.len(),
+                style,
+            });
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Table {
+    pub alignments: Vec<Alignment>,
+    /// First row is the header.
+    pub rows: Vec<Vec<Cell>>,
 }
 
 struct Node<'a> {
@@ -46,32 +90,88 @@ fn nodes<'a>(events: &mut impl Iterator<Item = (Event<'a>, Range<usize>)>) -> Ve
     result
 }
 
-fn inline(node: &Node<'_>, source: &str, out: &mut String) {
+fn inline(node: &Node<'_>, source: &str, out: &mut Cell, mut style: InlineStyle) {
     match &node.event {
-        Event::Start(Tag::Image { .. }) => out.push_str(&source[node.range.clone()]),
+        Event::Start(Tag::Image { .. }) => out.append(&source[node.range.clone()], style),
         Event::Start(Tag::Link { dest_url, .. }) => {
+            style.link = true;
             for child in &node.children {
-                inline(child, source, out);
+                inline(child, source, out, style);
             }
-            out.push_str(" (");
-            out.push_str(dest_url);
-            out.push(')');
+            out.append(&format!(" ({dest_url})"), style);
         }
-        Event::Start(_) => {
+        Event::Start(tag) => {
+            match tag {
+                Tag::Emphasis => style.emphasis = true,
+                Tag::Strong => style.strong = true,
+                _ => {}
+            }
             for child in &node.children {
-                inline(child, source, out);
+                inline(child, source, out, style);
             }
         }
-        Event::Text(text) | Event::Code(text) | Event::Html(text) | Event::InlineHtml(text) => {
-            out.push_str(text)
+        Event::Code(text) => {
+            style.code = true;
+            out.append(text, style);
         }
-        Event::SoftBreak | Event::HardBreak => out.push('\n'),
-        _ => out.push_str(&source[node.range.clone()]),
+        Event::Text(text) | Event::Html(text) | Event::InlineHtml(text) => out.append(text, style),
+        Event::SoftBreak | Event::HardBreak => out.append("\n", style),
+        _ => out.append(&source[node.range.clone()], style),
     }
 }
 
 fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut Vec<Block>) {
     match &node.event {
+        Event::Start(Tag::Table(alignments)) => {
+            // GFM ignores excess row cells. Keep those tables as source instead
+            // of silently hiding content that the parser did not represent.
+            let unrepresented = node.children.iter().any(|row| {
+                row.children.last().is_some_and(|cell| {
+                    !source[cell.range.end..row.range.end]
+                        .trim_matches(|ch: char| ch == '|' || ch.is_whitespace())
+                        .is_empty()
+                })
+            });
+            if unrepresented {
+                out.push(Block {
+                    kind: BlockKind::Literal,
+                    text: source[node.range.clone()].into(),
+                    indent,
+                    quoted,
+                    marker: None,
+                    spans: vec![],
+                    table: None,
+                });
+                return;
+            }
+            let rows = node
+                .children
+                .iter()
+                .map(|row| {
+                    row.children
+                        .iter()
+                        .map(|cell| {
+                            let mut content = Cell::default();
+                            inline(cell, source, &mut content, InlineStyle::default());
+                            content
+                        })
+                        .collect()
+                })
+                .collect();
+            out.push(Block {
+                kind: BlockKind::Table,
+                text: source[node.range.clone()].into(),
+                indent,
+                quoted,
+                marker: None,
+                spans: vec![],
+                table: Some(Table {
+                    alignments: alignments.clone(),
+                    rows,
+                }),
+            });
+            return;
+        }
         Event::Start(Tag::List(start)) => {
             for (index, child) in node.children.iter().enumerate() {
                 let before = out.len();
@@ -86,7 +186,7 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
         }
         Event::Start(Tag::Item) => {
             // Tight lists omit paragraph tags. Group inline runs into one paragraph.
-            let mut run = String::new();
+            let mut run = Cell::default();
             for child in &node.children {
                 if matches!(
                     child.event,
@@ -96,12 +196,13 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
                             | Tag::CodeBlock(_)
                             | Tag::List(_)
                             | Tag::BlockQuote(_)
+                            | Tag::Table(_)
                     )
                 ) {
                     flush_run(&mut run, indent, quoted, out);
                     blocks(child, source, indent, quoted, out);
                 } else {
-                    inline(child, source, &mut run);
+                    inline(child, source, &mut run, InlineStyle::default());
                 }
             }
             flush_run(&mut run, indent, quoted, out);
@@ -121,26 +222,30 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
         Event::Start(Tag::CodeBlock(_)) => BlockKind::Code,
         _ => BlockKind::Literal,
     };
-    let mut text = String::new();
+    let mut content = Cell::default();
     if kind == BlockKind::Literal {
-        text.push_str(&source[node.range.clone()]);
+        content.text.push_str(&source[node.range.clone()]);
     } else {
-        inline(node, source, &mut text);
+        inline(node, source, &mut content, InlineStyle::default());
     }
     out.push(Block {
         kind,
-        text,
+        text: content.text,
+        spans: content.spans,
+        table: None,
         indent,
         quoted,
         marker: None,
     });
 }
 
-fn flush_run(run: &mut String, indent: usize, quoted: bool, out: &mut Vec<Block>) {
-    if !run.is_empty() {
+fn flush_run(run: &mut Cell, indent: usize, quoted: bool, out: &mut Vec<Block>) {
+    if !run.text.is_empty() {
         out.push(Block {
             kind: BlockKind::Paragraph,
-            text: std::mem::take(run),
+            text: std::mem::take(&mut run.text),
+            spans: std::mem::take(&mut run.spans),
+            table: None,
             indent,
             quoted,
             marker: None,
@@ -148,10 +253,10 @@ fn flush_run(run: &mut String, indent: usize, quoted: bool, out: &mut Vec<Block>
     }
 }
 
-/// Parse without I/O. CommonMark extensions intentionally remain literal text.
+/// Parse CommonMark plus tables without I/O. Other extensions remain literal.
 /// Reference definitions omitted by the parser are retained as source fallback.
 pub fn parse(source: &str) -> Vec<Block> {
-    let tree = nodes(&mut Parser::new(source).into_offset_iter());
+    let tree = nodes(&mut Parser::new_ext(source, Options::ENABLE_TABLES).into_offset_iter());
     let mut result = Vec::new();
     let mut end = 0;
     for node in &tree {
@@ -168,6 +273,8 @@ fn fallback(text: &str, out: &mut Vec<Block>) {
         out.push(Block {
             kind: BlockKind::Literal,
             text: text.to_owned(),
+            spans: vec![],
+            table: None,
             indent: 0,
             quoted: false,
             marker: None,
@@ -189,6 +296,9 @@ pub fn render(blocks: &[Block]) -> Div {
             if block.quoted {
                 row = row.border_l_2().border_color(rgb(0x7ec9b5)).pl_3();
             }
+            if let Some(table) = &block.table {
+                return row.child(render_table(table));
+            }
             let text = block.marker.as_ref().map_or_else(
                 || block.text.clone(),
                 |marker| format!("{marker} {}", block.text),
@@ -204,15 +314,133 @@ pub fn render(blocks: &[Block]) -> Div {
                 BlockKind::Code | BlockKind::Literal => {
                     row.font_family("Menlo").text_sm().p_3().bg(rgb(0x18222c))
                 }
-                BlockKind::Paragraph => row.text_base(),
+                BlockKind::Paragraph | BlockKind::Table => row.text_base(),
             };
-            row.child(text)
+            let offset = text.len() - block.text.len();
+            row.child(styled_text(text, &block.spans, offset))
+        }))
+}
+
+fn styled_text(text: String, spans: &[Span], offset: usize) -> StyledText {
+    StyledText::new(text).with_highlights(spans.iter().map(|span| {
+        let s = span.style;
+        (
+            span.range.start + offset..span.range.end + offset,
+            HighlightStyle {
+                font_weight: s.strong.then_some(FontWeight::BOLD),
+                font_style: s.emphasis.then_some(FontStyle::Italic),
+                background_color: s.code.then(|| rgb(0x30404e).into()),
+                color: if s.link {
+                    Some(rgb(0x7ec9b5).into())
+                } else if s.code {
+                    Some(rgb(0xf1cf91).into())
+                } else {
+                    None
+                },
+                ..Default::default()
+            },
+        )
+    }))
+}
+
+fn render_table(table: &Table) -> Div {
+    div()
+        .w_full()
+        .min_w_0()
+        .flex()
+        .flex_col()
+        .border_1()
+        .border_color(rgb(0x30404e))
+        .children(table.rows.iter().enumerate().map(|(index, cells)| {
+            let mut row = div().w_full().min_w_0().flex();
+            if index == 0 {
+                row = row.bg(rgb(0x254853)).font_weight(FontWeight::BOLD);
+            }
+            row.children(cells.iter().enumerate().map(|(column, cell)| {
+                let mut view = div()
+                    .flex_1()
+                    .min_w_0()
+                    .p_2()
+                    .border_b_1()
+                    .border_r_1()
+                    .border_color(rgb(0x30404e));
+                view = match table.alignments.get(column) {
+                    Some(Alignment::Center) => view.text_center(),
+                    Some(Alignment::Right) => view.text_right(),
+                    _ => view,
+                };
+                view.child(styled_text(cell.text.clone(), &cell.spans, 0))
+            }))
         }))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn inline_styles_are_composed_on_utf8_byte_ranges() {
+        let parsed = parse("- 日本語 **太い *斜体🦀*** と `code` [**link**](https://example.com)");
+        let block = &parsed[0];
+        assert_eq!(
+            block.text,
+            "日本語 太い 斜体🦀 と code link (https://example.com)"
+        );
+        let styled = |text: &str| {
+            block
+                .spans
+                .iter()
+                .find(|span| &block.text[span.range.clone()] == text)
+                .unwrap()
+                .style
+        };
+        assert!(styled("太い ").strong);
+        assert!(styled("斜体🦀").strong && styled("斜体🦀").emphasis);
+        assert!(styled("code").code);
+        assert!(styled("link").link && styled("link").strong);
+        assert!(styled(" (https://example.com)").link);
+        assert!(
+            block
+                .spans
+                .windows(2)
+                .all(|pair| pair[0].range.end <= pair[1].range.start)
+        );
+    }
+    #[test]
+    fn tables_preserve_cells_styles_alignment_and_source() {
+        let source = "| Left | Center | Right |\n|:---|:---:|---:|\n| 日本語 | **bold** | `a` |\n| x | | [link](https://example.com) |";
+        let parsed = parse(source);
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].kind, BlockKind::Table);
+        assert_eq!(parsed[0].text, source);
+        let table = parsed[0].table.as_ref().unwrap();
+        assert_eq!(
+            table.alignments,
+            vec![Alignment::Left, Alignment::Center, Alignment::Right]
+        );
+        assert_eq!(table.rows.len(), 3);
+        assert_eq!(table.rows[1][0].text, "日本語");
+        assert!(table.rows[1][1].spans[0].style.strong);
+        assert!(table.rows[1][2].spans[0].style.code);
+        assert!(table.rows[2][1].text.is_empty());
+        assert_eq!(table.rows[2][2].text, "link (https://example.com)");
+    }
+    #[test]
+    fn excess_table_cells_fall_back_without_data_loss() {
+        let source = "| A | B |\n|---|---|\n| one | two | must not disappear |";
+        let parsed = parse(source);
+        assert_eq!(parsed[0].kind, BlockKind::Literal);
+        assert_eq!(parsed[0].text, source);
+    }
+    #[test]
+    fn malformed_table_is_visible_and_code_is_not_styled() {
+        assert_eq!(
+            parse("| a | b |\nnot a delimiter")[0].text,
+            "| a | b |\nnot a delimiter"
+        );
+        let parsed = parse("```\n**plain** `plain`\n```");
+        assert!(parsed[0].spans.is_empty());
+        assert_eq!(parsed[0].text, "**plain** `plain`\n");
+    }
     #[test]
     fn headings_and_unicode() {
         let parsed = parse("# 日本語 🦀\n\n###### Six\n\n第一行\n第二行");
@@ -262,7 +490,6 @@ mod tests {
             "![alt](https://example.com/image.png)",
             "<script>evil()</script>",
             "$$x^2$$",
-            "| a | b |\n|---|---|\n| 1 | 2 |",
             "```mermaid\ngraph TD; A-->B\n```",
             "[unused]: https://example.com",
         ] {

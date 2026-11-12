@@ -165,3 +165,9 @@ iterations: 100 nodes took 5.307 ms total (0.531 µs/iteration), and 1,000 nodes
 57.184 ms (5.718 µs/iteration). These exclude GPUI painting, layout, presentation,
 and input latency, and are not evidence of a faster renderer than the web client.
 The ignored `geometry_benchmark` test provides a repeatable CPU-only probe.
+
+A bounded independent force solver now settles up to 1,000 nodes off the UI thread.
+Generation checks discard results after replacement or dragging; larger graphs keep
+all nodes in the circular fallback. Release CPU measurements for 80 iterations were
+1.889 ms at 100 nodes and 156.626 ms at 1,000 nodes. This initial O(N²) solve is never
+run per pointer event. Dragging still does not provide elastic neighboring movement.

@@ -5,7 +5,10 @@ use gpui::{
 mod backend;
 mod graph;
 mod graph_view;
+mod live;
 mod markdown;
+mod search_input;
+mod workspace_live;
 use backend::{Backend, Note, Snapshot};
 actions!(native_workspace, [Quit]);
 
@@ -38,6 +41,11 @@ struct Workspace {
     graph_view: gpui::Entity<graph_view::GraphView>,
     show_graph: bool,
     subscriptions: Vec<gpui::Subscription>,
+    live: Option<live::Session>,
+    live_notes: Vec<live::Note>,
+    search: gpui::Entity<search_input::SearchInput>,
+    query_epoch: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    quit_session: std::sync::Arc<std::sync::Mutex<Option<live::Session>>>,
 }
 
 impl Workspace {
@@ -81,6 +89,10 @@ impl Workspace {
     }
 
     fn load_notes(&mut self, cx: &mut Context<Self>) {
+        if self.live.is_some() {
+            self.load_live_notes(cx);
+            return;
+        }
         let Some(backend) = self.backend.clone() else {
             return;
         };
@@ -124,6 +136,10 @@ impl Workspace {
         self.selected = Some(index);
         self.request += 1;
         self.content.clear();
+        if self.live.is_some() {
+            self.select_live(index, cx);
+            return;
+        }
         let Some(backend) = self.backend.clone() else {
             cx.notify();
             return;
@@ -167,13 +183,14 @@ impl Render for Workspace {
                 .child(div().text_xl().child("TRACK / Native canvas"))
                 .child(div().text_sm().text_color(rgb(0x9daebe)).child(format!(
                     "GPUI experiment · {} notes · {} · {}", self.snapshot.notes.len(), self.source,
-                    if partial { "WARNING: partial snapshot" } else if self.backend.is_some() { "read-only / manual refresh" } else { "read-only snapshot" }))))
+                    if partial { "WARNING: partial snapshot" } else if self.live.is_some() { "owned HTTP server / read-only" } else if self.backend.is_some() { "read-only / manual refresh" } else { "read-only snapshot" }))))
             .child(div().flex().p_3().gap_3()
                 .child(div().id("reload").cursor_pointer().text_color(rgb(0x7ec9b5)).child("Reload vault")
                     .on_click(cx.listener(|this, _, _, cx| this.load_notes(cx))))
-                .child(div().id("graph-toggle").cursor_pointer().text_color(rgb(0x7ec9b5)).child(if self.show_graph { "Read note" } else { "Local graph" })
-                    .on_click(cx.listener(|this, _, _, cx| { if this.show_graph { this.show_graph = false; this.graph_request += 1; cx.notify(); } else { this.load_graph(cx); } })))
-                .child(div().id("status").max_h(px(80.)).overflow_y_scroll().text_sm().child(format!("{} {}", self.list_status, self.status))))
+                .when(self.live.is_none(), |bar| bar.child(div().id("graph-toggle").cursor_pointer().text_color(rgb(0x7ec9b5)).child(if self.show_graph { "Read note" } else { "Local graph" })
+                    .on_click(cx.listener(|this, _, _, cx| { if this.show_graph { this.show_graph = false; this.graph_request += 1; cx.notify(); } else { this.load_graph(cx); } }))))
+                .child(div().id("status").flex_1().min_w_0().max_h(px(80.)).overflow_y_scroll().text_sm().child(format!("{} {}", self.list_status, self.status))))
+            .when(self.live.is_some(), |root| root.child(div().px_3().pb_3().child("Search all served vaults").child(self.search.clone())))
             .child(div().flex().flex_1().min_h_0()
                 .child(div().w(px(360.)).h_full().border_r_1().border_color(rgb(0x30404e))
                     .child(uniform_list("notes", self.snapshot.notes.len(), cx.processor(|this, range: std::ops::Range<usize>, _, cx| {
@@ -190,16 +207,33 @@ impl Render for Workspace {
                     })).h_full()))
                 .child(div().flex_1().min_w_0().p_8().flex().flex_col().gap_4()
                     .child(div().text_sm().text_color(rgb(0x7ec9b5)).child("NOTE INSPECTOR"))
-                    .child(div().text_2xl().child(note.as_ref().map(|n| n.title.clone()).unwrap_or("No notes in this snapshot".into())))
+                    .child(div().text_2xl().child(note.as_ref().map(|n| n.title.clone()).unwrap_or("Select a note to read".into())))
                     .child(div().text_color(rgb(0x9daebe)).child(note.as_ref().map(|n| format!("ID {}  ·  {}  ·  {}\n{}", n.note_id, n.file_kind, n.tags.join(" / "), n.path.display())).unwrap_or_default()))
                     .child(div().text_sm().text_color(rgb(0x9daebe)).child(
-                        if self.backend.is_some() { "Portable Markdown · read only · not editable source" } else { "Snapshot mode includes metadata only. Use --vault and --track-bin to read note content." }))
+                        if self.live.is_some() { "Raw Markdown · HTTP read only · no editing yet" } else if self.backend.is_some() { "Portable Markdown · read only · not editable source" } else { "Snapshot mode includes metadata only. Use --vault and --track-bin to read note content." }))
                     .when(self.show_graph, |panel| panel.child(div().flex_1().min_h_0().child(self.graph_view.clone())))
                     .when(!self.show_graph, |panel| panel.child(div().id(("content", self.request as usize)).flex_1().min_h_0().overflow_y_scroll().text_sm()
                         .child(markdown::render(&self.content))))))
             .child(div().p_3().text_xs().border_t_1().border_color(rgb(0x30404e))
                 .child(format!("Last list layout: {} visible rows / {} total · Select to refresh this counter · Close window to quit", self.rendered_rows, self.snapshot.notes.len())))
     }
+}
+
+fn request_quit(cx: &mut App, owner: std::sync::Arc<std::sync::Mutex<Option<live::Session>>>) {
+    let Some(session) = owner.lock().unwrap().clone() else {
+        cx.quit();
+        return;
+    };
+    let job = cx
+        .background_executor()
+        .spawn(async move { session.shutdown() });
+    cx.spawn(async move |cx| {
+        if let Err(error) = job.await {
+            eprintln!("Server shutdown incomplete: {error}");
+        }
+        let _ = cx.update(|cx| cx.quit());
+    })
+    .detach();
 }
 
 struct StderrLog;
@@ -222,11 +256,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().is_some_and(|a| a == "--help") {
         println!(
-            "track-gpui-poc [notes.json]\ntrack-gpui-poc --vault /absolute/vault --track-bin /absolute/track [--config /absolute/config] [--cache /absolute/cache]\nNo arguments: synthetic fixture. Vault mode is read-only; CLI may refresh derived caches."
+            "track-gpui-poc [notes.json]\ntrack-gpui-poc --vault /absolute/vault --track-bin /absolute/track [--config /absolute/config] [--cache /absolute/cache] [--server-port 19000]\nNo arguments: synthetic fixture. Vault mode is read-only; CLI may refresh derived caches."
         );
         return Ok(());
     }
+    let mut live_config = None;
     let (snapshot, source, backend) = if args.first().is_some_and(|a| a.starts_with("--")) {
+        let mut server_port = None;
         let mut vault = None;
         let mut executable = None;
         let mut config = None;
@@ -235,12 +271,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         while let Some(flag) = iter.next() {
             let value = iter.next().ok_or("missing option value")?;
             match flag.as_str() {
+                "--server-port" => server_port = Some(value.parse::<u16>()?),
                 "--vault" => vault = Some(value.into()),
                 "--track-bin" => executable = Some(value.into()),
                 "--config" => config = Some(value.into()),
                 "--cache" => cache = Some(value.into()),
                 _ => return Err(format!("unknown option: {flag}").into()),
             }
+        }
+        if let Some(port) = server_port {
+            let mut config_live = live::LaunchConfig::new(
+                executable.clone().ok_or("--track-bin is required")?,
+                live::Vault::Path(vault.clone().ok_or("--vault is required")?),
+                port,
+            );
+            config_live.config = config.clone();
+            config_live.cache = cache.clone();
+            live_config = Some(config_live);
         }
         let mut backend = Backend::new(
             executable.ok_or("--track-bin is required")?,
@@ -265,7 +312,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("expected a single JSON path or explicit vault options".into());
     };
     Application::new().run(move |cx: &mut App| {
-        cx.on_action(|_: &Quit, cx| cx.quit());
+        let quit_session = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let quit_handle = quit_session.clone();
+        cx.on_action(move |_: &Quit, cx| request_quit(cx, quit_handle.clone()));
         cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
         cx.set_menus(vec![Menu {
             name: "Track Native".into(),
@@ -300,6 +349,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }),
                         show_graph: false,
                         subscriptions: Vec::new(),
+                        live: None,
+                        live_notes: Vec::new(),
+                        search: cx.new(search_input::SearchInput::new),
+                        query_epoch: Default::default(),
+                        quit_session: quit_session.clone(),
                     };
                     workspace.subscriptions.push(cx.subscribe(
                         &workspace.graph_view,
@@ -318,14 +372,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                         },
                     ));
-                    workspace.load_notes(cx);
+                    workspace.subscriptions.push(cx.subscribe(
+                        &workspace.search,
+                        |this: &mut Workspace, _, event: &search_input::SearchChanged, cx| {
+                            this.search_live(event.0.clone(), cx)
+                        },
+                    ));
+                    if let Some(config) = live_config {
+                        workspace.start_live(config, cx);
+                    } else {
+                        workspace.load_notes(cx);
+                    }
                     workspace
                 })
             },
         )
         .expect("open GPUI window");
-        cx.on_window_closed(|cx| {
-            cx.quit();
+        cx.on_window_closed(move |cx| {
+            request_quit(cx, quit_session.clone());
         })
         .detach();
         cx.activate(true);

@@ -500,3 +500,180 @@ mod interaction_measurements {
         }
     }
 }
+
+/// Bounded initial relaxation, intended for a background worker, never pointer events.
+/// This independent generic force model does not claim compatibility with other renderers.
+#[derive(Clone, Copy, Debug)]
+pub struct ForceOptions {
+    pub iterations: usize,
+    pub seed: u64,
+    pub anchor_center: bool,
+}
+impl Default for ForceOptions {
+    fn default() -> Self {
+        Self {
+            iterations: 80,
+            seed: 42,
+            anchor_center: true,
+        }
+    }
+}
+
+/// Return an owned layout snapshot. `fixed` positions support preserving manually dragged
+/// nodes across a new settle. Explicit fixed positions override the automatic center anchor.
+/// Work is capped at 200 iterations; callers should use overview's 1000-node cap.
+/// The caller owns cancellation/stale-generation rejection when publishing the snapshot.
+pub fn force_layout(
+    graph: &Graph,
+    options: ForceOptions,
+    fixed: &BTreeMap<i64, Point>,
+) -> Vec<LayoutNode> {
+    let mut nodes = circular_layout(graph);
+    let mut state = options.seed.max(1);
+    let mut random = || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        (state >> 11) as f64 / ((1u64 << 53) as f64)
+    };
+    // Seeded two-dimensional cloud avoids the symmetry of a single circle. Sorted node
+    // order makes this stable even when the CLI changes its JSON node ordering.
+    let spread = (nodes.len() as f64).sqrt().max(1.) * 18.;
+    let pins: Vec<_> = nodes
+        .iter()
+        .map(|n| {
+            fixed
+                .get(&n.node.note_id)
+                .copied()
+                .filter(|p| p.finite())
+                .or_else(|| {
+                    (options.anchor_center && n.node.note_id == graph.center_id)
+                        .then_some(Point::default())
+                })
+        })
+        .collect();
+    for (i, node) in nodes.iter_mut().enumerate() {
+        node.position = pins[i].unwrap_or_else(|| Point {
+            x: (random() - 0.5) * spread,
+            y: (random() - 0.5) * spread,
+        });
+    }
+    let index: BTreeMap<_, _> = nodes
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (n.node.note_id, i))
+        .collect();
+    // Undirected unique springs: duplicate/reversed edges must not multiply strength.
+    let springs: BTreeSet<_> = graph
+        .edges
+        .iter()
+        .filter_map(|e| {
+            let (&a, &b) = (index.get(&e.source_id)?, index.get(&e.target_id)?);
+            (a != b).then_some((a.min(b), a.max(b)))
+        })
+        .collect();
+    let iterations = options.iterations.min(200);
+    let mut forces = vec![Point::default(); nodes.len()];
+    for step in 0..iterations {
+        for (force, node) in forces.iter_mut().zip(&nodes) {
+            *force = Point {
+                x: -node.position.x * 0.015,
+                y: -node.position.y * 0.015,
+            };
+        }
+        for a in 0..nodes.len() {
+            for b in a + 1..nodes.len() {
+                let dx = nodes[a].position.x - nodes[b].position.x;
+                let dy = nodes[a].position.y - nodes[b].position.y;
+                let squared = (dx * dx + dy * dy).max(4.);
+                let magnitude = 1800. / (squared * squared.sqrt());
+                let (fx, fy) = (dx * magnitude, dy * magnitude);
+                forces[a].x += fx;
+                forces[a].y += fy;
+                forces[b].x -= fx;
+                forces[b].y -= fy;
+            }
+        }
+        for &(a, b) in &springs {
+            let dx = nodes[b].position.x - nodes[a].position.x;
+            let dy = nodes[b].position.y - nodes[a].position.y;
+            let distance = dx.hypot(dy).max(0.001);
+            let magnitude = (distance - 70.) * 0.035 / distance;
+            let (fx, fy) = (dx * magnitude, dy * magnitude);
+            forces[a].x += fx;
+            forces[a].y += fy;
+            forces[b].x -= fx;
+            forces[b].y -= fy;
+        }
+        let max_step = 8. * (1. - step as f64 / iterations.max(1) as f64) + 0.5;
+        for (i, node) in nodes.iter_mut().enumerate() {
+            if let Some(pin) = pins[i] {
+                node.position = pin;
+                continue;
+            }
+            let length = forces[i].x.hypot(forces[i].y);
+            let scale = if length > max_step {
+                max_step / length
+            } else {
+                1.
+            };
+            let next = Point {
+                x: node.position.x + forces[i].x * scale,
+                y: node.position.y + forces[i].y * scale,
+            };
+            if next.finite() {
+                node.position = next;
+            }
+        }
+    }
+    nodes
+}
+
+#[cfg(test)]
+mod force_tests {
+    use super::*;
+    #[test]
+    fn deterministic_finite_disconnected_and_anchored() {
+        let mut graph = fixture(40);
+        graph.edges.truncate(10);
+        let first = force_layout(&graph, ForceOptions::default(), &BTreeMap::new());
+        graph.nodes.reverse();
+        graph.edges.reverse();
+        let second = force_layout(&graph, ForceOptions::default(), &BTreeMap::new());
+        for (a, b) in first.iter().zip(&second) {
+            assert_eq!(a.position, b.position);
+            assert!(a.position.finite());
+        }
+        assert_eq!(first[0].position, Point::default());
+        assert_ne!(first[30].position, first[31].position);
+        assert_eq!(first.len(), 40);
+        assert!(
+            force_layout(&Graph::default(), ForceOptions::default(), &BTreeMap::new()).is_empty()
+        );
+    }
+    #[test]
+    fn pinned_drag_position_survives_relaxation() {
+        let fixed = BTreeMap::from([
+            (2, Point { x: 120., y: -95. }),
+            (1, Point { x: 20., y: 30. }),
+        ]);
+        let layout = force_layout(&fixture(5), ForceOptions::default(), &fixed);
+        assert_eq!(layout[1].position, fixed[&2]);
+        assert_eq!(layout[0].position, fixed[&1]);
+    }
+    #[test]
+    #[ignore = "manual release timing; background initial settle only"]
+    fn force_benchmark() {
+        for count in [100, 1000] {
+            let graph = fixture(count);
+            let start = std::time::Instant::now();
+            let layout = force_layout(&graph, ForceOptions::default(), &BTreeMap::new());
+            std::hint::black_box(&layout);
+            eprintln!(
+                "force benchmark: {count} nodes, 80 iterations, {:.3} ms",
+                start.elapsed().as_secs_f64() * 1000.
+            );
+            assert!(layout.iter().all(|n| n.position.finite()));
+        }
+    }
+}

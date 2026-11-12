@@ -1,7 +1,7 @@
 # GPUI rendering experiment
 
 An isolated, read-only native workspace using [Zed's GPUI](https://www.gpui.rs/).
-It does not replace Track.app, start a server, or change the vault. Its purpose is to
+It does not replace Track.app. Server mode is opt-in and remains read-only. Its purpose is to
 validate GPU-rendered interaction and virtualized lists before choosing a larger
 native architecture. No claims of improved frame rate are made yet.
 
@@ -35,7 +35,7 @@ cargo run --release --manifest-path experiments/gpui/Cargo.toml -- /tmp/track-no
 ```
 
 The viewer only reads that JSON. `track notes` may refresh its derived index but does
-not edit note bodies or metadata. Exported titles/tags are private: do not commit
+not save note bodies; normal Go indexing/sidecar maintenance can still occur. Exported titles/tags are private: do not commit
 snapshots or use them in public screenshots. Unknown JSON fields are ignored;
 missing optional tags and an empty notes list are supported. Partial reads display
 a warning. Malformed input fails before opening a window.
@@ -80,9 +80,9 @@ output pipes concurrently. The specified executable should be Track itself, not 
 wrapper spawning descendants that inherit pipes.
 
 The body supports native headings, paragraphs, lists, quotes and code blocks. Links
-remain inert text; tables, HTML, images and other unsupported blocks remain literal.
-Inline emphasis and syntax coloring are not implemented, and blocks are not yet
-virtualized. This is not the fully rendered Track document. Export
+remain inert text; HTML, images and other unsupported blocks remain literal.
+Inline emphasis, code styling and simple native tables are supported. Syntax
+coloring and block virtualization are not implemented. This is not the fully rendered Track document. Export
 normalizes links and other constructs: it must **never** be used as editable source.
 Editing will use the existing raw-body/etag HTTP contract instead. Search, live
 updates, and full Markdown rendering are still tracked as incomplete in `PARITY.md`.
@@ -95,7 +95,23 @@ Shift while scrolling to zoom around the pointer. Click a node to select it, dra
 to move it, and double-click or choose **Open note** to navigate. Hover/selection
 shows metadata. Leaving the canvas ends dragging.
 
-Placement is deterministic and circular, not the existing force layout: neighboring
-nodes do not follow elastically. Full-graph preview pinning, persistent positions,
+Placement starts circular, then settles a bounded deterministic force snapshot on
+a background worker (up to 1,000 nodes). Larger graphs keep circular placement.
+This is not existing force-layout parity: neighbors do not follow drags elastically. Full-graph preview pinning, persistent positions,
 and label toggles remain incomplete. No renderer performance advantage is claimed.
 See [GRAPH.md](GRAPH.md) for research and validation limits.
+
+## Owned HTTP server and search
+
+Add `--server-port 19022` to the explicit-vault command to start an owned loopback
+Go server. Both that port and the next port must be available. The application
+requires the child readiness token and exposes initialization/storage failures.
+Only this child is shut down on the app's Quit command or window close. Abrupt
+parent loss relies on Go's existing parent watchdog and is not yet validated here.
+
+HTTP mode reads source Markdown (not portable export) and provides native search
+across all served vaults. Search preserves vault-scoped note identities and ignores
+outdated navigation/storage-generation responses. Editing and SSE refresh are not
+implemented; use Reload vault for manual refresh. Graph controls currently remain
+CLI-mode only. Japanese IME uses the native input protocol but real composition is
+unverified; cursor movement is Unicode-scalar, not grapheme-cluster aware.
