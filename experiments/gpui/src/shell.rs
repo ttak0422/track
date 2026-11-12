@@ -14,6 +14,8 @@ pub struct ShellState {
     vault_discovery: Option<VaultDiscovery>,
     vault_loading: bool,
     vault_error: Option<String>,
+    links: Option<LinkResolutionCache>,
+    navigation_notice: Option<String>,
     reader_focus: Option<gpui::FocusHandle>,
     reader_scrolls: std::collections::HashMap<tabs::TabKey, gpui::ScrollHandle>,
     tab_cycle: Vec<tabs::TabKey>,
@@ -36,12 +38,87 @@ impl Default for ShellState {
             vault_discovery: None,
             vault_loading: false,
             vault_error: None,
+            links: None,
+            navigation_notice: None,
             reader_focus: None,
             reader_scrolls: Default::default(),
             tab_cycle: Vec::new(),
             tab_cycle_index: 0,
             heading_anchors: Default::default(),
         }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct LinkSource {
+    note: live::NoteKey,
+    etag: String,
+    storage_generation: u64,
+    launch_generation: u64,
+    request: u64,
+}
+struct LinkResolutionCache {
+    source: LinkSource,
+    pending: bool,
+    deferred_targets: usize,
+    canceled: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    resolved: std::collections::HashMap<String, live::NoteKey>,
+    warnings: Vec<String>,
+}
+impl Drop for LinkResolutionCache {
+    fn drop(&mut self) {
+        self.canceled
+            .store(true, std::sync::atomic::Ordering::Release);
+    }
+}
+fn uncertain_resolution(fields: &std::collections::BTreeMap<String, serde_json::Value>) -> bool {
+    fn uncertain(value: &serde_json::Value) -> bool {
+        let Some(object) = value.as_object() else {
+            return false;
+        };
+        object.iter().any(|(key, value)| match key.as_str() {
+            "partial" | "cache_used" => {
+                value.as_bool() == Some(true) || value.as_array().is_some_and(|v| !v.is_empty())
+            }
+            "unavailable" | "issues" => value.as_array().is_some_and(|v| !v.is_empty()),
+            "omitted" => value.as_u64().is_some_and(|v| v > 0),
+            "storage_state" => value.as_str().is_some_and(|v| v != "ready"),
+            "read_state" => uncertain(value),
+            _ => false,
+        })
+    }
+    uncertain(&serde_json::to_value(fields).unwrap_or_default())
+}
+fn internal_terms(blocks: &[markdown::Block]) -> Vec<String> {
+    let mut terms = std::collections::BTreeSet::new();
+    for block in blocks {
+        for link in &block.links {
+            if let Some(term) = markdown::resolve_term(&link.target) {
+                terms.insert(term);
+            }
+        }
+        if let Some(table) = &block.table {
+            for row in &table.rows {
+                for cell in row {
+                    for link in &cell.links {
+                        if let Some(term) = markdown::resolve_term(&link.target) {
+                            terms.insert(term);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    terms.into_iter().collect()
+}
+fn has_authored_fragment(target: &markdown::LinkTarget) -> bool {
+    match target {
+        markdown::LinkTarget::Wiki { fragment, .. } => fragment
+            .as_ref()
+            .is_some_and(|fragment| !fragment.is_empty()),
+        markdown::LinkTarget::Markdown { destination } => destination
+            .split_once('#')
+            .is_some_and(|(_, fragment)| !fragment.is_empty()),
     }
 }
 
@@ -335,6 +412,152 @@ fn cycle_index(index: usize, len: usize, backwards: bool) -> usize {
     }
 }
 impl Workspace {
+    fn current_link_source(&self) -> Option<LinkSource> {
+        let note = self.current_note.as_ref()?;
+        Some(LinkSource {
+            note: note.note.key(),
+            etag: note.etag.clone(),
+            storage_generation: self.accepted_storage_generation?,
+            launch_generation: self.live.as_ref()?.client().launch_generation,
+            request: self.request,
+        })
+    }
+    fn ensure_link_resolutions(&mut self, cx: &mut Context<Self>) {
+        let Some(source) = self.current_link_source() else {
+            self.shell.links = None;
+            return;
+        };
+        if self
+            .shell
+            .links
+            .as_ref()
+            .is_some_and(|cache| cache.source == source)
+        {
+            return;
+        }
+        let mut terms = internal_terms(&self.content);
+        let mut warnings = Vec::new();
+        let deferred_targets = terms.len().saturating_sub(128);
+        if terms.len() > 128 {
+            warnings.push("Only the first 128 distinct internal targets were checked; remaining targets are inert.".into());
+            terms.truncate(128);
+        }
+        if uncertain_resolution(&self.current_related) {
+            warnings.push(
+                "Source metadata is partial or cached; internal targets were not resolved.".into(),
+            );
+            terms.clear();
+        }
+        self.shell.links = Some(LinkResolutionCache {
+            source: source.clone(),
+            pending: !terms.is_empty(),
+            deferred_targets,
+            canceled: Default::default(),
+            resolved: Default::default(),
+            warnings,
+        });
+        if terms.is_empty() {
+            return;
+        }
+        let session = self.live.clone().unwrap();
+        let source_task = source.clone();
+        let canceled = self.shell.links.as_ref().unwrap().canceled.clone();
+        let job = cx.background_executor().spawn(async move {
+            let client = session.client();
+            let before = client.storage().map_err(|error| error.to_string())?;
+            if before.generation != source_task.storage_generation || before.phase != "ready" {
+                return Err(
+                    "Storage changed or is incomplete; internal links were not resolved."
+                        .to_owned(),
+                );
+            }
+            let mut resolved = std::collections::HashMap::new();
+            let mut warnings = Vec::new();
+            for term in terms {
+                if canceled.load(std::sync::atomic::Ordering::Acquire) {
+                    return Err("Link lookup canceled after navigation.".into());
+                }
+                match client.resolve(&term, &source_task.note.vault) {
+                    Ok(response) => {
+                        if response.launch_generation != source_task.launch_generation
+                            || response.source_vault != source_task.note.vault
+                            || response.term != term
+                            || uncertain_resolution(&response.diagnostics)
+                        {
+                            warnings.push(format!("Unverified internal target: {term}"));
+                        } else if let Some(key) = response.key() {
+                            resolved.insert(term, key);
+                        }
+                    }
+                    Err(error) => {
+                        warnings.push(format!("Internal target {term}: {error}"));
+                    }
+                }
+            }
+            let after = client.storage().map_err(|error| error.to_string())?;
+            if after.generation != before.generation || after.phase != "ready" {
+                return Err(
+                    "Storage changed during lookup; internal links remain inert. Reload the note."
+                        .into(),
+                );
+            }
+            Ok::<_, String>((resolved, warnings))
+        });
+        cx.spawn(async move |this, cx| {
+            let result = job.await;
+            let _ = this.update(cx, |this, cx| {
+                if this.current_link_source().as_ref() != Some(&source) {
+                    return;
+                }
+                let Some(cache) = &mut this.shell.links else {
+                    return;
+                };
+                if cache.source != source {
+                    return;
+                }
+                cache.pending = false;
+                match result {
+                    Ok((resolved, warnings)) => {
+                        cache.resolved = resolved;
+                        cache.warnings.extend(warnings);
+                    }
+                    Err(error) => cache.warnings.push(error),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+    fn activate_internal_target(
+        &mut self,
+        target: &markdown::LinkTarget,
+        source: &LinkSource,
+        cx: &mut Context<Self>,
+    ) {
+        if self.current_link_source().as_ref() != Some(source) {
+            return;
+        }
+        let Some(term) = markdown::resolve_term(target) else {
+            return;
+        };
+        let Some(key) = self
+            .shell
+            .links
+            .as_ref()
+            .filter(|cache| cache.source == *source && !cache.pending)
+            .and_then(|cache| cache.resolved.get(&term))
+            .cloned()
+        else {
+            return;
+        };
+        self.shell.home = false;
+        self.shell.search_open = false;
+        self.shell.navigation_notice = has_authored_fragment(target).then(|| {
+            "Fragment jumps are unavailable; this link navigates to the note only.".into()
+        });
+        self.open_live_key(key, cx);
+        cx.notify();
+    }
     /// Session-only working scope for future single-vault actions. Never use this
     /// to rewrite a note identity, scope federated search, or reinterpret Home.
     pub fn working_vault_scope(&self) -> &str {
@@ -502,6 +725,30 @@ impl Render for Workspace {
             WindowAppearance::Dark | WindowAppearance::VibrantDark
         ));
         let p = Palette::new(dark);
+        self.ensure_link_resolutions(cx);
+        let link_warning=self.shell.links.as_ref().filter(|cache|!cache.warnings.is_empty()).map(|cache|if cache.deferred_targets>0 {format!("Internal-link checking is limited to 128 targets; {} additional targets remain inactive. Details in diagnostics.",cache.deferred_targets)} else {"Some internal links could not be verified and remain inactive. Open diagnostics for details.".into()});
+        let resolved_terms = std::rc::Rc::new(
+            self.shell
+                .links
+                .as_ref()
+                .map(|cache| cache.resolved.clone())
+                .unwrap_or_default(),
+        );
+        let link_source = self.current_link_source();
+        let weak = cx.entity().downgrade();
+        let link_callbacks = markdown::LinkCallbacks {
+            resolved: std::rc::Rc::new(move |target| {
+                markdown::resolve_term(target)
+                    .is_some_and(|term| resolved_terms.contains_key(&term))
+            }),
+            activate: std::rc::Rc::new(move |target, _, cx| {
+                if let Some(source) = &link_source {
+                    let _ = weak.update(cx, |this, cx| {
+                        this.activate_internal_target(target, source, cx)
+                    });
+                }
+            }),
+        };
         if let Some(session) = &self.live {
             let generation = session.client().launch_generation;
             if self.shell.vault_generation != Some(generation) {
@@ -1077,10 +1324,11 @@ impl Render for Workspace {
                                     .mb(px(6.))
                                     .child(title),
                             )
-                            .child(markdown::render_themed_with_anchors(
+                            .child(markdown::render_with_links(
                                 &self.content,
                                 dark,
-                                &heading_anchors,
+                                Some(&heading_anchors),
+                                &link_callbacks,
                             ))
                             .on_mouse_down(
                                 gpui::MouseButton::Left,
@@ -1317,6 +1565,32 @@ impl Render for Workspace {
             .text_color(rgb(p.ink))
             .font_family(".SystemUIFont")
             .child(tab)
+            .when_some(link_warning, |root, warning| {
+                root.child(
+                    div()
+                        .pl(px(64.))
+                        .py_1()
+                        .text_size(px(11.))
+                        .text_color(rgb(p.mark))
+                        .child(warning),
+                )
+            })
+            .when_some(self.shell.navigation_notice.clone(), |root, notice| {
+                root.child(
+                    div()
+                        .id("navigation-notice")
+                        .pl(px(64.))
+                        .py_1()
+                        .text_size(px(11.))
+                        .text_color(rgb(p.muted))
+                        .cursor_pointer()
+                        .child(format!("{notice}  ×"))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.shell.navigation_notice = None;
+                            cx.notify();
+                        })),
+                )
+            })
             .when(
                 self.partial_read
                     || self
@@ -1402,11 +1676,16 @@ impl Render for Workspace {
                         .text_size(px(11.))
                         .text_color(rgb(p.muted))
                         .child(format!(
-                            "{}\n{}\n{}\n{}",
+                            "{}\n{}\n{}\n{}\n{}",
                             self.source,
                             self.list_status,
                             self.status,
-                            self.read_error.as_deref().unwrap_or("")
+                            self.read_error.as_deref().unwrap_or(""),
+                            self.shell
+                                .links
+                                .as_ref()
+                                .map(|cache| cache.warnings.join("\n"))
+                                .unwrap_or_default()
                         )),
                 )
             })
@@ -1560,5 +1839,68 @@ mod vault_scope_tests {
         tabs.open_note("archive", 42, "Old tab");
         let _ = d.reconcile_scope("archive");
         assert_eq!(tabs.active().unwrap().key, key);
+    }
+}
+
+#[cfg(test)]
+mod internal_link_tests {
+    use super::*;
+    use serde_json::json;
+    #[test]
+    fn terms_deduplicate_and_exclude_external_and_includes() {
+        let blocks =
+            markdown::parse("[[One]] [[One#part]] [web](https://example.com) ![[include]]");
+        assert_eq!(internal_terms(&blocks), vec!["One"]);
+    }
+    #[test]
+    fn partial_and_cached_targets_are_unverified() {
+        for value in [
+            json!({"read_state":{"partial":true}}),
+            json!({"read_state":{"cache_used":true}}),
+            json!({"partial":[{"vault":"other"}]}),
+            json!({"unavailable":[{"name":"offline"}]}),
+            json!({"storage_state":"initializing"}),
+        ] {
+            assert!(uncertain_resolution(
+                &serde_json::from_value(value).unwrap()
+            ));
+        }
+        assert!(!uncertain_resolution(&Default::default()));
+    }
+    #[test]
+    fn cache_identity_includes_vault_storage_and_navigation() {
+        let source = LinkSource {
+            note: live::NoteKey {
+                vault: "a".into(),
+                note_id: 42,
+            },
+            etag: "v1".into(),
+            storage_generation: 9,
+            launch_generation: 1,
+            request: 3,
+        };
+        let mut other = source.clone();
+        other.note.vault = "b".into();
+        assert_ne!(source, other);
+        other = source.clone();
+        other.storage_generation = 10;
+        assert_ne!(source, other);
+        other = source.clone();
+        other.request = 4;
+        assert_ne!(source, other);
+    }
+    #[test]
+    fn fragment_navigation_is_explicitly_identified() {
+        assert!(has_authored_fragment(&markdown::LinkTarget::Wiki {
+            key: "One".into(),
+            fragment: Some("part".into()),
+            authored_label: false
+        }));
+        assert!(has_authored_fragment(&markdown::LinkTarget::Markdown {
+            destination: "One.md#part".into()
+        }));
+        assert!(!has_authored_fragment(&markdown::LinkTarget::Markdown {
+            destination: "One.md".into()
+        }));
     }
 }

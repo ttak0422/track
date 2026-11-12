@@ -1,5 +1,5 @@
-//! Owned, read-only loopback API. Every operation (including Drop) belongs on a
-//! background worker, never the GPUI event thread. No requests mutate note data.
+//! Owned loopback API. Blocking operations belong on a background worker.
+//! Reads never mutate notes; save is one explicit existing-note PUT, never retried.
 use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::Value;
 use std::{
@@ -27,7 +27,10 @@ pub enum Error {
     Config(String),
     Io(std::io::Error),
     Transport(String),
-    Http { status: u16, body: String },
+    Http {
+        status: u16,
+        body: String,
+    },
     Json(String),
     Shape(String),
     Oversized,
@@ -35,7 +38,32 @@ pub enum Error {
     Exited(String),
     Stale,
     Shutdown(String),
+    /// A prerequisite failed before a mutation request was sent.
+    SaveNotSent(Box<Error>),
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SaveDisposition {
+    NotSent,
+    Conflict,
+    Rejected,
+    Uncertain,
+}
+impl Error {
+    /// Classification is meaningful for errors returned by ReadClient::save.
+    /// Conflict means HTTP 409, not necessarily a changed body (storage can conflict).
+    pub fn save_disposition(&self) -> SaveDisposition {
+        match self {
+            Self::SaveNotSent(_) => SaveDisposition::NotSent,
+            Self::Http { status: 409, .. } => SaveDisposition::Conflict,
+            Self::Http {
+                status: 400 | 403 | 404 | 405 | 503,
+                ..
+            } => SaveDisposition::Rejected,
+            _ => SaveDisposition::Uncertain,
+        }
+    }
+}
+
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{self:?}")
@@ -364,6 +392,181 @@ impl ReadClient {
         Ok(data)
     }
 }
+/// A complete raw-source replacement bound to its original server, vault and revision.
+/// Prefer from_source; the transport revalidates safety even for literal construction.
+#[derive(Clone, Debug)]
+pub struct SaveRequest {
+    pub key: NoteKey,
+    pub body: String,
+    pub etag: String,
+    pub launch_generation: u64,
+    pub storage_generation: u64,
+}
+impl SaveRequest {
+    pub fn from_source(
+        launch_generation: u64,
+        storage: &Storage,
+        source: &NoteResponse,
+        body: String,
+    ) -> Result<Self, Error> {
+        writable_source(storage, source).map_err(|e| Error::SaveNotSent(Box::new(e)))?;
+        Ok(Self {
+            key: source.note.note.key(),
+            body,
+            etag: source.note.etag.clone(),
+            launch_generation,
+            storage_generation: storage.generation,
+        })
+    }
+}
+#[derive(Clone, Debug, Deserialize)]
+pub struct SaveAck {
+    pub vault: String,
+    pub note_id: i64,
+    pub etag: String,
+    pub saved: bool,
+}
+fn degraded_save_data(value: &Value) -> bool {
+    match value {
+        Value::Object(fields) => fields.iter().any(|(name, value)| match name.as_str() {
+            "partial" | "cache_used" | "read_only" => {
+                value.as_bool() == Some(true)
+                    || value.as_array().is_some_and(|items| !items.is_empty())
+            }
+            "issues" | "unavailable" => value.as_array().is_some_and(|items| !items.is_empty()),
+            "omitted" => value.as_u64().is_some_and(|count| count > 0),
+            "storage_state" => value.as_str().is_some_and(|phase| phase != "ready"),
+            _ => degraded_save_data(value),
+        }),
+        Value::Array(items) => items.iter().any(degraded_save_data),
+        _ => false,
+    }
+}
+fn writable_source(storage: &Storage, source: &NoteResponse) -> Result<(), Error> {
+    if storage.phase != "ready"
+        || storage.read_only
+        || source.note.read_only
+        || source.note.etag.is_empty()
+        || source.note.note.note_id == 0
+        || degraded_save_data(
+            &serde_json::to_value(&storage.additional).expect("JSON fields serialize"),
+        )
+        || degraded_save_data(
+            &serde_json::to_value(&source.related_and_diagnostics).expect("JSON fields serialize"),
+        )
+        || degraded_save_data(
+            &serde_json::to_value(&source.note.note.additional).expect("JSON fields serialize"),
+        )
+    {
+        return Err(Error::Config(
+            "raw source and verified writable storage with a nonempty server revision are required"
+                .into(),
+        ));
+    }
+    Ok(())
+}
+impl ReadClient {
+    pub fn save(&self, save: &SaveRequest) -> Result<SaveAck, Error> {
+        // Every failure in this closure is known to precede the PUT. Never report
+        // a failed preliminary GET as an ambiguous write, or silently substitute an etag.
+        let preflight = (|| {
+            if save.etag.is_empty() || save.key.note_id == 0 {
+                return Err(Error::Config(
+                    "note identity and server revision are required".into(),
+                ));
+            }
+            if save.launch_generation != self.launch_generation
+                || !self.alive.load(Ordering::Acquire)
+            {
+                return Err(Error::Stale);
+            }
+            let before = self.storage()?;
+            if before.generation != save.storage_generation
+                || before.phase != "ready"
+                || before.read_only
+            {
+                return Err(Error::Config(
+                    "storage generation is not verified writable".into(),
+                ));
+            }
+            let mut source_query = vault_query(&save.key.vault);
+            source_query.push(("id", save.key.note_id.to_string()));
+            let raw: Value = self.get("/api/note", &source_query)?;
+            if raw
+                .get("note")
+                .and_then(|note| note.get("read_only"))
+                .and_then(Value::as_bool)
+                != Some(false)
+            {
+                return Err(Error::Config(
+                    "fresh source must explicitly confirm read_only=false".into(),
+                ));
+            }
+            let source: NoteResponse =
+                serde_json::from_value(raw).map_err(|error| Error::Shape(error.to_string()))?;
+            let after = self.storage()?;
+            if after.generation != save.storage_generation || source.note.note.key() != save.key {
+                return Err(Error::Stale);
+            }
+            writable_source(&after, &source)?;
+            if source.note.etag != save.etag {
+                return Err(Error::Config("the server revision changed before saving; original draft and revision must be retained for comparison".into()));
+            }
+            if !self.alive.load(Ordering::Acquire) {
+                return Err(Error::Stale);
+            }
+            Ok(())
+        })();
+        preflight.map_err(|error| Error::SaveNotSent(Box::new(error)))?;
+        let mut args = vault_query(&save.key.vault);
+        args.push(("id", save.key.note_id.to_string()));
+        let mut response = self
+            .http
+            .put(format!("{}/api/note", self.origin))
+            .query(&args)
+            .json(&serde_json::json!({"body": save.body, "etag": save.etag}))
+            .send()
+            .map_err(|error| Error::Transport(error.to_string()))?;
+        let status = response.status().as_u16();
+        let mut bytes = Vec::new();
+        (&mut response)
+            .take(BODY_LIMIT + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|error| Error::Transport(error.to_string()))?;
+        if !self.alive.load(Ordering::Acquire) {
+            return Err(Error::Stale);
+        }
+        if bytes.len() as u64 > BODY_LIMIT {
+            return Err(Error::Oversized);
+        }
+        if status != 200 {
+            return Err(Error::Http {
+                status,
+                body: String::from_utf8_lossy(&bytes).into_owned(),
+            });
+        }
+        let value: Value = serde_json::from_slice(&bytes).map_err(|error| {
+            Error::Json(format!(
+                "{error}; response: {}",
+                String::from_utf8_lossy(&bytes)
+            ))
+        })?;
+        let ack: SaveAck =
+            serde_json::from_value(value).map_err(|error| Error::Shape(error.to_string()))?;
+        if !ack.saved
+            || ack.etag.is_empty()
+            || ack.note_id != save.key.note_id
+            || ack.vault != save.key.vault
+        {
+            return Err(Error::Shape(
+                "save acknowledgement does not match the submitted identity and nonempty revision"
+                    .into(),
+            ));
+        }
+        Ok(ack)
+    }
+}
+
 fn vault_query(vault: &str) -> Vec<(&'static str, String)> {
     if vault.is_empty() {
         vec![]
@@ -408,6 +611,7 @@ impl OwnedServer {
             .collect::<String>();
         let http = reqwest::blocking::Client::builder()
             .no_proxy()
+            .retry(reqwest::retry::never())
             .redirect(reqwest::redirect::Policy::none())
             .timeout(config.request_timeout.min(config.startup_timeout))
             .build()
@@ -817,6 +1021,259 @@ mod tests {
         };
         (Session::from_owned(server), pid)
     }
+
+    const SAVE_STORAGE: &str = r#"{"phase":"ready","read_only":false,"verified":1,"generation":2}"#;
+    const SAVE_SOURCE: &str = r#"{"note":{"note_id":42,"vault":"work & 日本語","file_kind":"note","path":"display only","title":"Title","body":"original\n","etag":"opaque-old","read_only":false}}"#;
+    const SAVE_OK: &str =
+        r#"{"vault":"work & 日本語","note_id":42,"etag":"opaque-new","saved":true}"#;
+    fn save_request() -> SaveRequest {
+        SaveRequest::from_source(
+            1,
+            &serde_json::from_str(SAVE_STORAGE).unwrap(),
+            &serde_json::from_str(SAVE_SOURCE).unwrap(),
+            "日本語 [[Link]]\n```\nsource\n```".into(),
+        )
+        .unwrap()
+    }
+    fn save_mock(
+        replies: Vec<Option<(u16, String)>>,
+    ) -> (ReadClient, thread::JoinHandle<Vec<String>>) {
+        use std::io::Write;
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let task = thread::spawn(move || {
+            let mut requests = Vec::new();
+            for reply in replies {
+                let deadline = Instant::now() + Duration::from_secs(2);
+                let mut stream = loop {
+                    match listener.accept() {
+                        Ok((stream, _)) => break stream,
+                        Err(error)
+                            if error.kind() == std::io::ErrorKind::WouldBlock
+                                && Instant::now() < deadline =>
+                        {
+                            thread::sleep(Duration::from_millis(2))
+                        }
+                        _ => return requests,
+                    }
+                };
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(2)))
+                    .unwrap();
+                let mut header = Vec::new();
+                let mut byte = [0u8; 1];
+                while !header.ends_with(b"\r\n\r\n") {
+                    stream.read_exact(&mut byte).unwrap();
+                    header.push(byte[0]);
+                }
+                let header_text = String::from_utf8(header.clone()).unwrap();
+                let length = header_text
+                    .lines()
+                    .find_map(|line| {
+                        line.to_ascii_lowercase()
+                            .strip_prefix("content-length:")
+                            .and_then(|value| value.trim().parse::<usize>().ok())
+                    })
+                    .unwrap_or(0);
+                let mut body = vec![0; length];
+                stream.read_exact(&mut body).unwrap();
+                header.extend(body);
+                requests.push(String::from_utf8(header).unwrap());
+                if let Some((status, body)) = reply {
+                    write!(stream, "HTTP/1.1 {status} Test\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+                }
+            }
+            // Leave the listener available briefly to detect any unexpected retry.
+            let deadline = Instant::now() + Duration::from_millis(30);
+            while Instant::now() < deadline {
+                if let Ok((mut stream, _)) = listener.accept() {
+                    stream
+                        .set_read_timeout(Some(Duration::from_millis(30)))
+                        .unwrap();
+                    let mut bytes = [0; 4096];
+                    if let Ok(n) = stream.read(&mut bytes) {
+                        requests.push(String::from_utf8_lossy(&bytes[..n]).into_owned());
+                    }
+                }
+                thread::sleep(Duration::from_millis(2));
+            }
+            requests
+        });
+        (
+            ReadClient {
+                http: reqwest::blocking::Client::builder()
+                    .no_proxy()
+                    .retry(reqwest::retry::never())
+                    .redirect(reqwest::redirect::Policy::none())
+                    .timeout(Duration::from_secs(2))
+                    .build()
+                    .unwrap(),
+                origin,
+                alive: Arc::new(AtomicBool::new(true)),
+                launch_generation: 1,
+            },
+            task,
+        )
+    }
+    fn save_replies(last: Option<(u16, &str)>) -> Vec<Option<(u16, String)>> {
+        vec![
+            Some((200, SAVE_STORAGE.into())),
+            Some((200, SAVE_SOURCE.into())),
+            Some((200, SAVE_STORAGE.into())),
+            last.map(|(status, body)| (status, body.into())),
+        ]
+    }
+    #[test]
+    fn save_blocks_unverified_storage_old_session_and_unknown_source_permission() {
+        for changes in [
+            serde_json::json!({"phase":"partial"}),
+            serde_json::json!({"read_only":true}),
+            serde_json::json!({"generation":3}),
+        ] {
+            let mut state: Value = serde_json::from_str(SAVE_STORAGE).unwrap();
+            for (name, value) in changes.as_object().unwrap() {
+                state[name] = value.clone();
+            }
+            let (client, recorded) = save_mock(vec![Some((200, state.to_string()))]);
+            assert_eq!(
+                client.save(&save_request()).unwrap_err().save_disposition(),
+                SaveDisposition::NotSent
+            );
+            assert_eq!(recorded.join().unwrap().len(), 1);
+        }
+        let (client, recorded) = save_mock(vec![]);
+        let mut save = save_request();
+        save.launch_generation += 1;
+        assert_eq!(
+            client.save(&save).unwrap_err().save_disposition(),
+            SaveDisposition::NotSent
+        );
+        assert!(recorded.join().unwrap().is_empty());
+        let mut source: Value = serde_json::from_str(SAVE_SOURCE).unwrap();
+        source["note"].as_object_mut().unwrap().remove("read_only");
+        let (client, recorded) = save_mock(vec![
+            Some((200, SAVE_STORAGE.into())),
+            Some((200, source.to_string())),
+        ]);
+        assert_eq!(
+            client.save(&save_request()).unwrap_err().save_disposition(),
+            SaveDisposition::NotSent
+        );
+        assert_eq!(recorded.join().unwrap().len(), 2);
+    }
+    #[test]
+    fn save_sends_exactly_one_scoped_put_with_complete_original_revision_and_source() {
+        for body in ["", "日本語 [[Link]]", "a\n", "a\n\n"] {
+            let (client, recorded) = save_mock(save_replies(Some((200, SAVE_OK))));
+            let mut save = save_request();
+            save.body = body.into();
+            let ack = client.save(&save).unwrap();
+            assert_eq!(ack.etag, "opaque-new");
+            let requests = recorded.join().unwrap();
+            assert_eq!(requests.len(), 4);
+            assert!(
+                requests[..3]
+                    .iter()
+                    .all(|request| request.starts_with("GET "))
+            );
+            let put = &requests[3];
+            assert!(
+                put.starts_with("PUT /api/note?vault=work+%26+%E6%97%A5%E6%9C%AC%E8%AA%9E&id=42 ")
+            );
+            let json: Value = serde_json::from_str(put.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+            assert_eq!(json, serde_json::json!({"body":body,"etag":"opaque-old"}));
+            assert!(!put.to_ascii_lowercase().contains("if-match:"));
+        }
+    }
+    #[test]
+    fn save_distinguishes_rejection_conflict_and_uncertainty_without_retrying() {
+        for (status, disposition) in [
+            (400, SaveDisposition::Rejected),
+            (403, SaveDisposition::Rejected),
+            (404, SaveDisposition::Rejected),
+            (405, SaveDisposition::Rejected),
+            (409, SaveDisposition::Conflict),
+            (500, SaveDisposition::Uncertain),
+            (503, SaveDisposition::Rejected),
+        ] {
+            let (client, recorded) = save_mock(save_replies(Some((
+                status,
+                r#"{"error":"retained diagnostic"}"#,
+            ))));
+            let error = client.save(&save_request()).unwrap_err();
+            assert_eq!(error.save_disposition(), disposition);
+            assert!(
+                matches!(error, Error::Http { status: actual, body } if actual == status && body.contains("retained diagnostic"))
+            );
+            assert_eq!(recorded.join().unwrap().len(), 4);
+        }
+        let (client, recorded) = save_mock(save_replies(None));
+        assert_eq!(
+            client.save(&save_request()).unwrap_err().save_disposition(),
+            SaveDisposition::Uncertain
+        );
+        assert_eq!(recorded.join().unwrap().len(), 4);
+    }
+    #[test]
+    fn save_malformed_or_mismatched_success_is_uncertain_not_acknowledged() {
+        for body in [
+            "not json",
+            r#"{"saved":true}"#,
+            r#"{"vault":"other","note_id":42,"etag":"new","saved":true}"#,
+            r#"{"vault":"work & 日本語","note_id":42,"etag":"","saved":true}"#,
+            r#"{"vault":"work & 日本語","note_id":42,"etag":"new","saved":false}"#,
+        ] {
+            let (client, recorded) = save_mock(save_replies(Some((200, body))));
+            assert_eq!(
+                client.save(&save_request()).unwrap_err().save_disposition(),
+                SaveDisposition::Uncertain
+            );
+            assert_eq!(recorded.join().unwrap().len(), 4);
+        }
+    }
+    #[test]
+    fn save_preflight_retains_draft_and_old_etag_without_put_when_unsafe_or_changed() {
+        for field in ["revision", "readonly", "partial", "cached"] {
+            let mut source: Value = serde_json::from_str(SAVE_SOURCE).unwrap();
+            match field {
+                "revision" => source["note"]["etag"] = "external-new".into(),
+                "readonly" => source["note"]["read_only"] = true.into(),
+                "partial" => source["read_state"] = serde_json::json!({"partial":true}),
+                _ => source["read_state"] = serde_json::json!({"cache_used":true}),
+            }
+            let mut replies = vec![
+                Some((200, SAVE_STORAGE.into())),
+                Some((200, source.to_string())),
+            ];
+            if field != "readonly" {
+                replies.push(Some((200, SAVE_STORAGE.into())));
+            }
+            let (client, recorded) = save_mock(replies);
+            let save = save_request();
+            assert_eq!(
+                client.save(&save).unwrap_err().save_disposition(),
+                SaveDisposition::NotSent
+            );
+            assert_eq!(save.etag, "opaque-old");
+            assert!(save.body.contains("[[Link]]"));
+            assert!(
+                recorded
+                    .join()
+                    .unwrap()
+                    .iter()
+                    .all(|request| request.starts_with("GET "))
+            );
+        }
+        let (client, recorded) = save_mock(vec![]);
+        let mut save = save_request();
+        save.etag.clear();
+        assert_eq!(
+            client.save(&save).unwrap_err().save_disposition(),
+            SaveDisposition::NotSent
+        );
+        assert!(recorded.join().unwrap().is_empty());
+    }
     #[test]
     fn resolver_encodes_source_and_preserves_independent_target_identity() {
         let (client, request) = mock(
@@ -1114,6 +1571,7 @@ mod tests {
             ReadClient {
                 http: reqwest::blocking::Client::builder()
                     .no_proxy()
+                    .retry(reqwest::retry::never())
                     .redirect(reqwest::redirect::Policy::none())
                     .timeout(Duration::from_secs(2))
                     .build()
