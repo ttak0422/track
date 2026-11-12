@@ -60,3 +60,26 @@ IME editing separately; list virtualization alone does not establish editor pari
 cargo fmt --manifest-path experiments/gpui/Cargo.toml --check
 cargo test --manifest-path experiments/gpui/Cargo.toml
 ```
+
+## Read an explicit vault
+
+The first live integration is read-only and uses the existing CLI on background
+workers. It does not yet own a web server or subscribe to live events:
+
+```sh
+cargo run --manifest-path experiments/gpui/Cargo.toml -- \
+  --vault /absolute/path/to/vault --track-bin /absolute/path/to/track
+```
+
+Optional `--config /absolute/config.yml` and `--cache /absolute/cache` isolate
+configuration and derived caches. Both the executable and vault must be explicit
+absolute paths. Select a note to fetch portable Markdown, or use **Reload vault**.
+Late responses from previous selections are ignored. CLI failures remain visible;
+a 30-second deadline terminates only the owned CLI process. The adapter drains both
+output pipes concurrently. The specified executable should be Track itself, not a
+wrapper spawning descendants that inherit pipes.
+
+The body is plain portable Markdown, not the fully rendered Track document. Export
+normalizes links and other constructs: it must **never** be used as editable source.
+Editing will use the existing raw-body/etag HTTP contract instead. Search, live
+updates, and Markdown rendering are still tracked as incomplete in `PARITY.md`.

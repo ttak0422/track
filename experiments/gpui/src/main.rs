@@ -2,28 +2,8 @@ use gpui::{
     App, Application, Bounds, Context, Window, WindowBounds, WindowOptions, div, prelude::*, px,
     rgb, size, uniform_list,
 };
-use serde::Deserialize;
-
-#[derive(Clone, Deserialize)]
-struct Note {
-    note_id: i64,
-    title: String,
-    #[serde(default)]
-    tags: Vec<String>,
-}
-
-#[derive(Deserialize)]
-struct Snapshot {
-    notes: Vec<Note>,
-    #[serde(default)]
-    read_state: Option<ReadState>,
-}
-
-#[derive(Deserialize)]
-struct ReadState {
-    #[serde(default)]
-    partial: bool,
-}
+mod backend;
+use backend::{Backend, Note, Snapshot};
 
 fn fixture(count: usize) -> Snapshot {
     Snapshot {
@@ -32,6 +12,8 @@ fn fixture(count: usize) -> Snapshot {
                 note_id: i as i64,
                 title: format!("Field note {:05} · Native workspace", i + 1),
                 tags: vec![format!("topic-{}", i % 12)],
+                path: Default::default(),
+                file_kind: "note".into(),
             })
             .collect(),
         read_state: None,
@@ -43,6 +25,85 @@ struct Workspace {
     selected: Option<usize>,
     rendered_rows: usize,
     source: String,
+    backend: Option<Backend>,
+    content: Vec<String>,
+    status: String,
+    list_status: String,
+    request: u64,
+}
+
+impl Workspace {
+    fn load_notes(&mut self, cx: &mut Context<Self>) {
+        let Some(backend) = self.backend.clone() else {
+            return;
+        };
+        self.request += 1;
+        let request = self.request;
+        self.status = "Loading notes…".into();
+        let job = cx
+            .background_executor()
+            .spawn(async move { backend.notes() });
+        cx.spawn(async move |this, cx| {
+            let result = job.await;
+            let _ = this.update(cx, |this, cx| {
+                if this.request != request {
+                    return;
+                }
+                match result {
+                    Ok(response) => {
+                        this.snapshot = response.value;
+                        this.list_status = response.warnings;
+                        if let Some(state) = &this.snapshot.read_state {
+                            this.list_status.push_str(&format!("\nRead state: partial={}, cached={}, checked={}, omitted={}, issues={:?}, extra={:?}", state.partial, state.cache_used, state.checked_at, state.omitted, state.issues, state.additional));
+                        }
+                        this.selected = None;
+                        this.content.clear();
+                        if !this.snapshot.notes.is_empty() {
+                            this.select(0, cx);
+                        }
+                    }
+                    Err(error) => this.status = error.to_string(),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    fn select(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.selected = Some(index);
+        self.request += 1;
+        self.content.clear();
+        let Some(backend) = self.backend.clone() else {
+            cx.notify();
+            return;
+        };
+        let id = self.snapshot.notes[index].note_id;
+        let request = self.request;
+        self.status = "Loading portable Markdown…".into();
+        let job = cx
+            .background_executor()
+            .spawn(async move { backend.export_markdown(id) });
+        cx.spawn(async move |this, cx| {
+            let result = job.await;
+            let _ = this.update(cx, |this, cx| {
+                if this.request != request {
+                    return;
+                }
+                match result {
+                    Ok(response) => {
+                        this.content = response.value.lines().map(str::to_owned).collect();
+                        this.status = response.warnings;
+                    }
+                    Err(error) => this.status = error.to_string(),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
 }
 
 impl Render for Workspace {
@@ -57,7 +118,11 @@ impl Render for Workspace {
                 .child(div().text_xl().child("TRACK / Native canvas"))
                 .child(div().text_sm().text_color(rgb(0x9daebe)).child(format!(
                     "GPUI experiment · {} notes · {} · {}", self.snapshot.notes.len(), self.source,
-                    if partial { "WARNING: partial snapshot" } else { "read-only snapshot" }))))
+                    if partial { "WARNING: partial snapshot" } else if self.backend.is_some() { "read-only / manual refresh" } else { "read-only snapshot" }))))
+            .child(div().flex().p_3().gap_3()
+                .child(div().id("reload").cursor_pointer().text_color(rgb(0x7ec9b5)).child("Reload vault")
+                    .on_click(cx.listener(|this, _, _, cx| this.load_notes(cx))))
+                .child(div().id("status").max_h(px(80.)).overflow_y_scroll().text_sm().child(format!("{} {}", self.list_status, self.status))))
             .child(div().flex().flex_1().min_h_0()
                 .child(div().w(px(360.)).h_full().border_r_1().border_color(rgb(0x30404e))
                     .child(uniform_list("notes", self.snapshot.notes.len(), cx.processor(|this, range: std::ops::Range<usize>, _, cx| {
@@ -69,17 +134,17 @@ impl Render for Workspace {
                                 .border_b_1().border_color(rgb(0x27343f))
                                 .child(div().text_sm().overflow_hidden().child(note.title.clone()))
                                 .child(div().text_xs().text_color(rgb(0x7ec9b5)).child(note.tags.join(" / ")))
-                                .on_click(cx.listener(move |this, _, _, cx| { this.selected = Some(i); cx.notify(); }))
+                                .on_click(cx.listener(move |this, _, _, cx| { this.select(i, cx); }))
                         }).collect()
                     })).h_full()))
                 .child(div().flex_1().min_w_0().p_8().flex().flex_col().gap_4()
                     .child(div().text_sm().text_color(rgb(0x7ec9b5)).child("NOTE INSPECTOR"))
                     .child(div().text_2xl().child(note.as_ref().map(|n| n.title.clone()).unwrap_or("No notes in this snapshot".into())))
-                    .child(div().text_color(rgb(0x9daebe)).child(note.as_ref().map(|n| format!("ID {}  ·  {}", n.note_id, n.tags.join(" / "))).unwrap_or_default()))
-                    .child(div().mt_8().p_5().rounded_lg().bg(rgb(0x1b2b36))
-                        .child("Native rendering, without a web view")
-                        .child(div().mt_3().text_sm().text_color(rgb(0x9daebe)).child("Scroll the note list and select a row. GPUI creates only visible rows; the inspector updates without HTML, a JavaScript bridge, or a preview server.")))
-                    .child(div().text_sm().text_color(rgb(0x9daebe)).child("This prototype deliberately does not edit notes or render Markdown. The existing Go CLI remains responsible for vault semantics."))))
+                    .child(div().text_color(rgb(0x9daebe)).child(note.as_ref().map(|n| format!("ID {}  ·  {}  ·  {}\n{}", n.note_id, n.file_kind, n.tags.join(" / "), n.path.display())).unwrap_or_default()))
+                    .child(div().text_sm().text_color(rgb(0x9daebe)).child(
+                        if self.backend.is_some() { "Portable Markdown · read only · not editable source" } else { "Snapshot mode includes metadata only. Use --vault and --track-bin to read note content." }))
+                    .child(div().id(("content", self.request as usize)).flex_1().min_h_0().overflow_y_scroll().font_family("Menlo").text_sm()
+                        .child(self.content.join("\n")))))
             .child(div().p_3().text_xs().border_t_1().border_color(rgb(0x30404e))
                 .child(format!("Last list layout: {} visible rows / {} total · Select to refresh this counter · Close window to quit", self.rendered_rows, self.snapshot.notes.len())))
     }
@@ -102,19 +167,50 @@ static LOGGER: StderrLog = StderrLog;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = log::set_logger(&LOGGER);
     log::set_max_level(log::LevelFilter::Warn);
-    let arg = std::env::args().nth(1);
-    if arg.as_deref() == Some("--help") {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|a| a == "--help") {
         println!(
-            "track-gpui-poc [notes.json]\nNo argument: synthetic 10,000-note fixture. JSON: output of track notes. No vault writes."
+            "track-gpui-poc [notes.json]\ntrack-gpui-poc --vault /absolute/vault --track-bin /absolute/track [--config /absolute/config] [--cache /absolute/cache]\nNo arguments: synthetic fixture. Vault mode is read-only; CLI may refresh derived caches."
         );
         return Ok(());
     }
-    let (snapshot, source) = match arg {
-        Some(path) => (
-            serde_json::from_reader(std::fs::File::open(path)?)?,
-            "imported JSON".to_string(),
-        ),
-        None => (fixture(10_000), "synthetic fixture".to_string()),
+    let (snapshot, source, backend) = if args.first().is_some_and(|a| a.starts_with("--")) {
+        let mut vault = None;
+        let mut executable = None;
+        let mut config = None;
+        let mut cache = None;
+        let mut iter = args.iter();
+        while let Some(flag) = iter.next() {
+            let value = iter.next().ok_or("missing option value")?;
+            match flag.as_str() {
+                "--vault" => vault = Some(value.into()),
+                "--track-bin" => executable = Some(value.into()),
+                "--config" => config = Some(value.into()),
+                "--cache" => cache = Some(value.into()),
+                _ => return Err(format!("unknown option: {flag}").into()),
+            }
+        }
+        let mut backend = Backend::new(
+            executable.ok_or("--track-bin is required")?,
+            vault.ok_or("--vault is required")?,
+        )?;
+        if let Some(config) = config {
+            backend = backend.with_config(config)?;
+        }
+        if let Some(cache) = cache {
+            backend = backend.with_cache(cache)?;
+        }
+        (fixture(0), "explicit vault / CLI".into(), Some(backend))
+    } else if args.len() == 1 {
+        (
+            serde_json::from_reader(std::fs::File::open(&args[0])?)?,
+            "imported JSON".into(),
+            None,
+        )
+    } else if args.is_empty() {
+        (fixture(10_000), "synthetic fixture".into(), None)
+    } else {
+        return Err("expected a single JSON path or explicit vault options".into());
     };
     Application::new().run(move |cx: &mut App| {
         let bounds = Bounds::centered(None, size(px(1120.), px(720.)), cx);
@@ -124,11 +220,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ..Default::default()
             },
             |_, cx| {
-                cx.new(|_| Workspace {
-                    selected: (!snapshot.notes.is_empty()).then_some(0),
-                    snapshot,
-                    rendered_rows: 0,
-                    source,
+                cx.new(|cx| {
+                    let mut workspace = Workspace {
+                        selected: (!snapshot.notes.is_empty()).then_some(0),
+                        snapshot,
+                        rendered_rows: 0,
+                        source,
+                        backend,
+                        content: Vec::new(),
+                        status: String::new(),
+                        list_status: String::new(),
+                        request: 0,
+                    };
+                    workspace.load_notes(cx);
+                    workspace
                 })
             },
         )

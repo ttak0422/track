@@ -12,7 +12,8 @@ of support. Use disposable fixture vaults, never a configured personal vault, fo
 | Capability | Implemented | Parity validated | Reference |
 | --- | :---: | :---: | --- |
 | Synthetic/JSON snapshot list and metadata selection | [x] | [ ] | `experiments/gpui/src/main.rs` |
-| Live vault selection, list and federated search | [ ] | [ ] | `VaultSwitcher`, `SearchPanel`, `api.ts` |
+| Explicit read-only vault list and plain portable Markdown | [x] | [ ] | `src/backend.rs`; native QA with public help fixture |
+| Live vault switching and federated search | [ ] | [ ] | `VaultSwitcher`, `SearchPanel`, `api.ts` |
 | Note body, tags, flags, hierarchy and backlinks | [ ] | [ ] | `NoteReader`, `HierarchyMenu`, `types.ts` |
 | Tabs, history, navigation and floating previews | [ ] | [ ] | `components/tabs`, `components/preview` |
 | Reading positions, seen/read milestones and find | [ ] | [ ] | `reading.ts`, `ReadingPositionBoundary`, `WebViewFindController` |
@@ -42,6 +43,8 @@ remain open; the original missing glyphs were a disabled font backend, not an OS
 
 ## Reuse the engine boundary
 
+- The initial read-only adapter executes explicit CLI commands on background workers;
+  it is a transitional integration, not the editing/source contract.
 - Use the existing HTTP API for live interaction; keep filesystem parsing, indexing,
   link resolution, metadata serialization and writes in Go. Snapshot import remains
   useful for isolated rendering tests, not as the live architecture.
