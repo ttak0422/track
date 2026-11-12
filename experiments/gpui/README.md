@@ -119,5 +119,5 @@ The previous dashboard-style experiment has been replaced by the existing Track
 shell composition and palette. See [UI.md](UI.md). The current Web reference was
 captured with public help fixtures in an isolated headless browser. The revised
 native shell has compile/unit coverage but still requires fresh matched native
-captures; earlier screenshots do not validate this layout. Full tabs, activity
+captures; earlier screenshots do not validate this layout. Tab persistence, activity
 Home, keyboard result navigation and complete dock actions remain incomplete.

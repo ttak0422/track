@@ -257,15 +257,21 @@ impl Workspace {
     }
 
     pub fn open_live_note(&mut self, id: i64, cx: &mut Context<Self>) {
-        let Some(session) = self.live.clone() else {
-            return;
-        };
         let Some(current) = &self.current_note else {
             return;
         };
-        let key = live::NoteKey {
-            vault: current.note.vault.clone(),
-            note_id: id,
+        self.open_live_key(
+            live::NoteKey {
+                vault: current.note.vault.clone(),
+                note_id: id,
+            },
+            cx,
+        );
+    }
+
+    pub fn open_live_key(&mut self, key: live::NoteKey, cx: &mut Context<Self>) {
+        let Some(session) = self.live.clone() else {
+            return;
         };
         if let Some(index) = self.live_notes.iter().position(|n| n.key() == key) {
             self.select(index, cx);

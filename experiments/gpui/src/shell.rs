@@ -7,6 +7,7 @@ pub struct ShellState {
     pub search_open: bool,
     pub dark: Option<bool>,
     pub diagnostics: bool,
+    pub tab_menu: bool,
 }
 
 impl Default for ShellState {
@@ -16,6 +17,7 @@ impl Default for ShellState {
             search_open: false,
             dark: None,
             diagnostics: false,
+            tab_menu: false,
         }
     }
 }
@@ -158,7 +160,92 @@ fn display_date(seconds: i64) -> Option<String> {
         date.tm_mday
     ))
 }
+// A relation belongs to its source note's vault unless the server explicitly
+// provides another vault. Null/non-string vaults and non-positive IDs are inert.
+fn reference_key(value: &serde_json::Value, inherited_vault: &str) -> Option<live::NoteKey> {
+    let note_id = value.get("note_id")?.as_i64().filter(|id| *id > 0)?;
+    let vault = match value.get("vault") {
+        None => inherited_vault,
+        Some(value) => value.as_str()?,
+    };
+    Some(live::NoteKey {
+        vault: vault.to_owned(),
+        note_id,
+    })
+}
+fn reference_row(
+    value: &serde_json::Value,
+    inherited_vault: Option<&str>,
+    id: (&'static str, usize),
+    cx: &mut Context<Workspace>,
+) -> Option<Stateful<Div>> {
+    let title = value.get("title")?.as_str()?.to_owned();
+    let key = inherited_vault.and_then(|scope| reference_key(value, scope));
+    Some(div().id(id).py_1().child(title).when_some(key, |row, key| {
+        row.cursor_pointer()
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.shell.home = false;
+                this.shell.search_open = false;
+                this.shell.tab_menu = false;
+                this.open_live_key(key.clone(), cx);
+            }))
+    }))
+}
 impl Workspace {
+    fn activate_tab(&mut self, key: tabs::TabKey, cx: &mut Context<Self>) {
+        if !self.tabs.activate(&key) {
+            return;
+        }
+        self.shell.tab_menu = false;
+        self.shell.search_open = false;
+        match key {
+            tabs::TabKey::Home => self.open_home(cx),
+            tabs::TabKey::Note { vault, note_id } => {
+                self.shell.home = false;
+                self.selected = None;
+                self.content.clear();
+                self.current_note = None;
+                self.current_related.clear();
+                if self.live.is_some() {
+                    self.open_live_key(live::NoteKey { vault, note_id }, cx);
+                } else if let Some(index) = self
+                    .snapshot
+                    .notes
+                    .iter()
+                    .position(|note| note.note_id == note_id)
+                {
+                    self.select(index, cx);
+                }
+            }
+        }
+        cx.notify();
+    }
+    fn close_tab(&mut self, key: &tabs::TabKey, cx: &mut Context<Self>) {
+        let was_active = self.tabs.active().is_some_and(|tab| &tab.key == key);
+        if !self.tabs.close(key) {
+            return;
+        }
+        self.shell.tab_menu = false;
+        if was_active {
+            if let Some(next) = self.tabs.active().map(|tab| tab.key.clone()) {
+                self.activate_tab(next, cx);
+            } else {
+                // Final close must not reopen the configured home note or let an old
+                // async completion resurrect the tab that was just closed.
+                self.request += 1;
+                self.graph_request += 1;
+                self.query_epoch
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                self.shell.home = true;
+                self.selected = None;
+                self.content.clear();
+                self.current_note = None;
+                self.current_related.clear();
+                self.show_graph = false;
+            }
+        }
+        cx.notify();
+    }
     pub fn configured_home_index(&self) -> Option<usize> {
         let id = self
             .live
@@ -190,6 +277,7 @@ impl Workspace {
             .map(|(index, _)| index)
     }
     fn open_home(&mut self, cx: &mut Context<Self>) {
+        self.shell.tab_menu = false;
         self.shell.search_open = false;
         if let Some(index) = self.configured_home_index() {
             self.shell.home = false;
@@ -203,6 +291,7 @@ impl Workspace {
             self.shell.home = true;
             self.load_live_notes(cx);
         } else {
+            self.tabs.open_home();
             self.shell.home = true;
         }
         cx.notify();
@@ -215,49 +304,188 @@ impl Render for Workspace {
             WindowAppearance::Dark | WindowAppearance::VibrantDark
         ));
         let p = Palette::new(dark);
+        let reference_vault = self
+            .current_note
+            .as_ref()
+            .map(|body| body.note.vault.clone());
         let wide = window.viewport_size().width >= px(1100.);
         let height = window.viewport_size().height;
         let note = self
             .selected
             .and_then(|i| self.snapshot.notes.get(i))
             .cloned();
-        let home = self.shell.home || note.is_none();
+        let home = self.shell.home;
+        if let Some(body) = &self.current_note {
+            self.tabs.update_title(
+                &tabs::TabKey::Note {
+                    vault: body.note.vault.clone(),
+                    note_id: body.note.note_id,
+                },
+                body.note.title.clone(),
+            );
+        }
         self.search.update(cx, |search, _| search.set_dark(dark));
         self.graph_view.update(cx, |graph, cx| {
             graph.set_dark(dark, cx);
             graph.set_compact(true, cx);
         });
-        let title = note.as_ref().map(|n| n.title.clone()).unwrap_or_default();
+        let title = self
+            .current_note
+            .as_ref()
+            .map(|body| body.note.title.clone())
+            .or_else(|| note.as_ref().map(|n| n.title.clone()))
+            .or_else(|| self.tabs.active().map(|tab| tab.title.clone()))
+            .unwrap_or_default();
         let headings: Vec<_> = self
             .content
             .iter()
             .filter(|b| matches!(b.kind, markdown::BlockKind::Heading(_)))
             .map(|b| b.text.clone())
             .collect();
+        let tab_layout = self
+            .tabs
+            .layout(f32::from(window.viewport_size().width).max(0.) as u32);
         let tab = div()
             .h(px(38.))
+            .flex_shrink_0()
             .flex()
             .items_center()
             .border_b_1()
             .border_color(rgb(p.line))
-            .when(
-                !home && self.selected != self.configured_home_index(),
-                |bar| {
-                    bar.child(
-                        div()
-                            .w(px(336.))
-                            .h_full()
-                            .px_3()
-                            .flex()
-                            .items_center()
-                            .overflow_hidden()
-                            .border_b_2()
-                            .border_color(rgb(p.mark))
-                            .text_size(px(14.))
-                            .font_weight(gpui::FontWeight::MEDIUM)
-                            .child(title.clone()),
-                    )
-                },
+            .children(
+                tab_layout
+                    .visible
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, key)| {
+                        let entry = self.tabs.get(key)?;
+                        let title = entry.title.clone();
+                        let activate = key.clone();
+                        let close = key.clone();
+                        let middle_close = key.clone();
+                        Some(
+                            div()
+                                .id(("tab", index))
+                                .w(px(if index == 0 {
+                                    tabs::ACTIVE_WIDTH
+                                } else {
+                                    tabs::INACTIVE_WIDTH
+                                } as f32))
+                                .min_w_0()
+                                .flex_shrink_0()
+                                .max_w(
+                                    (window.viewport_size().width
+                                        - px(if tab_layout.overflow_count() > 0 {
+                                            tabs::OVERFLOW_WIDTH as f32
+                                        } else {
+                                            0.
+                                        }))
+                                    .max(px(0.)),
+                                )
+                                .h_full()
+                                .px_3()
+                                .flex()
+                                .items_center()
+                                .border_b_2()
+                                .border_color(rgb(if index == 0 { p.mark } else { p.paper }))
+                                .text_size(px(14.))
+                                .font_weight(if index == 0 {
+                                    gpui::FontWeight::MEDIUM
+                                } else {
+                                    gpui::FontWeight::NORMAL
+                                })
+                                .text_color(rgb(if index == 0 { p.ink } else { p.muted }))
+                                .cursor_pointer()
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .overflow_hidden()
+                                        .text_ellipsis()
+                                        .child(title),
+                                )
+                                .child(
+                                    div()
+                                        .id(("close-tab", index))
+                                        .w(px(24.))
+                                        .h(px(24.))
+                                        .flex_shrink_0()
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .text_color(rgb(p.muted))
+                                        .child("×")
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            cx.stop_propagation();
+                                            this.close_tab(&close, cx);
+                                        })),
+                                )
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.activate_tab(activate.clone(), cx)
+                                }))
+                                .on_mouse_down(
+                                    gpui::MouseButton::Middle,
+                                    cx.listener(move |this, _, _, cx| {
+                                        cx.stop_propagation();
+                                        this.close_tab(&middle_close, cx);
+                                    }),
+                                ),
+                        )
+                    }),
+            )
+            .when(tab_layout.overflow_count() > 0, |bar| {
+                bar.child(
+                    div()
+                        .id("tab-overflow")
+                        .w(px(tabs::OVERFLOW_WIDTH as f32))
+                        .h_full()
+                        .flex_shrink_0()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .cursor_pointer()
+                        .text_size(px(13.))
+                        .child(format!("+{}", tab_layout.overflow_count()))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.shell.tab_menu = !this.shell.tab_menu;
+                            cx.notify();
+                        })),
+                )
+            });
+        let tab_menu = div()
+            .id("tab-overflow-menu")
+            .absolute()
+            .right(px(8.))
+            .top(px(40.))
+            .w(px(300.))
+            .max_h(px(400.))
+            .overflow_y_scroll()
+            .bg(rgb(p.paper))
+            .border_1()
+            .border_color(rgb(p.line))
+            .rounded_lg()
+            .py_2()
+            .children(
+                tab_layout
+                    .overflow
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, key)| {
+                        let title = self.tabs.get(key)?.title.clone();
+                        let activate = key.clone();
+                        Some(
+                            div()
+                                .id(("overflow-tab", index))
+                                .px_4()
+                                .py_2()
+                                .text_size(px(14.))
+                                .cursor_pointer()
+                                .child(title)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.activate_tab(activate.clone(), cx)
+                                })),
+                        )
+                    }),
             );
         let rail = div()
             .absolute()
@@ -351,11 +579,14 @@ impl Render for Workspace {
                             .as_array()
                             .unwrap()
                             .iter()
-                            .filter_map(|entry| {
-                                entry
-                                    .get("title")
-                                    .and_then(|v| v.as_str())
-                                    .map(|title| div().py_1().child(title.to_owned()))
+                            .enumerate()
+                            .filter_map(|(index, entry)| {
+                                reference_row(
+                                    entry,
+                                    reference_vault.as_deref(),
+                                    ("child-reference", index),
+                                    cx,
+                                )
                             }),
                     ),
                 )
@@ -373,10 +604,13 @@ impl Render for Workspace {
                     .mt_6()
                     .child(label("BACKLINKS", p))
                     .when(links.is_empty(), |section| section.child("No backlinks."))
-                    .children(links.into_iter().filter_map(|link| {
-                        link.get("title")
-                            .and_then(|v| v.as_str())
-                            .map(|title| div().py_1().child(title.to_owned()))
+                    .children(links.iter().enumerate().filter_map(|(index, link)| {
+                        reference_row(
+                            link,
+                            reference_vault.as_deref(),
+                            ("backlink-reference", index),
+                            cx,
+                        )
                     })),
             )
         });
@@ -438,21 +672,11 @@ impl Render for Workspace {
                 fields
             })
             .unwrap_or_default();
-        let trail: Vec<String> = self
+        let trail = self
             .current_related
             .get("trail")
             .and_then(|v| v.as_array())
-            .map(|trail| {
-                trail
-                    .iter()
-                    .filter_map(|entry| {
-                        entry
-                            .get("title")
-                            .and_then(|v| v.as_str())
-                            .map(str::to_owned)
-                    })
-                    .collect()
-            })
+            .cloned()
             .unwrap_or_default();
         let reader = div()
             .flex_1()
@@ -473,7 +697,25 @@ impl Render for Workspace {
                     .overflow_y_scroll()
                     .pb_12()
                     .when(!trail.is_empty(), |reader| {
-                        reader.child(div().text_size(px(13.)).mb_4().child(trail.join(" › ")))
+                        reader.child(
+                            div()
+                                .text_size(px(13.))
+                                .mb_4()
+                                .flex()
+                                .flex_wrap()
+                                .gap_1()
+                                .children(trail.iter().enumerate().filter_map(|(index, entry)| {
+                                    reference_row(
+                                        entry,
+                                        reference_vault.as_deref(),
+                                        ("breadcrumb-reference", index),
+                                        cx,
+                                    )
+                                    .map(|row| {
+                                        div().flex().items_center().gap_1().child(row).child("›")
+                                    })
+                                })),
+                        )
                     })
                     .when(!metadata.is_empty(), |reader| {
                         reader.child(div().flex().gap(px(28.)).mb(px(36.)).children(
@@ -713,6 +955,19 @@ impl Render for Workspace {
                 )
             })
             .child(rail)
+            .when(self.shell.tab_menu, |root| {
+                root.child(
+                    div()
+                        .id("tab-menu-backdrop")
+                        .absolute()
+                        .size_full()
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.shell.tab_menu = false;
+                            cx.notify();
+                        })),
+                )
+                .child(tab_menu)
+            })
             .when(self.shell.diagnostics, |root| {
                 root.child(
                     div()
@@ -754,5 +1009,49 @@ impl Render for Workspace {
                 )
                 .child(search_panel)
             })
+    }
+}
+
+#[cfg(test)]
+mod reference_tests {
+    use super::reference_key;
+    use serde_json::json;
+
+    #[test]
+    fn missing_vault_inherits_source_not_search_scope() {
+        let key = reference_key(&json!({"note_id":42}), "source-vault").unwrap();
+        assert_eq!(key.vault, "source-vault");
+        assert_eq!(key.note_id, 42);
+    }
+    #[test]
+    fn explicit_vault_preserves_same_id_distinction() {
+        let a = reference_key(&json!({"note_id":42,"vault":"one"}), "source").unwrap();
+        let b = reference_key(&json!({"note_id":42,"vault":"two"}), "source").unwrap();
+        assert_ne!(a, b);
+        assert_eq!(a.note_id, b.note_id);
+    }
+    #[test]
+    fn explicit_empty_vault_means_launch_vault() {
+        assert_eq!(
+            reference_key(&json!({"note_id":42,"vault":""}), "source")
+                .unwrap()
+                .vault,
+            ""
+        );
+    }
+    #[test]
+    fn malformed_and_nonpositive_references_are_inert() {
+        for value in [
+            json!({}),
+            json!({"note_id":0}),
+            json!({"note_id":-1}),
+            json!({"note_id":"42"}),
+            json!({"note_id":42.5}),
+            json!({"note_id":42,"vault":null}),
+            json!({"note_id":42,"vault":7}),
+            json!({"note_id":18446744073709551615u64}),
+        ] {
+            assert!(reference_key(&value, "source").is_none(), "{value}");
+        }
     }
 }

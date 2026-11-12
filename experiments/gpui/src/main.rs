@@ -9,6 +9,7 @@ mod live;
 mod markdown;
 mod search_input;
 mod shell;
+mod tabs;
 mod workspace_live;
 use backend::{Backend, Note, Snapshot};
 actions!(native_workspace, [Quit]);
@@ -30,6 +31,7 @@ fn fixture(count: usize) -> Snapshot {
 
 struct Workspace {
     shell: shell::ShellState,
+    tabs: tabs::Tabs,
     snapshot: Snapshot,
     selected: Option<usize>,
     rendered_rows: usize,
@@ -150,6 +152,18 @@ impl Workspace {
     }
 
     fn select(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(note) = self.snapshot.notes.get(index) else {
+            return;
+        };
+        if !self.shell.home || self.configured_home_index() == Some(index) {
+            let vault = self
+                .live_notes
+                .get(index)
+                .filter(|_| self.live.is_some())
+                .map(|note| note.vault.clone())
+                .unwrap_or_default();
+            self.tabs.open_note(vault, note.note_id, note.title.clone());
+        }
         self.query_epoch
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         self.graph_request += 1;
@@ -303,6 +317,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
+                titlebar: None,
                 ..Default::default()
             },
             |_, cx| {
@@ -310,6 +325,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let backend_is_fixture = backend.is_none();
                     let mut workspace = Workspace {
                         shell: shell::ShellState::default(),
+                        tabs: tabs::Tabs::default(),
                         selected: (!snapshot.notes.is_empty()).then_some(0),
                         snapshot,
                         rendered_rows: 0,

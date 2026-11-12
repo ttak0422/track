@@ -16,7 +16,8 @@ of support. Use disposable fixture vaults, never a configured personal vault, fo
 | Owned HTTP read-only notes and federated search | [x] | [ ] | `live.rs`, `workspace_live.rs`; public-help search/source/quit smoke |
 | Live vault switching | [ ] | [ ] | `VaultSwitcher`, `SearchPanel`, `api.ts` |
 | Note body, tags, flags, hierarchy and backlinks | [ ] | [ ] | `NoteReader`, `HierarchyMenu`, `types.ts` |
-| Tabs, history, navigation and floating previews | [ ] | [ ] | `components/tabs`, `components/preview` |
+| In-memory vault-qualified tabs and close/overflow navigation | [x] | [ ] | `tabs.rs`, `shell.rs`; model tests, native QA pending |
+| Persistent tabs, history and floating previews | [ ] | [ ] | `components/tabs`, `components/preview` |
 | Reading positions, seen/read milestones and find | [ ] | [ ] | `reading.ts`, `ReadingPositionBoundary`, `WebViewFindController` |
 | Create, edit, save, delete and metadata editing | [ ] | [ ] | `NoteEditor`, `NoteMetaDialog`, `NoteActionsMenu` |
 | Conflict detection, dirty-state protection and draft recovery | [ ] | [ ] | `NoteEditor.recovery`, `recovery.ts`, desktop termination tests |

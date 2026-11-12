@@ -7,7 +7,7 @@ acceptance baseline.
 ## Implemented shell direction
 
 - Full-window sheet, restrained light/dark neutrals, vermilion as the only accent.
-- Compact floating left icon rail, title-only pinned strip, no permanent note catalog.
+- Compact floating left icon rail, active-first tabs with overflow, no permanent note catalog.
 - Search overlay preserves the underlying reader while querying; results remain
   separate from the current note and close on selection or dismissal.
 - Reader plus context aside on wide windows; the aside stacks below on narrow ones.
@@ -22,12 +22,11 @@ acceptance baseline.
 Fresh current-Web reference captures use the public help vault, 1280×800 viewport,
 light/dark themes, configured Home, note reader and search. They demonstrate the
 reference only, not native equivalence. The native shell is compile/unit-tested;
-matched native captures are pending. Do not replace or manipulate an app currently
-being used merely to produce a screenshot.
+matched native captures are pending. Use an isolated application instance and disposable fixtures for comparison.
 
-Remaining gaps include full multi-tab lifecycle, all dock destinations/actions,
+Remaining gaps include tab persistence and restored reading positions, all dock destinations/actions,
 keyboard search-result navigation, Home activity, exact fonts, clickable outline
-and context navigation, rich-format fidelity, reading-position preservation and
+navigation, rich-format fidelity, reading-position preservation and
 full accessibility/IME behavior. Missing actions must not look functional.
 
 Compare both implementations at 900×650, 1280×800 and 1600×1000, both themes and
