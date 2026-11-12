@@ -5,14 +5,12 @@ It does not replace Track.app, start a server, or change the vault. Its purpose 
 validate GPU-rendered interaction and virtualized lists before choosing a larger
 native architecture. No claims of improved frame rate are made yet.
 
-## Current validation blocker
+## Validation status
 
-The prototype builds and its snapshot tests pass, but native QA on macOS 27.2
-showed backgrounds and list rows without visible text. This reproduces with the
-system font and Helvetica. GPUI 0.2.2 / runtime Metal shaders are the tested
-combination; the cause is not established. This is a **rendering experiment, not a
-usable replacement for Track.app**. Resolve glyph rendering and repeat interaction
-QA before drawing performance conclusions or extending it into an editor.
+Native text rendering, note selection, and virtualized scrolling are verified on
+Apple Silicon/macOS 27.2. `font-kit` is explicitly enabled: disabling GPUI defaults
+without it selects `NoopTextSystem` and silently removes all glyphs.
+This is not yet a feature-compatible replacement for Track.app; see [PARITY.md](PARITY.md).
 
 ## Run (macOS)
 
