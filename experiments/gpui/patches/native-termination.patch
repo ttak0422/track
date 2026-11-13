@@ -1,0 +1,181 @@
+--- a/src/app.rs
++++ b/src/app.rs
+@@ -750,6 +750,31 @@
+         self.platform.quit();
+     }
+ 
++    /// Intercept native application quit requests (currently macOS only).
++    ///
++    /// Native termination is canceled before this callback is scheduled on the normal
++    /// foreground executor. Review all dirty documents, then call `App::quit()` only
++    /// after successful saving or explicit discard. `App::quit()` bypasses this gate.
++    /// Repeated requests may invoke the callback repeatedly; the controller must dedupe.
++    /// The handler lasts for the app lifetime and a new registration replaces it.
++    /// Returns false if the platform does not implement this gate.
++    pub fn on_native_quit_requested(&self, callback: impl FnMut(&mut App) + 'static) -> bool {
++        let callback = Rc::new(RefCell::new(callback));
++        let app = self.this.clone();
++        let executor = self.foreground_executor.clone();
++        self.platform.on_native_quit_requested(Box::new(move || {
++            let app = app.clone();
++            let callback = callback.clone();
++            executor
++                .spawn(async move {
++                    if let Some(app) = app.upgrade() {
++                        app.borrow_mut().update(|cx| (callback.borrow_mut())(cx));
++                    }
++                })
++                .detach();
++        }))
++    }
++
+     /// Schedules all windows in the application to be redrawn. This can be called
+     /// multiple times in an update cycle and still result in a single redraw.
+     pub fn refresh_windows(&mut self) {
+--- a/src/platform.rs
++++ b/src/platform.rs
+@@ -229,6 +229,12 @@
+     fn open_with_system(&self, path: &Path);
+ 
+     fn on_quit(&self, callback: Box<dyn FnMut()>);
++    /// Register a native quit request gate. Explicit `quit()` bypasses it.
++    /// Returns false on platforms that do not support this hook.
++    fn on_native_quit_requested(&self, _callback: Box<dyn FnMut()>) -> bool {
++        false
++    }
++
+     fn on_reopen(&self, callback: Box<dyn FnMut()>);
+ 
+     fn set_menus(&self, menus: Vec<Menu>, keymap: &Keymap);
+--- a/src/platform/mac/platform.rs
++++ b/src/platform/mac/platform.rs
+@@ -95,6 +95,10 @@
+                 should_handle_reopen as extern "C" fn(&mut Object, Sel, id, bool),
+             );
+             decl.add_method(
++                sel!(applicationShouldTerminate:),
++                should_terminate as extern "C" fn(&mut Object, Sel, id) -> NSUInteger,
++            );
++            decl.add_method(
+                 sel!(applicationWillTerminate:),
+                 will_terminate as extern "C" fn(&mut Object, Sel, id),
+             );
+@@ -168,6 +172,9 @@
+     reopen: Option<Box<dyn FnMut()>>,
+     on_keyboard_layout_change: Option<Box<dyn FnMut()>>,
+     quit: Option<Box<dyn FnMut()>>,
++    native_quit_requested: Option<Box<dyn FnMut()>>,
++    explicit_quit: bool,
++    native_quit_gate_enabled: bool,
+     menu_command: Option<Box<dyn FnMut(&dyn Action)>>,
+     validate_menu_command: Option<Box<dyn FnMut(&dyn Action) -> bool>>,
+     will_open_menu: Option<Box<dyn FnMut()>>,
+@@ -209,6 +216,9 @@
+             metadata_pasteboard_type: unsafe { ns_string("zed-metadata") },
+             reopen: None,
+             quit: None,
++            native_quit_requested: None,
++            explicit_quit: false,
++            native_quit_gate_enabled: false,
+             menu_command: None,
+             validate_menu_command: None,
+             will_open_menu: None,
+@@ -517,7 +527,15 @@
+         unsafe extern "C" fn quit(_: *mut c_void) {
+             unsafe {
+                 let app = NSApplication::sharedApplication(nil);
++                let delegate: id = msg_send![app, delegate];
++                // Set approval inside this queued invocation, not when App::quit is
++                // called, so an intervening external event cannot steal approval.
++                let platform = get_mac_platform(&mut *delegate);
++                platform.0.lock().explicit_quit = true;
+                 let _: () = msg_send![app, terminate: nil];
++                // Clear even if some future AppKit document controller cancels before
++                // asking our delegate. Never leave a reusable approval behind.
++                platform.0.lock().explicit_quit = false;
+             }
+         }
+     }
+@@ -875,6 +893,13 @@
+         self.0.lock().quit = Some(callback);
+     }
+ 
++    fn on_native_quit_requested(&self, callback: Box<dyn FnMut()>) -> bool {
++        let mut state = self.0.lock();
++        state.native_quit_requested = Some(callback);
++        state.native_quit_gate_enabled = true;
++        true
++    }
++
+     fn on_reopen(&self, callback: Box<dyn FnMut()>) {
+         self.0.lock().reopen = Some(callback);
+     }
+@@ -1418,6 +1443,68 @@
+     }
+ }
+ 
++// NSApplicationTerminateReply uses NSUInteger, not BOOL. SDK values:
++// NSTerminateCancel = 0, NSTerminateNow = 1 (NSTerminateLater = 2 is unused).
++fn should_cancel_native_quit(registered: bool, explicit: &mut bool) -> bool {
++    let approved = std::mem::take(explicit);
++    registered && !approved
++}
++
++extern "C" fn should_terminate(this: &mut Object, _: Sel, _: id) -> NSUInteger {
++    let platform = unsafe { get_mac_platform(this) };
++    let mut state = platform.0.lock();
++    let registered = state.native_quit_gate_enabled;
++    if !should_cancel_native_quit(registered, &mut state.explicit_quit) {
++        return 1;
++    }
++    let Some(mut callback) = state.native_quit_requested.take() else {
++        // Keep the gate closed even during a reentrant request while scheduling.
++        return 0;
++    };
++    drop(state);
++    // App's callback only enqueues work, so no AppCell borrow, dialog, or nested
++    // event loop occurs while AppKit is asking whether to terminate.
++    callback();
++    platform
++        .0
++        .lock()
++        .native_quit_requested
++        .get_or_insert(callback);
++    0
++}
++
++#[cfg(test)]
++mod termination_gate_tests {
++    use super::should_cancel_native_quit;
++    #[test]
++    fn opt_in_and_one_shot_approval() {
++        let mut approval = false;
++        assert!(!should_cancel_native_quit(false, &mut approval));
++        assert!(should_cancel_native_quit(true, &mut approval));
++        assert!(should_cancel_native_quit(true, &mut approval));
++        approval = true;
++        assert!(!should_cancel_native_quit(true, &mut approval));
++        assert!(!approval);
++        assert!(should_cancel_native_quit(true, &mut approval));
++    }
++
++    #[test]
++    fn approval_cannot_survive_an_unguarded_termination_attempt() {
++        let mut approval = true;
++        assert!(!should_cancel_native_quit(false, &mut approval));
++        assert!(!approval);
++        assert!(should_cancel_native_quit(true, &mut approval));
++    }
++
++    #[test]
++    fn temporarily_missing_callback_does_not_disable_registered_gate() {
++        // The native handler stores gate registration separately from the callback
++        // Option, which is temporarily taken while scheduling foreground work.
++        let mut approval = false;
++        assert!(should_cancel_native_quit(true, &mut approval));
++    }
++}
++
+ extern "C" fn will_terminate(this: &mut Object, _: Sel, _: id) {
+     let platform = unsafe { get_mac_platform(this) };
+     let mut lock = platform.0.lock();

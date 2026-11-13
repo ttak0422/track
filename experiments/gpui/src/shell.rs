@@ -394,9 +394,6 @@ fn reference_row(
     Some(div().id(id).py_1().child(title).when_some(key, |row, key| {
         row.cursor_pointer()
             .on_click(cx.listener(move |this, _, _, cx| {
-                this.shell.home = false;
-                this.shell.search_open = false;
-                this.shell.tab_menu = false;
                 this.open_live_key(key.clone(), cx);
             }))
     }))
@@ -550,8 +547,6 @@ impl Workspace {
         else {
             return;
         };
-        self.shell.home = false;
-        self.shell.search_open = false;
         self.shell.navigation_notice = has_authored_fragment(target).then(|| {
             "Fragment jumps are unavailable; this link navigates to the note only.".into()
         });
@@ -560,6 +555,14 @@ impl Workspace {
     }
     /// Session-only working scope for future single-vault actions. Never use this
     /// to rewrite a note identity, scope federated search, or reinterpret Home.
+    pub(crate) fn change_working_vault(&mut self, scope: String, cx: &mut Context<Self>) {
+        if self.guard_transition(workspace_edit::Transition::WorkingVault(scope.clone()), cx) {
+            return;
+        }
+        self.shell.working_scope = scope;
+        self.shell.vault_menu = false;
+        cx.notify();
+    }
     pub fn working_vault_scope(&self) -> &str {
         &self.shell.working_scope
     }
@@ -607,7 +610,10 @@ impl Workspace {
         })
         .detach();
     }
-    fn activate_tab(&mut self, key: tabs::TabKey, cx: &mut Context<Self>) {
+    pub(crate) fn activate_tab(&mut self, key: tabs::TabKey, cx: &mut Context<Self>) {
+        if self.guard_transition(workspace_edit::Transition::ActivateTab(key.clone()), cx) {
+            return;
+        }
         self.shell.tab_cycle.clear();
         if !self.tabs.activate(&key) {
             return;
@@ -636,7 +642,10 @@ impl Workspace {
         }
         cx.notify();
     }
-    fn close_tab(&mut self, key: &tabs::TabKey, cx: &mut Context<Self>) {
+    pub(crate) fn close_tab(&mut self, key: &tabs::TabKey, cx: &mut Context<Self>) {
+        if self.guard_transition(workspace_edit::Transition::CloseTab(key.clone()), cx) {
+            return;
+        }
         self.shell.tab_cycle.clear();
         self.shell.reader_scrolls.remove(key);
         self.shell.heading_anchors.remove(key);
@@ -697,7 +706,10 @@ impl Workspace {
         self.current_related.clear();
         self.show_graph = false;
     }
-    fn open_home(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn open_home(&mut self, cx: &mut Context<Self>) {
+        if self.guard_transition(workspace_edit::Transition::Home, cx) {
+            return;
+        }
         self.shell.tab_menu = false;
         self.shell.search_open = false;
         if let Some(index) = self.configured_home_index() {
@@ -725,6 +737,7 @@ impl Render for Workspace {
             WindowAppearance::Dark | WindowAppearance::VibrantDark
         ));
         let p = Palette::new(dark);
+        self.sync_editor_theme(dark, cx);
         self.ensure_link_resolutions(cx);
         let link_warning=self.shell.links.as_ref().filter(|cache|!cache.warnings.is_empty()).map(|cache|if cache.deferred_targets>0 {format!("Internal-link checking is limited to 128 targets; {} additional targets remain inactive. Details in diagnostics.",cache.deferred_targets)} else {"Some internal links could not be verified and remain inactive. Open diagnostics for details.".into()});
         let resolved_terms = std::rc::Rc::new(
@@ -784,7 +797,7 @@ impl Render for Workspace {
             .selected
             .and_then(|i| self.snapshot.notes.get(i))
             .cloned();
-        let home = self.shell.home;
+        let home = self.shell.home && !self.editing_ui.active();
         if let Some(body) = &self.current_note {
             self.tabs.update_title(
                 &tabs::TabKey::Note {
@@ -860,7 +873,15 @@ impl Render for Workspace {
                     .enumerate()
                     .filter_map(|(index, key)| {
                         let entry = self.tabs.get(key)?;
-                        let title = entry.title.clone();
+                        let title = format!(
+                            "{}{}",
+                            entry.title,
+                            if self.editing_ui.dirty_for(key) {
+                                " •"
+                            } else {
+                                ""
+                            }
+                        );
                         let activate = key.clone();
                         let close = key.clone();
                         let middle_close = key.clone();
@@ -983,7 +1004,7 @@ impl Render for Workspace {
                     let label=if name.is_empty(){"local".to_owned()}else{name.clone()};
                     let is_launch=name==launch;
                     div().id(("available-vault",index)).px_4().py_2().text_size(px(13.)).cursor_pointer().child(format!("{}{}{}",label,if is_launch{" · launch"}else{""},if discovery.scope_for(&name).as_deref()==Some(self.working_vault_scope()){" ✓"}else{""}))
-                        .on_click(cx.listener(move|this,_,_,cx|{if let Some(scope)=this.shell.vault_discovery.as_ref().and_then(|d|d.scope_for(&name)){this.shell.working_scope=scope;this.shell.vault_menu=false;cx.notify();}}))
+                        .on_click(cx.listener(move|this,_,_,cx|{if let Some(scope)=this.shell.vault_discovery.as_ref().and_then(|d|d.scope_for(&name)){this.change_working_vault(scope,cx);}}))
                 })).children(discovery.unavailable.iter().map(|entry|div().px_4().py_2().text_size(px(12.)).text_color(rgb(p.muted)).child(format!("{} · unavailable",if entry.name.is_empty(){"local"}else{&entry.name})).child(div().text_size(px(11.)).child(entry.error.clone().unwrap_or_default()))))
             })
             .when_some(self.shell.vault_error.clone(),|menu,error|menu.child(div().px_4().py_2().text_size(px(11.)).text_color(rgb(p.mark)).child(format!("{} {error}", if self.shell.vault_discovery.is_some() {"Discovery incomplete; prior list may be stale."} else {"Vault discovery unavailable."}))))
@@ -1008,7 +1029,15 @@ impl Render for Workspace {
                     .iter()
                     .enumerate()
                     .filter_map(|(index, key)| {
-                        let title = self.tabs.get(key)?.title.clone();
+                        let title = format!(
+                            "{}{}",
+                            self.tabs.get(key)?.title,
+                            if self.editing_ui.dirty_for(key) {
+                                " •"
+                            } else {
+                                ""
+                            }
+                        );
                         let activate = key.clone();
                         Some(
                             div()
@@ -1058,6 +1087,9 @@ impl Render for Workspace {
                 rail_button("reload", "reload", p, false)
                     .on_click(cx.listener(|this, _, _, cx| this.load_notes(cx))),
             )
+            .when(self.editing_ui.enabled(), |rail| {
+                rail.child(self.render_edit_controls(cx))
+            })
             .child(div().w(px(24.)).h(px(1.)).my_1().bg(rgb(p.line)))
             .child(
                 rail_button("theme", "theme", p, false).on_click(cx.listener(
@@ -1451,13 +1483,10 @@ impl Render for Workspace {
                                                 .child(tags),
                                         )
                                         .on_click(cx.listener(move |this, _, _, cx| {
-                                            this.shell.home = false;
-                                            this.shell.search_open = false;
-                                            this.search.update(cx, |search, cx| search.clear(cx));
                                             if this.live.is_some() {
                                                 this.select_search_result(i, cx);
                                             } else {
-                                                this.select(i, cx);
+                                                this.select_from_ui(i, cx);
                                             }
                                         })),
                                 )
@@ -1565,6 +1594,16 @@ impl Render for Workspace {
             .text_color(rgb(p.ink))
             .font_family(".SystemUIFont")
             .child(tab)
+            .when(self.editing_ui.enabled(), |root| {
+                root.child(
+                    div()
+                        .pl(px(64.))
+                        .py_1()
+                        .text_xs()
+                        .text_color(rgb(p.muted))
+                        .child(self.editor_fixture_notice()),
+                )
+            })
             .when_some(link_warning, |root, warning| {
                 root.child(
                     div()
@@ -1616,11 +1655,19 @@ impl Render for Workspace {
                         .py_1()
                         .text_size(px(11.))
                         .text_color(rgb(p.mark))
-                        .child("A read failed. Open diagnostics for details."),
+                        .child(
+                            self.read_error
+                                .as_ref()
+                                .filter(|e| e.starts_with("Shutdown failed:"))
+                                .cloned()
+                                .unwrap_or_else(|| {
+                                    "A read failed. Open diagnostics for details.".into()
+                                }),
+                        ),
                 )
             })
             .when(home, |root| root.child(home_view))
-            .when(!home, |root| {
+            .when(!home && !self.editing_ui.active(), |root| {
                 root.child(
                     div()
                         .flex()
@@ -1629,6 +1676,9 @@ impl Render for Workspace {
                         .child(reader)
                         .when(wide, |row| row.child(aside.take().unwrap())),
                 )
+            })
+            .when(self.editing_ui.active(), |root| {
+                root.child(self.render_editor(dark))
             })
             .child(rail)
             .when(self.shell.vault_menu, |root| {
@@ -1686,7 +1736,8 @@ impl Render for Workspace {
                                 .as_ref()
                                 .map(|cache| cache.warnings.join("\n"))
                                 .unwrap_or_default()
-                        )),
+                        ))
+                        .child(self.render_edit_diagnostics(cx)),
                 )
             })
             .when(self.shell.search_open, |root| {
@@ -1702,6 +1753,12 @@ impl Render for Workspace {
                         })),
                 )
                 .child(search_panel)
+            })
+            .when(self.editing_ui.enabled(), |root| {
+                root.child(self.render_editor_mode_menu(dark, height, cx))
+            })
+            .when(self.editing_ui.has_pending(), |root| {
+                root.child(self.render_leave_prompt(dark, cx))
             })
     }
 }

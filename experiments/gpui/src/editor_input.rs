@@ -48,6 +48,7 @@ pub struct EditorChanged(pub String);
 pub struct TextEditor {
     focus: FocusHandle,
     mutation_guard: MutationGuard,
+    dark: bool,
     text: String,
     anchor: usize,
     caret: usize,
@@ -60,6 +61,36 @@ pub struct TextEditor {
     bounds: Option<Bounds<Pixels>>,
     scroll: Point<Pixels>,
     dragging: bool,
+}
+/// Matches the shell's paper/ink/vermilion and search selection colors.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct EditorPalette {
+    paper: u32,
+    ink: u32,
+    line: u32,
+    mark: u32,
+    selection: u32,
+}
+impl EditorPalette {
+    fn new(dark: bool) -> Self {
+        if dark {
+            Self {
+                paper: 0x191c1e,
+                ink: 0xe9e9e4,
+                line: 0x282c2f,
+                mark: 0xf4785e,
+                selection: 0x573a32,
+            }
+        } else {
+            Self {
+                paper: 0xffffff,
+                ink: 0x1a1a18,
+                line: 0xe6e4de,
+                mark: 0xc13a1e,
+                selection: 0xf2d9cf,
+            }
+        }
+    }
 }
 /// One mutation gate shared by keyboard, platform IME, history and host resets.
 #[derive(Default)]
@@ -81,6 +112,22 @@ impl MutationGuard {
             Ok(())
         }
     }
+}
+/// Acknowledgment changes only the clean baseline, never the authored buffer.
+fn acknowledge_baseline(
+    baseline: &mut String,
+    current: &str,
+    acknowledged: &str,
+    composing: bool,
+) -> Result<(), &'static str> {
+    if composing {
+        return Err("Finish or cancel IME composition before acknowledging the editor buffer.");
+    }
+    if current != acknowledged {
+        return Err("The acknowledged text differs from the current editor buffer.");
+    }
+    *baseline = current.to_owned();
+    Ok(())
 }
 impl EventEmitter<EditorChanged> for TextEditor {}
 impl Focusable for TextEditor {
@@ -391,6 +438,7 @@ impl TextEditor {
         Self {
             focus: cx.focus_handle(),
             mutation_guard: MutationGuard::default(),
+            dark: false,
             baseline: text.clone(),
             history: EditHistory::default(),
             text,
@@ -403,6 +451,12 @@ impl TextEditor {
             bounds: None,
             scroll: point(px(0.), px(0.)),
             dragging: false,
+        }
+    }
+    pub fn set_dark(&mut self, dark: bool, cx: &mut Context<Self>) {
+        if self.dark != dark {
+            self.dark = dark;
+            cx.notify();
         }
     }
     /// Lock before preparing a save, after synchronizing the draft and checking IME.
@@ -425,6 +479,19 @@ impl TextEditor {
     }
     pub fn is_dirty(&self) -> bool {
         self.text != self.baseline
+    }
+    /// Mark this exact buffer acknowledged without resetting undo, redo, selection,
+    /// scroll, or text. Allowed while locked after a save acknowledgment. Emits no
+    /// EditorChanged event. The caller must validate the save identity/revision.
+    pub fn mark_saved(
+        &mut self,
+        acknowledged_text: &str,
+        cx: &mut Context<Self>,
+    ) -> Result<(), &'static str> {
+        let composing = self.is_composing();
+        acknowledge_baseline(&mut self.baseline, &self.text, acknowledged_text, composing)?;
+        cx.notify();
+        Ok(())
     }
     /// Explicitly replace the buffer and reset its baseline; emits no edit event.
     /// The parent must first resolve unsaved edits, unlock, and finish composition.
@@ -681,15 +748,16 @@ impl EntityInputHandler for TextEditor {
 impl Render for TextEditor {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let input = cx.entity();
+        let palette = EditorPalette::new(self.dark);
         div()
             .size_full()
             .min_h_0()
             .min_w_0()
             .p_2()
-            .bg(rgb(0x18242e))
+            .bg(rgb(palette.paper))
             .border_1()
-            .border_color(rgb(0x405565))
-            .text_color(rgb(0xe7edf4))
+            .border_color(rgb(palette.line))
+            .text_color(rgb(palette.ink))
             .text_size(px(14.))
             .key_context("TrackSourceEditor")
             .track_focus(&self.focus)
@@ -882,7 +950,7 @@ impl Render for TextEditor {
                                             point(origin.x + left, origin.y),
                                             size(right - left, px(LINE_HEIGHT)),
                                         ),
-                                        rgb(0x315468),
+                                        rgb(palette.selection),
                                     ));
                                 }
                                 let _ = line.shaped.paint(origin, px(LINE_HEIGHT), window, cx);
@@ -898,12 +966,12 @@ impl Render for TextEditor {
                                                 ),
                                                 size(line.x(b) - line.x(a), px(1.)),
                                             ),
-                                            rgb(0x7ec9b5),
+                                            rgb(palette.mark),
                                         ));
                                     }
                                 }
                             }
-                            if s.focus.is_focused(window) {
+                            if !s.is_read_only() && s.focus.is_focused(window) {
                                 window.paint_quad(fill(
                                     Bounds::new(
                                         point(
@@ -912,7 +980,7 @@ impl Render for TextEditor {
                                         ),
                                         size(px(1.), px(LINE_HEIGHT)),
                                     ),
-                                    rgb(0x7ec9b5),
+                                    rgb(palette.mark),
                                 ));
                             }
                             if !s.is_read_only() {
@@ -1149,5 +1217,50 @@ mod tests {
         assert_eq!(committed.text, "日本tail");
         assert_eq!(history.undo.len(), 1);
         assert!(guard.require_edit().is_err());
+    }
+    #[test]
+    fn acknowledgment_preserves_authored_state_and_history_while_locked() {
+        let mut baseline = "before".to_owned();
+        let current = snapshot("日本語\r\n[[Link]]\n\n", 9, 0);
+        let mut history = EditHistory::default();
+        history.record(snapshot("before", 6, 6), &current, false);
+        history.redo.push(snapshot("future", 3, 0));
+        let original_undo = history.undo.clone();
+        let original_redo = history.redo.clone();
+        let mut guard = MutationGuard::default();
+        guard.set_read_only(true, false).unwrap();
+        acknowledge_baseline(&mut baseline, &current.text, &current.text, false).unwrap();
+        assert_eq!(baseline, current.text);
+        assert_eq!((current.anchor, current.caret), (9, 0));
+        assert_eq!(history.undo, original_undo);
+        assert_eq!(history.redo, original_redo);
+        assert!(guard.read_only);
+        // A save is not an undo boundary that destroys the prior edit.
+        assert_eq!(history.undo(current).unwrap().text, "before");
+    }
+    #[test]
+    fn acknowledgment_requires_exact_bytes_and_finalized_composition() {
+        let mut baseline = "original".to_owned();
+        assert!(acknowledge_baseline(&mut baseline, "authored\n\n", "authored", false).is_err());
+        assert_eq!(baseline, "original");
+        assert!(acknowledge_baseline(&mut baseline, "にほ", "にほ", true).is_err());
+        assert_eq!(baseline, "original");
+        acknowledge_baseline(&mut baseline, "", "", false).unwrap();
+        assert_eq!(baseline, "");
+    }
+    #[test]
+    fn editor_palette_matches_light_and_dark_shell_and_search() {
+        let light = EditorPalette::new(false);
+        assert_eq!(
+            (light.paper, light.ink, light.line),
+            (0xffffff, 0x1a1a18, 0xe6e4de)
+        );
+        assert_eq!((light.mark, light.selection), (0xc13a1e, 0xf2d9cf));
+        let dark = EditorPalette::new(true);
+        assert_eq!(
+            (dark.paper, dark.ink, dark.line),
+            (0x191c1e, 0xe9e9e4, 0x282c2f)
+        );
+        assert_eq!((dark.mark, dark.selection), (0xf4785e, 0x573a32));
     }
 }

@@ -48,6 +48,15 @@ Native text, selection and virtualized scrolling were verified on Apple Silicon 
 macOS 27.2 after explicitly enabling `font-kit`. Full accessibility and IME parity
 remain open; the original missing glyphs were a disabled font backend, not an OS fault.
 
+## Developer-only editing status
+
+A guarded disposable-fixture editor now connects the raw-body/etag transport to
+Preview/Edit/Split and unified navigation/exit prompts. Ordinary use remains
+read-only. It supports one in-memory draft, not durable recovery or full editor
+parity. Independent source review and unit tests cover stale callbacks, save
+locking, and transition guards; real native quit, save-failure, and IME checks
+remain pending. See the README for the explicit fixture-only opt-in.
+
 ## Reuse the engine boundary
 
 - The initial read-only adapter executes explicit CLI commands on background workers;

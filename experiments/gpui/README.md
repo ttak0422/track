@@ -1,9 +1,8 @@
 # GPUI rendering experiment
 
-An isolated, read-only native workspace using [Zed's GPUI](https://www.gpui.rs/).
-It does not replace Track.app. Server mode is opt-in and remains read-only. Its purpose is to
-validate GPU-rendered interaction and virtualized lists before choosing a larger
-native architecture. No claims of improved frame rate are made yet.
+An isolated, read-only-by-default native workspace using [Zed's GPUI](https://www.gpui.rs/).
+It does not replace Track.app. Server mode is opt-in. Ordinary vault use remains read-only. Its purpose is to
+reach existing-workspace compatibility while validating native rendering. No claims of improved frame rate are made yet.
 
 ## Validation status
 
@@ -14,10 +13,11 @@ This is not yet a feature-compatible replacement for Track.app; see [PARITY.md](
 
 ## Run (macOS)
 
-Install a current Rust toolchain and Apple's Command Line Tools, then run:
+Install Nix, a current Rust toolchain and Apple's Command Line Tools, then run:
 
 ```sh
-cargo run --release --manifest-path experiments/gpui/Cargo.toml
+./experiments/gpui/prepare.sh
+cargo run --locked --release --manifest-path experiments/gpui/Cargo.toml
 ```
 
 The default is a synthetic 10,000-note fixture. Use the floating search action to find and select notes in a virtualized overlay. GPUI uses native Metal rendering, not WKWebView.
@@ -43,7 +43,7 @@ a warning. Malformed input fails before opening a window.
 
 - One-sheet reader, floating rail, title strip, virtualized search overlay and context aside.
 - Read failures and partial data remain visible; full diagnostics are a separate toggle.
-- No editor, full Markdown parity, live updates, full graph interaction parity, persistence,
+- No production editor, full Markdown parity, live updates, full graph interaction parity, persistence,
   accessibility/IME parity, or integration into the shipping app yet.
 - macOS is the initial target; Linux/Windows support is not configured or verified.
 - GPUI is pinned and Cargo.lock is committed. Keep this experiment outside the main
@@ -51,7 +51,7 @@ a warning. Malformed input fails before opening a window.
 
 Before adopting this architecture, compare release builds with Track.app using the
 same note count and window size. Measure frame times and memory with Instruments
-while continuously scrolling, selecting, and resizing. Then prototype Markdown and
+while continuously scrolling, selecting, and resizing. Evaluate Markdown and
 IME editing separately; list virtualization alone does not establish editor parity.
 
 ```sh
@@ -109,7 +109,7 @@ parent loss relies on Go's existing parent watchdog and is not yet validated her
 
 HTTP mode reads source Markdown (not portable export) and provides native search
 across all served vaults. Search preserves vault-scoped note identities and ignores
-outdated navigation/storage-generation responses. Editing and SSE refresh are not
+outdated navigation/storage-generation responses. Production editing and SSE refresh are not
 implemented; use Reload vault for manual refresh. Local graphs use the selected HTTP note’s own vault scope. Japanese IME uses the native input protocol but real composition is
 unverified; cursor movement is Unicode-scalar, not grapheme-cluster aware.
 
@@ -121,3 +121,38 @@ captured with public help fixtures in an isolated headless browser. The revised
 native shell has compile/unit coverage but still requires fresh matched native
 captures; earlier screenshots do not validate this layout. Tab persistence, activity
 Home, keyboard result navigation and complete dock actions remain incomplete.
+
+## Pinned native termination hook
+
+`prepare.sh` uses the repository's locked nixpkgs to fetch the official GPUI crate
+by its archive SHA-256 and apply a small [local patch](patches/README.md). The source
+is generated in the Nix store and linked under ignored `.build-deps/`; no full
+upstream source is vendored. Cargo requires that path and cannot silently fall back
+to unpatched GPUI. Re-run preparation after changing the patch or project lock.
+
+The patch exposes a native application-quit request before AppKit termination,
+which the read-only workspace routes through owned-server cleanup. Ordinary
+window-close interception alone does not cover Dock Quit or OS termination.
+The patch is compile/unit-tested, not yet validated through real Dock/OS actions.
+Ordinary editing remains disabled until native termination and dirty-document guards
+are exercised through the real application. Model tests are not native-quit evidence.
+
+
+## Disposable editor validation only
+
+`--developer-edit-fixture /absolute/temporary/vault` enables a limited editor only
+for that exact `--vault` in owned-server mode. This is not a normal-use feature.
+The vault must be a disposable copy under the OS temporary directory or `/tmp`,
+with a preexisting `.track-native-edit-fixture` file containing exactly
+`disposable-fixture-only` followed by a newline. Explicit temporary `--config`
+(file), `--cache` (directory), and a dedicated `--server-port` are required.
+Never add the marker to personal data. Path checks are not a sandbox against
+concurrent filesystem modification.
+
+The rail provides Preview/Edit/Split and explicit Save. One active draft is
+supported. Navigation and exit share Save/Discard/Cancel guards; saving locks
+input and retains the original source revision. Ambiguous failures are not
+retried automatically. Source comparison requires an exact body match before
+explicit reconciliation. Drafts are memory-only: crashes or forced termination
+can lose edits. Draft-preview links are inactive. Native IME, Dock Quit, window
+close and failure-path UI testing remain required before release.

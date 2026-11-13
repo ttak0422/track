@@ -3,9 +3,7 @@ use gpui::{
     WindowOptions, actions, div, prelude::*, px, rgb, size, uniform_list,
 };
 mod backend;
-#[cfg(test)]
 mod editing;
-#[cfg(test)]
 mod editor_input;
 mod graph;
 mod graph_view;
@@ -15,6 +13,7 @@ mod native_window;
 mod search_input;
 mod shell;
 mod tabs;
+mod workspace_edit;
 mod workspace_live;
 use backend::{Backend, Note, Snapshot};
 actions!(
@@ -45,6 +44,7 @@ fn fixture(count: usize) -> Snapshot {
 
 struct Workspace {
     shell: shell::ShellState,
+    editing_ui: workspace_edit::EditingUi,
     tabs: tabs::Tabs,
     snapshot: Snapshot,
     selected: Option<usize>,
@@ -75,6 +75,9 @@ struct Workspace {
 
 impl Workspace {
     fn load_graph(&mut self, cx: &mut Context<Self>) {
+        if self.guard_transition(workspace_edit::Transition::Graph, cx) {
+            return;
+        }
         if live_mode_waiting(self.live_requested, self.live.is_some()) {
             self.read_error = Some("Owned server is not ready; CLI fallback is disabled.".into());
             cx.notify();
@@ -129,6 +132,9 @@ impl Workspace {
     }
 
     fn load_notes(&mut self, cx: &mut Context<Self>) {
+        if self.guard_transition(workspace_edit::Transition::Reload, cx) {
+            return;
+        }
         if live_mode_waiting(self.live_requested, self.live.is_some()) {
             self.read_error = Some("Owned server is not ready; CLI fallback is disabled.".into());
             cx.notify();
@@ -177,10 +183,38 @@ impl Workspace {
         cx.notify();
     }
 
+    fn select_from_ui(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(note) = self.snapshot.notes.get(index) else {
+            return;
+        };
+        let intent = self
+            .live_notes
+            .get(index)
+            .filter(|_| self.live.is_some())
+            .map(|n| workspace_edit::Transition::Note(n.key()))
+            .unwrap_or(workspace_edit::Transition::LegacyNote(note.note_id));
+        if self.guard_transition(intent, cx) {
+            return;
+        }
+        self.shell.home = false;
+        self.shell.search_open = false;
+        self.search.update(cx, |search, cx| search.clear(cx));
+        self.select(index, cx);
+    }
     fn select(&mut self, index: usize, cx: &mut Context<Self>) {
         let Some(note) = self.snapshot.notes.get(index) else {
             return;
         };
+        let intent = self
+            .live_notes
+            .get(index)
+            .filter(|_| self.live.is_some())
+            .map(|n| workspace_edit::Transition::Note(n.key()))
+            .unwrap_or(workspace_edit::Transition::LegacyNote(note.note_id));
+        if self.guard_transition(intent, cx) {
+            return;
+        }
+        let note = &self.snapshot.notes[index];
         if !self.shell.home || self.configured_home_index() == Some(index) {
             let vault = self
                 .live_notes
@@ -242,14 +276,39 @@ fn live_mode_waiting(requested: bool, has_session: bool) -> bool {
     requested && !has_session
 }
 
-fn request_quit(cx: &mut App, owner: std::sync::Arc<live::LifecycleHandle>) {
+fn route_workspace_quit(
+    cx: &mut App,
+    target: &std::rc::Rc<std::cell::RefCell<Option<gpui::WeakEntity<Workspace>>>>,
+    owner: std::sync::Arc<live::LifecycleHandle>,
+) {
+    let entity = target.borrow().as_ref().and_then(|weak| weak.upgrade());
+    if let Some(entity) = entity {
+        entity.update(cx, |workspace, cx| workspace.request_exit(cx));
+    } else {
+        request_quit(cx, owner, None);
+    } // No workspace/draft exists during startup/teardown.
+}
+
+fn request_quit(
+    cx: &mut App,
+    owner: std::sync::Arc<live::LifecycleHandle>,
+    workspace: Option<gpui::WeakEntity<Workspace>>,
+) {
     let job = cx
         .background_executor()
         .spawn(async move { owner.shutdown() });
     cx.spawn(async move |cx| {
         if let Err(error) = job.await {
             eprintln!("Server shutdown incomplete: {error}");
-            return; // Lifecycle polling publishes the error; never claim a completed quit.
+            let message = format!(
+                "Shutdown failed: {error}. Window retained; retry Quit after resolving the error."
+            );
+            let _ = cx.update(|cx| {
+                if let Some(entity) = workspace.and_then(|weak| weak.upgrade()) {
+                    entity.update(cx, |this, cx| this.editor_shutdown_failed(message, cx));
+                }
+            });
+            return; // Never exit or leave the transition gate permanently blocked.
         }
         let _ = cx.update(|cx| cx.quit());
     })
@@ -276,13 +335,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().is_some_and(|a| a == "--help") {
         println!(
-            "track-gpui-poc [notes.json]\ntrack-gpui-poc --vault /absolute/vault --track-bin /absolute/track [--config /absolute/config] [--cache /absolute/cache] [--server-port 19000]\nNo arguments: synthetic fixture. Vault mode is read-only; CLI may refresh derived caches."
+            "track-gpui-poc [notes.json]\ntrack-gpui-poc --vault /absolute/vault --track-bin /absolute/track [--config /absolute/config] [--cache /absolute/cache] [--server-port 19000] [--developer-edit-fixture /temporary/disposable/vault]\nDeveloper editing requires a disposable marker and isolated temporary config/cache; not release-ready.\nNo arguments: synthetic fixture. Vault mode is read-only; CLI may refresh derived caches."
         );
         return Ok(());
     }
     let mut live_config = None;
+    let mut developer_fixture = None;
     let (snapshot, source, backend) = if args.first().is_some_and(|a| a.starts_with("--")) {
         let mut server_port = None;
+        let mut fixture_option: Option<std::path::PathBuf> = None;
         let mut vault = None;
         let mut executable = None;
         let mut config = None;
@@ -291,6 +352,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         while let Some(flag) = iter.next() {
             let value = iter.next().ok_or("missing option value")?;
             match flag.as_str() {
+                "--developer-edit-fixture" => fixture_option = Some(value.into()),
                 "--server-port" => server_port = Some(value.parse::<u16>()?),
                 "--vault" => vault = Some(value.into()),
                 "--track-bin" => executable = Some(value.into()),
@@ -298,6 +360,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "--cache" => cache = Some(value.into()),
                 _ => return Err(format!("unknown option: {flag}").into()),
             }
+        }
+        if let Some(root) = fixture_option {
+            if server_port.is_none() {
+                return Err("Developer editing requires an owned --server-port.".into());
+            }
+            developer_fixture = Some(workspace_edit::validate_fixture(
+                &root,
+                vault.as_deref().ok_or("--vault is required")?,
+                config.as_deref(),
+                cache.as_deref(),
+            )?);
         }
         if let Some(port) = server_port {
             let mut config_live = live::LaunchConfig::new(
@@ -341,10 +414,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     Application::new().run(move |cx: &mut App| {
         let quit_session = std::sync::Arc::new(live::LifecycleHandle::default());
+        let workspace_target: std::rc::Rc<std::cell::RefCell<Option<gpui::WeakEntity<Workspace>>>> =
+            Default::default();
+        let native_target = workspace_target.clone();
+        let native_quit_owner = quit_session.clone();
+        let native_quit_supported = cx.on_native_quit_requested(move |cx| {
+            route_workspace_quit(cx, &native_target, native_quit_owner.clone());
+        });
+        #[cfg(target_os = "macos")]
+        assert!(
+            native_quit_supported,
+            "native termination guard is required"
+        );
+        #[cfg(not(target_os = "macos"))]
+        let _ = native_quit_supported;
         let quit_handle = quit_session.clone();
-        cx.on_action(move |_: &Quit, cx| request_quit(cx, quit_handle.clone()));
+        let quit_target = workspace_target.clone();
+        cx.on_action(move |_: &Quit, cx| {
+            route_workspace_quit(cx, &quit_target, quit_handle.clone())
+        });
         let close_handle = quit_session.clone();
-        cx.on_action(move |_: &CloseWindow, cx| request_quit(cx, close_handle.clone()));
+        let close_target = workspace_target.clone();
+        cx.on_action(move |_: &CloseWindow, cx| {
+            route_workspace_quit(cx, &close_target, close_handle.clone())
+        });
         cx.on_action(|_: &MinimizeWindow, cx| {
             if let Some(handle) = cx.active_window() {
                 let _ = handle.update(cx, |_, window, _| window.minimize_window());
@@ -405,14 +498,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 native_window::configure(window)
                     .expect("could not configure this window's native controls safely");
                 let close_owner = quit_session.clone();
+                let close_target = workspace_target.clone();
                 window.on_window_should_close(cx, move |_, cx| {
-                    request_quit(cx, close_owner.clone());
+                    route_workspace_quit(cx, &close_target, close_owner.clone());
                     false // Keep the window available to report shutdown failures.
                 });
-                cx.new(|cx| {
+                let workspace = cx.new(|cx| {
                     let backend_is_fixture = backend.is_none();
                     let mut workspace = Workspace {
                         shell: shell::ShellState::default(),
+                        editing_ui: workspace_edit::EditingUi::new(developer_fixture),
                         tabs: tabs::Tabs::default(),
                         selected: (!snapshot.notes.is_empty()).then_some(0),
                         snapshot,
@@ -459,7 +554,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 .iter()
                                 .position(|note| note.note_id == event.0)
                             {
-                                this.select(index, cx);
+                                this.select_from_ui(index, cx);
                             } else {
                                 this.status =
                                     "Selected node is not in the current note list".into();
@@ -480,7 +575,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         workspace.load_notes(cx);
                     }
                     workspace
-                })
+                });
+                *workspace_target.borrow_mut() = Some(workspace.downgrade());
+                workspace
             },
         )
         .expect("open GPUI window");

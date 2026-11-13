@@ -15,6 +15,7 @@ impl Workspace {
                         if failure != previous {
                             previous = failure.clone();
                             if let Some(error) = failure {
+                                this.editor_environment_changed("Owned server failed.");
                                 this.request += 1;
                                 this.graph_request += 1;
                                 this.query_epoch
@@ -40,6 +41,7 @@ impl Workspace {
     /// requests whose before/after probes straddle the transition.
     fn observe_storage(&mut self, state: &live::Storage, cx: &mut Context<Self>) {
         if epoch_changed(self.accepted_storage_generation, state.generation) {
+            self.editor_environment_changed("Storage generation changed.");
             self.request += 1;
             self.graph_request += 1;
             self.query_epoch
@@ -117,6 +119,9 @@ impl Workspace {
     }
 
     pub fn load_live_notes(&mut self, cx: &mut Context<Self>) {
+        if self.guard_transition(workspace_edit::Transition::Reload, cx) {
+            return;
+        }
         let Some(session) = self.live.clone() else {
             return;
         };
@@ -282,6 +287,9 @@ impl Workspace {
         let Some(note) = self.search_results.get(index).cloned() else {
             return;
         };
+        if self.guard_transition(workspace_edit::Transition::Note(note.key()), cx) {
+            return;
+        }
         let index = if let Some(index) = self.live_notes.iter().position(|n| n.key() == note.key())
         {
             index
@@ -296,10 +304,13 @@ impl Workspace {
             self.live_notes.push(note);
             self.live_notes.len() - 1
         };
-        self.select(index, cx);
+        self.select_from_ui(index, cx);
     }
 
     pub fn load_live_graph(&mut self, cx: &mut Context<Self>) {
+        if self.guard_transition(workspace_edit::Transition::Graph, cx) {
+            return;
+        }
         let Some(session) = self.live.clone() else {
             return;
         };
@@ -363,6 +374,13 @@ impl Workspace {
     }
 
     pub fn open_live_key(&mut self, key: live::NoteKey, cx: &mut Context<Self>) {
+        if self.guard_transition(workspace_edit::Transition::Note(key.clone()), cx) {
+            return;
+        }
+        self.shell.home = false;
+        self.shell.search_open = false;
+        self.search.update(cx, |search, cx| search.clear(cx));
+        self.shell.tab_menu = false;
         let Some(session) = self.live.clone() else {
             return;
         };
@@ -422,6 +440,11 @@ impl Workspace {
     }
 
     pub fn select_live(&mut self, index: usize, cx: &mut Context<Self>) {
+        if let Some(note) = self.live_notes.get(index) {
+            if self.guard_transition(workspace_edit::Transition::Note(note.key()), cx) {
+                return;
+            }
+        }
         let Some(session) = self.live.clone() else {
             return;
         };
