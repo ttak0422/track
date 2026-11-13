@@ -13,6 +13,7 @@ pub enum EditorMode {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Transition {
+    InternalLink(shell::InternalLinkIntent),
     Note(live::NoteKey),
     LegacyNote(i64),
     ActivateTab(tabs::TabKey),
@@ -22,6 +23,11 @@ pub enum Transition {
     Graph,
     WorkingVault(String),
     Quit,
+}
+fn acknowledge_saved_transition(intent: &mut Transition) {
+    if let Transition::InternalLink(link) = intent {
+        link.allow_epoch_advance = true;
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum GateDecision {
@@ -250,6 +256,7 @@ impl Workspace {
         self.clear_editor();
         self.editing_ui.bypass = true;
         match intent {
+            Transition::InternalLink(intent) => self.open_internal_link(intent, cx),
             Transition::Note(key) => self.open_live_key(key, cx),
             Transition::LegacyNote(id) => {
                 if let Some(i) = self.snapshot.notes.iter().position(|n| n.note_id == id) {
@@ -532,7 +539,8 @@ impl Workspace {
                             "Fixture save acknowledged. Authored text and undo history retained."
                                 .into();
                         if leave {
-                            if let Some(intent) = this.editing_ui.pending.take() {
+                            if let Some(mut intent) = this.editing_ui.pending.take() {
+                                acknowledge_saved_transition(&mut intent);
                                 this.execute_transition(intent, cx);
                             }
                         }
@@ -887,9 +895,21 @@ impl Workspace {
             .flex()
             .items_center()
             .justify_center();
-        let mut dialog = div().w(px(460.)).p_5().bg(rgb(0x202b35)).text_color(rgb(0xffffff)).flex().flex_col().gap_3()
-            .child(format!("Leave draft? Destination: {intent:?}"))
-            .child("Save is explicit. Discard abandons only this in-memory draft. Cancel stays here. Composition or an in-flight save must finish before leaving.")
+        let heading = match intent {
+            Transition::Quit => "Save changes before quitting?",
+            Transition::CloseTab(_) => "Save changes before closing this tab?",
+            Transition::Reload => "Save changes before reloading?",
+            _ => "Save changes before leaving this note?",
+        };
+        let paper = if dark { 0x191c1e } else { 0xffffff };
+        let ink = if dark { 0xe9e9e4 } else { 0x1a1a18 };
+        let line = if dark { 0x282c2f } else { 0xe6e4de };
+        let mark = if dark { 0xf4785e } else { 0xc13a1e };
+        let mut dialog = div().w(px(460.)).p_5().rounded_lg()
+            .bg(rgb(paper)).text_color(rgb(ink)).border_1().border_color(rgb(line))
+            .flex().flex_col().gap_3()
+            .child(heading)
+            .child("Discard removes only the unsaved draft. Cancel keeps this note open. Finish text composition or an in-flight save before leaving.")
             .child(self.editing_ui.message.clone());
         for (choice, label) in [
             (LeaveChoice::Save, "Save and continue"),
@@ -900,6 +920,14 @@ impl Workspace {
                 div()
                     .id(label)
                     .p_2()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(rgb(line))
+                    .text_color(rgb(if choice == LeaveChoice::Save {
+                        mark
+                    } else {
+                        ink
+                    }))
                     .cursor_pointer()
                     .child(label)
                     .on_click(
@@ -1185,5 +1213,39 @@ mod tests {
                 .is_err()
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod fragment_transition_tests {
+    use super::*;
+    #[test]
+    fn save_replay_preserves_frozen_link_payload_and_only_enables_epoch_adoption() {
+        let payload = shell::InternalLinkIntent {
+            source: live::NoteKey {
+                vault: "one".into(),
+                note_id: 1,
+            },
+            destination: live::NoteKey {
+                vault: "two".into(),
+                note_id: 2,
+            },
+            target: markdown::LinkTarget::Markdown {
+                destination: "Target.md#heading".into(),
+            },
+            launch_generation: 3,
+            storage_generation: 4,
+            allow_epoch_advance: false,
+        };
+        let mut transition = Transition::InternalLink(payload.clone());
+        assert_eq!(transition, Transition::InternalLink(payload.clone()));
+        acknowledge_saved_transition(&mut transition);
+        let Transition::InternalLink(saved) = transition else {
+            panic!("lost link payload")
+        };
+        assert!(saved.allow_epoch_advance);
+        assert_eq!(saved.destination, payload.destination);
+        assert_eq!(saved.target, payload.target);
+        assert_eq!(saved.launch_generation, payload.launch_generation);
     }
 }

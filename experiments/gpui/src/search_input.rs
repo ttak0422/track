@@ -24,7 +24,11 @@ actions!(
         SelectAll,
         Copy,
         Cut,
-        Paste
+        Paste,
+        PreviousResult,
+        NextResult,
+        OpenResult,
+        DismissSearch
     ]
 );
 
@@ -33,6 +37,7 @@ pub struct SearchChanged(pub String);
 
 pub struct SearchInput {
     dark: bool,
+    selected_result: Option<usize>,
     focus: FocusHandle,
     text: String,
     anchor: usize,
@@ -97,8 +102,20 @@ fn single_line(text: &str) -> String {
         .collect()
 }
 
+fn search_context(composing: bool) -> &'static str {
+    if composing {
+        "TrackSearch composing"
+    } else {
+        "TrackSearch"
+    }
+}
+
 fn search_bindings() -> Vec<KeyBinding> {
     vec![
+        KeyBinding::new("up", PreviousResult, Some("TrackSearch && !composing")),
+        KeyBinding::new("down", NextResult, Some("TrackSearch && !composing")),
+        KeyBinding::new("enter", OpenResult, Some("TrackSearch && !composing")),
+        KeyBinding::new("escape", DismissSearch, Some("TrackSearch && !composing")),
         KeyBinding::new("backspace", Backspace, Some("TrackSearch")),
         KeyBinding::new("delete", Delete, Some("TrackSearch")),
         KeyBinding::new("left", Left, Some("TrackSearch")),
@@ -120,11 +137,49 @@ fn search_bindings() -> Vec<KeyBinding> {
     ]
 }
 
+/// Bounded result navigation, never wrapping or returning an invalid row.
+fn result_step(selected: Option<usize>, len: usize, forward: bool) -> Option<usize> {
+    if len == 0 {
+        return None;
+    }
+    Some(match selected.filter(|i| *i < len) {
+        None => {
+            if forward {
+                0
+            } else {
+                len - 1
+            }
+        }
+        Some(i) => {
+            if forward {
+                (i + 1).min(len - 1)
+            } else {
+                i.saturating_sub(1)
+            }
+        }
+    })
+}
+
 impl SearchInput {
+    pub fn is_composing(&self) -> bool {
+        self.marked.is_some()
+    }
+    pub fn selected_result(&self) -> Option<usize> {
+        self.selected_result
+    }
+    pub fn step_result(&mut self, len: usize, forward: bool) -> Option<usize> {
+        self.selected_result = result_step(self.selected_result, len, forward);
+        self.selected_result
+    }
+    pub fn reset_result(&mut self) {
+        self.selected_result = None;
+    }
+
     pub fn query(&self) -> &str {
         &self.text
     }
     pub fn clear(&mut self, cx: &mut Context<Self>) {
+        self.selected_result = None;
         self.text.clear();
         self.anchor = 0;
         self.caret = 0;
@@ -139,6 +194,7 @@ impl SearchInput {
         cx.bind_keys(search_bindings());
         Self {
             dark: false,
+            selected_result: None,
             focus: cx.focus_handle(),
             text: String::new(),
             anchor: 0,
@@ -184,6 +240,7 @@ impl SearchInput {
             .unwrap_or(inserted.len()..inserted.len());
         self.anchor = range.start + selection.start;
         self.caret = range.start + selection.end;
+        self.selected_result = None;
         cx.emit(SearchChanged(self.text.clone()));
         cx.notify();
     }
@@ -300,7 +357,7 @@ impl Render for SearchInput {
             }))
             .text_color(rgb(if dark { 0xe9e9e4 } else { 0x1a1a18 }))
             .text_size(px(16.))
-            .key_context("TrackSearch")
+            .key_context(search_context(self.is_composing()))
             .track_focus(&self.focus)
             .cursor(CursorStyle::IBeam)
             .overflow_hidden()
@@ -475,6 +532,56 @@ impl Render for SearchInput {
 mod tests {
     use super::*;
     #[test]
+    fn composition_does_not_bind_result_navigation_or_dismissal() {
+        let keymap = gpui::Keymap::new(search_bindings());
+        let contexts = [gpui::KeyContext::parse(search_context(true)).unwrap()];
+        for key in ["up", "down", "enter", "escape"] {
+            assert!(
+                keymap
+                    .bindings_for_input(&[gpui::Keystroke::parse(key).unwrap()], &contexts)
+                    .0
+                    .is_empty(),
+                "{key}"
+            );
+        }
+    }
+    #[test]
+    fn result_navigation_is_bounded_and_handles_replaced_lists() {
+        assert_eq!(result_step(None, 0, true), None);
+        assert_eq!(result_step(Some(9), 0, false), None);
+        assert_eq!(result_step(None, 3, true), Some(0));
+        assert_eq!(result_step(None, 3, false), Some(2));
+        assert_eq!(result_step(Some(0), 3, false), Some(0));
+        assert_eq!(result_step(Some(2), 3, true), Some(2));
+        assert_eq!(result_step(Some(1), 3, true), Some(2));
+        assert_eq!(result_step(Some(1), 3, false), Some(0));
+        assert_eq!(result_step(Some(20), 2, true), Some(0));
+    }
+    #[test]
+    fn result_keys_are_scoped_and_modified_keys_not_captured() {
+        let keymap = gpui::Keymap::new(search_bindings());
+        for context in ["TrackSourceEditor", ""] {
+            let contexts = [gpui::KeyContext::parse(context).unwrap()];
+            for key in ["up", "down", "enter", "escape"] {
+                assert!(
+                    keymap
+                        .bindings_for_input(&[gpui::Keystroke::parse(key).unwrap()], &contexts)
+                        .0
+                        .is_empty()
+                );
+            }
+        }
+        let contexts = [gpui::KeyContext::parse("TrackSearch").unwrap()];
+        for key in ["cmd-up", "shift-down", "cmd-enter"] {
+            assert!(
+                keymap
+                    .bindings_for_input(&[gpui::Keystroke::parse(key).unwrap()], &contexts)
+                    .0
+                    .is_empty()
+            );
+        }
+    }
+    #[test]
     fn utf16_round_trips_scalar_boundaries() {
         let text = "a日本😀e\u{301}";
         for i in text.char_indices().map(|(i, _)| i).chain([text.len()]) {
@@ -510,6 +617,10 @@ mod tests {
             ("delete", Box::new(Delete)),
             ("cmd-v", Box::new(Paste)),
             ("cmd-q", Box::new(crate::Quit)),
+            ("up", Box::new(PreviousResult)),
+            ("down", Box::new(NextResult)),
+            ("enter", Box::new(OpenResult)),
+            ("escape", Box::new(DismissSearch)),
         ] {
             let stroke = gpui::Keystroke::parse(key).unwrap();
             let (matches, pending) = keymap.bindings_for_input(&[stroke], &contexts);

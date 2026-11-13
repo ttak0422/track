@@ -114,6 +114,73 @@ pub fn resolve_term(target: &LinkTarget) -> Option<String> {
     }
 }
 
+/// Hash-only Markdown targets stay in the current reader and never use the resolver.
+pub fn is_local_fragment(target: &LinkTarget) -> bool {
+    matches!(target, LinkTarget::Markdown { destination } if destination.starts_with('#'))
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FragmentError {
+    MissingHeading(String),
+    UnsupportedBlock,
+    InvalidFragment,
+    UnsupportedDestination,
+}
+
+/// Match a verified reader heading fragment to this renderer's native anchor.
+/// No I/O: the caller supplies the accepted destination document, retains its
+/// navigation generation, and scrolls only after that document has laid out.
+/// Missing headings are explicitly reported so the shell can use note-top fallback.
+pub fn fragment_anchor(
+    blocks: &[Block],
+    target: &LinkTarget,
+) -> Result<Option<String>, FragmentError> {
+    let fragment = match target {
+        LinkTarget::Wiki { fragment, .. } => fragment.as_deref(),
+        LinkTarget::Markdown { destination } => {
+            if resolve_term(target).is_none() && !is_local_fragment(target) {
+                return Err(FragmentError::UnsupportedDestination);
+            }
+            destination.split_once('#').map(|(_, fragment)| fragment)
+        }
+    };
+    let Some(fragment) = fragment else {
+        return Ok(None);
+    };
+    let text = fragment.trim_start_matches('#');
+    // Encoded fragments and reference-renderer h-* IDs require separately
+    // verified decoding/duplicate-ID semantics. Never strip their punctuation
+    // into a different heading or misreport them as an ordinary missing heading.
+    if text.contains('%') || text.starts_with("h-") {
+        return Err(FragmentError::InvalidFragment);
+    }
+    if text.is_empty() {
+        return Ok(None);
+    }
+    if text.starts_with('^') {
+        return Err(FragmentError::UnsupportedBlock);
+    }
+    let wanted = heading_fragment_slug(text);
+    outline(blocks)
+        .into_iter()
+        .find(|heading| heading_fragment_slug(&heading.title) == wanted)
+        .map(|heading| Some(heading.anchor))
+        .ok_or_else(|| FragmentError::MissingHeading(text.into()))
+}
+
+// Current web reader semantics are level-agnostic and first-match, unlike
+// the editor's exact-level selection. This slug is only a matching key: native
+// element IDs remain independently collision-safe. Tested matching covers ASCII,
+// Japanese and ordinary Unicode letters/numbers. Rust is_alphanumeric is not
+// claimed identical to the reference Unicode category regex for every scalar.
+fn heading_fragment_slug(text: &str) -> String {
+    text.chars()
+        .flat_map(char::to_lowercase)
+        .filter(|ch| ch.is_alphanumeric() || *ch == ' ' || *ch == '-')
+        .map(|ch| if ch == ' ' { '-' } else { ch })
+        .collect()
+}
+
 // Wiki syntax is recognized only in parser text events, never code/HTML/images.
 fn wiki_text(text: &str, out: &mut Cell, style: InlineStyle) {
     let mut cursor = 0;
@@ -751,7 +818,7 @@ fn resolved_spans(spans: &[Span], links: &[Link], callbacks: Option<&LinkCallbac
                 let resolved = links.iter().any(|link| {
                     link.range.start <= span.range.start
                         && link.range.end >= span.range.end
-                        && resolve_term(&link.target).is_some()
+                        && (resolve_term(&link.target).is_some() || is_local_fragment(&link.target))
                         && callbacks.is_some_and(|callbacks| (callbacks.resolved)(&link.target))
                 });
                 span.style.link = resolved;
@@ -774,7 +841,10 @@ fn link_text(
     };
     let active: Vec<_> = links
         .iter()
-        .filter(|link| resolve_term(&link.target).is_some() && (callbacks.resolved)(&link.target))
+        .filter(|link| {
+            (resolve_term(&link.target).is_some() || is_local_fragment(&link.target))
+                && (callbacks.resolved)(&link.target)
+        })
         .cloned()
         .collect();
     let ranges = active
@@ -914,6 +984,106 @@ fn render_table(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn unverified_encoded_and_explicit_web_ids_are_rejected_not_guessed() {
+        let blocks = parse("# Hello World\n\n# h-title\n\n# 20target\n\n# Title\n\n# Title");
+        for fragment in [
+            "#Hello%20World",
+            "#%20target",
+            "#h-title",
+            "#h-title-2",
+            "#%E6%97%A5%E6%9C%AC%E8%AA%9E",
+            "#bad%ZZ",
+        ] {
+            let local = LinkTarget::Markdown {
+                destination: fragment.into(),
+            };
+            let wiki = LinkTarget::Wiki {
+                key: "Note".into(),
+                fragment: Some(fragment.into()),
+                authored_label: false,
+            };
+            assert_eq!(
+                fragment_anchor(&blocks, &local),
+                Err(FragmentError::InvalidFragment),
+                "{fragment}"
+            );
+            assert_eq!(
+                fragment_anchor(&blocks, &wiki),
+                Err(FragmentError::InvalidFragment),
+                "{fragment}"
+            );
+        }
+    }
+    #[test]
+    fn wiki_heading_fragments_use_first_level_agnostic_unicode_match() {
+        let blocks = parse("## 日本語 Hello!\n\n# 日本語 Hello!\n\n### Other");
+        for fragment in ["#日本語 Hello!", "##日本語 hello", "###日本語-hello"] {
+            let target = LinkTarget::Wiki {
+                key: "work:id:123".into(),
+                fragment: Some(fragment.into()),
+                authored_label: false,
+            };
+            assert_eq!(
+                fragment_anchor(&blocks, &target),
+                Ok(Some(outline(&blocks)[0].anchor.clone()))
+            );
+            assert_eq!(resolve_term(&target).as_deref(), Some("work:id:123"));
+        }
+    }
+    #[test]
+    fn missing_block_and_external_fragments_never_guess_an_anchor() {
+        let blocks = parse("# Existing");
+        let wiki = |fragment: &str| LinkTarget::Wiki {
+            key: "Note".into(),
+            fragment: Some(fragment.into()),
+            authored_label: false,
+        };
+        assert_eq!(
+            fragment_anchor(&blocks, &wiki("#absent")),
+            Err(FragmentError::MissingHeading("absent".into()))
+        );
+        assert_eq!(
+            fragment_anchor(&blocks, &wiki("#^block")),
+            Err(FragmentError::UnsupportedBlock)
+        );
+        assert_eq!(fragment_anchor(&blocks, &wiki("#")), Ok(None));
+        for destination in [
+            "https://example.com/#Existing",
+            "file:///tmp/note#Existing",
+            "javascript:evil#Existing",
+            "assets/a#Existing",
+        ] {
+            assert_eq!(
+                fragment_anchor(
+                    &blocks,
+                    &LinkTarget::Markdown {
+                        destination: destination.into()
+                    }
+                ),
+                Err(FragmentError::UnsupportedDestination)
+            );
+        }
+    }
+    #[test]
+    fn local_markdown_heading_target_never_becomes_a_resolve_term() {
+        let blocks = parse("# Section");
+        let target = LinkTarget::Markdown {
+            destination: "#section".into(),
+        };
+        assert!(is_local_fragment(&target));
+        assert_eq!(resolve_term(&target), None);
+        assert_eq!(
+            fragment_anchor(&blocks, &target),
+            Ok(Some("section".into()))
+        );
+        let cross = LinkTarget::Markdown {
+            destination: "Other.md#section".into(),
+        };
+        assert!(!is_local_fragment(&cross));
+        assert_eq!(resolve_term(&cross).as_deref(), Some("Other"));
+        assert_eq!(fragment_anchor(&blocks, &cross), Ok(Some("section".into())));
+    }
     #[test]
     fn unresolved_and_unsafe_links_cannot_look_actionable() {
         let block = parse("[[Title]] [external](https://example.com)").remove(0);

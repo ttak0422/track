@@ -213,6 +213,10 @@ impl Workspace {
     }
 
     pub fn search_live(&mut self, query: String, cx: &mut Context<Self>) {
+        // Old-query rows must not remain selectable during the debounce/request.
+        self.search_results.clear();
+        self.search.update(cx, |search, _| search.reset_result());
+        cx.notify();
         let epoch = self
             .query_epoch
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
@@ -265,6 +269,7 @@ impl Workspace {
                     Ok(response) => {
                         this.read_error = None;
                         this.partial_read = partial(&response.diagnostics);
+                        this.search.update(cx, |search, _| search.reset_result());
                         this.search_results = response.results;
                         this.list_status = format!(
                             "Workspace-wide search{}",
@@ -422,6 +427,7 @@ impl Workspace {
                 match result {
                     Ok(response) => {
                         let note = response.note.note;
+                        let fragment_destination = note.key();
                         this.snapshot.notes.push(Note {
                             note_id: note.note_id,
                             title: note.title.clone(),
@@ -431,6 +437,7 @@ impl Workspace {
                         });
                         this.live_notes.push(note);
                         this.select(this.live_notes.len() - 1, cx);
+                        this.advance_fragment_request(request, this.request, &fragment_destination);
                     }
                     Err(error) => this.read_error = Some(error.to_string()),
                 }
@@ -489,6 +496,7 @@ impl Workspace {
                         this.partial_read =
                             response.note.read_only || partial(&response.related_and_diagnostics);
                         this.current_note = Some(response.note.clone());
+                        this.accept_fragment_destination(request, cx);
                         this.load_live_graph(cx);
                         this.current_related = response.related_and_diagnostics.clone();
                         this.status = format!(

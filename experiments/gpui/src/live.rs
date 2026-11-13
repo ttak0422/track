@@ -1231,6 +1231,9 @@ mod tests {
                         _ => return requests,
                     }
                 };
+                // Darwin can inherit O_NONBLOCK from the listening socket.
+                // Request parsing below is bounded blocking IO, not a readiness poll.
+                stream.set_nonblocking(false).unwrap();
                 stream
                     .set_read_timeout(Some(Duration::from_secs(2)))
                     .unwrap();
@@ -1269,6 +1272,7 @@ mod tests {
             let deadline = Instant::now() + Duration::from_millis(30);
             while Instant::now() < deadline {
                 if let Ok((mut stream, _)) = listener.accept() {
+                    stream.set_nonblocking(false).unwrap();
                     stream
                         .set_read_timeout(Some(Duration::from_millis(30)))
                         .unwrap();
@@ -1521,7 +1525,11 @@ mod tests {
                 r#"{"error":"retained diagnostic"}"#,
             ))));
             let error = client.save(&save_request()).unwrap_err();
-            assert_eq!(error.save_disposition(), disposition);
+            assert_eq!(
+                error.save_disposition(),
+                disposition,
+                "expected PUT HTTP {status}; actual error: {error:?}"
+            );
             assert!(
                 matches!(error, Error::Http { status: actual, body } if actual == status && body.contains("retained diagnostic"))
             );

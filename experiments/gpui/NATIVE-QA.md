@@ -59,3 +59,23 @@ Startup now waits through both initializing and partial storage within the
 existing 15-second bound, before publishing the interactive session. It does not
 reload underneath navigation or a draft. Readiness after that deadline still
 requires Reload; the earlier GUI symptom is not yet revalidated on this change.
+
+## Search and startup follow-up
+
+An intermediate build with partial-readiness waiting opened the public fixture
+without the earlier partial warnings and returned search results without manual
+Reload. Enter in the search palette opened the first result; clean Cmd-Q exited
+and released the owned ports. Arrow-key selection/highlighting is not yet visually
+verified: the diagnostic trace recorded Enter but no arrow event during that
+automation attempt. No claim about native IME candidate navigation follows.
+
+The next navigation increment adds scoped search result keys and guards composition
+in the keymap, avoids a dirty prompt/reload for the already-active tab, and replaces
+internal debug destination text with a themed save prompt. Heading fragments use
+verified note identities and delayed layout anchors, retaining the intent across
+the draft guard. Native fragment and dirty-fragment tests are still pending.
+
+A test-only socket failure was reproduced on macOS: accepted sockets inherited
+nonblocking mode and returned WouldBlock immediately. Resetting the controlled
+server's accepted sockets to blocking fixes the harness without relaxing any
+production timeout or save validation.

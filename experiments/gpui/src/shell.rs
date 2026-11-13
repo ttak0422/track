@@ -2,9 +2,20 @@
 use super::*;
 use gpui::{Div, Focusable, PathBuilder, Stateful, WindowAppearance, canvas, point};
 
+fn tab_activation_needed(
+    tabs: &tabs::Tabs,
+    key: &tabs::TabKey,
+    load_current_after_close: bool,
+) -> bool {
+    tabs.get(key).is_some()
+        && (load_current_after_close || !tabs.active().is_some_and(|active| &active.key == key))
+}
+
 pub struct ShellState {
     pub home: bool,
     pub search_open: bool,
+    search_return_focus: Option<gpui::FocusHandle>,
+    search_scroll: gpui::UniformListScrollHandle,
     pub dark: Option<bool>,
     pub diagnostics: bool,
     pub tab_menu: bool,
@@ -16,6 +27,7 @@ pub struct ShellState {
     vault_error: Option<String>,
     links: Option<LinkResolutionCache>,
     navigation_notice: Option<String>,
+    pending_fragment: Option<PendingFragment>,
     reader_focus: Option<gpui::FocusHandle>,
     reader_scrolls: std::collections::HashMap<tabs::TabKey, gpui::ScrollHandle>,
     tab_cycle: Vec<tabs::TabKey>,
@@ -29,6 +41,8 @@ impl Default for ShellState {
         Self {
             home: true,
             search_open: false,
+            search_return_focus: None,
+            search_scroll: Default::default(),
             dark: None,
             diagnostics: false,
             tab_menu: false,
@@ -40,6 +54,7 @@ impl Default for ShellState {
             vault_error: None,
             links: None,
             navigation_notice: None,
+            pending_fragment: None,
             reader_focus: None,
             reader_scrolls: Default::default(),
             tab_cycle: Vec::new(),
@@ -47,6 +62,37 @@ impl Default for ShellState {
             heading_anchors: Default::default(),
         }
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct InternalLinkIntent {
+    pub source: live::NoteKey,
+    pub destination: live::NoteKey,
+    pub target: markdown::LinkTarget,
+    pub launch_generation: u64,
+    pub storage_generation: u64,
+    pub allow_epoch_advance: bool,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct PendingFragment {
+    intent: InternalLinkIntent,
+    request: u64,
+    loaded: bool,
+    scheduled: bool,
+}
+fn fragment_accepts(
+    intent: &InternalLinkIntent,
+    expected_request: u64,
+    loaded_request: u64,
+    launch: Option<u64>,
+    storage: Option<u64>,
+    key: &live::NoteKey,
+) -> bool {
+    expected_request == loaded_request
+        && launch == Some(intent.launch_generation)
+        && key == &intent.destination
+        && storage
+            .is_some_and(|epoch| epoch == intent.storage_generation || intent.allow_epoch_advance)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -534,24 +580,227 @@ impl Workspace {
         if self.current_link_source().as_ref() != Some(source) {
             return;
         }
-        let Some(term) = markdown::resolve_term(target) else {
-            return;
+        let key = if markdown::is_local_fragment(target) {
+            source.note.clone()
+        } else {
+            let Some(term) = markdown::resolve_term(target) else {
+                return;
+            };
+            let Some(key) = self
+                .shell
+                .links
+                .as_ref()
+                .filter(|cache| cache.source == *source && !cache.pending)
+                .and_then(|cache| cache.resolved.get(&term))
+                .cloned()
+            else {
+                return;
+            };
+            key
         };
-        let Some(key) = self
-            .shell
-            .links
+        self.open_internal_link(
+            InternalLinkIntent {
+                source: source.note.clone(),
+                destination: key,
+                target: target.clone(),
+                launch_generation: source.launch_generation,
+                storage_generation: source.storage_generation,
+                allow_epoch_advance: false,
+            },
+            cx,
+        );
+    }
+    pub(crate) fn open_internal_link(
+        &mut self,
+        intent: InternalLinkIntent,
+        cx: &mut Context<Self>,
+    ) {
+        let launch = self
+            .live
             .as_ref()
-            .filter(|cache| cache.source == *source && !cache.pending)
-            .and_then(|cache| cache.resolved.get(&term))
-            .cloned()
-        else {
+            .map(|session| session.client().launch_generation);
+        let source_matches = self
+            .current_note
+            .as_ref()
+            .is_some_and(|note| note.note.key() == intent.source);
+        if !source_matches
+            || launch != Some(intent.launch_generation)
+            || !self.accepted_storage_generation.is_some_and(|epoch| {
+                epoch == intent.storage_generation || intent.allow_epoch_advance
+            })
+        {
+            self.shell.navigation_notice=Some("Link navigation was canceled because its source or storage changed. Activate the link again.".into());
+            cx.notify();
+            return;
+        }
+        if self.guard_transition(workspace_edit::Transition::InternalLink(intent.clone()), cx) {
+            return;
+        }
+        self.shell.navigation_notice = None;
+        self.shell.pending_fragment = None;
+        self.open_live_key(intent.destination.clone(), cx);
+        if has_authored_fragment(&intent.target) {
+            self.shell.pending_fragment = Some(PendingFragment {
+                intent,
+                request: self.request,
+                loaded: false,
+                scheduled: false,
+            });
+        }
+        cx.notify();
+    }
+    pub(crate) fn advance_fragment_request(
+        &mut self,
+        from_request: u64,
+        to_request: u64,
+        key: &live::NoteKey,
+    ) {
+        if let Some(pending) = &mut self.shell.pending_fragment {
+            if pending.request == from_request && pending.intent.destination == *key {
+                pending.request = to_request;
+            }
+        }
+    }
+    pub(crate) fn accept_fragment_destination(
+        &mut self,
+        loaded_request: u64,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(pending) = &mut self.shell.pending_fragment else {
             return;
         };
-        self.shell.navigation_notice = has_authored_fragment(target).then(|| {
-            "Fragment jumps are unavailable; this link navigates to the note only.".into()
+        let Some(note) = &self.current_note else {
+            return;
+        };
+        let launch = self
+            .live
+            .as_ref()
+            .map(|session| session.client().launch_generation);
+        if !fragment_accepts(
+            &pending.intent,
+            pending.request,
+            loaded_request,
+            launch,
+            self.accepted_storage_generation,
+            &note.note.key(),
+        ) {
+            self.shell.pending_fragment = None;
+            self.shell.navigation_notice = Some(
+                "Fragment jump was canceled because the destination or storage changed.".into(),
+            );
+            cx.notify();
+            return;
+        }
+        pending.request = self.request;
+        pending.intent.storage_generation = self.accepted_storage_generation.unwrap();
+        pending.intent.allow_epoch_advance = false;
+        pending.loaded = true;
+    }
+    fn schedule_fragment_scroll(
+        &mut self,
+        anchors: std::rc::Rc<markdown::HeadingAnchors>,
+        scroll: gpui::ScrollHandle,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(pending) = self.shell.pending_fragment.clone() else {
+            return;
+        };
+        if pending.request != self.request {
+            self.shell.pending_fragment = None;
+            return;
+        }
+        if !pending.loaded || pending.scheduled {
+            return;
+        }
+        let current_key = self.current_note.as_ref().map(|note| note.note.key());
+        let launch = self
+            .live
+            .as_ref()
+            .map(|session| session.client().launch_generation);
+        if current_key.as_ref().is_none_or(|key| {
+            !fragment_accepts(
+                &pending.intent,
+                pending.request,
+                self.request,
+                launch,
+                self.accepted_storage_generation,
+                key,
+            )
+        }) {
+            self.shell.pending_fragment = None;
+            return;
+        }
+        let anchor = match markdown::fragment_anchor(&self.content, &pending.intent.target) {
+            Ok(Some(anchor)) => Some(anchor),
+            Ok(None) => {
+                self.shell.pending_fragment = None;
+                return;
+            }
+            Err(markdown::FragmentError::MissingHeading(_)) => {
+                self.shell.navigation_notice =
+                    Some("Heading not found; showing the top of the note.".into());
+                None
+            }
+            Err(markdown::FragmentError::UnsupportedBlock) => {
+                self.shell.navigation_notice =
+                    Some("Block fragment jumps are unavailable; the note was opened.".into());
+                self.shell.pending_fragment = None;
+                return;
+            }
+            Err(_) => {
+                self.shell.navigation_notice = Some(
+                    "This fragment could not be matched; the note was opened without a jump."
+                        .into(),
+                );
+                self.shell.pending_fragment = None;
+                return;
+            }
+        };
+        self.shell.pending_fragment.as_mut().unwrap().scheduled = true;
+        let weak = cx.entity().downgrade();
+        window.on_next_frame(move |window, cx| {
+            let _ = weak.update(cx, |this, cx| {
+                let still_pending = this.shell.pending_fragment.as_ref().is_some_and(|now| {
+                    now.request == pending.request && now.intent == pending.intent
+                });
+                let key = this.current_note.as_ref().map(|note| note.note.key());
+                let launch = this
+                    .live
+                    .as_ref()
+                    .map(|session| session.client().launch_generation);
+                if !still_pending
+                    || this.request != pending.request
+                    || key.as_ref().is_none_or(|key| {
+                        !fragment_accepts(
+                            &pending.intent,
+                            pending.request,
+                            this.request,
+                            launch,
+                            this.accepted_storage_generation,
+                            key,
+                        )
+                    })
+                {
+                    return;
+                }
+                this.shell.pending_fragment = None;
+                if this.editing_ui.active() {
+                    return;
+                }
+                if let Some(anchor) = anchor {
+                    if !anchors.scroll_to(&anchor, window, cx) {
+                        this.shell.navigation_notice = Some(
+                            "Heading layout was unavailable; no fragment jump was applied.".into(),
+                        );
+                    }
+                } else {
+                    scroll.set_offset(point(px(0.), px(0.)));
+                }
+                cx.notify();
+            });
         });
-        self.open_live_key(key, cx);
-        cx.notify();
+        window.refresh();
     }
     /// Session-only working scope for future single-vault actions. Never use this
     /// to rewrite a note identity, scope federated search, or reinterpret Home.
@@ -611,6 +860,19 @@ impl Workspace {
         .detach();
     }
     pub(crate) fn activate_tab(&mut self, key: tabs::TabKey, cx: &mut Context<Self>) {
+        self.activate_tab_inner(key, false, cx);
+    }
+    fn activate_tab_inner(
+        &mut self,
+        key: tabs::TabKey,
+        load_current_after_close: bool,
+        cx: &mut Context<Self>,
+    ) {
+        // An already-active tab is a focus click, not a navigation/reload request.
+        // Check before the dirty gate so it cannot capture a spurious leave intent.
+        if !tab_activation_needed(&self.tabs, &key, load_current_after_close) {
+            return;
+        }
         if self.guard_transition(workspace_edit::Transition::ActivateTab(key.clone()), cx) {
             return;
         }
@@ -656,7 +918,9 @@ impl Workspace {
         self.shell.tab_menu = false;
         if was_active {
             if let Some(next) = self.tabs.active().map(|tab| tab.key.clone()) {
-                self.activate_tab(next, cx);
+                // Removing the active entry already promotes its neighbor in the
+                // model; its reader still needs loading despite being model-active.
+                self.activate_tab_inner(next, true, cx);
             } else {
                 // Do not reopen a configured home or accept an older async response.
                 self.show_empty_home();
@@ -730,6 +994,87 @@ impl Workspace {
         cx.notify();
     }
 }
+impl Workspace {
+    fn search_result_indices(&self, cx: &App) -> Vec<usize> {
+        let query = self.search.read(cx).query().to_lowercase();
+        if query.trim().is_empty() {
+            vec![]
+        } else if self.live.is_some() {
+            (0..self.search_results.len()).collect()
+        } else {
+            self.snapshot
+                .notes
+                .iter()
+                .enumerate()
+                .filter(|(_, note)| {
+                    note.title.to_lowercase().contains(&query)
+                        || note
+                            .tags
+                            .iter()
+                            .any(|tag| tag.to_lowercase().contains(&query))
+                })
+                .map(|(i, _)| i)
+                .collect()
+        }
+    }
+    fn dismiss_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.search.read(cx).is_composing() {
+            return;
+        }
+        self.shell.search_open = false;
+        let focus = self
+            .shell
+            .search_return_focus
+            .take()
+            .or_else(|| self.shell.reader_focus.clone());
+        if let Some(focus) = focus {
+            window.focus(&focus);
+        } else {
+            window.blur();
+        }
+        cx.notify();
+    }
+    fn step_search_result(&mut self, forward: bool, cx: &mut Context<Self>) {
+        if !self.shell.search_open || self.search.read(cx).is_composing() {
+            return;
+        }
+        let len = self.search_result_indices(cx).len();
+        if let Some(row) = self
+            .search
+            .update(cx, |search, _| search.step_result(len, forward))
+        {
+            self.shell
+                .search_scroll
+                .scroll_to_item(row, gpui::ScrollStrategy::Top);
+        }
+        cx.notify();
+    }
+    fn open_search_result(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.shell.search_open || self.search.read(cx).is_composing() {
+            return;
+        }
+        let indices = self.search_result_indices(cx);
+        let row = self.search.read(cx).selected_result().unwrap_or(0);
+        let Some(&index) = indices.get(row) else {
+            return;
+        };
+        // These existing entry points snapshot immutable identity before dirty gating.
+        if self.live.is_some() {
+            self.select_search_result(index, cx);
+        } else {
+            self.select_from_ui(index, cx);
+        }
+        if !self.shell.search_open {
+            self.shell.search_return_focus = None;
+            if let Some(focus) = &self.shell.reader_focus {
+                window.focus(focus);
+            } else {
+                window.blur();
+            }
+        }
+    }
+}
+
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let dark = self.shell.dark.unwrap_or(matches!(
@@ -748,11 +1093,13 @@ impl Render for Workspace {
                 .unwrap_or_default(),
         );
         let link_source = self.current_link_source();
+        let local_fragments_ready = link_source.is_some();
         let weak = cx.entity().downgrade();
         let link_callbacks = markdown::LinkCallbacks {
             resolved: std::rc::Rc::new(move |target| {
-                markdown::resolve_term(target)
-                    .is_some_and(|term| resolved_terms.contains_key(&term))
+                (local_fragments_ready && markdown::is_local_fragment(target))
+                    || markdown::resolve_term(target)
+                        .is_some_and(|term| resolved_terms.contains_key(&term))
             }),
             activate: std::rc::Rc::new(move |target, _, cx| {
                 if let Some(source) = &link_source {
@@ -855,6 +1202,7 @@ impl Render for Workspace {
             );
         }
         let heading_anchors = anchor_entry.1.clone();
+        self.schedule_fragment_scroll(heading_anchors.clone(), reader_scroll.clone(), window, cx);
         let minimum_heading_level = headings.iter().map(|entry| entry.level).min().unwrap_or(1);
         let tab_layout = self
             .tabs
@@ -1075,8 +1423,13 @@ impl Render for Workspace {
             .child(
                 rail_button("search", "search", p, self.shell.search_open).on_click(cx.listener(
                     |this, _, window, cx| {
-                        this.shell.search_open = !this.shell.search_open;
                         if this.shell.search_open {
+                            this.dismiss_search(window, cx);
+                        } else {
+                            this.shell.search_return_focus = window
+                                .focused(cx)
+                                .filter(|focus| focus != &this.search.focus_handle(cx));
+                            this.shell.search_open = true;
                             window.focus(&this.search.focus_handle(cx));
                         }
                         cx.notify();
@@ -1399,7 +1752,10 @@ impl Render for Workspace {
                         .child(self.search.clone())
                         .on_mouse_down(
                             gpui::MouseButton::Left,
-                            cx.listener(|this, _, _, cx| {
+                            cx.listener(|this, _, window, cx| {
+                                this.shell.search_return_focus = window
+                                    .focused(cx)
+                                    .filter(|focus| focus != &this.search.focus_handle(cx));
                                 this.shell.search_open = true;
                                 cx.notify();
                             }),
@@ -1407,25 +1763,7 @@ impl Render for Workspace {
                 )
             });
         let query = self.search.read(cx).query().to_lowercase();
-        let result_indices: Vec<usize> = if query.trim().is_empty() {
-            vec![]
-        } else if self.live.is_some() {
-            (0..self.search_results.len()).collect()
-        } else {
-            self.snapshot
-                .notes
-                .iter()
-                .enumerate()
-                .filter(|(_, note)| {
-                    note.title.to_lowercase().contains(&query)
-                        || note
-                            .tags
-                            .iter()
-                            .any(|tag| tag.to_lowercase().contains(&query))
-                })
-                .map(|(i, _)| i)
-                .collect()
-        };
+        let result_indices = self.search_result_indices(cx);
         let search_panel = div()
             .absolute()
             .left(
@@ -1454,6 +1792,8 @@ impl Render for Workspace {
                     result_indices.len(),
                     cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
                         this.rendered_rows = range.len();
+                        let query_generation =
+                            this.query_epoch.load(std::sync::atomic::Ordering::SeqCst);
                         range
                             .filter_map(|row| {
                                 let i = *result_indices.get(row)?;
@@ -1475,6 +1815,10 @@ impl Render for Workspace {
                                         .border_b_1()
                                         .border_color(rgb(p.line))
                                         .text_color(rgb(p.ink))
+                                        .when(
+                                            this.search.read(cx).selected_result() == Some(row),
+                                            |row| row.bg(rgb(p.line)),
+                                        )
                                         .child(div().text_size(px(13.)).child(title))
                                         .child(
                                             div()
@@ -1483,6 +1827,13 @@ impl Render for Workspace {
                                                 .child(tags),
                                         )
                                         .on_click(cx.listener(move |this, _, _, cx| {
+                                            if this
+                                                .query_epoch
+                                                .load(std::sync::atomic::Ordering::SeqCst)
+                                                != query_generation
+                                            {
+                                                return;
+                                            }
                                             if this.live.is_some() {
                                                 this.select_search_result(i, cx);
                                             } else {
@@ -1494,11 +1845,30 @@ impl Render for Workspace {
                             .collect()
                     }),
                 )
+                .track_scroll(self.shell.search_scroll.clone())
                 .flex_1()
                 .min_h_0(),
             );
         div()
             .id("workspace-shell")
+            .on_action(
+                cx.listener(|this, _: &search_input::PreviousResult, _, cx| {
+                    this.step_search_result(false, cx)
+                }),
+            )
+            .on_action(cx.listener(|this, _: &search_input::NextResult, _, cx| {
+                this.step_search_result(true, cx)
+            }))
+            .on_action(
+                cx.listener(|this, _: &search_input::OpenResult, window, cx| {
+                    this.open_search_result(window, cx)
+                }),
+            )
+            .on_action(
+                cx.listener(|this, _: &search_input::DismissSearch, window, cx| {
+                    this.dismiss_search(window, cx)
+                }),
+            )
             .on_mouse_down(
                 gpui::MouseButton::Left,
                 cx.listener(|this, _, _, _| this.shell.tab_cycle.clear()),
@@ -1512,11 +1882,11 @@ impl Render for Workspace {
                         return;
                     }
                     if this.shell.search_open {
-                        this.shell.search_open = false;
-                        if let Some(focus) = &this.shell.reader_focus {
-                            window.focus(focus);
+                        // Leave Escape to the platform candidate/preedit handling.
+                        if this.search.read(cx).is_composing() {
+                            return;
                         }
-                        cx.notify();
+                        this.dismiss_search(window, cx);
                         cx.stop_propagation();
                         return;
                     }
@@ -1747,9 +2117,8 @@ impl Render for Workspace {
                         .absolute()
                         .size_full()
                         .bg(gpui::rgba(0x00000047))
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.shell.search_open = false;
-                            cx.notify();
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.dismiss_search(window, cx);
                         })),
                 )
                 .child(search_panel)
@@ -1810,6 +2179,29 @@ mod reference_tests {
 #[cfg(test)]
 mod reader_navigation_tests {
     use super::*;
+    #[test]
+    fn active_tab_focus_click_does_not_enter_dirty_navigation_gate() {
+        let mut tabs = tabs::Tabs::default();
+        let other_vault = tabs.open_note("other", 42, "Other vault");
+        let current = tabs.open_note("work", 42, "Current dirty draft");
+        assert!(!tab_activation_needed(&tabs, &current, false));
+        assert!(tab_activation_needed(&tabs, &other_vault, false));
+        assert!(!tab_activation_needed(&tabs, &tabs::TabKey::Home, false));
+        assert_eq!(tabs.active().unwrap().key, current);
+        tabs.open_home();
+        assert!(!tab_activation_needed(&tabs, &tabs::TabKey::Home, false));
+    }
+    #[test]
+    fn closing_active_tab_still_loads_its_newly_promoted_neighbor() {
+        let mut tabs = tabs::Tabs::default();
+        let neighbor = tabs.open_note("work", 1, "Neighbor");
+        let current = tabs.open_note("work", 2, "Closing");
+        assert!(tabs.close(&current));
+        assert_eq!(tabs.active().unwrap().key, neighbor);
+        assert!(!tab_activation_needed(&tabs, &neighbor, false));
+        assert!(tab_activation_needed(&tabs, &neighbor, true));
+        assert!(!tab_activation_needed(&tabs, &current, true));
+    }
     #[test]
     fn tab_cycle_wraps_both_directions() {
         assert_eq!(cycle_index(0, 3, false), 1);
@@ -1959,5 +2351,99 @@ mod internal_link_tests {
         assert!(!has_authored_fragment(&markdown::LinkTarget::Markdown {
             destination: "One.md".into()
         }));
+    }
+}
+
+#[cfg(test)]
+mod fragment_navigation_tests {
+    use super::*;
+    fn intent() -> InternalLinkIntent {
+        InternalLinkIntent {
+            source: live::NoteKey {
+                vault: "source".into(),
+                note_id: 1,
+            },
+            destination: live::NoteKey {
+                vault: "dest".into(),
+                note_id: 2,
+            },
+            target: markdown::LinkTarget::Wiki {
+                key: "Target".into(),
+                fragment: Some("Heading".into()),
+                authored_label: false,
+            },
+            launch_generation: 7,
+            storage_generation: 9,
+            allow_epoch_advance: false,
+        }
+    }
+    #[test]
+    fn accepted_fragment_requires_exact_destination_launch_and_request() {
+        let i = intent();
+        assert!(fragment_accepts(
+            &i,
+            10,
+            10,
+            Some(7),
+            Some(9),
+            &i.destination
+        ));
+        assert!(!fragment_accepts(
+            &i,
+            10,
+            11,
+            Some(7),
+            Some(9),
+            &i.destination
+        ));
+        assert!(!fragment_accepts(
+            &i,
+            10,
+            10,
+            Some(8),
+            Some(9),
+            &i.destination
+        ));
+        assert!(!fragment_accepts(
+            &i,
+            10,
+            10,
+            Some(7),
+            Some(9),
+            &live::NoteKey {
+                vault: "other".into(),
+                note_id: 2
+            }
+        ));
+    }
+    #[test]
+    fn only_acknowledged_save_allows_destination_epoch_change() {
+        let mut i = intent();
+        assert!(!fragment_accepts(
+            &i,
+            10,
+            10,
+            Some(7),
+            Some(10),
+            &i.destination
+        ));
+        i.allow_epoch_advance = true;
+        assert!(fragment_accepts(
+            &i,
+            10,
+            10,
+            Some(7),
+            Some(2),
+            &i.destination
+        ));
+        assert!(!fragment_accepts(
+            &i,
+            10,
+            10,
+            Some(8),
+            Some(2),
+            &i.destination
+        ));
+        assert!(!fragment_accepts(&i, 10, 10, Some(7), None, &i.destination));
     }
 }

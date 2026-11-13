@@ -120,7 +120,9 @@ shell composition and palette. See [UI.md](UI.md). The current Web reference was
 captured with public help fixtures in an isolated headless browser. The revised
 native shell has compile/unit coverage but still requires fresh matched native
 captures; earlier screenshots do not validate this layout. Tab persistence, activity
-Home, keyboard result navigation and complete dock actions remain incomplete.
+Home activity and complete dock actions remain incomplete. Search supports Up/Down,
+Enter (selected or first result), and Escape with focus restoration. These bindings
+are disabled during composition; full native IME validation remains pending.
 
 ## Pinned native termination hook
 
@@ -156,3 +158,8 @@ retried automatically. Source comparison requires an exact body match before
 explicit reconciliation. Drafts are memory-only: crashes or forced termination
 can lose edits. Draft-preview links are inactive. Native IME, Dock Quit, window
 close and failure-path UI testing remain required before release.
+
+Heading links currently support ordinary wiki/Markdown fragments against verified
+notes, including same-note hashes. Missing headings go to the note top. Block
+anchors, encoded fragments and explicit `h-*` IDs remain unsupported and show a
+notice rather than guessing a destination. Native fragment interaction is unverified.

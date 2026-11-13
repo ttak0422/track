@@ -26,7 +26,7 @@ of support. Use disposable fixture vaults, never a configured personal vault, fo
 | Basic Markdown blocks | [x] | [ ] | `src/markdown.rs`; public help headings/wrapping/scroll QA |
 | Simple tables and inline emphasis/code/link styling | [x] | [ ] | `markdown.rs`; code/emphasis native smoke, tables tests |
 | Code syntax highlighting and math | [ ] | [ ] | `MarkdownView`, `components/markdown` |
-| Verified internal wiki/Markdown links and outline jumps | [x] | [ ] | `markdown.rs`, `shell.rs`; scoped resolver, fragments not yet supported |
+| Verified internal wiki/Markdown links and outline jumps | [x] | [ ] | `markdown.rs`, `shell.rs`; scoped resolver and heading-fragment subset; native fragment QA pending |
 | Transclusion, link-title substitution and line-copy links | [ ] | [ ] | `wikiLinks`, `toc`, `copyRange`, `NoteInclude` |
 | Diagram fences: Mermaid, D2, Graphviz, LikeC4, draw.io, Pele, mindmap | [ ] | [ ] | `components/markdown/*Diagram*` |
 | Charts, ViewSpec, metrics, query views and task boards | [ ] | [ ] | `EChartsBlock`, `ViewSpecChart`, `MetricsDashboard`, `QueryView`, `TaskBoard` |
@@ -54,8 +54,10 @@ A guarded disposable-fixture editor now connects the raw-body/etag transport to
 Preview/Edit/Split and unified navigation/exit prompts. Ordinary use remains
 read-only. It supports one in-memory draft, not durable recovery or full editor
 parity. Independent source review and unit tests cover stale callbacks, save
-locking, and transition guards; real native quit, save-failure, and IME checks
-remain pending. See the README for the explicit fixture-only opt-in.
+locking, and transition guards. Disposable native checks cover app-menu quit,
+Cancel, explicit Save, stale-source refusal and Discard, with child-port cleanup.
+Dock Quit, active IME and pending/uncertain native-event checks remain open.
+See `NATIVE-QA.md` for evidence and the README for the fixture-only opt-in.
 
 ## Reuse the engine boundary
 
