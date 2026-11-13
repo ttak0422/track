@@ -73,13 +73,14 @@ impl Workspace {
         let job = cx.background_executor().spawn(async move {
             let mut session = owner.start(config)?;
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
-            while !owner.is_closing()
-                && session
-                    .initial_storage
-                    .as_ref()
-                    .is_some_and(|s| s.phase == "initializing")
-                && std::time::Instant::now() < deadline
-            {
+            // Partial is also a startup state: publishing that first list used to
+            // leave it incomplete until a manual Reload. Wait before exposing the
+            // interactive session, never reload underneath navigation or a draft.
+            while startup_readiness_pending(
+                session.initial_storage.as_ref().map(|s| s.phase.as_str()),
+                std::time::Instant::now() < deadline,
+                owner.is_closing() || owner.failure().is_some(),
+            ) {
                 std::thread::sleep(std::time::Duration::from_millis(100));
                 match session.client().storage() {
                     Ok(state) => session.initial_storage = Some(state),
@@ -509,6 +510,12 @@ impl Workspace {
     }
 }
 
+/// Only known transient phases are retried. Errors, unknown/terminal phases,
+/// shutdown and the existing deadline leave the normal explicit Reload path.
+fn startup_readiness_pending(phase: Option<&str>, within_deadline: bool, stopping: bool) -> bool {
+    within_deadline && !stopping && matches!(phase, Some("initializing" | "partial"))
+}
+
 fn epoch_compatible(started: Option<u64>, current: Option<u64>, response: Option<u64>) -> bool {
     current == started || response.is_some() && current == response
 }
@@ -550,6 +557,33 @@ fn partial(fields: &std::collections::BTreeMap<String, serde_json::Value>) -> bo
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn startup_waits_through_partial_until_ready() {
+        let phases = ["initializing", "partial", "partial", "ready"];
+        let observed: Vec<_> = phases
+            .into_iter()
+            .take_while(|phase| startup_readiness_pending(Some(phase), true, false))
+            .collect();
+        assert_eq!(observed, ["initializing", "partial", "partial"]);
+    }
+
+    #[test]
+    fn startup_readiness_wait_is_bounded_and_does_not_retry_terminal_states() {
+        for phase in [Some("initializing"), Some("partial")] {
+            assert!(!startup_readiness_pending(phase, false, false));
+            assert!(!startup_readiness_pending(phase, true, true));
+        }
+        for phase in [
+            None,
+            Some("ready"),
+            Some("failed"),
+            Some("unavailable"),
+            Some("unknown"),
+        ] {
+            assert!(!startup_readiness_pending(phase, true, false));
+        }
+    }
+
     #[test]
     fn epoch_changes_invalidate_previous_results_without_assuming_numeric_order() {
         assert!(!epoch_changed(None, 9));

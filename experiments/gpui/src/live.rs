@@ -1203,6 +1203,14 @@ mod tests {
     fn save_mock(
         replies: Vec<Option<(u16, String)>>,
     ) -> (ReadClient, thread::JoinHandle<Vec<String>>) {
+        gated_save_mock(replies, None)
+    }
+    /// Signal after receiving a complete PUT and hold its response until released.
+    /// This is a controlled local HTTP fixture, not a filesystem/vault mutation.
+    fn gated_save_mock(
+        replies: Vec<Option<(u16, String)>>,
+        mut put_gate: Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>,
+    ) -> (ReadClient, thread::JoinHandle<Vec<String>>) {
         use std::io::Write;
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         listener.set_nonblocking(true).unwrap();
@@ -1245,6 +1253,14 @@ mod tests {
                 stream.read_exact(&mut body).unwrap();
                 header.extend(body);
                 requests.push(String::from_utf8(header).unwrap());
+                if requests.last().unwrap().starts_with("PUT ") {
+                    if let Some((received, release)) = put_gate.take() {
+                        received.send(()).unwrap();
+                        release
+                            .recv_timeout(Duration::from_secs(3))
+                            .expect("release controlled PUT response");
+                    }
+                }
                 if let Some((status, body)) = reply {
                     write!(stream, "HTTP/1.1 {status} Test\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
                 }
@@ -1289,6 +1305,144 @@ mod tests {
             last.map(|(status, body)| (status, body.into())),
         ]
     }
+    #[test]
+    fn pending_quit_waits_for_real_save_response_and_cancel_does_not_cancel_put() {
+        use crate::editing::{EditSession, LeaveAction, LeaveChoice, LeavePrompt, SaveOutcome};
+        for cancel_quit in [false, true] {
+            let storage: Storage = serde_json::from_str(SAVE_STORAGE).unwrap();
+            let source: NoteResponse = serde_json::from_str(SAVE_SOURCE).unwrap();
+            let mut edit = EditSession::from_note(1, &storage, &source).unwrap();
+            edit.replace_text("pending fixture draft".into()).unwrap();
+            // The UI routes Quit through this same Save/Discard/Cancel leave gate.
+            let LeaveAction::Save(prepared) =
+                edit.choose_leave(LeaveChoice::Save, 1, &storage).unwrap()
+            else {
+                panic!("expected explicit save before quit")
+            };
+            let attempt = prepared.attempt;
+            let (received_tx, received_rx) = std::sync::mpsc::channel();
+            let (release_tx, release_rx) = std::sync::mpsc::channel();
+            let (client, requests) = gated_save_mock(
+                save_replies(Some((200, SAVE_OK))),
+                Some((received_tx, release_rx)),
+            );
+            let worker = thread::spawn(move || client.save(&prepared.request));
+            received_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+            assert_eq!(edit.leave_prompt(), LeavePrompt::WaitForSave);
+            assert!(edit.choose_leave(LeaveChoice::Save, 1, &storage).is_err());
+            assert!(
+                edit.choose_leave(LeaveChoice::Discard, 1, &storage)
+                    .is_err()
+            );
+            assert!(
+                edit.replace_text("must not replace in-flight buffer".into())
+                    .is_err()
+            );
+            assert!(edit.dirty());
+            assert_eq!(edit.etag(), "opaque-old");
+            if cancel_quit {
+                assert!(matches!(
+                    edit.choose_leave(LeaveChoice::Cancel, 1, &storage).unwrap(),
+                    LeaveAction::Stay
+                ));
+                assert!(edit.is_saving());
+            }
+            release_tx.send(()).unwrap();
+            assert_eq!(
+                edit.finish_save(attempt, 1, 2, worker.join().unwrap()),
+                SaveOutcome::Saved {
+                    leave: !cancel_quit
+                }
+            );
+            assert_eq!(edit.draft(), "pending fixture draft");
+            assert!(!edit.dirty());
+            let requests = requests.join().unwrap();
+            assert_eq!(requests.len(), 4);
+            assert_eq!(
+                requests
+                    .iter()
+                    .filter(|request| request.starts_with("PUT "))
+                    .count(),
+                1
+            );
+        }
+    }
+    #[test]
+    fn uncertain_recorded_write_cancels_pending_quit_and_never_retries_or_overwrites() {
+        use crate::editing::{
+            DraftState, EditSession, LeaveAction, LeaveChoice, LeavePrompt, SaveOutcome,
+        };
+        for final_reply in [
+            None,
+            Some((500, r#"{"error":"fixture wrote body but indexing failed"}"#)),
+            Some((200, "malformed acknowledgment")),
+        ] {
+            let storage: Storage = serde_json::from_str(SAVE_STORAGE).unwrap();
+            let source: NoteResponse = serde_json::from_str(SAVE_SOURCE).unwrap();
+            let authored = "日本語 [[Link]]\n\nkeep authored trailing LFs\n\n";
+            let mut edit = EditSession::from_note(1, &storage, &source).unwrap();
+            edit.replace_text(authored.into()).unwrap();
+            let LeaveAction::Save(prepared) =
+                edit.choose_leave(LeaveChoice::Save, 1, &storage).unwrap()
+            else {
+                panic!()
+            };
+            let attempt = prepared.attempt;
+            // Subsequent GET reports the committed fixture representation even though
+            // the PUT response was lost/500/malformed. Never infer rollback.
+            let mut committed: Value = serde_json::from_str(SAVE_SOURCE).unwrap();
+            committed["note"]["body"] = authored.trim_end_matches('\n').into();
+            committed["note"]["etag"] = "fixture-committed-revision".into();
+            let mut replies = save_replies(final_reply);
+            replies.push(Some((200, committed.to_string())));
+            let (received_tx, received_rx) = std::sync::mpsc::channel();
+            let (release_tx, release_rx) = std::sync::mpsc::channel();
+            let (client, requests) = gated_save_mock(replies, Some((received_tx, release_rx)));
+            let saver = client.clone();
+            let key = prepared.request.key.clone();
+            let worker = thread::spawn(move || saver.save(&prepared.request));
+            received_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+            assert_eq!(edit.leave_prompt(), LeavePrompt::WaitForSave);
+            release_tx.send(()).unwrap();
+            let error = worker.join().unwrap().unwrap_err();
+            assert_eq!(error.save_disposition(), SaveDisposition::Uncertain);
+            assert_eq!(
+                edit.finish_save(attempt, 1, 2, Err(error)),
+                SaveOutcome::Retained
+            );
+            assert!(matches!(edit.state(), DraftState::Uncertain(_)));
+            assert_eq!(edit.draft(), authored);
+            assert_eq!(edit.etag(), "opaque-old");
+            assert_eq!(edit.baseline(), source.note.body);
+            assert!(edit.dirty());
+            assert_eq!(edit.leave_prompt(), LeavePrompt::AskSaveDiscardCancel);
+            assert!(edit.prepare_save(1, &storage).is_err());
+            assert!(edit.choose_leave(LeaveChoice::Save, 1, &storage).is_err());
+            let current = client.note(&key).unwrap();
+            assert_eq!(current.note.body, authored.trim_end_matches('\n'));
+            edit.inspect_latest(1, &storage, &current).unwrap();
+            assert_eq!(edit.draft(), authored);
+            assert_eq!(edit.etag(), "opaque-old");
+            assert!(edit.dirty()); // Comparison alone neither saves nor discards.
+            let requests = requests.join().unwrap();
+            assert_eq!(requests.len(), 5);
+            assert_eq!(
+                requests
+                    .iter()
+                    .filter(|request| request.starts_with("PUT "))
+                    .count(),
+                1
+            );
+            assert!(requests[4].starts_with("GET /api/note?"));
+            let sent: Value =
+                serde_json::from_str(requests[3].split("\r\n\r\n").nth(1).unwrap()).unwrap();
+            assert_eq!(
+                sent,
+                serde_json::json!({"body":authored,"etag":"opaque-old"})
+            );
+        }
+    }
+
     #[test]
     fn save_blocks_unverified_storage_old_session_and_unknown_source_permission() {
         for changes in [

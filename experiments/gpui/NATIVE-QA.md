@@ -40,3 +40,22 @@ Optional input diagnostics require both the developer-fixture opt-in and
 `TRACK_NATIVE_INPUT_TRACE=1`. They log command-key identifiers/modifiers and
 unusual native text codepoints, not note/query contents. This diagnostic does
 not change input behavior and is disabled for normal vault use.
+
+## Follow-up checks
+
+The diagnostic fixture again retained an unsaved draft and showed the app-menu
+Quit guard; Discard exited and released both owned ports. Dock access through
+the UI automation timed out, so this does not verify Dock Quit. Active IME
+composition remains untested; ordinary vault editing remains disabled.
+
+Controlled loopback HTTP tests hold a PUT response to check the pending-save
+leave gate, including cancellation of leaving without cancellation of the write.
+Recorded-write simulations with a disconnected, 500, or malformed response
+retain the draft and original revision and send exactly one PUT. Subsequent GET
+inspection alone does not clear dirty state. These exercise real transport plus
+the leave state machine, not native event delivery.
+
+Startup now waits through both initializing and partial storage within the
+existing 15-second bound, before publishing the interactive session. It does not
+reload underneath navigation or a draft. Readiness after that deadline still
+requires Reload; the earlier GUI symptom is not yet revalidated on this change.
