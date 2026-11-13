@@ -1,0 +1,42 @@
+# Native validation log
+
+## Disposable editor fixture, 2026-11-13
+
+Build: `9871df1` source, Apple Silicon/macOS 27.2. Separate application bundle,
+public help-vault copy, temporary config/cache and dedicated ports. Existing
+application windows and personal vaults were not used.
+
+Observed:
+
+- Native text and fixture warning rendered; hidden-button native chrome opened.
+- Clean Cmd-Q exited the initial fixture, and its two server ports were released.
+- A later search-focus session did not respond as expected to Cmd-A, Backspace
+  or Cmd-Q. App-menu Quit did exit; owned ports were released. This is an open
+  input-routing observation, not evidence of dirty-exit safety. A later diagnostic
+  reproduction of the same key sequence resolved Cmd-A, backspace and Cmd-Q to
+  the correct actions and exited cleanly. The earlier cause is not established;
+  no speculative platform shortcut patch was applied.
+- Startup storage was initially partial. Explicit Reload after readiness reached
+  ready/read-write, and search returned public fixture notes. Lack of automatic
+  readiness refresh remains a compatibility gap.
+- Edit mode accepted a fixture-only change. App-menu Quit displayed the dirty
+  prompt; Cancel kept the application and draft. Explicit Save acknowledged the
+  update, cleared the dirty mark and preserved authored text. Disk inspection
+  confirmed only the temporary fixture changed.
+- After another draft change, an external fixture-file edit caused Save to be
+  rejected before PUT. The UI retained the unsaved draft and original revision.
+  Quit then Discard exited without overwriting the external version; both owned
+  server ports were released.
+
+Not yet exercised: pending/uncertain save, repeated quit,
+Dock Quit, native window close, active IME, multiple tabs, native source conflict
+reconciliation, resize/fullscreen, and matched light/dark visual captures.
+
+Unit and transport tests do not replace these native checks. Ordinary vault use
+remains read-only; fixture editing is not release-ready.
+
+
+Optional input diagnostics require both the developer-fixture opt-in and
+`TRACK_NATIVE_INPUT_TRACE=1`. They log command-key identifiers/modifiers and
+unusual native text codepoints, not note/query contents. This diagnostic does
+not change input behavior and is disabled for normal vault use.

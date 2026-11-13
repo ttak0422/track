@@ -698,6 +698,7 @@ impl EntityInputHandler for TextEditor {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        crate::input_trace::platform_text(text, false);
         self.replace(r, text, false, None, cx);
     }
     fn replace_and_mark_text_in_range(
@@ -708,6 +709,7 @@ impl EntityInputHandler for TextEditor {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        crate::input_trace::platform_text(text, true);
         self.replace(r, text, true, selected, cx);
     }
     fn bounds_for_range(

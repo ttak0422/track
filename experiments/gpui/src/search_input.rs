@@ -97,6 +97,29 @@ fn single_line(text: &str) -> String {
         .collect()
 }
 
+fn search_bindings() -> Vec<KeyBinding> {
+    vec![
+        KeyBinding::new("backspace", Backspace, Some("TrackSearch")),
+        KeyBinding::new("delete", Delete, Some("TrackSearch")),
+        KeyBinding::new("left", Left, Some("TrackSearch")),
+        KeyBinding::new("right", Right, Some("TrackSearch")),
+        KeyBinding::new("shift-left", ExtendLeft, Some("TrackSearch")),
+        KeyBinding::new("shift-right", ExtendRight, Some("TrackSearch")),
+        KeyBinding::new("home", Home, Some("TrackSearch")),
+        KeyBinding::new("end", End, Some("TrackSearch")),
+        KeyBinding::new("cmd-left", Home, Some("TrackSearch")),
+        KeyBinding::new("cmd-right", End, Some("TrackSearch")),
+        KeyBinding::new("shift-home", ExtendHome, Some("TrackSearch")),
+        KeyBinding::new("shift-end", ExtendEnd, Some("TrackSearch")),
+        KeyBinding::new("cmd-shift-left", ExtendHome, Some("TrackSearch")),
+        KeyBinding::new("cmd-shift-right", ExtendEnd, Some("TrackSearch")),
+        KeyBinding::new("cmd-a", SelectAll, Some("TrackSearch")),
+        KeyBinding::new("cmd-c", Copy, Some("TrackSearch")),
+        KeyBinding::new("cmd-x", Cut, Some("TrackSearch")),
+        KeyBinding::new("cmd-v", Paste, Some("TrackSearch")),
+    ]
+}
+
 impl SearchInput {
     pub fn query(&self) -> &str {
         &self.text
@@ -113,26 +136,7 @@ impl SearchInput {
     }
     pub fn new(cx: &mut Context<Self>) -> Self {
         // Scoped bindings do not interfere with workspace navigation.
-        cx.bind_keys([
-            KeyBinding::new("backspace", Backspace, Some("TrackSearch")),
-            KeyBinding::new("delete", Delete, Some("TrackSearch")),
-            KeyBinding::new("left", Left, Some("TrackSearch")),
-            KeyBinding::new("right", Right, Some("TrackSearch")),
-            KeyBinding::new("shift-left", ExtendLeft, Some("TrackSearch")),
-            KeyBinding::new("shift-right", ExtendRight, Some("TrackSearch")),
-            KeyBinding::new("home", Home, Some("TrackSearch")),
-            KeyBinding::new("end", End, Some("TrackSearch")),
-            KeyBinding::new("cmd-left", Home, Some("TrackSearch")),
-            KeyBinding::new("cmd-right", End, Some("TrackSearch")),
-            KeyBinding::new("shift-home", ExtendHome, Some("TrackSearch")),
-            KeyBinding::new("shift-end", ExtendEnd, Some("TrackSearch")),
-            KeyBinding::new("cmd-shift-left", ExtendHome, Some("TrackSearch")),
-            KeyBinding::new("cmd-shift-right", ExtendEnd, Some("TrackSearch")),
-            KeyBinding::new("cmd-a", SelectAll, Some("TrackSearch")),
-            KeyBinding::new("cmd-c", Copy, Some("TrackSearch")),
-            KeyBinding::new("cmd-x", Cut, Some("TrackSearch")),
-            KeyBinding::new("cmd-v", Paste, Some("TrackSearch")),
-        ]);
+        cx.bind_keys(search_bindings());
         Self {
             dark: false,
             focus: cx.focus_handle(),
@@ -236,6 +240,7 @@ impl EntityInputHandler for SearchInput {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        crate::input_trace::platform_text(text, false);
         self.replace(r, text, false, None, cx);
     }
     fn replace_and_mark_text_in_range(
@@ -246,6 +251,7 @@ impl EntityInputHandler for SearchInput {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        crate::input_trace::platform_text(text, true);
         self.replace(r, text, true, selected, cx);
     }
     fn bounds_for_range(
@@ -491,5 +497,44 @@ mod tests {
     #[test]
     fn search_is_single_line() {
         assert_eq!(single_line("a\r\nb\tc\u{2028}d"), "a  b c d");
+    }
+    #[test]
+    fn native_command_and_deletion_keys_resolve_in_search_context() {
+        let mut bindings = search_bindings();
+        bindings.extend(crate::workspace_key_bindings());
+        let keymap = gpui::Keymap::new(bindings);
+        let contexts = [gpui::KeyContext::parse("TrackSearch").unwrap()];
+        for (key, action) in [
+            ("cmd-a", Box::new(SelectAll) as Box<dyn gpui::Action>),
+            ("backspace", Box::new(Backspace)),
+            ("delete", Box::new(Delete)),
+            ("cmd-v", Box::new(Paste)),
+            ("cmd-q", Box::new(crate::Quit)),
+        ] {
+            let stroke = gpui::Keystroke::parse(key).unwrap();
+            let (matches, pending) = keymap.bindings_for_input(&[stroke], &contexts);
+            assert!(!pending, "{key}");
+            assert_eq!(matches.len(), 1, "{key}");
+            assert!(matches[0].action().partial_eq(action.as_ref()), "{key}");
+        }
+    }
+    #[test]
+    fn search_shortcuts_do_not_capture_other_contexts_or_literal_symbols() {
+        let keymap = gpui::Keymap::new(search_bindings());
+        let other = [gpui::KeyContext::parse("TrackSourceEditor").unwrap()];
+        assert!(
+            keymap
+                .bindings_for_input(&[gpui::Keystroke::parse("cmd-a").unwrap()], &other)
+                .0
+                .is_empty()
+        );
+        let search = [gpui::KeyContext::parse("TrackSearch").unwrap()];
+        // A text glyph is never reinterpreted as a deletion command.
+        assert!(
+            keymap
+                .bindings_for_input(&[gpui::Keystroke::parse("▽").unwrap()], &search)
+                .0
+                .is_empty()
+        );
     }
 }

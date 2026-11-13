@@ -7,6 +7,7 @@ mod editing;
 mod editor_input;
 mod graph;
 mod graph_view;
+mod input_trace;
 mod live;
 mod markdown;
 mod native_window;
@@ -26,6 +27,14 @@ actions!(
         ToggleFullscreen
     ]
 );
+
+fn workspace_key_bindings() -> Vec<KeyBinding> {
+    vec![
+        KeyBinding::new("cmd-q", Quit, None),
+        KeyBinding::new("cmd-m", MinimizeWindow, None),
+        KeyBinding::new("ctrl-cmd-f", ToggleFullscreen, None),
+    ]
+}
 
 fn fixture(count: usize) -> Snapshot {
     Snapshot {
@@ -412,7 +421,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         return Err("expected a single JSON path or explicit vault options".into());
     };
+    let input_trace_enabled = input_trace::initialize(developer_fixture.is_some());
     Application::new().run(move |cx: &mut App| {
+        if input_trace_enabled {
+            cx.observe_keystrokes(|event, _, _| input_trace::key(event))
+                .detach();
+        }
         let quit_session = std::sync::Arc::new(live::LifecycleHandle::default());
         let workspace_target: std::rc::Rc<std::cell::RefCell<Option<gpui::WeakEntity<Workspace>>>> =
             Default::default();
@@ -453,11 +467,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let _ = handle.update(cx, |_, window, _| window.toggle_fullscreen());
             }
         });
-        cx.bind_keys([
-            KeyBinding::new("cmd-q", Quit, None),
-            KeyBinding::new("cmd-m", MinimizeWindow, None),
-            KeyBinding::new("ctrl-cmd-f", ToggleFullscreen, None),
-        ]);
+        cx.bind_keys(workspace_key_bindings());
         cx.set_menus(vec![
             Menu {
                 name: "Track Native".into(),
