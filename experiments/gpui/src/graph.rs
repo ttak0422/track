@@ -69,6 +69,32 @@ pub fn is_zoom_wheel(control: bool, shift: bool) -> bool {
     control || shift
 }
 
+/// Screen-space title policy, independent of graph layout and GPU drawing.
+pub fn show_label(
+    view: Viewport,
+    titles: bool,
+    center: bool,
+    degree: usize,
+    highlighted: bool,
+) -> bool {
+    let spacious = view.width >= 420. || view.height >= 420.;
+    titles && (center || highlighted || (spacious && (view.scale >= 0.26 || degree >= 4)))
+}
+
+/// Keep authored Unicode intact; the hover title is never shortened.
+pub fn label_title(title: &str, id: i64, hovered: bool) -> String {
+    let title = if title.is_empty() {
+        format!("#{id}")
+    } else {
+        title.to_owned()
+    };
+    if hovered || title.chars().count() <= 24 {
+        title
+    } else {
+        format!("{}...", title.chars().take(23).collect::<String>())
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Viewport {
     pub width: f64,
@@ -316,6 +342,37 @@ pub fn fixture(count: usize) -> Graph {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn labels_follow_screen_space_density_and_explicit_intent() {
+        let small = super::Viewport::new(300., 280.);
+        assert!(!super::show_label(small, true, false, 100, false));
+        assert!(super::show_label(small, true, true, 0, false));
+        assert!(super::show_label(small, true, false, 0, true));
+        assert!(!super::show_label(small, false, true, 100, true));
+        for (width, height) in [(420., 280.), (390., 420.)] {
+            let mut view = super::Viewport::new(width, height);
+            view.scale = 0.259;
+            assert!(!super::show_label(view, true, false, 3, false));
+            assert!(super::show_label(view, true, false, 4, false));
+            view.scale = 0.26;
+            assert!(super::show_label(view, true, false, 0, false));
+        }
+    }
+
+    #[test]
+    fn label_titles_preserve_unicode_and_expand_on_hover() {
+        assert_eq!(super::label_title("", 42, false), "#42");
+        let exact = "界".repeat(24);
+        assert_eq!(super::label_title(&exact, 42, false), exact);
+        let long = "界".repeat(25);
+        assert_eq!(
+            super::label_title(&long, 42, false),
+            format!("{}...", "界".repeat(23))
+        );
+        assert_eq!(super::label_title(&long, 42, true), long);
+        assert_eq!(super::label_title("short", 42, false), "short");
+    }
+
     use super::*;
     fn close(a: Point, b: Point) {
         assert!(

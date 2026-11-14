@@ -220,7 +220,7 @@ number grouping currently uses commas rather than OS locale, and native GUI,
 high-DPI, gesture, accessibility and timing behavior are unverified. Automated
 synthetic model/wire tests do not establish visual or performance parity.
 
-## Camera intent follow-up (2026-11-14)
+## Camera and label compatibility (2026-11-14)
 
 Unmodified wheel input is no longer consumed as graph panning, matching the Web
 surface's surrounding-scroll behavior. Explicit Ctrl/Shift wheel still zooms,
@@ -233,3 +233,18 @@ Three pure policy tests cover untouched/changed camera intent and wheel modifier
 compilation covers the native event wiring. Real wheel propagation, native pinch,
 pointer capture and visual camera behavior remain GUI-unverified. No performance
 improvement is claimed for this correctness change.
+
+Native titles now use screen-space density rules: a canvas with either dimension
+at least 420 logical pixels shows ordinary titles from scale 0.26, or high-degree
+nodes from degree four. Small canvases retain center/highlight titles only; the
+titles toggle disables all labels. Labels use fixed 13px text, a panel backdrop,
+and shortened non-hover titles with an ID fallback. Truncation preserves Unicode
+scalars, not grapheme clusters. Hover retains the complete title. Size changes
+invalidate label layout without restarting force placement.
+
+Two synthetic tests cover size/zoom/degree boundaries, title suppression,
+highlight exceptions and Unicode title fallback/shortening. Native text alignment,
+hover transfer, clipping, theme contrast and accessibility remain GUI-unverified.
+The backdrop is opaque rather than the Web canvas's translucent fill. No frame,
+GPU or input-latency measurements were performed; fewer labels are not by themselves
+evidence of a rendering speedup.

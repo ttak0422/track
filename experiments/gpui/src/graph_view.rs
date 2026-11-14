@@ -172,20 +172,32 @@ impl Render for GraphView {
             (0xffffff, 0x1a1a18, 0x5e5d58, 0xe6e4de, 0x8e8c84, 0xc13a1e)
         };
         let compact = self.compact;
-        let labels: Vec<_> = if compact && (!self.overview || self.titles) {
+        let label_highlights = self
+            .hovered
+            .or(self.selected)
+            .map(|id| graph::neighbors(&self.graph, id));
+        let labels: Vec<_> = if compact {
             self.nodes
                 .iter()
                 .filter(|n| {
-                    self.overview
-                        || n.node.note_id == self.graph.center_id
-                        || n.node.center
-                        || Some(n.node.note_id) == self.hovered
-                        || Some(n.node.note_id) == self.selected
+                    graph::show_label(
+                        self.viewport,
+                        self.titles,
+                        n.node.note_id == self.graph.center_id || n.node.center,
+                        n.degree,
+                        label_highlights
+                            .as_ref()
+                            .is_some_and(|ids| ids.contains(&n.node.note_id)),
+                    )
                 })
                 .map(|n| {
                     (
                         n.node.note_id,
-                        n.node.title.clone(),
+                        graph::label_title(
+                            &n.node.title,
+                            n.node.note_id,
+                            self.hovered == Some(n.node.note_id),
+                        ),
                         self.viewport.world_to_screen(n.position),
                         graph::node_radius(&n.node, self.graph.center_id, n.degree),
                     )
@@ -198,10 +210,7 @@ impl Render for GraphView {
         let nodes = self.nodes.clone();
         let edges = self.graph.edges.clone();
         let center_id = self.graph.center_id;
-        let highlighted = self
-            .hovered
-            .or(self.selected)
-            .map(|id| graph::neighbors(&self.graph, id));
+        let highlighted = label_highlights;
         let selected = self.selected;
         let hovered = self.hovered;
         let mut viewport = self.viewport;
@@ -326,7 +335,10 @@ impl Render for GraphView {
                     move |bounds, _, cx| {
                         viewport.width = f32::from(bounds.size.width) as f64;
                         viewport.height = f32::from(bounds.size.height) as f64;
-                        entity.update(cx, |this, _| {
+                        entity.update(cx, |this, cx| {
+                            if this.viewport.width != viewport.width || this.viewport.height != viewport.height {
+                                cx.notify();
+                            }
                             this.viewport.width = viewport.width;
                             this.viewport.height = viewport.height;
                             this.origin = Point {
@@ -403,8 +415,9 @@ impl Render for GraphView {
             )
             .children(labels.into_iter().map(|(id,title,p,r)| {
                 div().id(("graph-label", id as usize)).absolute()
-                    .left(px((p.x+r+5.) as f32)).top(px((p.y-8.) as f32))
-                    .max_w(px(170.)).overflow_hidden().text_xs().text_color(rgb(ink))
+                    .left(px((p.x+r+2.) as f32)).top(px((p.y-11.) as f32))
+                    .px(px(5.)).py(px(3.)).rounded(px(4.)).bg(rgb(panel))
+                    .whitespace_nowrap().text_size(px(13.)).line_height(px(16.)).text_color(rgb(ink))
                     .cursor_pointer().child(title)
                     .on_mouse_down(MouseButton::Left, |_,_,cx|cx.stop_propagation())
                     .on_click(cx.listener(move |_,_,_,cx| { cx.emit(OpenNote(id)); cx.stop_propagation(); }))
