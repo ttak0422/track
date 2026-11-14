@@ -480,3 +480,21 @@ server URLs or diagnostics. Opening the drawer, selecting a note and hovering a
 control must leave the existing clipboard untouched. Verify menu discoverability,
 keyboard menu invocation and Quit remain intact. Headless payload tests cannot
 establish actual macOS pasteboard delivery or accessibility.
+
+## Fixture-only working-vault persistence: native validation pending
+
+Use an isolated temporary fixture registry with launch and secondary vaults.
+Select the secondary working vault, then restart into safe Home and confirm the
+selector retains that scope without reopening a saved note. Open tabs from both
+vaults and verify their identities remain unchanged, and search still returns
+federated results. Change only the scope (not tabs/history), restart, and check
+that the new choice persists. Cancel a dirty scope transition and verify no new
+choice is stored. Repeat with pending/failed Save; do not weaken the edit gate.
+
+During delayed startup, make a newer accepted route/scope choice and verify it
+wins over restoration. Removing the saved scope or altering fixture configuration
+must preserve the old state file and show a persistence warning, not silently
+reinterpret it as the launch vault. Legacy snapshots should start at launch scope
+without a startup rewrite. Ordinary mode must still create no session files.
+These checks remain unperformed; model tests do not prove native restoration,
+selector labeling, dirty-dialog handling or shutdown durability.

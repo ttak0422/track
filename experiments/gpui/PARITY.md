@@ -15,7 +15,7 @@ of support. Use disposable fixture vaults, never a configured personal vault, fo
 | Explicit read-only vault list and portable Markdown | [x] | [ ] | `src/backend.rs`; native QA with public help fixture |
 | Owned HTTP read-only notes and federated search | [x] | [ ] | `live.rs`, `workspace_live.rs`; public-help search/source/quit smoke |
 | Session-only working-vault scope selection | [x] | [ ] | `shell.rs`; existing tabs/Home/federated search remain unchanged |
-| Persistent vault scope and workspace preferences | [ ] | [ ] | `VaultSwitcher`, `SearchPanel`, `api.ts` |
+| Persistent vault scope and workspace preferences | [ ] | [ ] | Fixture-only working scope implemented; ordinary persistence and other preferences remain open |
 | Note body, tags, flags, hierarchy and backlinks | [ ] | [ ] | `NoteReader`, `HierarchyMenu`, `types.ts` |
 | In-memory vault-qualified tabs and close/overflow navigation | [x] | [ ] | `tabs.rs`, `shell.rs`; model tests, native QA pending |
 | Bounded in-memory Home/Graph/note Back/Forward | [x] | [ ] | `navigation.rs`, `shell.rs`; 100 routes, dirty-gated tickets and fixture lifecycle tests; native shortcuts/IME pending |
@@ -272,3 +272,13 @@ Comments, hard keywords and single/triple-quoted strings are shielded, while
 prefixes, interpolations and soft/contextual keywords are not parsed. The source
 remains lossless; existing Find/Copy/cache/size limits apply. Headless tests do not
 establish native rendering, font contrast or accessibility parity.
+
+### Fixture-only working-vault restoration
+
+The bounded atomic tab/history snapshot also retains the selected working scope.
+Restoration requires the same available registry and retains safe Home, leaving
+note identities and federated search unchanged. Newer accepted startup navigation
+or scope selection discards restoration. Legacy snapshots default to launch scope;
+invalid scope metadata preserves the original artifact and disables persistence.
+Normal invocation performs no session-file I/O. Model and disposable-file tests
+are not native restart, IME, dirty-dialog or quit-durability validation.

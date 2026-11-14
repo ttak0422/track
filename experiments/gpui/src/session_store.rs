@@ -29,6 +29,8 @@ struct Snapshot {
     tabs: Vec<Entry>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     history: Option<HistoryEntry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    working_scope: Option<String>,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -72,6 +74,7 @@ pub struct SessionStore {
     revision: u64,
     original: Option<Vec<u8>>,
     pub restored_history: Option<crate::navigation::Snapshot>,
+    pub restored_scope: Option<String>,
 }
 fn err(e: impl std::fmt::Display) -> String {
     format!("Fixture tab persistence disabled: {e}")
@@ -216,6 +219,7 @@ impl SessionStore {
             revision: 0,
             original: None,
             restored_history: None,
+            restored_scope: None,
         };
         let original = store.read()?;
         let tabs = if let Some(bytes) = &original {
@@ -225,9 +229,17 @@ impl SessionStore {
             {
                 return Err(err("unexpected history in version 1"));
             }
+            if value
+                .get("version")
+                .and_then(|v| v.as_u64())
+                .is_some_and(|v| v < 3)
+                && value.get("working_scope").is_some()
+            {
+                return Err(err("unexpected scope in legacy snapshot"));
+            }
             let s: Snapshot = serde_json::from_slice(bytes).map_err(err)?;
             if s.owner != OWNER
-                || !matches!(s.version, 1 | 2)
+                || !matches!(s.version, 1 | 2 | 3)
                 || s.binding != store.binding
                 || s.revision == 0
             {
@@ -235,8 +247,16 @@ impl SessionStore {
             }
             store.restored_history = match (s.version, s.history) {
                 (1, None) => None,
-                (2, Some(history)) => Some(store.decode_history(history)?),
+                (2 | 3, Some(history)) => Some(store.decode_history(history)?),
                 _ => return Err(err("invalid history schema")),
+            };
+            store.restored_scope = match (s.version, s.working_scope) {
+                (1 | 2, None) => None,
+                (3, Some(scope)) => {
+                    store.validate_scope(&scope)?;
+                    Some(scope)
+                }
+                _ => return Err(err("invalid working scope schema")),
             };
             store.revision = s.revision;
             store.decode(s.tabs)?
@@ -300,12 +320,27 @@ impl SessionStore {
             cursor: history.cursor,
         })
     }
+    #[cfg(test)]
     pub fn save_with_history(
         &mut self,
         tabs: &[Tab],
         history: &crate::navigation::Snapshot,
     ) -> Result<(), String> {
-        self.save_snapshot(tabs, history, false)
+        self.save_snapshot(tabs, history, None, false)
+    }
+    fn validate_scope(&self, scope: &str) -> Result<(), String> {
+        if scope.len() > 1024 || scope.contains('\0') || !self.registry.iter().any(|v| v == scope) {
+            return Err(err("unknown or invalid working scope"));
+        }
+        Ok(())
+    }
+    pub fn save_with_scope(
+        &mut self,
+        tabs: &[Tab],
+        history: &crate::navigation::Snapshot,
+        scope: &str,
+    ) -> Result<(), String> {
+        self.save_snapshot(tabs, history, Some(scope), false)
     }
     fn decode(&self, entries: Vec<Entry>) -> Result<Vec<Tab>, String> {
         if entries.len() > 128 {
@@ -337,14 +372,23 @@ impl SessionStore {
     }
     #[cfg(test)]
     fn save_inner(&mut self, tabs: &[Tab], interrupt: bool) -> Result<(), String> {
-        self.save_snapshot(tabs, &crate::navigation::Snapshot::default(), interrupt)
+        self.save_snapshot(
+            tabs,
+            &crate::navigation::Snapshot::default(),
+            None,
+            interrupt,
+        )
     }
     fn save_snapshot(
         &mut self,
         tabs: &[Tab],
         history: &crate::navigation::Snapshot,
+        scope: Option<&str>,
         interrupt: bool,
     ) -> Result<(), String> {
+        if let Some(scope) = scope {
+            self.validate_scope(scope)?;
+        }
         let current = path_file(&self.cache, true)?;
         let a = current.metadata().map_err(err)?;
         let b = self.dir.metadata().map_err(err)?;
@@ -393,10 +437,11 @@ impl SessionStore {
             .ok_or_else(|| err("revision overflow"))?;
         let bytes = serde_json::to_vec(&Snapshot {
             owner: OWNER.into(),
-            version: 2,
+            version: if scope.is_some() { 3 } else { 2 },
             binding: self.binding.clone(),
             revision,
             tabs: entries,
+            working_scope: scope.map(str::to_owned),
             history: Some(HistoryEntry {
                 routes: history.routes.iter().map(encode_kind).collect(),
                 cursor: history.cursor,
@@ -517,6 +562,75 @@ mod tests {
             },
         ]
     }
+    #[test]
+    fn scope_v3_roundtrip_and_invalid_snapshots_preserve_bytes() {
+        let f = Fixture::new();
+        let (mut store, _) = f.open().unwrap();
+        let history = crate::navigation::Snapshot::default();
+        store.save_with_scope(&tabs(), &history, "two").unwrap();
+        let before = std::fs::read(f.state()).unwrap();
+        assert!(store.save_with_scope(&tabs(), &history, "unknown").is_err());
+        assert!(
+            store
+                .save_with_scope(&tabs(), &history, &"x".repeat(1025))
+                .is_err()
+        );
+        assert_eq!(std::fs::read(f.state()).unwrap(), before);
+        drop(store);
+        let (store, _) = f.open().unwrap();
+        assert_eq!(store.restored_scope.as_deref(), Some("two"));
+        assert_eq!(std::fs::read(f.state()).unwrap(), before);
+        drop(store);
+        let original: serde_json::Value = serde_json::from_slice(&before).unwrap();
+        for scope in [
+            serde_json::Value::Null,
+            42.into(),
+            "unknown".into(),
+            "two\0".into(),
+            "x".repeat(1025).into(),
+        ] {
+            let mut bad = original.clone();
+            bad["working_scope"] = scope;
+            let bytes = serde_json::to_vec(&bad).unwrap();
+            f.replace(&bytes);
+            assert!(f.open().is_err());
+            assert_eq!(std::fs::read(f.state()).unwrap(), bytes);
+        }
+        let mut missing = original.clone();
+        missing.as_object_mut().unwrap().remove("working_scope");
+        f.replace(&serde_json::to_vec(&missing).unwrap());
+        assert!(f.open().is_err());
+        for version in [1, 2] {
+            let mut legacy = original.clone();
+            legacy["version"] = version.into();
+            if version == 1 {
+                legacy.as_object_mut().unwrap().remove("history");
+            }
+            f.replace(&serde_json::to_vec(&legacy).unwrap());
+            assert!(f.open().is_err()); // Legacy cannot smuggle a scope field.
+            legacy.as_object_mut().unwrap().remove("working_scope");
+            let bytes = serde_json::to_vec(&legacy).unwrap();
+            f.replace(&bytes);
+            let (mut store, entries) = f.open().unwrap();
+            assert!(store.restored_scope.is_none());
+            assert_eq!(std::fs::read(f.state()).unwrap(), bytes);
+            store.save_with_scope(&entries, &history, "one").unwrap();
+            assert_eq!(
+                serde_json::from_slice::<serde_json::Value>(&std::fs::read(f.state()).unwrap())
+                    .unwrap()["version"],
+                3
+            );
+        }
+        let duplicate = String::from_utf8(before).unwrap().replacen(
+            "\"working_scope\":",
+            "\"working_scope\":\"one\",\"working_scope\":",
+            1,
+        );
+        f.replace(duplicate.as_bytes());
+        assert!(f.open().is_err());
+        assert_eq!(std::fs::read(f.state()).unwrap(), duplicate.as_bytes());
+    }
+
     #[test]
     fn history_v2_roundtrip_and_strict_legacy_migration() {
         let f = Fixture::new();

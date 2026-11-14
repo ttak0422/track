@@ -9,7 +9,7 @@ pub struct SessionOptions {
 }
 #[derive(Default)]
 struct Pending {
-    latest: Option<(u64, Vec<tabs::Tab>, navigation::Snapshot)>,
+    latest: Option<(u64, Vec<tabs::Tab>, navigation::Snapshot, String)>,
     completed: u64,
     error: Option<String>,
 }
@@ -28,8 +28,8 @@ impl Writer {
         let thread = std::thread::spawn(move || {
             while receiver.recv().is_ok() {
                 let snapshot = state.lock().unwrap().latest.take();
-                if let Some((sequence, entries, history)) = snapshot {
-                    let result = store.save_with_history(&entries, &history);
+                if let Some((sequence, entries, history, scope)) = snapshot {
+                    let result = store.save_with_scope(&entries, &history, &scope);
                     let mut state = state.lock().unwrap();
                     state.completed = sequence;
                     if let Err(error) = result {
@@ -49,9 +49,9 @@ impl Writer {
             thread: Some(thread),
         }
     }
-    fn enqueue(&mut self, entries: Vec<tabs::Tab>, history: navigation::Snapshot) {
+    fn enqueue(&mut self, entries: Vec<tabs::Tab>, history: navigation::Snapshot, scope: String) {
         self.sent += 1;
-        self.shared.lock().unwrap().latest = Some((self.sent, entries, history));
+        self.shared.lock().unwrap().latest = Some((self.sent, entries, history, scope));
         // Full means a wake already exists; that wake consumes the latest snapshot.
         let _ = self.wake.as_ref().unwrap().try_send(());
     }
@@ -72,6 +72,8 @@ pub struct SessionUi {
     worker: Option<Writer>,
     last: Vec<tabs::Tab>,
     last_history: navigation::Snapshot,
+    last_scope: String,
+    restored_scope: Option<String>,
     restored_history: Option<navigation::History>,
     pub warning: Option<String>,
     pub safe_home: bool,
@@ -104,6 +106,8 @@ impl SessionUi {
                     .take()
                     .and_then(navigation::History::restore_home)
                     .unwrap_or_default();
+                self.restored_scope = store.restored_scope.take();
+                self.last_scope = self.restored_scope.clone().unwrap_or_default();
                 self.last_history = history.snapshot();
                 self.restored_history = Some(history);
                 let mut tabs = tabs::Tabs::restore(entries);
@@ -123,13 +127,42 @@ impl SessionUi {
     pub fn take_restored_history(&mut self, startup_current: bool) -> Option<navigation::History> {
         self.restored_history.take().filter(|_| startup_current)
     }
+    /// Canonical launch-name aliases mean the empty working scope. Normalize the
+    /// in-memory baseline too, so startup never rewrites a valid saved snapshot.
+    pub fn normalize_scope_alias(&mut self, launch_name: &str) {
+        if self.restored_scope.as_deref() == Some(launch_name) {
+            self.restored_scope = Some(String::new());
+            self.last_scope.clear();
+        }
+    }
+    pub fn take_restored_scope(&mut self, startup_current: bool) -> Option<String> {
+        self.restored_scope.take().filter(|_| startup_current)
+    }
+    #[cfg(test)]
     pub fn sync(&mut self, tabs: &tabs::Tabs, history: &navigation::History) {
+        self.sync_with_scope(tabs, history, "");
+    }
+    pub fn sync_with_scope(
+        &mut self,
+        tabs: &tabs::Tabs,
+        history: &navigation::History,
+        scope: &str,
+    ) {
         self.poll_warning();
         if self.worker.is_none() {
             return;
         }
+        if scope.len() > 1024
+            || scope.contains('\0')
+            || !self.known_vaults.iter().any(|v| v == scope)
+        {
+            self.warning =
+                Some("Tab persistence disabled: unknown or invalid working scope.".into());
+            self.worker = None;
+            return;
+        }
         let history = history.snapshot();
-        if self.last == tabs.entries() && self.last_history == history {
+        if self.last == tabs.entries() && self.last_history == history && self.last_scope == scope {
             return;
         }
         if self.worker.is_some()
@@ -148,7 +181,8 @@ impl SessionUi {
             return;
         };
         // Bounded latest snapshot, not a queue of disk writes. No filesystem work here.
-        worker.enqueue(tabs.entries().to_vec(), history.clone());
+        worker.enqueue(tabs.entries().to_vec(), history.clone(), scope.to_owned());
+        self.last_scope = scope.to_owned();
         self.last_history = history;
         self.last = tabs.entries().to_vec();
     }
@@ -236,12 +270,89 @@ mod tests {
         Ok(vec!["".into(), "work".into()])
     }
     #[test]
+    fn canonical_launch_alias_normalizes_without_rewriting_startup() {
+        let fixture = Fixture::new();
+        let mut ui = fixture.ui();
+        let tabs = ui.restore(registry()).unwrap();
+        let history = ui.take_restored_history(true).unwrap();
+        ui.sync_with_scope(&tabs, &history, "work");
+        ui.flush();
+        let before = fixture.bytes();
+        drop(ui);
+        let mut ui = fixture.ui();
+        let tabs = ui.restore(registry()).unwrap();
+        let history = ui.take_restored_history(true).unwrap();
+        ui.normalize_scope_alias("work");
+        assert_eq!(ui.take_restored_scope(true).as_deref(), Some(""));
+        ui.sync_with_scope(&tabs, &history, "");
+        ui.flush();
+        assert_eq!(fixture.bytes(), before);
+    }
+
+    #[test]
+    fn scope_only_save_restores_without_startup_write_or_route_change() {
+        let fixture = Fixture::new();
+        let mut ui = fixture.ui();
+        let tabs = ui.restore(registry()).unwrap();
+        let history = ui.take_restored_history(true).unwrap();
+        ui.sync_with_scope(&tabs, &history, "work");
+        ui.flush();
+        let saved = fixture.bytes();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&saved).unwrap()["working_scope"],
+            "work"
+        );
+        drop(ui);
+        let mut ui = fixture.ui();
+        let tabs = ui.restore(registry()).unwrap();
+        let history = ui.take_restored_history(true).unwrap();
+        assert_eq!(tabs.active().unwrap().key, tabs::TabKey::Home);
+        assert_eq!(ui.take_restored_scope(true).as_deref(), Some("work"));
+        assert!(ui.take_restored_scope(true).is_none());
+        ui.sync_with_scope(&tabs, &history, "work");
+        ui.flush();
+        assert_eq!(fixture.bytes(), saved);
+        ui.sync_with_scope(&tabs, &history, "");
+        ui.flush();
+        assert_ne!(fixture.bytes(), saved);
+        let before = fixture.bytes();
+        ui.sync_with_scope(&tabs, &history, "unregistered");
+        assert!(ui.warning.is_some());
+        assert!(ui.worker.is_none());
+        assert_eq!(fixture.bytes(), before);
+    }
+
+    #[test]
+    fn newer_startup_selection_discards_saved_scope_and_preserves_current() {
+        let fixture = Fixture::new();
+        let mut ui = fixture.ui();
+        let tabs = ui.restore(registry()).unwrap();
+        let history = ui.take_restored_history(true).unwrap();
+        ui.sync_with_scope(&tabs, &history, "work");
+        ui.flush();
+        drop(ui);
+        let mut ui = fixture.ui();
+        let tabs = ui.restore(registry()).unwrap();
+        assert!(ui.take_restored_scope(false).is_none());
+        assert!(ui.take_restored_scope(true).is_none());
+        // Accepted launch-scope choice wins even if saved tabs remain the same.
+        ui.sync_with_scope(&tabs, &history, "");
+        ui.flush();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&fixture.bytes()).unwrap()["working_scope"],
+            ""
+        );
+    }
+
+    #[test]
     fn disabled_has_no_paths_or_store_and_no_session_io() {
         let mut ui = SessionUi::new(None);
         assert!(ui.restore(Err("must not be consulted".into())).is_none());
         let mut tabs = tabs::Tabs::default();
         tabs.open_graph();
         ui.sync(&tabs, &navigation::History::default());
+        ui.sync_with_scope(&tabs, &navigation::History::default(), "arbitrary");
+        assert!(ui.take_restored_scope(true).is_none());
         ui.flush();
         assert!(ui.warning.is_none());
         assert!(ui.worker.is_none());

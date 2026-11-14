@@ -39,6 +39,7 @@ struct StartupNavigation {
     graph_request: u64,
     tabs: tabs::Tabs,
     home: bool,
+    scope_revision: u64,
 }
 impl StartupNavigation {
     fn accepts(&self, current: &Self, closing: bool) -> bool {
@@ -47,6 +48,7 @@ impl StartupNavigation {
             && self.graph_request == current.graph_request
             && self.tabs == current.tabs
             && self.home == current.home
+            && self.scope_revision == current.scope_revision
     }
 }
 
@@ -124,6 +126,7 @@ impl Workspace {
             graph_request: self.graph_request,
             tabs: self.tabs.clone(),
             home: self.shell.home,
+            scope_revision: self.shell.scope_revision,
         }
     }
 
@@ -180,8 +183,30 @@ impl Workspace {
                         let apply_startup_route = startup_navigation
                             .accepts(&this.startup_navigation(), this.quit_session.is_closing());
                         this.session_ui = session_ui;
+                        if let Some(name) = session
+                            .initial_vaults
+                            .get("active")
+                            .and_then(|v| v.get("name"))
+                            .and_then(|v| v.as_str())
+                        {
+                            this.session_ui.normalize_scope_alias(name);
+                        }
                         let restored_history =
                             this.session_ui.take_restored_history(apply_startup_route);
+                        let restored_scope =
+                            this.session_ui.take_restored_scope(apply_startup_route);
+                        let preserve_scope = restored_scope.is_some()
+                            || startup_navigation.scope_revision != this.shell.scope_revision;
+                        if let Some(scope) = restored_scope {
+                            this.shell.working_scope = scope;
+                        }
+                        // Keep only an accepted fixture restore or newer explicit choice.
+                        // Ordinary restarts retain their previous launch-scope default.
+                        if !preserve_scope {
+                            this.shell.working_scope.clear();
+                        }
+                        this.shell.restored_scope_launch =
+                            preserve_scope.then_some(session.client().launch_generation);
                         if apply_startup_route {
                             if let Some(tabs) = tabs {
                                 if let Some(history) = restored_history {
@@ -199,7 +224,11 @@ impl Workspace {
                                 .as_ref()
                                 .map(|state| state.generation);
                             this.live = Some(session);
-                            this.session_ui.sync(&this.tabs, &this.history);
+                            this.session_ui.sync_with_scope(
+                                &this.tabs,
+                                &this.history,
+                                &this.shell.working_scope,
+                            );
                             this.status =
                                 "Owned server ready; current view retained. Reload for fresh data."
                                     .into();
@@ -503,7 +532,8 @@ impl Workspace {
         }
         // Accept before I/O; completion fills this route without adding a visit.
         accept_note_route(&mut self.tabs, &mut self.history, &key);
-        self.session_ui.sync(&self.tabs, &self.history);
+        self.session_ui
+            .sync_with_scope(&self.tabs, &self.history, &self.shell.working_scope);
         self.selected = None;
         self.content.clear();
         self.current_note = None;
@@ -748,7 +778,17 @@ mod startup_navigation_tests {
             graph_request: 0,
             tabs: tabs::Tabs::default(),
             home: true,
+            scope_revision: 0,
         }
+    }
+    #[test]
+    fn accepted_scope_changes_including_return_to_original_reject_old_startup() {
+        let before = initial();
+        let mut after = initial();
+        after.scope_revision = 1;
+        assert!(!before.accepts(&after, false));
+        after.scope_revision = 2;
+        assert!(!before.accepts(&after, false));
     }
     #[test]
     fn untouched_startup_accepts_but_quit_never_applies_restoration() {

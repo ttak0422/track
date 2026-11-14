@@ -256,7 +256,8 @@ impl Workspace {
             self.tabs.open_note(vault, note.note_id, note.title.clone());
             self.history
                 .record(self.tabs.active().map(|t| t.key.clone()));
-            self.session_ui.sync(&self.tabs, &self.history);
+            self.session_ui
+                .sync_with_scope(&self.tabs, &self.history, &self.shell.working_scope);
         }
         self.query_epoch
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);

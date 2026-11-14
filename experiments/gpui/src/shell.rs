@@ -25,7 +25,9 @@ pub struct ShellState {
     pub diagnostics: bool,
     pub tab_menu: bool,
     pub(crate) vault_menu: bool,
-    working_scope: String,
+    pub(crate) working_scope: String,
+    pub(crate) scope_revision: u64,
+    pub(crate) restored_scope_launch: Option<u64>,
     vault_generation: Option<u64>,
     vault_discovery: Option<VaultDiscovery>,
     vault_loading: bool,
@@ -39,6 +41,20 @@ pub struct ShellState {
     tab_cycle_index: usize,
     heading_anchors:
         std::collections::HashMap<tabs::TabKey, (String, std::rc::Rc<markdown::HeadingAnchors>)>,
+}
+
+impl ShellState {
+    fn set_working_scope(&mut self, scope: String, launch: Option<u64>) {
+        self.working_scope = scope;
+        self.scope_revision = self.scope_revision.wrapping_add(1);
+        self.restored_scope_launch = launch;
+    }
+    fn initialize_working_scope(&mut self, launch: u64) {
+        // The marker preserves the current value, not an older captured value.
+        if self.restored_scope_launch.take() != Some(launch) {
+            self.working_scope.clear();
+        }
+    }
 }
 
 impl Default for ShellState {
@@ -58,6 +74,8 @@ impl Default for ShellState {
             tab_menu: false,
             vault_menu: false,
             working_scope: String::new(),
+            scope_revision: 0,
+            restored_scope_launch: None,
             vault_generation: None,
             vault_discovery: None,
             vault_loading: false,
@@ -1017,7 +1035,12 @@ impl Workspace {
         if self.guard_transition(workspace_edit::Transition::WorkingVault(scope.clone()), cx) {
             return;
         }
-        self.shell.working_scope = scope;
+        self.shell.set_working_scope(
+            scope,
+            self.live.as_ref().map(|s| s.client().launch_generation),
+        );
+        self.session_ui
+            .sync_with_scope(&self.tabs, &self.history, &self.shell.working_scope);
         if self.full_graph_active() {
             self.open_full_graph(cx);
         }
@@ -1156,7 +1179,8 @@ impl Workspace {
                 self.show_empty_home();
             }
         }
-        self.session_ui.sync(&self.tabs, &self.history);
+        self.session_ui
+            .sync_with_scope(&self.tabs, &self.history, &self.shell.working_scope);
         cx.notify();
     }
     pub(crate) fn activate_tab(&mut self, key: tabs::TabKey, cx: &mut Context<Self>) {
@@ -1212,7 +1236,8 @@ impl Workspace {
                 }
             }
         }
-        self.session_ui.sync(&self.tabs, &self.history);
+        self.session_ui
+            .sync_with_scope(&self.tabs, &self.history, &self.shell.working_scope);
         cx.notify();
     }
     pub(crate) fn close_tab(&mut self, key: &tabs::TabKey, cx: &mut Context<Self>) {
@@ -1242,7 +1267,8 @@ impl Workspace {
                 self.show_empty_home();
             }
         }
-        self.session_ui.sync(&self.tabs, &self.history);
+        self.session_ui
+            .sync_with_scope(&self.tabs, &self.history, &self.shell.working_scope);
         cx.notify();
     }
     pub fn configured_home_index(&self) -> Option<usize> {
@@ -1288,7 +1314,8 @@ impl Workspace {
         self.current_note_request = None;
         self.current_related.clear();
         self.show_graph = false;
-        self.session_ui.sync(&self.tabs, &self.history);
+        self.session_ui
+            .sync_with_scope(&self.tabs, &self.history, &self.shell.working_scope);
     }
     pub(crate) fn open_home(&mut self, cx: &mut Context<Self>) {
         if self.guard_transition(workspace_edit::Transition::Home, cx) {
@@ -1455,7 +1482,7 @@ impl Render for Workspace {
             let generation = session.client().launch_generation;
             if self.shell.vault_generation != Some(generation) {
                 self.shell.vault_generation = Some(generation);
-                self.shell.working_scope.clear();
+                self.shell.initialize_working_scope(generation);
                 self.shell.vault_discovery = VaultDiscovery::parse(&session.initial_vaults).ok();
                 self.shell.vault_loading = false;
                 self.shell.vault_error = None;
@@ -1496,7 +1523,8 @@ impl Render for Workspace {
                 body.note.title.clone(),
             );
         }
-        self.session_ui.sync(&self.tabs, &self.history);
+        self.session_ui
+            .sync_with_scope(&self.tabs, &self.history, &self.shell.working_scope);
         self.search.update(cx, |search, _| search.set_dark(dark));
         let full_graph_active = self.full_graph_active();
         self.graph_view.update(cx, |graph, cx| {
@@ -2832,6 +2860,27 @@ mod vault_scope_tests {
     fn fixture() -> serde_json::Value {
         json!({"active":{"name":"main"},"vaults":[{"name":"main"},{"name":"work"}],"unavailable":[{"name":"archive","error":"unmounted"}]})
     }
+    #[test]
+    fn startup_completion_cannot_overwrite_later_scope_selection_on_first_render() {
+        let mut shell = ShellState::default();
+        shell.working_scope = "saved".into();
+        shell.restored_scope_launch = Some(7);
+        shell.set_working_scope("newer".into(), Some(7));
+        shell.initialize_working_scope(7);
+        assert_eq!(shell.working_scope, "newer");
+        assert!(shell.restored_scope_launch.is_none());
+        // A later ordinary generation does not reuse the restored scope.
+        shell.initialize_working_scope(8);
+        assert_eq!(shell.working_scope, "");
+        shell.set_working_scope("during-startup".into(), None);
+        shell.restored_scope_launch = Some(9); // accepted newer startup choice
+        shell.initialize_working_scope(9);
+        assert_eq!(shell.working_scope, "during-startup");
+        shell.restored_scope_launch = Some(9);
+        shell.initialize_working_scope(10);
+        assert_eq!(shell.working_scope, "");
+    }
+
     #[test]
     fn launch_selection_is_empty_and_unavailable_is_inert() {
         let d = VaultDiscovery::parse(&fixture()).unwrap();
