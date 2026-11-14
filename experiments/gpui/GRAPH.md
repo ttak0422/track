@@ -171,3 +171,31 @@ Generation checks discard results after replacement or dragging; larger graphs k
 all nodes in the circular fallback. Release CPU measurements for 80 iterations were
 1.889 ms at 100 nodes and 156.626 ms at 1,000 nodes. This initial O(N²) solve is never
 run per pointer event. Dragging still does not provide elastic neighboring movement.
+
+## Neighborhood lookup follow-up
+
+Hover/selection previously built all nodes' adjacency sets to obtain one node's
+neighbors. A direct incident-edge scan now preserves the same available-node,
+self-edge, duplicate and dangling-edge behavior without those per-node sets.
+An equivalence regression covers every ID in a synthetic mixed-edge graph.
+
+Standalone optimized Rust measurements on Apple Silicon, 2026-11-14, used 200
+serial lookups per case; both implementations consumed identical graph inputs.
+
+| Nodes | Edges | Full adjacency, µs/lookup | Direct scan, µs/lookup |
+| ---: | ---: | ---: | ---: |
+| 100 | 99 | 17.440 | 1.753 |
+| 100 | 490 | 63.170 | 2.031 |
+| 1,000 | 999 | 182.283 | 6.675 |
+| 1,000 | 49,900 | 6,562.307 | 34.109 |
+
+The ignored `neighborhood_benchmark` test retains the old lookup as a repeatable
+CPU-only baseline. These are single-run microbenchmarks, not frame-time, input
+latency or GPU measurements, and do not establish native/web performance parity.
+
+Run the retained comparison after dependency preparation:
+
+```sh
+cargo test --locked --release --manifest-path experiments/gpui/Cargo.toml \
+  neighborhood_benchmark -- --ignored --nocapture --test-threads=1
+```

@@ -200,16 +200,29 @@ pub fn drag_node(nodes: &mut [LayoutNode], id: i64, viewport: &Viewport, delta: 
     true
 }
 
+/// Return one delivered neighborhood without allocating adjacency sets for every node.
+/// This runs during hover rendering; full adjacency is reserved for layout/overview.
 pub fn neighbors(graph: &Graph, id: i64) -> BTreeSet<i64> {
-    let mut adjacency = adjacency(graph);
-    match adjacency.remove(&id) {
-        Some(mut set) => {
-            set.insert(id);
-            set
-        }
-        None => BTreeSet::new(),
+    let available: BTreeSet<_> = graph.nodes.iter().map(|node| node.note_id).collect();
+    if !available.contains(&id) {
+        return BTreeSet::new();
     }
+    let mut result = BTreeSet::from([id]);
+    for edge in &graph.edges {
+        let other = if edge.source_id == id {
+            edge.target_id
+        } else if edge.target_id == id {
+            edge.source_id
+        } else {
+            continue;
+        };
+        if available.contains(&other) {
+            result.insert(other);
+        }
+    }
+    result
 }
+
 #[derive(Clone, Debug)]
 pub struct Overview {
     pub graph: Graph,
@@ -674,6 +687,99 @@ mod force_tests {
                 start.elapsed().as_secs_f64() * 1000.
             );
             assert!(layout.iter().all(|n| n.position.finite()));
+        }
+    }
+}
+
+#[cfg(test)]
+mod neighborhood_tests {
+    use super::*;
+
+    // Previous implementation retained only as the benchmark/semantic baseline.
+    fn full_adjacency_neighbors(graph: &Graph, id: i64) -> BTreeSet<i64> {
+        match adjacency(graph).remove(&id) {
+            Some(mut set) => {
+                set.insert(id);
+                set
+            }
+            None => BTreeSet::new(),
+        }
+    }
+
+    #[test]
+    fn direct_scan_matches_all_available_neighborhoods() {
+        let mut graph = fixture(40);
+        graph.edges.clear();
+        for a in 1..=43 {
+            for b in 1..=43 {
+                if (a * 17 + b * 11) % 7 == 0 {
+                    graph.edges.push(GraphEdge {
+                        source_id: a,
+                        target_id: b,
+                    });
+                    // Include duplicate, reversed, self and unavailable endpoints.
+                    graph.edges.push(GraphEdge {
+                        source_id: b,
+                        target_id: a,
+                    });
+                    graph.edges.push(GraphEdge {
+                        source_id: a,
+                        target_id: b,
+                    });
+                }
+            }
+        }
+        for id in 0..=43 {
+            assert_eq!(
+                neighbors(&graph, id),
+                full_adjacency_neighbors(&graph, id),
+                "ID {id}"
+            );
+        }
+        assert!(neighbors(&Graph::default(), 1).is_empty());
+        assert_eq!(neighbors(&fixture(1), 1), BTreeSet::from([1]));
+    }
+
+    /// CPU neighborhood lookup only; excludes GPUI paint and GPU presentation.
+    #[test]
+    #[ignore = "manual release comparison; not a CI speed threshold"]
+    fn neighborhood_benchmark() {
+        use std::{hint::black_box, time::Instant};
+        for count in [100, 1000] {
+            for dense in [false, true] {
+                let mut graph = fixture(count);
+                if dense {
+                    graph.edges = (1..=count)
+                        .flat_map(|a| {
+                            ((a + 1)..=count)
+                                .filter(move |b| (a + b) % 10 == 0)
+                                .map(move |b| GraphEdge {
+                                    source_id: a as i64,
+                                    target_id: b as i64,
+                                })
+                        })
+                        .collect();
+                }
+                let iterations = 200;
+                for (name, lookup) in [
+                    (
+                        "full adjacency",
+                        full_adjacency_neighbors as fn(&Graph, i64) -> BTreeSet<i64>,
+                    ),
+                    ("direct scan", neighbors),
+                ] {
+                    let start = Instant::now();
+                    for iteration in 0..iterations {
+                        let id = (iteration % count + 1) as i64;
+                        black_box(lookup(black_box(&graph), black_box(id)));
+                    }
+                    eprintln!(
+                        "neighborhood benchmark: {count} nodes, {} edges, {name}, {iterations} lookups, {:.3} us/lookup",
+                        graph.edges.len(),
+                        start.elapsed().as_secs_f64() * 1_000_000. / iterations as f64
+                    );
+                }
+            }
         }
     }
 }
