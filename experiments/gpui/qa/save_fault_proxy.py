@@ -164,6 +164,12 @@ def main():
         proxy.stopping.set()
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
+    # GPUI's macOS dispatch worker blocks these signals. Its exec child inherits
+    # that mask; registering a Python handler alone cannot deliver blocked TERM.
+    # Install handlers FIRST, then unblock only the two signals this adapter owns.
+    inherited_mask = signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGTERM, signal.SIGINT})
+    proxy.record({'event': 'signal_mask', 'term_was_blocked': signal.SIGTERM in inherited_mask,
+                  'int_was_blocked': signal.SIGINT in inherited_mask})
     env = dict(os.environ, TRACK_WEB_DESKTOP_PARENT_PID=str(os.getpid()))
     child = subprocess.Popen([str(binary), 'web', '--addr', f'127.0.0.1:{upstream}'], env=env,
                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)

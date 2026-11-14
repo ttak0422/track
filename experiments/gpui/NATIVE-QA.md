@@ -210,3 +210,16 @@ listeners were absent, and no second launch was recorded. However, the adapter
 audit again contained only `started`, without `cleanup_enter` or `reaped`.
 This confirms process disappearance, not graceful adapter child reaping. The
 proxy lifecycle audit remains an open investigation independent of app lookup.
+
+### Inherited signal mask in the QA proxy
+
+An isolated masked-exec reproduction explained the missing adapter audit:
+registering a Python handler does not unblock inherited SIGTERM. A local dispatch
+worker probe also found SIGTERM/SIGINT blocked while the main thread was unblocked.
+The masked adapter ignored SIGTERM past the native grace period and emitted only
+`started`, matching the GUI symptom. The test-only adapter now registers handlers
+before unblocking those two signals, before spawning its Go child. A regression
+verifies inherited bits, signal-driven cleanup, child reap and timely exit.
+Seven adapter tests pass; production native signaling/timeouts are unchanged.
+The post-fix GUI repeat was blocked by the locked Mac, so actual native/proxy
+reap confirmation remains pending. No app was launched by that blocked attempt.

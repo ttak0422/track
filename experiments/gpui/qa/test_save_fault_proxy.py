@@ -106,7 +106,10 @@ class FaultTests(unittest.TestCase):
     def test_sigterm_resistant_child_reaped_before_outer_deadline(self):
         self.check_adapter_shutdown(True)
 
-    def check_adapter_shutdown(self, resist_sigterm):
+    def test_inherited_blocked_term_is_unblocked_after_handler_registration(self):
+        self.check_adapter_shutdown(False, masked=True)
+
+    def check_adapter_shutdown(self, resist_sigterm, masked=False):
         vault = self.root / 'vault'
         vault.mkdir()
         (vault / '.track-native-edit-fixture').write_text('disposable-fixture-only\n')
@@ -136,8 +139,15 @@ class FaultTests(unittest.TestCase):
                    TRACK_CONFIG=str(config), TRACK_CACHE_DIR=str(cache),
                    TRACK_QA_REAL_BINARY=str(binary), TRACK_WEB_DESKTOP_PARENT_PID=str(os.getpid()),
                    TRACK_WEB_DESKTOP_READY_TOKEN='synthetic-test-token')
-        proc = subprocess.Popen([sys.executable, str(Path(__file__).with_name('save_fault_proxy.py')),
-                                 'web', '--addr', f'127.0.0.1:{port}'], env=env,
+        command = [sys.executable, str(Path(__file__).with_name('save_fault_proxy.py')),
+                   'web', '--addr', f'127.0.0.1:{port}']
+        if masked:
+            # exec preserves this thread's signal mask, just as a dispatch worker does.
+            wrapper = ('import signal,os,sys;'
+                       'signal.pthread_sigmask(signal.SIG_BLOCK,{signal.SIGTERM,signal.SIGINT});'
+                       'os.execv(sys.executable,[sys.executable]+sys.argv[1:])')
+            command = [sys.executable, '-c', wrapper] + command[1:]
+        proc = subprocess.Popen(command, env=env,
                                 stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         try:
             self.assertTrue(select.select([proc.stderr], [], [], 3)[0], 'no readiness')
@@ -148,6 +158,11 @@ class FaultTests(unittest.TestCase):
             self.assertLess(time.monotonic() - started, .7)
             events = [json.loads(line) for line in (self.root / 'events.jsonl').read_text().splitlines()]
             self.assertEqual(events[-1]['event'], 'reaped')
+            if masked:
+                mask = next(e for e in events if e['event'] == 'signal_mask')
+                self.assertTrue(mask['term_was_blocked'])
+                self.assertTrue(mask['int_was_blocked'])
+                self.assertEqual(next(e for e in events if e['event'] == 'cleanup_enter')['signal'], 15)
             if resist_sigterm:
                 self.assertEqual(events[-1]['status'], -9)
             child_pid = next(e['child_pid'] for e in events if e['event'] == 'started')
