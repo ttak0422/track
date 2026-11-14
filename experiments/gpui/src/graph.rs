@@ -48,6 +48,40 @@ impl Point {
         self.x.is_finite() && self.y.is_finite()
     }
 }
+/// Conservative paint bounds in viewport-local screen pixels. These predicates
+/// never gate labels or picking. Padding includes stroke reach and antialiasing.
+fn valid_paint_view(view: Viewport, padding: f64) -> bool {
+    view.width.is_finite()
+        && view.height.is_finite()
+        && view.width > 0.
+        && view.height > 0.
+        && padding.is_finite()
+        && padding >= 0.
+}
+
+pub fn circle_may_be_visible(view: Viewport, center: Point, radius: f64, padding: f64) -> bool {
+    if !valid_paint_view(view, padding) || !center.finite() || !radius.is_finite() || radius < 0. {
+        return false;
+    }
+    let reach = radius + padding;
+    center.x + reach >= 0.
+        && center.y + reach >= 0.
+        && center.x - reach <= view.width
+        && center.y - reach <= view.height
+}
+
+/// A segment bounding box is deliberately conservative at viewport corners:
+/// endpoints outside the view do not imply an invisible crossing edge.
+pub fn segment_may_be_visible(view: Viewport, a: Point, b: Point, padding: f64) -> bool {
+    if !valid_paint_view(view, padding) || !a.finite() || !b.finite() {
+        return false;
+    }
+    a.x.max(b.x) >= -padding
+        && a.y.max(b.y) >= -padding
+        && a.x.min(b.x) <= view.width + padding
+        && a.y.min(b.y) <= view.height + padding
+}
+
 /// Camera intent is independent of layout generation: a layout may settle after a
 /// pan or zoom, but it must not replace the user's chosen view with an auto-fit.
 #[derive(Clone, Copy, Debug, Default)]
@@ -1018,5 +1052,179 @@ mod camera_intent_tests {
         assert!(is_zoom_wheel(true, false));
         assert!(is_zoom_wheel(false, true));
         assert!(is_zoom_wheel(true, true));
+    }
+}
+
+#[cfg(test)]
+mod paint_visibility_tests {
+    use super::*;
+    fn p(x: f64, y: f64) -> Point {
+        Point { x, y }
+    }
+
+    #[test]
+    fn circles_keep_borders_radius_and_aa_overlap() {
+        let view = Viewport::new(100., 80.);
+        for center in [
+            p(0., 40.),
+            p(100., 40.),
+            p(50., 0.),
+            p(50., 80.),
+            p(-6., 40.),
+            p(106., 40.),
+            p(50., -6.),
+            p(50., 86.),
+        ] {
+            assert!(circle_may_be_visible(view, center, 5., 1.), "{center:?}");
+        }
+        for center in [p(-6.01, 40.), p(106.01, 40.), p(50., -6.01), p(50., 86.01)] {
+            assert!(!circle_may_be_visible(view, center, 5., 1.));
+        }
+        assert!(circle_may_be_visible(view, p(0., 0.), 0., 0.));
+    }
+
+    #[test]
+    fn segments_keep_crossings_tangents_padding_and_corner_false_positives() {
+        let view = Viewport::new(100., 80.);
+        for (a, b) in [
+            (p(-20., 40.), p(120., 40.)),
+            (p(50., -20.), p(50., 100.)),
+            (p(-20., -20.), p(120., 100.)),
+            (p(-20., 0.), p(120., 0.)),
+            (p(-20., 80.), p(120., 80.)),
+            (p(0., -20.), p(0., 100.)),
+            (p(100., -20.), p(100., 100.)),
+            (p(-1.75, 10.), p(-1.75, 20.)),
+            (p(101.75, 10.), p(101.75, 20.)),
+            (p(10., -1.75), p(20., -1.75)),
+            (p(10., 81.75), p(20., 81.75)),
+            (p(-10., 1.), p(1., -10.)),
+            (p(40., 40.), p(40., 40.)),
+        ] {
+            assert!(segment_may_be_visible(view, a, b, 1.75), "{a:?} {b:?}");
+            assert!(segment_may_be_visible(view, b, a, 1.75));
+        }
+        for (a, b) in [
+            (p(-2., 10.), p(-2., 20.)),
+            (p(102., 10.), p(102., 20.)),
+            (p(10., -2.), p(20., -2.)),
+            (p(10., 82.), p(20., 82.)),
+            (p(-10., -10.), p(-10., -10.)),
+        ] {
+            assert!(!segment_may_be_visible(view, a, b, 1.75));
+        }
+    }
+
+    #[test]
+    fn invalid_paint_geometry_is_rejected() {
+        let view = Viewport::new(100., 80.);
+        for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            for point in [p(bad, 0.), p(0., bad)] {
+                assert!(!circle_may_be_visible(view, point, 5., 1.));
+                assert!(!segment_may_be_visible(view, point, p(0., 0.), 1.));
+                assert!(!segment_may_be_visible(view, p(0., 0.), point, 1.));
+            }
+        }
+        for bad in [-1., f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert!(!circle_may_be_visible(view, p(0., 0.), bad, 1.));
+            assert!(!circle_may_be_visible(view, p(0., 0.), 5., bad));
+            assert!(!segment_may_be_visible(view, p(0., 0.), p(1., 1.), bad));
+        }
+        for bad in [0., -1., f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            for view in [Viewport::new(bad, 80.), Viewport::new(100., bad)] {
+                assert!(!circle_may_be_visible(view, p(0., 0.), 5., 1.));
+                assert!(!segment_may_be_visible(view, p(0., 0.), p(1., 1.), 1.));
+            }
+        }
+    }
+
+    #[test]
+    fn visibility_uses_transformed_local_coordinates() {
+        let view = Viewport {
+            width: 100.,
+            height: 80.,
+            offset: p(20., -10.),
+            scale: 2.,
+        };
+        assert_eq!(view.world_to_screen(p(-35., -15.)), p(0., 0.));
+        assert!(circle_may_be_visible(
+            view,
+            view.world_to_screen(p(-38., 0.)),
+            5.,
+            1.
+        ));
+        assert!(!circle_may_be_visible(
+            view,
+            view.world_to_screen(p(-39., 0.)),
+            5.,
+            1.
+        ));
+        assert!(segment_may_be_visible(
+            view,
+            view.world_to_screen(p(-100., 0.)),
+            view.world_to_screen(p(100., 0.)),
+            1.75
+        ));
+    }
+
+    /// CPU predicates only, not path construction, label layout, GPU time or FPS.
+    /// Run an optimized test build with --ignored --nocapture culling_benchmark.
+    #[test]
+    #[ignore = "manual optimized CPU paint-predicate probe; no frame-speed claim"]
+    fn culling_benchmark() {
+        use std::{hint::black_box, time::Instant};
+        for count in [32, 1_000, 10_000] {
+            let nodes: Vec<_> = (0..count)
+                .map(|i| p((i % 100) as f64 * 8. - 396., (i / 100) as f64 * 6. - 297.))
+                .collect();
+            for (name, offset) in [("full-view", p(0., 0.)), ("offscreen", p(2_000., 2_000.))] {
+                let view = Viewport {
+                    width: 1_000.,
+                    height: 800.,
+                    offset,
+                    scale: 1.,
+                };
+                let nodes: Vec<_> = nodes.iter().map(|&p| view.world_to_screen(p)).collect();
+                let edges: Vec<_> = (0..count)
+                    .map(|i| (nodes[i], nodes[(i + 17) % count]))
+                    .collect();
+                let retained_nodes = nodes
+                    .iter()
+                    .filter(|&&p| circle_may_be_visible(view, p, 6., 1.))
+                    .count();
+                let retained_edges = edges
+                    .iter()
+                    .filter(|&&(a, b)| segment_may_be_visible(view, a, b, 1.75))
+                    .count();
+                let iterations = 1_000;
+                let start = Instant::now();
+                for _ in 0..iterations {
+                    let view = black_box(view);
+                    let n = black_box(&nodes)
+                        .iter()
+                        .filter(|&&p| circle_may_be_visible(view, p, 6., 1.))
+                        .count();
+                    let e = black_box(&edges)
+                        .iter()
+                        .filter(|&&(a, b)| segment_may_be_visible(view, a, b, 1.75))
+                        .count();
+                    black_box((n, e));
+                }
+                eprintln!(
+                    "culling {count} nodes + {count} edges, {name}: nodes retained={retained_nodes} rejected={}, edges retained={retained_edges} rejected={}; {iterations} passes, {:.3} us/pass (CPU predicates only)",
+                    count - retained_nodes,
+                    count - retained_edges,
+                    start.elapsed().as_secs_f64() * 1e6 / iterations as f64
+                );
+                assert_eq!(
+                    (retained_nodes, retained_edges),
+                    if name == "full-view" {
+                        (count, count)
+                    } else {
+                        (0, 0)
+                    }
+                );
+            }
+        }
     }
 }

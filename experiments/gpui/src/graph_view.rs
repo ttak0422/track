@@ -375,7 +375,12 @@ impl Render for GraphView {
                             let active = highlighted.as_ref().is_some_and(|ids| {
                                 ids.contains(&edge.source_id) && ids.contains(&edge.target_id)
                             });
-                            let mut path = PathBuilder::stroke(px(if active { 1.5 } else { 1. }));
+                            let stroke_width = if active { 1.5 } else { 1. };
+                            // Screen-local bounds; add the canvas origin only when painting.
+                            if !graph::segment_may_be_visible(viewport, *a, *b, stroke_width / 2. + 1.) {
+                                continue;
+                            }
+                            let mut path = PathBuilder::stroke(px(stroke_width as f32));
                             path.move_to(screen(*a));
                             path.line_to(screen(*b));
                             if let Ok(path) = path.build() {
@@ -388,6 +393,11 @@ impl Render for GraphView {
                         for n in &nodes {
                             let p = positions[&n.node.note_id];
                             let r = graph::node_radius(&n.node, center_id, n.degree) as f32;
+                            // Leave the independent label pass unchanged: an offscreen dot's
+                            // rightward title can still overlap the viewport.
+                            if !graph::circle_may_be_visible(viewport, p, r as f64, 1.) {
+                                continue;
+                            }
                             let active = highlighted
                                 .as_ref()
                                 .is_none_or(|ids| ids.contains(&n.node.note_id));
