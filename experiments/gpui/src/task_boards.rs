@@ -9,6 +9,7 @@ type Queries = BTreeMap<Key, Result<crate::query_view::View, String>>;
 #[derive(Default)]
 pub(super) struct Boards {
     pub blocks: BTreeMap<Key, Result<(), String>>,
+    pub viewspecs: BTreeMap<Key, Result<(), String>>,
     pub charts: BTreeMap<Key, Result<std::sync::Arc<crate::numeric_chart::Chart>, String>>,
     tasks: Arc<Vec<live::NoteTask>>,
     lanes: [Vec<usize>; 5],
@@ -42,7 +43,17 @@ pub(super) fn project(
             }
             let key = (item, block);
             let info = content.fence_info.as_deref();
-            if info == Some("echarts") {
+            if info == Some("viewspec") {
+                let result = if visuals >= 8 {
+                    Err("Combined visual resource limit (8 blocks); source retained.".into())
+                } else {
+                    crate::inline_viewspec::admit(&content.text)
+                };
+                if result.is_ok() {
+                    visuals += 1;
+                }
+                boards.viewspecs.insert(key, result);
+            } else if info == Some("echarts") {
                 let chart = if visuals >= 8 {
                     Err("Combined visual resource limit (8 blocks); source retained.".into())
                 } else {

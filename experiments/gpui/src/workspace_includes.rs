@@ -2,6 +2,8 @@
 mod gallery_covers;
 #[path = "task_boards.rs"]
 mod task_boards;
+#[path = "viewspec_preview.rs"]
+mod viewspec_preview;
 // Explicit, inert engine-resolved snapshots bound to the accepted host source.
 use super::*;
 use crate::shell::LinkSource;
@@ -42,6 +44,7 @@ pub(crate) struct IncludesState {
     query_pages: std::collections::BTreeMap<(usize, usize, Option<usize>), usize>,
     query_sources: std::collections::BTreeSet<(usize, usize)>,
     gallery: gallery_covers::Gallery,
+    viewspecs: viewspec_preview::Resolved,
 }
 /// Preview controls must not use host-reader gates, which intentionally reject
 /// this surface. Capture only competing actions and composition here.
@@ -96,6 +99,7 @@ impl IncludesState {
             query_pages: Default::default(),
             query_sources: Default::default(),
             gallery: Default::default(),
+            viewspecs: Default::default(),
         }
     }
     fn query_page_action(
@@ -250,6 +254,7 @@ impl Workspace {
         // Invalidate deferred host checkpoint/layout work; never capture preview geometry.
         self.suspend_host_reader_actions();
         self.load_gallery(cx);
+        self.load_viewspecs(cx);
         window.focus(&focus);
         cx.notify();
     }
@@ -273,6 +278,7 @@ impl Workspace {
         };
         state.preview_open = false;
         state.gallery.cancel();
+        state.viewspecs.cancel();
         state.query_pages.clear();
         state.query_sources.clear();
         if let Some(focus) = &self.shell.reader_focus {
@@ -454,8 +460,10 @@ impl Workspace {
         state.serial = serial;
         state.result = None;
         state.gallery = Default::default();
+        state.viewspecs = Default::default();
         state.preview_open = false;
         state.gallery.cancel();
+        state.viewspecs.cancel();
         state.query_pages.clear();
         state.query_sources.clear();
         let Some(permit) = Permit::acquire() else {
@@ -565,6 +573,7 @@ impl Workspace {
                     state.serial = SERIAL.fetch_add(1, Ordering::Relaxed);
                     state.result = None;
                     state.gallery.cancel();
+                    state.viewspecs.cancel();
                     if state.open {
                         this.includes_fetch(captured.clone(), cx);
                     }
@@ -716,6 +725,7 @@ mod tests {
         assert!(state.accepts(&id, 5));
         state.preview_open = false;
         state.gallery.cancel();
+        state.viewspecs.cancel();
         state.query_pages.clear();
         state.query_sources.clear();
         assert_eq!(source, original);
@@ -788,6 +798,7 @@ mod tests {
                 }
                 state.preview_open = false;
                 state.gallery.cancel();
+                state.viewspecs.cancel();
                 assert!(!state.set_query_page(&id, 10, 20, (0, 0), None, 0));
                 state.preview_open = true;
                 state.preview_epoch = 21;
@@ -874,6 +885,7 @@ mod tests {
         assert!(state.query_sources.is_empty());
         state.preview_open = false;
         state.gallery.cancel();
+        state.viewspecs.cancel();
         assert!(!state.query_source_action(ready(), &id, 10, 20, (0, 0)));
         state.preview_open = true;
         state.preview_epoch += 1;
@@ -1098,6 +1110,34 @@ impl Workspace {
         let mut ordinary_start = 0;
         for (block_index, block) in blocks.iter().enumerate() {
             let key = (item, block_index);
+            if let Some(admission) = snapshot.boards.viewspecs.get(&key) {
+                if ordinary_start < block_index {
+                    body = body.child(markdown::render_themed(
+                        &blocks[ordinary_start..block_index],
+                        dark,
+                    ));
+                }
+                ordinary_start = block_index + 1;
+                let mut visual = div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .ml(px(block.indent as f32 * 16.));
+                if block.quoted {
+                    visual = visual.border_l_2().border_color(rgb(line)).pl_3();
+                }
+                if let Some(marker) = &block.marker {
+                    visual = visual.child(marker.clone());
+                }
+                visual = match admission {
+                    Err(reason) => visual.child(reason.clone()),
+                    Ok(()) => self.viewspec_face(visual, key, dark),
+                };
+                body = body.child(
+                    visual.child(markdown::render_themed(std::slice::from_ref(block), dark)),
+                );
+                continue;
+            }
             if let Some(chart) = snapshot.boards.charts.get(&key) {
                 if ordinary_start < block_index {
                     body = body.child(markdown::render_themed(

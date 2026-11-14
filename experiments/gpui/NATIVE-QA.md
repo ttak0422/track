@@ -768,7 +768,18 @@ In an owned disposable fixture, open Rendered preview with line and grouped-bar
 fences containing positive, negative, zero and null values. Check axes, category
 order, legend colors, null gaps and zero baselines at narrow/wide widths and both
 themes/high-DPI settings. Unsupported options must retain the full source, not a
-partial chart. Verify retained source/Copy, included-origin placement, close/reopen
+partial chart. Verify retained source, included-origin placement, close/reopen
 and stale actions after note replacement. No zoom, hover-detail or click action
 should imply support. Keyboard, accessible labels and visual comparison with the
 existing client remain unverified; ordinary vault editing remains disabled.
+
+### Inline ViewSpec resolution (pending native QA)
+
+Use an owned disposable fixture with supported inline metric line/bar specs,
+unsupported file sources and engine-invalid values. Verify correct block-local
+loading/result/error and original source retention. Open/close/reopen or replace
+the note while resolution is delayed: late results must not reopen or update a
+new preview. Confirm cross-vault includes require their own verified origin,
+duplicates do not repeat requests, and invalid/file-backed specs never submit.
+Ordinary readers, handoffs and pinned previews must not resolve ViewSpec.
+Native keyboard, high-DPI layout and accessibility remain unverified.

@@ -130,6 +130,7 @@ impl Workspace {
     pub(crate) fn invalidate_gallery(&mut self) {
         if let Some(state) = &mut self.shell.includes {
             state.gallery.cancel();
+            state.viewspecs.cancel();
         }
     }
     pub(super) fn load_gallery(&mut self, cx: &mut Context<Self>) {

@@ -875,6 +875,89 @@ impl ReadClient {
             serde_json::from_slice(&bytes).map_err(|e| Error::Json(e.to_string()))?;
         serde_json::from_value(value).map_err(|e| Error::Shape(e.to_string()))
     }
+    /// Bounded read-only resolution on the owned server. Scope authority is captured
+    /// and revalidated by the preview worker; this method never infers a vault.
+    pub(crate) fn inline_viewspec(
+        &self,
+        vault: &str,
+        spec: &str,
+    ) -> Result<crate::numeric_chart::Chart, String> {
+        const LIMIT: usize = 256 * 1024;
+        crate::inline_viewspec::admit(spec)?;
+        if vault.len() > 1024 || vault.contains('\0') {
+            return Err("ViewSpec unavailable: invalid origin".into());
+        }
+        // Count JSON-string escaping before allocating the request payload.
+        let wire_len = 11
+            + spec
+                .chars()
+                .map(|c| match c {
+                    '\"' | '\\' => 2,
+                    c if c <= '\u{001f}' => 6,
+                    c => c.len_utf8(),
+                })
+                .sum::<usize>();
+        if wire_len > LIMIT {
+            return Err("ViewSpec unavailable: request limit".into());
+        }
+        if !self.is_alive() {
+            return Err("ViewSpec unavailable: server changed".into());
+        }
+        #[derive(serde::Serialize)]
+        struct Request<'a> {
+            spec: &'a str,
+        }
+        let mut response = self
+            .http
+            .post(format!("{}/api/viewspec", self.origin))
+            .query(&[("vault", vault)])
+            .header("Cache-Control", "no-cache, no-store")
+            .timeout(Duration::from_secs(10))
+            .json(&Request { spec })
+            .send()
+            .map_err(|_| "ViewSpec unavailable: request failed".to_string())?;
+        if !self.is_alive() {
+            return Err("ViewSpec unavailable: server changed".into());
+        }
+        if response.status().as_u16() != 200 {
+            return Err("ViewSpec unavailable: engine rejected the request".into());
+        }
+        let json = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.split(';').next())
+            .is_some_and(|v| v.trim().eq_ignore_ascii_case("application/json"));
+        if !json {
+            return Err("ViewSpec unavailable: invalid response type".into());
+        }
+        if response
+            .content_length()
+            .is_some_and(|len| len > LIMIT as u64)
+        {
+            return Err("ViewSpec unavailable: response limit".into());
+        }
+        let mut bytes = Vec::new();
+        (&mut response)
+            .take(LIMIT as u64 + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|_| "ViewSpec unavailable: response read failed".to_string())?;
+        if !self.is_alive() {
+            return Err("ViewSpec unavailable: server changed".into());
+        }
+        if bytes.len() > LIMIT {
+            return Err("ViewSpec unavailable: response limit".into());
+        }
+        let value: Value = serde_json::from_slice(&bytes)
+            .map_err(|_| "ViewSpec unavailable: invalid JSON response".to_string())?;
+        let option = value
+            .as_object()
+            .and_then(|v| v.get("echarts"))
+            .filter(|v| v.is_object())
+            .ok_or_else(|| "ViewSpec unavailable: missing chart response".to_string())?;
+        crate::numeric_chart::decode(&option.to_string())
+            .map_err(|_| "ViewSpec native rendering unsupported; original source retained".into())
+    }
     /// Render-only POST. Returned Markdown is validated but never installed in the reader.
     pub(crate) fn included_notes(
         &self,
@@ -3000,6 +3083,142 @@ mod tests {
             },
             task,
         )
+    }
+    const INLINE_SPEC: &str = r#"{"version":2,"mark":"line","data":{"kind":"metric","records":[{"version":1,"name":"score","time":"A","value":0}]},"encoding":{"x":{"field":"time"},"y":[{"field":"value"}]}}"#;
+    fn viewspec_mock(
+        status: u16,
+        content_type: &str,
+        response: String,
+    ) -> (ReadClient, thread::JoinHandle<(String, Vec<u8>)>) {
+        use std::io::Write;
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let content_type = content_type.to_owned();
+        let worker = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let mut headers = Vec::new();
+            let mut byte = [0];
+            while !headers.ends_with(b"\r\n\r\n") {
+                stream.read_exact(&mut byte).unwrap();
+                headers.push(byte[0]);
+            }
+            let headers = String::from_utf8(headers).unwrap();
+            let len = headers
+                .lines()
+                .find_map(|line| {
+                    line.to_ascii_lowercase()
+                        .strip_prefix("content-length: ")
+                        .and_then(|s| s.parse().ok())
+                })
+                .unwrap();
+            let mut body = vec![0; len];
+            stream.read_exact(&mut body).unwrap();
+            let _ = write!(
+                stream,
+                "HTTP/1.1 {status} Test\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}",
+                response.len()
+            );
+            (headers, body)
+        });
+        (
+            ReadClient {
+                http: reqwest::blocking::Client::builder()
+                    .no_proxy()
+                    .retry(reqwest::retry::never())
+                    .redirect(reqwest::redirect::Policy::none())
+                    .build()
+                    .unwrap(),
+                origin,
+                alive: Arc::new(AtomicBool::new(true)),
+                launch_generation: 1,
+            },
+            worker,
+        )
+    }
+    #[test]
+    fn inline_viewspec_transport_exact_string_and_explicit_scope() {
+        let response = r#"{"echarts":{"xAxis":{"type":"category","data":["A","B","C"]},"yAxis":{"type":"value"},"series":[{"type":"line","data":[0,null,4]}]}}"#;
+        for vault in ["", "work & 日本語"] {
+            let (client, worker) =
+                viewspec_mock(200, "application/json; charset=utf-8", response.into());
+            let spec = format!(" \n{INLINE_SPEC}\n");
+            let chart = client.inline_viewspec(vault, &spec).unwrap();
+            assert_eq!(chart.series[0].values, vec![Some(0.), None, Some(4.)]);
+            let (headers, bytes) = worker.join().unwrap();
+            assert!(headers.starts_with(if vault.is_empty() {
+                "POST /api/viewspec?vault= HTTP/"
+            } else {
+                "POST /api/viewspec?vault=work+%26+%E6%97%A5%E6%9C%AC%E8%AA%9E HTTP/"
+            }));
+            assert!(
+                headers
+                    .to_ascii_lowercase()
+                    .contains("content-type: application/json")
+            );
+            assert_eq!(
+                serde_json::from_slice::<Value>(&bytes).unwrap(),
+                serde_json::json!({"spec":spec})
+            );
+        }
+    }
+    #[test]
+    fn inline_viewspec_transport_rejects_without_payload_leakage() {
+        for (status, mime, body) in [
+            (302, "application/json", "/private/secret".into()),
+            (500, "application/json", "/private/secret".into()),
+            (200, "text/html", "/private/secret".into()),
+            (200, "application/json", "not json /private/secret".into()),
+            (200, "application/json", r#"{"echarts":[]}"#.into()),
+            (
+                200,
+                "application/json",
+                r#"{"echarts":{"/private/secret":true}}"#.into(),
+            ),
+            (200, "application/json", "x".repeat(256 * 1024 + 1)),
+        ] {
+            let (client, worker) = viewspec_mock(status, mime, body);
+            let error = client.inline_viewspec("scope", INLINE_SPEC).unwrap_err();
+            assert!(!error.contains("private"));
+            assert!(error.len() < 128);
+            worker.join().unwrap();
+        }
+    }
+    #[test]
+    fn inline_viewspec_invalid_admission_performs_zero_io() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let client = ReadClient {
+            http: reqwest::blocking::Client::builder()
+                .no_proxy()
+                .build()
+                .unwrap(),
+            origin: format!("http://{}", listener.local_addr().unwrap()),
+            alive: Arc::new(AtomicBool::new(true)),
+            launch_generation: 1,
+        };
+        for spec in [
+            INLINE_SPEC.replace(
+                "\"kind\":\"metric\"",
+                "\"kind\":\"metric\",\"source\":\"../private\"",
+            ),
+            INLINE_SPEC.replace("\"version\":2", "\"version\":2,\"version\":2"),
+            "{}".into(),
+        ] {
+            assert!(client.inline_viewspec("scope", &spec).is_err());
+            assert_eq!(
+                listener.accept().unwrap_err().kind(),
+                std::io::ErrorKind::WouldBlock
+            );
+        }
+        client.alive.store(false, Ordering::Release);
+        assert!(client.inline_viewspec("scope", INLINE_SPEC).is_err());
+        assert_eq!(
+            listener.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
     }
     #[test]
     fn includes_transport_is_render_only_and_scoped() {

@@ -1,3 +1,4 @@
+mod inline_viewspec;
 use gpui::{
     App, Application, Bounds, Context, KeyBinding, Menu, MenuItem, Window, WindowBounds,
     WindowOptions, actions, div, prelude::*, px, rgb, size, uniform_list,
