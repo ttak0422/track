@@ -105,3 +105,31 @@ Use only the disposable fixture; these are planned checks, not observed results.
   untouched and Find must be unavailable while that editor is active.
 - Test light/dark, narrow windows, multiple hits in a tall paragraph, and table
   cells. Block/cell anchoring does not establish exact matched-range scrolling.
+
+## Home, Find and dirty window close, 2026-11-14
+
+Build: `c055fe0`, isolated Editor QA bundle using the same disposable public-help
+fixture. The copied executable matched the locally validated build by SHA-256.
+No personal vault or existing application window was used.
+
+Observed in light mode:
+
+- Home displayed its scoped activity heatmap, date range and contribution count.
+  This is a rendering check, not matched Web parity or accessibility acceptance.
+- Opening Calendar events and using the reader Find control with `calendar`
+  displayed 15 matches. Shift-Enter wrapped from 1 to 15; Previous moved to 14
+  and revealed the corresponding lower paragraph. Current and other matches used
+  distinct backgrounds, and a highlighted inline link retained its underline.
+- Escape dismissed Find. Cmd-F reopened the retained query with its contents
+  selected. Find did not move the tab strip, and its rail control was absent in
+  fixture Edit mode. IME composition and exact matched-range scrolling were not
+  established by this sequence.
+- A disposable unsaved heading edit triggered the save prompt through native
+  Window → Close Window. Cancel retained the window and draft. A subsequent Cmd-Q
+  displayed the prompt again; Discard and continue exited the application.
+  Disk inspection confirmed the unsaved marker was not written, and the owned
+  backend port was released.
+
+Dock Quit, active IME, native pending/uncertain save handling, multiple dirty tabs,
+dark/narrow visual comparison and selection/focus coverage remain pending.
+Ordinary vault editing remains disabled.
