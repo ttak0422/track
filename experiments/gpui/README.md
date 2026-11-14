@@ -221,6 +221,25 @@ one explicit pin](GRAPH-PREVIEW-FOUNDATION.md) are implemented with synthetic
 lifecycle/transport tests; GUI behavior and broader parity remain unverified.
 See [GRAPH.md](GRAPH.md#full-vault-graph-prerequisite-2026-11-14).
 
+### Draft recovery storage foundation (not enabled)
+
+A protected recovery storage/model layer is available internally for disposable
+fixtures. It is not connected to startup, editor input, Save, Discard or Quit,
+and no recovery CLI option is enabled. Running editor drafts remain memory-only.
+Filesystem/model tests do not mean the application can recover after a crash.
+
+The internal store uses the existing session owner/lock and a separate cache
+artifact, with bounded reads, private regular-file checks, atomic replacement
+and synchronization. It refuses changed identities or contents. These checks
+are not a sandbox against a same-user process racing filesystem mutations,
+and tests do not establish power-loss durability.
+
+The intended integration must serialize checkpoints and acknowledged clears with
+the existing storage owner, report exact durable revisions, and finish or refuse
+orderly close asynchronously. Source conflicts and unknown save outcomes must
+retain recovery, not silently rebase it. These lifecycle requirements remain open;
+normal editing stays disabled.
+
 ### Disposable fixture tab/history/scope snapshots (developer opt-in)
 
 `--developer-session-fixture /canonical/temporary/vault` is independent of

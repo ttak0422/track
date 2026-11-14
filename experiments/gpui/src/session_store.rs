@@ -14,6 +14,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[path = "recovery_store.rs"]
+mod recovery_store;
+
 const STATE: &str = "track-native-tabs-v1.json";
 const LOCK: &str = "track-native-tabs-v1.lock";
 const LIMIT: u64 = 128 * 1024;
@@ -499,24 +502,7 @@ impl SessionStore {
         if let Some(scope) = scope {
             self.validate_scope(scope)?;
         }
-        let current = path_file(&self.cache, true)?;
-        let a = current.metadata().map_err(err)?;
-        let b = self.dir.metadata().map_err(err)?;
-        if a.dev() != b.dev()
-            || a.ino() != b.ino()
-            || binding(&self.fixture, &self.config, &self.cache, &self.registry)? != self.binding
-        {
-            return Err(err("fixture changed"));
-        }
-        // The lock name must still identify our held inode; cooperating writers never
-        // unlink it. Refuse a replaced lock instead of continuing under stale ownership.
-        let named_lock = child(&self.dir, LOCK, libc::O_RDONLY)?;
-        owned(&named_lock, false, true)?;
-        let named = named_lock.metadata().map_err(err)?;
-        let held = self._lock.metadata().map_err(err)?;
-        if named.dev() != held.dev() || named.ino() != held.ino() {
-            return Err(err("writer lock was replaced"));
-        }
+        self.validate_storage()?;
         if self.read()? != self.original {
             return Err(err("session revision/content conflict"));
         }
@@ -569,35 +555,78 @@ impl SessionStore {
         if bytes.len() as u64 > LIMIT {
             return Err(err("oversized state"));
         }
-        let name = format!(".track-native-tabs-{}-{}.tmp", std::process::id(), revision);
+        self.replace_artifact(STATE, &bytes, revision, interrupt, || {
+            self.validate_storage()?;
+            if self.read()? != self.original {
+                return Err(err("session revision/content conflict"));
+            }
+            Ok(())
+        })?;
+        self.original = Some(bytes);
+        self.revision = revision;
+        self.reading_positions = positions;
+        Ok(())
+    }
+    fn validate_storage(&self) -> Result<(), String> {
+        let current = path_file(&self.cache, true)?;
+        let a = current.metadata().map_err(err)?;
+        let b = self.dir.metadata().map_err(err)?;
+        if a.dev() != b.dev()
+            || a.ino() != b.ino()
+            || binding(&self.fixture, &self.config, &self.cache, &self.registry)? != self.binding
+        {
+            return Err(err("fixture changed"));
+        }
+        // The lock name must still identify our held inode; cooperating writers never
+        // unlink it. Refuse a replaced lock instead of continuing under stale ownership.
+        let named_lock = child(&self.dir, LOCK, libc::O_RDONLY)?;
+        owned(&named_lock, false, true)?;
+        let named = named_lock.metadata().map_err(err)?;
+        let held = self._lock.metadata().map_err(err)?;
+        if named.dev() != held.dev() || named.ino() != held.ino() {
+            return Err(err("writer lock was replaced"));
+        }
+        Ok(())
+    }
+    // One primitive for both bounded artifacts, under the same held session lock.
+    // File and directory fsync are requested; power-loss guarantees remain platform-dependent.
+    // Failure after rename is uncertain, not a rollback. Callers retain their old
+    // compare token and must stop/reload/reconcile rather than blindly retry.
+    fn replace_artifact(
+        &self,
+        target: &str,
+        bytes: &[u8],
+        revision: u64,
+        interrupt: bool,
+        before_commit: impl FnOnce() -> Result<(), String>,
+    ) -> Result<(), String> {
+        let name = format!(".{target}-{}-{revision}.tmp", std::process::id());
         let mut file = child(
             &self.dir,
             &name,
             libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL,
         )?;
         let result = (|| {
-            file.write_all(&bytes).map_err(err)?;
+            owned(&file, false, true)?;
+            file.write_all(bytes).map_err(err)?;
             file.sync_all().map_err(err)?;
             if interrupt {
                 return Err(err("simulated interruption before replacement"));
             }
+            before_commit()?;
             if unsafe {
                 libc::renameat(
                     self.dir.as_raw_fd(),
                     cname(&name).as_ptr(),
                     self.dir.as_raw_fd(),
-                    cname(STATE).as_ptr(),
+                    cname(target).as_ptr(),
                 )
             } != 0
             {
                 return Err(err(std::io::Error::last_os_error()));
             }
-            self.original = Some(bytes);
-            self.revision = revision;
-            self.reading_positions = positions;
             self.dir.sync_all().map_err(err)
         })();
-        // This name was exclusively created by us; never remove any other artifact.
         if result.is_err() {
             unsafe {
                 libc::unlinkat(self.dir.as_raw_fd(), cname(&name).as_ptr(), 0);

@@ -78,6 +78,12 @@ Cancel, explicit Save, stale-source refusal, dirty Window Close/repeated Cmd-Q a
 Dock Quit, active IME and pending/uncertain native-event checks remain open.
 See `NATIVE-QA.md` for evidence and the README for the fixture-only opt-in.
 
+The draft-recovery storage/model foundation is not wired into the running
+application. Its disposable filesystem tests are prerequisites, not evidence of
+editor or Quit durability. Startup/read, edit/checkpoint, acknowledged-save clear,
+explicit recovery/discard and final-close ordering still need integration and
+native validation.
+
 ## Reuse the engine boundary
 
 - The initial read-only adapter executes explicit CLI commands on background workers;

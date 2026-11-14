@@ -6,6 +6,8 @@ mod backend;
 mod build_info;
 mod code_copy;
 mod code_highlight;
+#[allow(dead_code)] // Staged recovery foundation: not wired into runtime editing.
+mod draft_recovery;
 mod editing;
 mod editor_input;
 mod event_awareness;
