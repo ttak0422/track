@@ -294,3 +294,13 @@ Initial circular placement and allocation are not interruptible; this is not a
 hard real-time cancellation bound or a change to the force model. Camera movement
 alone does not restart or cancel settling. Native rapid-navigation and dragging
 validation remains pending.
+
+## Pinned preview geometry
+
+Pins now own optional session-only rectangles. Title drag and a bottom resize
+frame update only a captured read identity. A temporary capture layer shields the
+graph; existing shell dialogs render above it. Bounds reserve the tab/selector
+band and re-clamp to the current viewport. Unpin restores anchored temporary
+placement, while session/storage invalidation drops all pin geometry. Lifecycle
+and geometry tests pass; native hit-testing, window deactivation, dialog stacking
+and usability still require fixture QA. This adds no persistent state or writes.

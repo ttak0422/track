@@ -379,7 +379,8 @@ No GUI was launched for this slice. Validate before claiming native parity:
 - Navigate with multiple pins, then exercise dirty Save/Discard/Cancel. Check that
   storage epoch changes and owned-server replacement clear every card and cache.
 
-This is a bounded comparison UI, not drag/resize or full window-manager parity.
+This is a bounded comparison UI, not full window-manager parity. Pin drag/resize
+was added subsequently; its native validation checklist follows.
 
 ## Viewport paint culling: native comparison pending
 
@@ -399,3 +400,20 @@ isolation. Confirm with a fixture that rapid graph replacement and node dragging
 do not allow a late snapshot to move nodes or override the camera. Verify settling
 still completes normally when only panning or zooming. Cancellation does not
 interrupt initial circular placement/allocation; no native latency claim is made.
+
+## Pinned preview movement and resize: native validation pending
+
+Headless suite: 318 passed, 7 ignored. Model tests cover bounded rectangles at
+680×480, movement/resize, independent pin geometry, unpin/invalidation, stale
+movement/end callbacks and released-button cleanup. Verify with fixture data:
+
+- Drag only the title; Open/Close/Unpin must not initiate movement. Resize using
+  the bottom frame strip, with all header actions remaining visible.
+- Move across other cards and graph nodes without triggering graph pan/selection
+  or wheel input; confirm the active pin is frontmost.
+- Release inside/outside the window, leave the capture area, switch applications
+  and refocus. No capture layer or movement should remain stuck.
+- Resize the native window; cards must remain below tabs/selector and inside it.
+  Test minimum window size, long title/vault labels and capacity messages.
+- Open a dirty-navigation dialog during a gesture and confirm its controls remain
+  above the capture layer. Keyboard/AX equivalence remains unimplemented.

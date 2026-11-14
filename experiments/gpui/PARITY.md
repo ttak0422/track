@@ -198,8 +198,9 @@ vault/ID-qualified selector raises or closes one captured card without refetchin
 Pin capacity retains all existing cards. Navigation and graph scope changes retain
 pins; session or storage invalidation clears them. Headless tests cover multi-pin
 identity, capacity, cache pruning and clamped placement. Native pointer delivery,
-selector wrapping, z-order and dirty-dialog behavior remain unverified; drag,
-resize, keyboard/AX and rich-preview parity are not claimed.
+selector wrapping, z-order and dirty-dialog behavior remain unverified. Pin drag/resize
+is implemented with model tests, but native, keyboard/AX and rich-preview parity
+are not claimed.
 
 ### Graph paint submission bounds
 
@@ -216,3 +217,12 @@ are manually moved or the graph view is destroyed. No partial result is publishe
 and stale-generation rejection remains. Headless tests cover cancellation before,
 during and after solving and independent replacement/drop tokens. Native
 rapid-navigation and drag responsiveness remain unverified.
+
+### Pinned preview geometry
+
+Pinned titles start movement and a bottom frame strip starts resizing. Captured
+read identities reject stale gesture callbacks; session-only rectangles are
+clamped below the selector and inside the viewport. Raising/closing other pins
+and navigation retain geometry; unpin resets it and invalidation clears it.
+Mouse release, capture exit and window deactivation end gestures. Model tests
+cover bounds and lifecycle, not native pointer delivery or keyboard/AX parity.
