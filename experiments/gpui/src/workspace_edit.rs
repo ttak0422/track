@@ -30,6 +30,63 @@ fn acknowledge_saved_transition(intent: &mut Transition) {
         link.allow_epoch_advance = true;
     }
 }
+/// Owns the frozen destination, separately from the save's draft acknowledgment.
+/// Taking an accepted destination consumes it before any reentrant UI work.
+#[derive(Default)]
+struct PendingTransition {
+    intent: Option<Transition>,
+    attempt: Option<u64>,
+}
+impl PendingTransition {
+    fn is_some(&self) -> bool {
+        self.intent.is_some()
+    }
+    fn capture(&mut self, intent: Transition) {
+        if self.intent.is_none() {
+            self.intent = Some(intent);
+        }
+    }
+    fn cancel(&mut self) {
+        self.intent = None;
+        self.attempt = None;
+    }
+    fn take(&mut self) -> Option<Transition> {
+        self.attempt = None;
+        self.intent.take()
+    }
+    fn bind_save(&mut self, attempt: u64) {
+        if self.intent.is_some() && self.attempt.is_none() {
+            self.attempt = Some(attempt);
+        }
+    }
+    fn finish_save(
+        &mut self,
+        attempt: u64,
+        outcome: &SaveOutcome,
+        input_accepted: bool,
+    ) -> Option<Transition> {
+        // EditSession has already classified this callback. A current failure also
+        // dismisses prompts opened during a standalone save (not attempt-bound).
+        // A stale callback must never dismiss a newer draft's prompt.
+        if *outcome != SaveOutcome::StaleResponse
+            && (*outcome == SaveOutcome::Retained || !input_accepted)
+        {
+            self.cancel();
+            return None;
+        }
+        if self.attempt != Some(attempt) {
+            return None;
+        }
+        let intent = self.take();
+        if *outcome != (SaveOutcome::Saved { leave: true }) || !input_accepted {
+            return None;
+        }
+        intent.map(|mut intent| {
+            acknowledge_saved_transition(&mut intent);
+            intent
+        })
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum GateDecision {
     Proceed,
@@ -70,7 +127,7 @@ pub struct EditingUi {
     active: Option<ActiveDraft>,
     mode: EditorMode,
     mode_menu: bool,
-    pending: Option<Transition>,
+    pending: PendingTransition,
     bypass: bool,
     inspecting: bool,
     inspection_ticket: u64,
@@ -84,7 +141,7 @@ impl EditingUi {
             active: None,
             mode: EditorMode::Preview,
             mode_menu: false,
-            pending: None,
+            pending: PendingTransition::default(),
             bypass: false,
             inspecting: false,
             inspection_ticket: 0,
@@ -94,7 +151,7 @@ impl EditingUi {
     }
     fn shutdown_failed(&mut self, message: String) {
         self.exit_requested = false;
-        self.pending = None;
+        self.pending.cancel();
         self.message = message;
     }
     pub fn active(&self) -> bool {
@@ -216,7 +273,7 @@ impl Workspace {
                 false
             }
             GateDecision::Prompt => {
-                self.editing_ui.pending = Some(intent);
+                self.editing_ui.pending.capture(intent);
                 self.editing_ui.message =
                     "Resolve this draft before leaving. No save happens automatically.".into();
                 cx.notify();
@@ -227,7 +284,7 @@ impl Workspace {
     }
     fn clear_editor(&mut self) {
         self.editing_ui.active = None;
-        self.editing_ui.pending = None;
+        self.editing_ui.pending.cancel();
         self.editing_ui.inspecting = false;
         self.editing_ui.inspection_ticket += 1;
         self.editing_ui.mode = EditorMode::Preview;
@@ -290,7 +347,7 @@ impl Workspace {
     }
     pub(crate) fn editor_environment_changed(&mut self, message: &str) {
         if self.editing_ui.active.is_some() {
-            self.editing_ui.pending = None;
+            self.editing_ui.pending.cancel();
             self.editing_ui.message = format!(
                 "{message} Local draft retained; saving requires the original verified server/storage identity."
             );
@@ -421,7 +478,7 @@ impl Workspace {
         if self.quit_session.failure().is_some()
             || self.accepted_storage_generation != Some(storage.generation)
         {
-            self.editing_ui.pending = None;
+            self.editing_ui.pending.cancel();
             self.editing_ui.message = "Storage/server is no longer verified; no save sent.".into();
             cx.notify();
             return;
@@ -477,7 +534,7 @@ impl Workspace {
                 let _ = active
                     .input
                     .update(cx, |editor, cx| editor.set_read_only(false, cx));
-                self.editing_ui.pending = None;
+                self.editing_ui.pending.cancel();
                 self.editing_ui.message = message;
                 self.shell.diagnostics = true;
                 cx.notify();
@@ -489,6 +546,9 @@ impl Workspace {
         self.editing_ui.message =
             "Saving explicit fixture draft… Editing is locked; no duplicate save is sent.".into();
         let attempt = prepared.attempt;
+        if leaving {
+            self.editing_ui.pending.bind_save(attempt);
+        }
         let key = prepared.request.key.clone();
         let job = cx
             .background_executor()
@@ -513,19 +573,24 @@ impl Workspace {
                         .session
                         .finish_save(attempt, current_launch, current_storage, result);
                 if outcome == SaveOutcome::StaleResponse {
+                    this.editing_ui
+                        .pending
+                        .finish_save(attempt, &outcome, false);
                     return;
                 }
                 let _ = active
                     .input
                     .update(cx, |editor, cx| editor.set_read_only(false, cx));
                 match outcome {
-                    SaveOutcome::Saved { leave } => {
+                    SaveOutcome::Saved { .. } => {
                         let baseline = active.session.baseline().to_owned();
                         if let Err(message) = active
                             .input
                             .update(cx, |editor, cx| editor.mark_saved(&baseline, cx))
                         {
-                            this.editing_ui.pending = None;
+                            this.editing_ui
+                                .pending
+                                .finish_save(attempt, &outcome, false);
                             this.editing_ui.message = format!(
                                 "Save acknowledged, but {message}; editor buffer preserved."
                             );
@@ -542,16 +607,17 @@ impl Workspace {
                         this.editing_ui.message =
                             "Fixture save acknowledged. Authored text and undo history retained."
                                 .into();
-                        if leave {
-                            if let Some(mut intent) = this.editing_ui.pending.take() {
-                                acknowledge_saved_transition(&mut intent);
-                                this.execute_transition(intent, cx);
-                            }
+                        if let Some(intent) =
+                            this.editing_ui.pending.finish_save(attempt, &outcome, true)
+                        {
+                            this.execute_transition(intent, cx);
                         }
                     }
                     SaveOutcome::Retained => {
                         this.shell.diagnostics = true;
-                        this.editing_ui.pending = None;
+                        this.editing_ui
+                            .pending
+                            .finish_save(attempt, &outcome, false);
                         this.editing_ui.message = format!(
                             "{:?}. Local draft retained; no automatic retry.",
                             active.session.state()
@@ -598,7 +664,7 @@ impl Workspace {
                 }
             }
             Ok(LeaveAction::Stay) => {
-                self.editing_ui.pending = None;
+                self.editing_ui.pending.cancel();
             }
             Ok(LeaveAction::Save(_)) => unreachable!(),
             Err(message) => self.editing_ui.message = message,
@@ -889,7 +955,7 @@ impl Workspace {
         panes
     }
     pub(crate) fn render_leave_prompt(&self, dark: bool, cx: &mut Context<Self>) -> Div {
-        let Some(intent) = &self.editing_ui.pending else {
+        let Some(intent) = &self.editing_ui.pending.intent else {
             return div();
         };
         let mut modal = div()
@@ -1252,5 +1318,330 @@ mod fragment_transition_tests {
         assert_eq!(saved.destination, payload.destination);
         assert_eq!(saved.target, payload.target);
         assert_eq!(saved.launch_generation, payload.launch_generation);
+    }
+}
+
+#[cfg(test)]
+mod pending_transition_tests {
+    use super::*;
+
+    fn storage() -> live::Storage {
+        serde_json::from_value(serde_json::json!({
+            "phase":"ready", "read_only":false, "verified":1, "generation":2
+        }))
+        .unwrap()
+    }
+    fn draft() -> EditSession {
+        let source = serde_json::from_value(serde_json::json!({"note":{
+            "note_id":7, "vault":"one", "title":"Synthetic", "path":"unused",
+            "file_kind":"note", "body":"baseline", "etag":"old", "read_only":false
+        }}))
+        .unwrap();
+        let mut edit = EditSession::from_note(1, &storage(), &source).unwrap();
+        edit.replace_text("exact draft\n\n".into()).unwrap();
+        edit
+    }
+    fn ack() -> live::SaveAck {
+        live::SaveAck {
+            vault: "one".into(),
+            note_id: 7,
+            etag: "new".into(),
+            saved: true,
+        }
+    }
+    fn start(edit: &mut EditSession, pending: &mut PendingTransition) -> u64 {
+        let LeaveAction::Save(save) = edit.choose_leave(LeaveChoice::Save, 1, &storage()).unwrap()
+        else {
+            panic!("expected explicit save")
+        };
+        assert_eq!(save.request.body, "exact draft\n\n");
+        pending.bind_save(save.attempt);
+        save.attempt
+    }
+    fn tabs() -> (tabs::Tabs, tabs::TabKey, tabs::TabKey) {
+        let mut tabs = tabs::Tabs::default();
+        let b = tabs.open_note("two", 7, "B");
+        let a = tabs.open_note("one", 7, "A");
+        (tabs, a, b)
+    }
+    #[test]
+    fn acknowledged_save_replays_first_exact_destination_once() {
+        let (mut tabs, a, b) = tabs();
+        let before = tabs.clone();
+        let mut edit = draft();
+        let mut pending = PendingTransition::default();
+        pending.capture(Transition::ActivateTab(b.clone()));
+        pending.capture(Transition::Quit);
+        let attempt = start(&mut edit, &mut pending);
+        assert!(edit.choose_leave(LeaveChoice::Save, 1, &storage()).is_err());
+        assert!(edit.replace_text("overwrite".into()).is_err());
+        assert_eq!(tabs, before);
+        assert_eq!(tabs.active().unwrap().key, a);
+        let outcome = edit.finish_save(attempt, 1, 2, Ok(ack()));
+        let accepted = pending.finish_save(attempt, &outcome, true);
+        assert!(!pending.is_some()); // consumed before the destination can reenter
+        assert_eq!(accepted, Some(Transition::ActivateTab(b.clone())));
+        if let Some(Transition::ActivateTab(key)) = accepted {
+            assert!(tabs.activate(&key));
+        }
+        assert_eq!(tabs.active().unwrap().key, b);
+        assert_eq!(edit.baseline(), "exact draft\n\n");
+        assert!(pending.finish_save(attempt, &outcome, true).is_none());
+        assert_eq!(
+            edit.finish_save(attempt, 1, 2, Ok(ack())),
+            SaveOutcome::StaleResponse
+        );
+    }
+    #[test]
+    fn cancel_during_put_acknowledges_only_the_draft() {
+        let (tabs, a, b) = tabs();
+        let before = tabs.clone();
+        let mut edit = draft();
+        let mut pending = PendingTransition::default();
+        pending.capture(Transition::ActivateTab(b));
+        let attempt = start(&mut edit, &mut pending);
+        assert!(matches!(
+            edit.choose_leave(LeaveChoice::Cancel, 1, &storage())
+                .unwrap(),
+            LeaveAction::Stay
+        ));
+        pending.cancel();
+        // A new prompt while the old write finishes must not inherit its authority.
+        pending.capture(Transition::Quit);
+        let outcome = edit.finish_save(attempt, 1, 2, Ok(ack()));
+        assert_eq!(outcome, SaveOutcome::Saved { leave: false });
+        assert!(pending.finish_save(attempt, &outcome, true).is_none());
+        assert_eq!(pending.intent, Some(Transition::Quit));
+        assert!(!edit.dirty());
+        assert_eq!(tabs, before);
+        assert_eq!(tabs.active().unwrap().key, a);
+    }
+    #[test]
+    fn retained_results_and_widget_rejection_never_accept_navigation() {
+        let failures = [
+            Err(live::Error::Http {
+                status: 409,
+                body:
+                    r#"{"error":"note changed on disk since it was loaded; reload before saving"}"#
+                        .into(),
+            }),
+            Err(live::Error::SaveNotSent(Box::new(live::Error::Transport(
+                "preflight".into(),
+            )))),
+            Err(live::Error::Http {
+                status: 403,
+                body: "rejected".into(),
+            }),
+            Err(live::Error::Transport("lost acknowledgment".into())),
+            Ok(live::SaveAck {
+                vault: "wrong".into(),
+                ..ack()
+            }),
+        ];
+        for result in failures {
+            let mut edit = draft();
+            let mut pending = PendingTransition::default();
+            pending.capture(Transition::Quit);
+            let attempt = start(&mut edit, &mut pending);
+            let outcome = edit.finish_save(attempt, 1, 2, result);
+            assert_eq!(outcome, SaveOutcome::Retained);
+            assert!(pending.finish_save(attempt, &outcome, true).is_none());
+            assert!(!pending.is_some());
+            assert_eq!(edit.draft(), "exact draft\n\n");
+            assert_eq!(edit.etag(), "old");
+        }
+        for (launch, epoch, input_accepted) in [(9, 2, true), (1, 9, true), (1, 2, false)] {
+            let mut edit = draft();
+            let mut pending = PendingTransition::default();
+            pending.capture(Transition::Home);
+            let attempt = start(&mut edit, &mut pending);
+            let outcome = edit.finish_save(attempt, launch, epoch, Ok(ack()));
+            assert!(
+                pending
+                    .finish_save(attempt, &outcome, input_accepted)
+                    .is_none()
+            );
+            assert!(!pending.is_some());
+            assert_eq!(edit.draft(), "exact draft\n\n");
+        }
+    }
+    #[test]
+    fn global_draft_resolution_closes_only_requested_vault_qualified_tab() {
+        let (mut tabs, a, b) = tabs();
+        let before = tabs.clone();
+        let mut edit = draft();
+        let mut pending = PendingTransition::default();
+        pending.capture(Transition::CloseTab(b.clone()));
+        edit.choose_leave(LeaveChoice::Cancel, 1, &storage())
+            .unwrap();
+        pending.cancel();
+        assert_eq!(tabs, before);
+        assert!(edit.dirty());
+        // Current policy is one global draft, even for closing an inactive tab.
+        pending.capture(Transition::CloseTab(b.clone()));
+        assert!(matches!(
+            edit.choose_leave(LeaveChoice::Discard, 1, &storage())
+                .unwrap(),
+            LeaveAction::Leave
+        ));
+        let Some(Transition::CloseTab(key)) = pending.take() else {
+            panic!()
+        };
+        assert_eq!(key, b);
+        assert!(tabs.close(&key));
+        assert_eq!(tabs.active().unwrap().key, a);
+        assert_eq!(tabs.entries().len(), 1);
+        assert!(pending.take().is_none());
+    }
+    #[test]
+    fn distinct_destinations_are_recorded_once_and_old_attempt_cannot_consume_new_one() {
+        for destination in [
+            Transition::Home,
+            Transition::FullGraph,
+            Transition::WorkingVault("two".into()),
+            Transition::Reload,
+            Transition::Quit,
+        ] {
+            let mut pending = PendingTransition::default();
+            pending.capture(destination.clone());
+            pending.bind_save(41);
+            pending.cancel(); // replaced or invalidated draft
+            pending.capture(destination.clone());
+            pending.bind_save(42);
+            assert!(
+                pending
+                    .finish_save(41, &SaveOutcome::Saved { leave: true }, true)
+                    .is_none()
+            );
+            assert_eq!(pending.intent, Some(destination.clone()));
+            let mut recorded = Vec::new();
+            recorded.extend(pending.finish_save(42, &SaveOutcome::Saved { leave: true }, true));
+            recorded.extend(pending.finish_save(42, &SaveOutcome::Saved { leave: true }, true));
+            assert_eq!(recorded, vec![destination]);
+        }
+    }
+    #[test]
+    fn composition_cancel_clean_noop_and_standalone_save_do_not_invent_replay() {
+        let mut edit = draft();
+        let mut pending = PendingTransition::default();
+        edit.set_composing(true).unwrap();
+        assert_eq!(
+            transition_decision(false, false, Some(edit.leave_prompt())),
+            GateDecision::Prompt
+        );
+        pending.capture(Transition::Reload);
+        assert!(edit.choose_leave(LeaveChoice::Save, 1, &storage()).is_err());
+        assert!(
+            edit.choose_leave(LeaveChoice::Discard, 1, &storage())
+                .is_err()
+        );
+        edit.choose_leave(LeaveChoice::Cancel, 1, &storage())
+            .unwrap();
+        pending.cancel();
+        assert_eq!(edit.leave_prompt(), LeavePrompt::WaitForComposition);
+        assert_eq!(edit.draft(), "exact draft\n\n");
+        edit.set_composing(false).unwrap();
+        edit.replace_text("baseline".into()).unwrap();
+        pending.capture(Transition::Home);
+        assert!(matches!(
+            edit.choose_leave(LeaveChoice::Save, 1, &storage()).unwrap(),
+            LeaveAction::Leave
+        ));
+        assert!(!edit.is_saving()); // zero requests prepared for reverted body
+        assert_eq!(pending.take(), Some(Transition::Home));
+        edit.replace_text("standalone".into()).unwrap();
+        let save = edit.prepare_save(1, &storage()).unwrap().unwrap();
+        let outcome = edit.finish_save(save.attempt, 1, 2, Ok(ack()));
+        assert!(pending.finish_save(save.attempt, &outcome, true).is_none());
+    }
+    #[test]
+    fn prompt_during_standalone_save_requires_explicit_clean_resolution() {
+        let mut edit = draft();
+        let save = edit.prepare_save(1, &storage()).unwrap().unwrap();
+        let mut pending = PendingTransition::default();
+        pending.capture(Transition::FullGraph);
+        let outcome = edit.finish_save(save.attempt, 1, 2, Ok(ack()));
+        assert_eq!(outcome, SaveOutcome::Saved { leave: false });
+        assert!(pending.finish_save(save.attempt, &outcome, true).is_none());
+        assert_eq!(pending.intent, Some(Transition::FullGraph));
+        assert!(matches!(
+            edit.choose_leave(LeaveChoice::Save, 1, &storage()).unwrap(),
+            LeaveAction::Leave
+        ));
+        assert!(!edit.is_saving());
+        assert_eq!(pending.take(), Some(Transition::FullGraph));
+        assert!(pending.take().is_none());
+    }
+    #[test]
+    fn standalone_save_failure_cancels_unbound_prompt_but_stale_callback_does_not() {
+        for reject_input in [false, true] {
+            let mut edit = draft();
+            let save = edit.prepare_save(1, &storage()).unwrap().unwrap();
+            let mut pending = PendingTransition::default();
+            pending.capture(Transition::Quit);
+            let result = if reject_input {
+                Ok(ack())
+            } else {
+                Err(live::Error::Transport("lost acknowledgment".into()))
+            };
+            let outcome = edit.finish_save(save.attempt, 1, 2, result);
+            assert!(pending.finish_save(save.attempt, &outcome, false).is_none());
+            assert!(!pending.is_some());
+            assert_eq!(edit.draft(), "exact draft\n\n");
+        }
+        let mut old = draft();
+        let old_save = old.prepare_save(1, &storage()).unwrap().unwrap();
+        let mut replacement = draft();
+        let mut pending = PendingTransition::default();
+        pending.capture(Transition::Home);
+        let new_attempt = start(&mut replacement, &mut pending);
+        let stale = replacement.finish_save(old_save.attempt, 1, 2, Ok(ack()));
+        assert_eq!(stale, SaveOutcome::StaleResponse);
+        assert!(
+            pending
+                .finish_save(old_save.attempt, &stale, false)
+                .is_none()
+        );
+        assert_eq!(pending.intent, Some(Transition::Home));
+        assert_eq!(pending.attempt, Some(new_attempt));
+        assert!(replacement.is_saving());
+        assert_eq!(replacement.draft(), "exact draft\n\n");
+    }
+    #[test]
+    fn captured_link_adopts_epoch_only_after_accepted_save() {
+        let link = shell::InternalLinkIntent {
+            source: live::NoteKey {
+                vault: "one".into(),
+                note_id: 7,
+            },
+            destination: live::NoteKey {
+                vault: "two".into(),
+                note_id: 7,
+            },
+            target: markdown::LinkTarget::Markdown {
+                destination: "Target.md#heading".into(),
+            },
+            launch_generation: 1,
+            storage_generation: 2,
+            allow_epoch_advance: false,
+        };
+        let mut pending = PendingTransition::default();
+        pending.capture(Transition::InternalLink(link.clone()));
+        pending.bind_save(1);
+        let mut expected = link.clone();
+        expected.allow_epoch_advance = true;
+        assert_eq!(
+            pending.finish_save(1, &SaveOutcome::Saved { leave: true }, true),
+            Some(Transition::InternalLink(expected))
+        );
+        pending.capture(Transition::InternalLink(link.clone()));
+        pending.bind_save(2);
+        assert!(
+            pending
+                .finish_save(2, &SaveOutcome::Retained, true)
+                .is_none()
+        );
+        pending.capture(Transition::InternalLink(link.clone()));
+        assert_eq!(pending.take(), Some(Transition::InternalLink(link))); // discard does not adopt
     }
 }

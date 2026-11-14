@@ -1,5 +1,29 @@
 # Native validation log
 
+## Ordinary editing release gates
+
+Ordinary vault editing is **disabled**. The fixture switch is not a release
+switch. Historical observations below apply to their recorded builds, not
+implicitly to the current executable. Before enabling ordinary editing, record
+fresh results for the candidate build in an isolated fixture:
+
+| Gate | Evidence available | Still required |
+| --- | --- | --- |
+| Exact-source explicit save | Model, transport and real-engine conflict/lost-ack tests | Current native input → Save → dirty indicator → disk verification, including final LFs |
+| Pending save and navigation | Model guards and production pending-transition controller tests | Hold a real acknowledgment; Cancel departure, then release it; no unexpected navigation or second PUT. Repeat with Save and continue and verify exactly the requested destination |
+| Native termination routes | Earlier fixture app-menu Quit, Cmd-Q and window-close observations | Current Dock Quit, repeated quit, pending/failed/uncertain save and Cancel on every native route; verify exact owned child and ports reclaimed only after permitted exit |
+| IME and editor focus | UTF-16/composition model tests | Actual preedit, commit/cancel, Save, mode switch, tab navigation and quit with a real input method; no lost/duplicated text or shortcut interception |
+| Tab and session ownership | One-active-draft model; fixture metadata-only session tests | Multiple open tabs with a dirty active note, background close, return/cancel and relaunch; no draft replaced by restored metadata |
+| Recovery boundaries | Failed/uncertain writes retain the in-memory draft | Verify the visible recovery actions and clearly disclose memory-only recovery; forced kill/crash recovery is not implemented |
+| Storage/session changes | Captured identity/revision and stale-completion tests | Current native behavior after owned-server loss or storage change: retain draft, refuse unsafe save, present recovery without automatic retry |
+
+Headless tests can strengthen request sequencing, exact destination consumption,
+source/etag identity, LF handling and process cleanup. They cannot close the
+native delivery, modal focus, Dock, IME or rendered-state gates. Tab metadata
+persistence does not persist draft bodies. Safety approval for body editing also
+does not establish create/delete, metadata-editing or full editor UX parity.
+
+
 ## Disposable editor fixture, 2026-11-13
 
 Build: `9871df1` source, Apple Silicon/macOS 27.2. Separate application bundle,
@@ -269,3 +293,23 @@ This is headless engine-plus-draft-model evidence, not Dock Quit, modal focus,
 IME, clipboard or rendered dirty-state evidence. The conflict checks a competing
 revision visible at the engine's revision check, not atomic protection against
 every external filesystem race. Production save code is unchanged.
+
+### Pending save destination ownership
+
+The actual workspace now stores pending departure in an attempt-bound controller.
+The first fully qualified destination remains frozen, and an acknowledged save
+can consume it only once, after the editor accepts its submitted baseline. Cancel,
+obsolete attempts and unsuccessful input acknowledgment cannot authorize a later
+navigation. The existing single active draft policy is unchanged, including an
+explicit draft decision before closing a different tab.
+
+Synthetic tests connect the production controller to the draft model and tab
+identities. They cover same numeric IDs in different vaults, Cancel during a PUT,
+retained failure outcomes, changed environment, rejected widget acknowledgment,
+obsolete completion, clean/no-op save, composition and preserved link payloads.
+These tests observe accepted destinations and tab changes, not real native event
+routing. The regular Rust suite passes (280 tests; 6 opt-in tests ignored), as do
+build, formatting, termination-gate/preparation checks and seven proxy tests.
+The previous real-engine tests are separate evidence and were not rerun for this
+controller-only change. No GUI or personal-vault validation was performed here;
+the release gates above remain open and ordinary editing remains disabled.
