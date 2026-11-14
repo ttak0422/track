@@ -357,3 +357,26 @@ No native GUI was launched for this slice. Before claiming read-only metadata pa
 
 These are simple muted-ink labels, not decorative stamp or accessibility parity.
 `CONFIDENTIAL` is display-only, not authorization or access control.
+
+## Multiple graph pins: native checks pending
+
+Headless coverage exercises four pins plus one transient, same IDs in distinct
+vaults, out-of-order read completion, selected close/unpin, stale actions, raising
+without content or placement changes, pin capacity preservation, all-card cache
+pruning and session invalidation. Existing storage/dirty-navigation gates remain.
+No GUI was launched for this slice. Validate before claiming native parity:
+
+- Pin four different graph notes; a fifth Pin explains the limit without dropping
+  any card. Compare identical titles/IDs in two vaults using selector scope labels.
+- The selector stays below tabs and above cards; title click raises just that pin,
+  Close removes only that pin, and mouse/wheel gestures do not reach the graph.
+- At narrow and short sizes the selector wraps and remains reachable. Check light
+  and dark themes, edge-clamped overlapping cards and long titles/vault names.
+  While pins exist, cards must stay below the reserved selector band, including
+  at the native minimum height (480px); all card-header actions remain reachable.
+- Raise/close does not move surviving cards. New hover brings a transient forward.
+  Pinning/raising does not steal keyboard focus or trigger extra note reads.
+- Navigate with multiple pins, then exercise dirty Save/Discard/Cancel. Check that
+  storage epoch changes and owned-server replacement clear every card and cache.
+
+This is a bounded comparison UI, not drag/resize or full window-manager parity.

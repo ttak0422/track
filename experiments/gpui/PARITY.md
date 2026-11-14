@@ -41,7 +41,7 @@ of support. Use disposable fixture vaults, never a configured personal vault, fo
 | Calendar, agenda, journals, event editing and time zones | [ ] | [ ] | `Calendar*`, `DayView`, `calendarEvents.ts` |
 | CLI graph canvas, camera, selection and node dragging | [x] | [ ] | `src/graph*.rs`; help graph native smoke test |
 | Full-vault Graph tab, scoped read, overview and title/reset controls | [x] | [ ] | `workspace_graph.rs`; synthetic wire/lifecycle tests; native QA pending |
-| Read-only fullgraph hover and one pinned preview | [x] | [ ] | `graph_preview.rs`, `workspace_preview.rs`; synthetic lifecycle/read-boundary tests; GUI unverified |
+| Read-only fullgraph hover and up to four pinned previews | [x] | [ ] | `graph_preview.rs`, `workspace_preview.rs`; synthetic lifecycle/read-boundary tests; GUI unverified |
 | Full graph layout, previews and navigation parity | [ ] | [ ] | `GraphCanvas`, `GraphFullView`, `graphWheel` |
 | Themes, keyboard navigation, selection, clipboard and IME | [ ] | [ ] | `themeState`, `keybindings`, desktop reading shortcuts |
 | External Markdown handoff and editor-follow behavior | [ ] | [ ] | `MarkdownViewer`, `markdownHandoff`, `/api/follow` |
@@ -190,3 +190,13 @@ Headless tests cover source preference, empty values, clearing/identity changes,
 and relation labels. Native layout, long labels, accessibility and decorative
 stamp parity remain unverified. Read-only metadata parity remains partial: existing hierarchy and
 backlinks plus these labels do not establish full navigation or UX parity.
+
+### Bounded graph-note comparison
+
+The native graph supports four explicit pins plus one transient preview. A compact
+vault/ID-qualified selector raises or closes one captured card without refetching.
+Pin capacity retains all existing cards. Navigation and graph scope changes retain
+pins; session or storage invalidation clears them. Headless tests cover multi-pin
+identity, capacity, cache pruning and clamped placement. Native pointer delivery,
+selector wrapping, z-order and dirty-dialog behavior remain unverified; drag,
+resize, keyboard/AX and rich-preview parity are not claimed.

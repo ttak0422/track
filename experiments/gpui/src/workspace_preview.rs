@@ -35,7 +35,7 @@ impl PreviewUi {
             .transient
             .as_ref()
             .into_iter()
-            .chain(self.model.pinned.as_ref())
+            .chain(self.model.pinned.iter())
             .map(|p| p.read.token)
             .collect();
         self.parsed.retain(|token, _| live.contains(token));
@@ -173,7 +173,7 @@ impl Workspace {
             .transient
             .as_ref()
             .into_iter()
-            .chain(self.previews.model.pinned.as_ref())
+            .chain(self.previews.model.pinned.iter())
             .any(|preview| &preview.read == read)
     }
     pub(crate) fn render_graph_previews(
@@ -185,8 +185,23 @@ impl Workspace {
         let paper = if dark { 0x222629 } else { 0xffffff };
         let ink = if dark { 0xe9e9e4 } else { 0x1a1a18 };
         let line = if dark { 0x454b4e } else { 0xd9d6cc };
-        [self.previews.model.pinned.as_ref().map(|p| (true,p)), self.previews.model.transient.as_ref().map(|p| (false,p))]
-            .into_iter().flatten().map(|(pinned, preview)| {
+        let mut ordered: Vec<_> = self
+            .previews
+            .model
+            .pinned
+            .iter()
+            .map(|p| (true, p))
+            .chain(self.previews.model.transient.as_ref().map(|p| (false, p)))
+            .collect();
+        // Placement slots are captured at pin time; only painting order changes.
+        if let Some(index) = ordered
+            .iter()
+            .position(|(_, p)| Some(&p.read) == self.previews.model.raised.as_ref())
+        {
+            let front = ordered.remove(index);
+            ordered.push(front);
+        }
+        let mut cards: Vec<_> = ordered.into_iter().map(|(pinned, preview)| {
                 let identity = preview.read.clone();
                 let hover_identity = identity.clone();
                 let open_identity = identity.clone();
@@ -196,7 +211,7 @@ impl Workspace {
                     State::Ready(content) => content.title.clone(),
                     _ => format!("Note {}", identity.target.note_id),
                 };
-                let (x,y,width,height) = bounds(preview.anchor, (f32::from(viewport.width), f32::from(viewport.height)));
+                let (x,y,width,height) = cascade_bounds(preview.anchor, (f32::from(viewport.width), f32::from(viewport.height)), preview.placement_slot.map(|slot| slot + 1).unwrap_or(0), !self.previews.model.pinned.is_empty());
                 let mut body = div().id(("graph-preview-body", identity.token as usize))
                     .flex_1().min_h_0().overflow_y_scroll().p_3();
                 body = match &preview.state {
@@ -230,7 +245,7 @@ impl Workspace {
                                     this.previews.message.clear();
                                     if pinned { this.previews.model.unpin_identity(&pin_identity, this.previews.now()); }
                                     else if this.previews.model.pin_identity(&pin_identity) == PinResult::CapacityReached {
-                                        this.previews.message = "One pinned preview maximum. Close or unpin the existing preview first.".into();
+                                        this.previews.message = "Four pinned previews maximum. Close or unpin a preview first.".into();
                                     }
                                     this.schedule_preview(cx); cx.stop_propagation(); cx.notify();
                                 })))
@@ -251,7 +266,84 @@ impl Workspace {
                     .child(div().p_2().text_xs().child("Native Markdown subset · links / embeds / actions inert"))
                     .when(!self.previews.message.is_empty(), |el| el.child(div().p_2().text_xs().child(self.previews.message.clone())))
                     .into_any_element()
-            }).collect()
+            }).collect();
+        // Always above the cards, so overlap never hides a pin's controls.
+        if !self.previews.model.pinned.is_empty() {
+            cards.push(
+                div()
+                    .id("pinned-preview-selector")
+                    .absolute()
+                    .left(px(12.))
+                    .top(px(56.))
+                    .max_h(px((f32::from(viewport.height) - 68.).clamp(1., 96.)))
+                    .overflow_y_scroll()
+                    .max_w(px((f32::from(viewport.width) - 24.).max(1.)))
+                    .flex()
+                    .flex_wrap()
+                    .gap_1()
+                    .p_1()
+                    .bg(rgb(paper))
+                    .text_color(rgb(ink))
+                    .border_1()
+                    .border_color(rgb(line))
+                    .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_mouse_move(|_, _, cx| cx.stop_propagation())
+                    .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+                    .children(self.previews.model.pinned.iter().map(|preview| {
+                        let raise = preview.read.clone();
+                        let close = raise.clone();
+                        let title = match &preview.state {
+                            State::Ready(content) => content.title.clone(),
+                            _ => format!("Note {}", raise.target.note_id),
+                        };
+                        let scope_label = format!(
+                            "{} · ID {}",
+                            if raise.target.vault.is_empty() {
+                                "launch vault"
+                            } else {
+                                &raise.target.vault
+                            },
+                            raise.target.note_id
+                        );
+                        div()
+                            .p_1()
+                            .text_xs()
+                            .child(
+                                div()
+                                    .id(("pin-selector-title", raise.token as usize))
+                                    .w(px(140.))
+                                    .cursor_pointer()
+                                    .child(div().truncate().child(title))
+                                    .child(div().truncate().child(scope_label))
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.previews.model.raise_identity(&raise);
+                                        cx.stop_propagation();
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(
+                                div().flex().flex_wrap().gap_2().child(
+                                    div()
+                                        .id(("pin-selector-close", close.token as usize))
+                                        .cursor_pointer()
+                                        .child("Close")
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            cx.stop_propagation();
+                                            if !this.previews.model.close_identity(&close) {
+                                                return;
+                                            }
+                                            this.previews.message.clear();
+                                            this.schedule_preview(cx);
+                                            cx.stop_propagation();
+                                            cx.notify();
+                                        })),
+                                ),
+                            )
+                    }))
+                    .into_any_element(),
+            );
+        }
+        cards
     }
 }
 fn fetch_preview(
@@ -302,12 +394,30 @@ fn preview_content(response: live::NoteResponse) -> Content {
         diagnostics,
     }
 }
+fn cascade_bounds(
+    anchor: (f32, f32),
+    viewport: (f32, f32),
+    index: usize,
+    pins_visible: bool,
+) -> (f32, f32, f32, f32) {
+    let offset = (index.min(graph_preview::MAX_PINS) as f32) * 24.;
+    let top = if pins_visible {
+        160_f32.min((viewport.1 - 13.).max(0.))
+    } else {
+        12.
+    };
+    bounds_below((anchor.0 + offset, anchor.1 + offset), viewport, top)
+}
+#[cfg(test)]
 fn bounds(anchor: (f32, f32), viewport: (f32, f32)) -> (f32, f32, f32, f32) {
+    bounds_below(anchor, viewport, 12.)
+}
+fn bounds_below(anchor: (f32, f32), viewport: (f32, f32), top: f32) -> (f32, f32, f32, f32) {
     let width = 380_f32.min((viewport.0 - 24.).max(1.));
-    let height = 330_f32.min((viewport.1 - 24.).max(1.));
+    let height = 330_f32.min((viewport.1 - top - 12.).max(1.));
     (
         (anchor.0 + 16.).clamp(12., (viewport.0 - width - 12.).max(12.)),
-        (anchor.1 + 16.).clamp(12., (viewport.1 - height - 12.).max(12.)),
+        (anchor.1 + 16.).clamp(top, (viewport.1 - height - 12.).max(top)),
         width,
         height,
     )
@@ -441,6 +551,75 @@ mod tests {
         ui.cancel_wake();
         assert!(ui.parsed.is_empty());
     }
+    #[test]
+    fn cache_covers_four_pins_and_transient_then_prunes_selected_and_invalidated() {
+        let mut ui = PreviewUi::default();
+        ui.model.set_scope(graph_preview::Scope {
+            session: 1,
+            graph: 2,
+            vault: "fixture".into(),
+        });
+        let mut reads = Vec::new();
+        for id in 1..=5 {
+            ui.model.hover(
+                Target {
+                    vault: "fixture".into(),
+                    note_id: id,
+                },
+                (0., 0.),
+                id as u64 * 300,
+            );
+            let read = ui.model.advance(id as u64 * 300 + 260).unwrap();
+            ui.parsed.insert(read.token, markdown::parse("body"));
+            if id <= 4 {
+                ui.model.pin_identity(&read);
+            }
+            reads.push(read);
+        }
+        ui.prune_content();
+        assert_eq!(ui.parsed.len(), 5);
+        ui.model.raise_identity(&reads[0]);
+        ui.prune_content();
+        assert_eq!(ui.parsed.len(), 5);
+        ui.model.close_identity(&reads[1]);
+        ui.prune_content();
+        assert_eq!(ui.parsed.len(), 4);
+        assert!(!ui.parsed.contains_key(&reads[1].token));
+        ui.model.navigate();
+        ui.prune_content();
+        assert_eq!(ui.parsed.len(), 3);
+        ui.model.invalidate_session();
+        ui.cancel_wake();
+        assert!(ui.parsed.is_empty());
+    }
+    #[test]
+    fn cascade_is_bounded_including_right_bottom_and_narrow_viewports() {
+        for viewport in [(800., 600.), (300., 200.)] {
+            for slot in 0..=graph_preview::MAX_PINS {
+                let (x, y, w, h) = cascade_bounds((999., 999.), viewport, slot, false);
+                assert!(x >= 12. && y >= 12.);
+                assert!(x + w <= viewport.0 - 12. && y + h <= viewport.1 - 12.);
+            }
+        }
+        assert_eq!(
+            cascade_bounds((0., 0.), (1200., 1000.), 3, false),
+            (88., 88., 380., 330.)
+        );
+    }
+
+    #[test]
+    fn pins_reserve_selector_band_and_tiny_geometry_stays_nonnegative() {
+        for viewport in [(800., 480.), (300., 200.)] {
+            for slot in 0..=graph_preview::MAX_PINS {
+                let (x, y, w, h) = cascade_bounds((0., 0.), viewport, slot, true);
+                assert!(y >= 160. && y + h <= viewport.1 - 12.);
+                assert!(x >= 0. && x + w <= viewport.0 && h > 0.);
+            }
+        }
+        let (_, y, _, h) = cascade_bounds((0., 0.), (120., 60.), 0, true);
+        assert!(y >= 0. && h > 0. && y + h <= 60.);
+    }
+
     #[test]
     fn placement_is_bounded() {
         assert_eq!(bounds((999., 999.), (800., 600.)), (408., 258., 380., 330.));

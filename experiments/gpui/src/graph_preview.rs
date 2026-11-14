@@ -3,6 +3,8 @@
 //! only by `advance`; transport/UI must never infer a target from current selection.
 #![allow(dead_code)]
 
+pub const MAX_PINS: usize = 4;
+
 pub const OPEN_DELAY_MS: u64 = 260;
 pub const CLOSE_DELAY_MS: u64 = 220;
 
@@ -43,6 +45,7 @@ pub struct Preview {
     pub read: Read,
     /// Placement is captured once per target, not updated by pointer movement.
     pub anchor: (f32, f32),
+    pub placement_slot: Option<usize>,
     pub state: State,
     pointer_inside: bool,
 }
@@ -61,7 +64,8 @@ pub struct Previews {
     opener: Option<Target>,
     close_at: Option<u64>,
     pub transient: Option<Preview>,
-    pub pinned: Option<Preview>,
+    pub pinned: Vec<Preview>,
+    pub raised: Option<Read>,
 }
 impl Previews {
     pub fn set_scope(&mut self, scope: Scope) {
@@ -69,7 +73,8 @@ impl Previews {
             return;
         }
         if self.scope.as_ref().map(|s| s.session) != Some(scope.session) {
-            self.pinned = None;
+            self.pinned.clear();
+            self.raised = None;
         }
         self.clear_transient();
         self.scope = Some(scope);
@@ -77,7 +82,8 @@ impl Previews {
     /// Call immediately when the owned server fails or is replaced.
     pub fn invalidate_session(&mut self) {
         self.clear_transient();
-        self.pinned = None;
+        self.pinned.clear();
+        self.raised = None;
         self.scope = None;
     }
     pub fn navigate(&mut self) {
@@ -97,6 +103,7 @@ impl Previews {
             return;
         }
         self.opener = Some(target.clone());
+        self.raised = None;
         self.pending = None;
         self.close_at = None;
         if self
@@ -108,11 +115,7 @@ impl Previews {
         }
         // Switching targets invalidates the old read immediately, even before B opens.
         self.transient = None;
-        if self
-            .pinned
-            .as_ref()
-            .is_some_and(|p| p.read.target == target)
-        {
+        if self.pinned.iter().any(|p| p.read.target == target) {
             return;
         }
         self.pending = Some((target, anchor, now.saturating_add(OPEN_DELAY_MS)));
@@ -135,7 +138,7 @@ impl Previews {
             self.close_at = None;
             return true;
         }
-        if let Some(preview) = self.pinned.as_mut().filter(|p| &p.read == identity) {
+        if let Some(preview) = self.pinned.iter_mut().find(|p| &p.read == identity) {
             preview.pointer_inside = true;
             return true;
         }
@@ -149,7 +152,7 @@ impl Previews {
             }
             return true;
         }
-        if let Some(preview) = self.pinned.as_mut().filter(|p| &p.read == identity) {
+        if let Some(preview) = self.pinned.iter_mut().find(|p| &p.read == identity) {
             preview.pointer_inside = false;
             return true;
         }
@@ -190,6 +193,7 @@ impl Previews {
         self.transient = Some(Preview {
             read: read.clone(),
             anchor,
+            placement_slot: None,
             state: State::Loading,
             pointer_inside: false,
         });
@@ -199,8 +203,8 @@ impl Previews {
         if self.scope.as_ref().map(|s| s.session) != Some(read.scope.session) {
             return false;
         }
-        let target = if self.pinned.as_ref().is_some_and(|p| &p.read == read) {
-            self.pinned.as_mut()
+        let target = if self.pinned.iter().any(|p| &p.read == read) {
+            self.pinned.iter_mut().find(|p| &p.read == read)
         } else {
             // Graph changes remove transient slots; an explicitly unpinned slot
             // may retain an earlier graph identity while its read finishes.
@@ -217,15 +221,29 @@ impl Previews {
     }
     /// Action identity is resolved at dispatch, not from a rendered slot label.
     pub fn close_identity(&mut self, identity: &Read) -> bool {
+        if self.raised.as_ref() == Some(identity) {
+            self.raised = None;
+        }
         if self.transient.as_ref().is_some_and(|p| &p.read == identity) {
             self.close_transient();
             return true;
         }
-        if self.pinned.as_ref().is_some_and(|p| &p.read == identity) {
-            self.close_pinned();
+        if let Some(index) = self.pinned.iter().position(|p| &p.read == identity) {
+            let removed = self.pinned.remove(index);
+            if self.opener.as_ref() == Some(&removed.read.target) {
+                self.opener = None;
+            }
             return true;
         }
         false
+    }
+    /// Raising changes paint order only; content and captured read stay intact.
+    pub fn raise_identity(&mut self, identity: &Read) -> bool {
+        if !self.pinned.iter().any(|p| &p.read == identity) {
+            return false;
+        }
+        self.raised = Some(identity.clone());
+        true
     }
     pub fn pin_identity(&mut self, identity: &Read) -> PinResult {
         if !self.transient.as_ref().is_some_and(|p| &p.read == identity) {
@@ -234,28 +252,13 @@ impl Previews {
         self.pin()
     }
     pub fn unpin_identity(&mut self, identity: &Read, now: u64) -> bool {
-        if !self.pinned.as_ref().is_some_and(|p| &p.read == identity) {
+        let Some(index) = self.pinned.iter().position(|p| &p.read == identity) else {
             return false;
-        }
-        self.unpin(now);
-        true
-    }
-    pub fn pin(&mut self) -> PinResult {
-        if self.transient.is_none() {
-            return PinResult::NothingToPin;
-        }
-        if self.pinned.is_some() {
-            return PinResult::CapacityReached;
-        }
-        self.pinned = self.transient.take();
-        self.close_at = None;
-        PinResult::Pinned
-    }
-    /// Unpin is explicit: it replaces the disposable transient, never another pin.
-    pub fn unpin(&mut self, now: u64) {
-        let Some(preview) = self.pinned.take() else {
-            return;
         };
+        // Explicit Unpin replaces only the disposable transient, never another pin.
+        let preview = self.pinned.remove(index);
+        // Unpin must expose the new transient even if a different pin was raised.
+        self.raised = None;
         let opener = self
             .opener
             .take()
@@ -266,19 +269,26 @@ impl Previews {
             self.close_at = Some(now.saturating_add(CLOSE_DELAY_MS));
         }
         self.transient = Some(preview);
+        true
+    }
+    pub fn pin(&mut self) -> PinResult {
+        if self.transient.is_none() {
+            return PinResult::NothingToPin;
+        }
+        if self.pinned.len() >= MAX_PINS {
+            return PinResult::CapacityReached;
+        }
+        let slot = (0..MAX_PINS)
+            .find(|slot| !self.pinned.iter().any(|p| p.placement_slot == Some(*slot)))
+            .unwrap();
+        let mut preview = self.transient.take().unwrap();
+        preview.placement_slot = Some(slot);
+        self.pinned.push(preview);
+        self.close_at = None;
+        PinResult::Pinned
     }
     pub fn close_transient(&mut self) {
         self.clear_transient();
-    }
-    pub fn close_pinned(&mut self) {
-        if self
-            .pinned
-            .as_ref()
-            .is_some_and(|p| self.opener.as_ref() == Some(&p.read.target))
-        {
-            self.opener = None;
-        }
-        self.pinned = None;
     }
 }
 
@@ -378,15 +388,21 @@ mod tests {
         p.navigate();
         p.set_scope(scope(1, 2, "other"));
         assert!(p.complete(&a, Ok(content("pinned A"))));
-        assert!(p.pinned.is_some());
+        assert!(!p.pinned.is_empty());
         p.set_scope(scope(1, 3, "fixture"));
-        open(&mut p, 2, 1000);
+        for id in 2..=4 {
+            open(&mut p, id, 1000 + id as u64 * 300);
+            assert_eq!(p.pin(), PinResult::Pinned);
+        }
+        let extra = open(&mut p, 5, 2500);
         assert_eq!(p.pin(), PinResult::CapacityReached);
-        assert_eq!(p.pinned.as_ref().unwrap().read, a);
-        p.unpin(1500);
-        p.advance(1719);
+        assert_eq!(p.transient.as_ref().unwrap().read, extra);
+        assert_eq!(p.pinned.len(), MAX_PINS);
+        assert_eq!(p.pinned[0].read, a);
+        p.unpin_identity(&a, 2800);
+        p.advance(3019);
         assert!(p.transient.is_some());
-        p.advance(1720);
+        p.advance(3020);
         assert!(p.transient.is_none());
     }
     #[test]
@@ -402,7 +418,7 @@ mod tests {
         assert_ne!(a.target, b.target);
         p.pin();
         p.set_scope(scope(2, 2, "other"));
-        assert!(p.pinned.is_none());
+        assert!(p.pinned.is_empty());
         assert!(!p.complete(&b, Ok(content("old session"))));
         p.hover(target("other", 8), (0., 0.), 1400);
         p.set_scope(scope(2, 3, "other"));
@@ -418,7 +434,7 @@ mod tests {
         assert!(p.next_deadline().is_none());
         assert!(p.advance(1000).is_none());
         p.set_scope(scope(1, 2, "other"));
-        p.unpin(1100);
+        p.unpin_identity(&a, 1100);
         assert_eq!(p.next_deadline(), Some(1320));
         assert!(p.complete(&a, Ok(content("exact pinned target"))));
         assert_eq!(
@@ -435,7 +451,7 @@ mod tests {
         p.pin();
         p.leave_opener(300);
         assert!(p.enter_preview(&a));
-        p.unpin(400);
+        p.unpin_identity(&a, 400);
         p.advance(1000);
         assert!(p.transient.is_some());
         assert!(p.next_deadline().is_none());
@@ -455,7 +471,7 @@ mod tests {
         assert!(p.enter_preview(&a));
         p.advance(820);
         assert!(p.transient.is_none());
-        assert!(p.pinned.is_some());
+        assert!(!p.pinned.is_empty());
         let c = open(&mut p, 3, 900);
         p.leave_opener(1200);
         assert!(!p.enter_preview(&b));
@@ -488,9 +504,100 @@ mod tests {
         assert_eq!(p.transient.as_ref().unwrap().read, b);
         assert_eq!(p.pin_identity(&b), PinResult::Pinned);
         assert!(!p.unpin_identity(&a, 700));
-        assert_eq!(p.pinned.as_ref().unwrap().read, b);
+        assert_eq!(p.pinned[0].read, b);
         assert!(!p.close_identity(&a));
     }
+    #[test]
+    fn multiple_pins_finish_out_of_order_and_actions_keep_other_identities() {
+        let mut p = model();
+        let a = open(&mut p, 1, 0);
+        p.pin_identity(&a);
+        let b = open(&mut p, 2, 300);
+        p.pin_identity(&b);
+        let c = open(&mut p, 3, 600);
+        p.pin_identity(&c);
+        assert!(p.complete(&c, Ok(content("C"))));
+        assert!(p.complete(&a, Ok(content("A"))));
+        let before = p.pinned.clone();
+        assert!(p.raise_identity(&a));
+        assert_eq!(p.raised.as_ref(), Some(&a));
+        assert_eq!(p.pinned, before); // no content, token, anchor or placement movement
+        assert!(p.close_identity(&b));
+        assert!(!p.complete(&b, Ok(content("closed B"))));
+        assert!(!p.raise_identity(&b));
+        assert_eq!(p.pinned[0], before[0]);
+        assert_eq!(p.pinned[1], before[2]);
+        assert!(p.unpin_identity(&a, 1000));
+        assert_eq!(p.transient.as_ref().unwrap().read, a);
+        assert_eq!(p.pinned, [before[2].clone()]);
+        assert!(!p.unpin_identity(&b, 1100));
+    }
+    #[test]
+    fn same_id_in_two_vaults_remains_distinct_and_session_clears_all() {
+        let mut p = model();
+        let a = open(&mut p, 7, 0);
+        p.pin_identity(&a);
+        p.set_scope(scope(1, 2, "other"));
+        p.hover(target("other", 7), (20., 30.), 300);
+        let b = p.advance(560).unwrap();
+        p.pin_identity(&b);
+        assert_eq!(p.pinned.len(), 2);
+        p.navigate();
+        p.hover(target("other", 7), (90., 90.), 600);
+        assert!(p.advance(1000).is_none());
+        assert!(p.complete(&b, Ok(content("other"))));
+        assert!(p.complete(&a, Ok(content("fixture"))));
+        p.raise_identity(&a);
+        p.set_scope(scope(2, 3, "other"));
+        assert!(p.pinned.is_empty() && p.transient.is_none() && p.raised.is_none());
+        assert!(!p.complete(&a, Ok(content("late"))));
+        assert!(!p.complete(&b, Ok(content("late"))));
+    }
+    #[test]
+    fn unpin_exposes_transient_even_when_another_pin_was_raised() {
+        let mut p = model();
+        let a = open(&mut p, 1, 0);
+        p.pin_identity(&a);
+        let b = open(&mut p, 2, 300);
+        p.pin_identity(&b);
+        let survivor = p.pinned[0].clone();
+        p.raise_identity(&a);
+        assert!(p.unpin_identity(&b, 700));
+        assert!(p.raised.is_none()); // renderer's normal order puts transient last
+        assert_eq!(p.transient.as_ref().unwrap().read, b);
+        assert_eq!(p.pinned, [survivor]);
+    }
+
+    #[test]
+    fn capacity_preserves_all_cards_and_reuses_only_vacated_placement() {
+        let mut p = model();
+        let mut reads = Vec::new();
+        for id in 1..=4 {
+            let read = open(&mut p, id, id as u64 * 300);
+            p.pin_identity(&read);
+            reads.push(read);
+        }
+        let extra = open(&mut p, 5, 1600);
+        let before = p.pinned.clone();
+        let transient = p.transient.clone();
+        assert_eq!(p.pin_identity(&extra), PinResult::CapacityReached);
+        assert_eq!(p.pinned, before);
+        assert_eq!(p.transient, transient);
+        p.close_identity(&reads[1]);
+        assert_eq!(p.pin_identity(&extra), PinResult::Pinned);
+        assert_eq!(
+            p.pinned.last().unwrap().placement_slot,
+            before[1].placement_slot
+        );
+        assert_eq!(p.pinned[0], before[0]);
+        assert_eq!(p.pinned[1], before[2]);
+        p.invalidate_session();
+        assert!(p.pinned.is_empty() && p.transient.is_none());
+        for read in reads.iter().chain([&extra]) {
+            assert!(!p.complete(read, Ok(content("late"))));
+        }
+    }
+
     #[test]
     fn honest_empty_partial_and_error_states() {
         let mut p = model();
