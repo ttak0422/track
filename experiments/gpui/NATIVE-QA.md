@@ -191,3 +191,14 @@ keyboard operation while Find is open are not validated by this observation.
 The first Cmd-Q observation showed a fresh Home; a second Cmd-Q reported app
 exit. As with the earlier lifecycle observations, this sequence is not evidence
 of clean first-attempt process termination. Normal editing remains read-only.
+
+### Nonactivating clean-exit observation
+
+A follow-up of the same binary recorded a launcher PID in an append-only audit
+before its `exec`. After one Cmd-Q from clean Home, observations used application
+inventory rather than querying the closed app's accessibility tree. The first
+inventory still listed the app during shutdown; the next did not. The known PID
+returned `no such process`, both owned listeners were absent, and no new launcher
+entry appeared. This establishes clean single-command exit for this fixture run.
+It does not prove why earlier accessibility observations showed fresh Home, nor
+validate dirty, Dock, IME or proxy child-reap cases.
