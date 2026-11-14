@@ -34,6 +34,7 @@ pub(crate) struct IncludesState {
     preview_scroll: gpui::ScrollHandle,
     preview_epoch: u64,
     query_pages: std::collections::BTreeMap<(usize, usize, Option<usize>), usize>,
+    query_sources: std::collections::BTreeSet<(usize, usize)>,
 }
 /// Preview controls must not use host-reader gates, which intentionally reject
 /// this surface. Capture only competing actions and composition here.
@@ -83,6 +84,7 @@ impl IncludesState {
             preview_scroll: gpui::ScrollHandle::new(),
             preview_epoch: 0,
             query_pages: Default::default(),
+            query_sources: Default::default(),
         }
     }
     fn query_page_action(
@@ -119,6 +121,13 @@ impl IncludesState {
             (crate::query_view::Layout::List, None) => {
                 (view.total_rows(), crate::query_view::LIST_PAGE)
             }
+            (crate::query_view::Layout::Calendar, None) => {
+                let count = view.calendar_months().len();
+                if count == 0 {
+                    return false;
+                }
+                (count, 1)
+            }
             (crate::query_view::Layout::Board, None) => {
                 (view.groups.len(), crate::query_view::LANE_PAGE)
             }
@@ -142,6 +151,33 @@ impl IncludesState {
             return false;
         }
         self.query_pages.insert((key.0, key.1, group), page);
+        true
+    }
+    fn query_source_action(
+        &mut self,
+        gate: QueryPageGate,
+        identity: &Identity,
+        serial: u64,
+        epoch: u64,
+        key: (usize, usize),
+    ) -> bool {
+        if !gate.allowed()
+            || !self.accepts(identity, serial)
+            || !self.preview_open
+            || self.preview_epoch != epoch
+        {
+            return false;
+        }
+        let Some(Ok(snapshot)) = &self.result else {
+            return false;
+        };
+        if !matches!(snapshot.queries.get(&key), Some(Ok(view)) if view.layout == crate::query_view::Layout::Calendar)
+        {
+            return false;
+        }
+        if !self.query_sources.remove(&key) {
+            self.query_sources.insert(key);
+        }
         true
     }
     fn accepts(&self, identity: &Identity, serial: u64) -> bool {
@@ -187,6 +223,7 @@ impl Workspace {
         state.preview_open = true;
         state.preview_epoch = SERIAL.fetch_add(1, Ordering::Relaxed);
         state.query_pages.clear();
+        state.query_sources.clear();
         state.preview_scroll = gpui::ScrollHandle::new();
         let focus = state
             .preview_focus
@@ -217,6 +254,7 @@ impl Workspace {
         };
         state.preview_open = false;
         state.query_pages.clear();
+        state.query_sources.clear();
         if let Some(focus) = &self.shell.reader_focus {
             window.focus(focus);
         } else {
@@ -377,6 +415,7 @@ impl Workspace {
         state.result = None;
         state.preview_open = false;
         state.query_pages.clear();
+        state.query_sources.clear();
         let Some(permit) = Permit::acquire() else {
             state.result = Some(Err(
                 "An earlier include request is still finishing. Refresh shortly.".into(),
@@ -623,9 +662,11 @@ mod tests {
         state.preview_open = true;
         state.preview_epoch = SERIAL.fetch_add(1, Ordering::Relaxed);
         state.query_pages.clear();
+        state.query_sources.clear();
         assert!(state.accepts(&id, 5));
         state.preview_open = false;
         state.query_pages.clear();
+        state.query_sources.clear();
         assert_eq!(source, original);
         assert_eq!(state.identity, id);
         assert!(state.result.is_some());
@@ -691,6 +732,89 @@ mod tests {
             state.preview_epoch = 21;
             assert!(!state.set_query_page(&id, 10, 20, (0, 0), None, 0));
         }
+    }
+    #[test]
+    fn calendar_pages_and_source_use_exact_snapshot_guards() {
+        use serde_json::json;
+        let groups = (0..128)
+            .map(|i| json!({"name":format!("{:04}-{:02}-01", 2000+i/12, i%12+1),"rows":[]}))
+            .collect::<Vec<_>>();
+        let body = format!(
+            "```track-view\n{}\n```",
+            json!({"layout":"calendar","columns":[],"groups":groups})
+        );
+        let response =
+            crate::included_notes::decode(json!({"markdown":body,"includes":[]}), "host").unwrap();
+        let preview = markdown::included_preview(&response);
+        let queries = project_queries(&preview);
+        let id = identity();
+        let mut state = IncludesState::new(id.clone());
+        state.open = true;
+        state.preview_open = true;
+        state.serial = 10;
+        state.preview_epoch = 20;
+        state.result = Some(Ok(Snapshot {
+            response,
+            preview,
+            queries,
+        }));
+        let ready = || QueryPageGate {
+            preview_active: true,
+            source_matches: true,
+            ..Default::default()
+        };
+        for page in 0..128 {
+            assert!(state.query_page_action(ready(), &id, 10, 20, (0, 0), None, page));
+            assert_eq!(state.query_pages[&(0, 0, None)], page);
+        }
+        assert!(!state.set_query_page(&id, 10, 20, (0, 0), None, 128));
+        assert!(!state.set_query_page(&id, 10, 20, (0, 0), Some(0), 0));
+        assert!(state.query_source_action(ready(), &id, 10, 20, (0, 0)));
+        assert!(state.query_sources.contains(&(0, 0)));
+        for dimension in 0..7 {
+            let mut changed = id.clone();
+            match dimension {
+                0 => changed.source.request += 1,
+                1 => changed.source.launch_generation += 1,
+                2 => changed.source.storage_generation += 1,
+                3 => changed.source.etag.push('x'),
+                4 => changed.source.note.note_id += 1,
+                5 => changed.source.note.vault.push('x'),
+                _ => changed.route.vault.clear(),
+            }
+            assert!(!state.query_source_action(ready(), &changed, 10, 20, (0, 0)));
+            assert!(!state.set_query_page(&changed, 10, 20, (0, 0), None, 0));
+        }
+        for (serial, epoch, key) in [(9, 20, (0, 0)), (10, 19, (0, 0)), (10, 20, (0, 1))] {
+            assert!(!state.query_source_action(ready(), &id, serial, epoch, key));
+            assert!(!state.set_query_page(&id, serial, epoch, key, None, 0));
+        }
+        for blocker in 0..11 {
+            let mut gate = ready();
+            match blocker {
+                0 => gate.preview_active = false,
+                1 => gate.source_matches = false,
+                2 => gate.handoff = true,
+                3 => gate.gesture = true,
+                4 => gate.editing = true,
+                5 => gate.pending = true,
+                6 => gate.find = true,
+                7 => gate.search = true,
+                8 => gate.menu = true,
+                9 => gate.closing = true,
+                _ => gate.composing = true,
+            }
+            assert!(!state.query_source_action(gate, &id, 10, 20, (0, 0)));
+        }
+        assert!(state.query_sources.contains(&(0, 0)));
+        assert!(state.query_source_action(ready(), &id, 10, 20, (0, 0)));
+        assert!(state.query_sources.is_empty());
+        state.preview_open = false;
+        assert!(!state.query_source_action(ready(), &id, 10, 20, (0, 0)));
+        state.preview_open = true;
+        state.preview_epoch += 1;
+        assert!(!state.query_source_action(ready(), &id, 10, 20, (0, 0)));
+        assert!(IncludesState::new(id).query_pages.is_empty());
     }
     #[test]
     fn board_lanes_and_cards_have_independent_bounded_pages() {
@@ -805,6 +929,51 @@ fn project_queries(
 }
 
 impl Workspace {
+    fn query_control_gate(&self, identity: &Identity, cx: &Context<Self>) -> QueryPageGate {
+        QueryPageGate {
+            preview_active: self.includes_preview_active(),
+            source_matches: self.includes_identity().as_ref() == Some(identity),
+            handoff: self.handoff_active(),
+            gesture: self.previews.model.geometry_active(),
+            editing: self.editing_ui.active(),
+            pending: self.editing_ui.has_pending(),
+            find: self.shell.find.open,
+            search: self.shell.search_open,
+            menu: self.shell.vault_menu || self.shell.tab_menu || self.shell.diagnostics,
+            closing: self.quit_session.is_closing(),
+            composing: self.search.read(cx).is_composing(),
+        }
+    }
+    fn query_source_button(
+        &self,
+        key: (usize, usize),
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<Div> {
+        let state = self.shell.includes.as_ref().unwrap();
+        let identity = state.identity.clone();
+        let serial = state.serial;
+        let epoch = state.preview_epoch;
+        div()
+            .id(gpui::SharedString::from(format!(
+                "query-source-{serial}-{epoch}-{}-{}",
+                key.0, key.1
+            )))
+            .cursor_pointer()
+            .child(if state.query_sources.contains(&key) {
+                "Hide source"
+            } else {
+                "Show source (all supplied rows)"
+            })
+            .on_click(cx.listener(move |this, _, _, cx| {
+                let gate = this.query_control_gate(&identity, cx);
+                let Some(state) = this.shell.includes.as_mut() else {
+                    return;
+                };
+                if state.query_source_action(gate, &identity, serial, epoch, key) {
+                    cx.notify();
+                }
+            }))
+    }
     fn query_page_button(
         &self,
         label: &str,
@@ -826,19 +995,7 @@ impl Workspace {
             .px_2()
             .child(label.to_owned())
             .on_click(cx.listener(move |this, _, _, cx| {
-                let gate = QueryPageGate {
-                    preview_active: this.includes_preview_active(),
-                    source_matches: this.includes_identity().as_ref() == Some(&identity),
-                    handoff: this.handoff_active(),
-                    gesture: this.previews.model.geometry_active(),
-                    editing: this.editing_ui.active(),
-                    pending: this.editing_ui.has_pending(),
-                    find: this.shell.find.open,
-                    search: this.shell.search_open,
-                    menu: this.shell.vault_menu || this.shell.tab_menu || this.shell.diagnostics,
-                    closing: this.quit_session.is_closing(),
-                    composing: this.search.read(cx).is_composing(),
-                };
+                let gate = this.query_control_gate(&identity, cx);
                 let Some(state) = this.shell.includes.as_mut() else {
                     return;
                 };
@@ -863,6 +1020,7 @@ impl Workspace {
             .copied()
             .unwrap_or(0);
         let pages = count.div_ceil(size).max(1);
+        let page = page.min(pages - 1);
         let start = if count == 0 { 0 } else { page * size + 1 };
         let mut row = div().flex().flex_wrap().gap_2().child(format!(
             "{start}–{} of {count} · page {}/{pages}",
@@ -959,6 +1117,82 @@ impl Workspace {
                             card = card.child(div().child(text));
                         }
                         visual = visual.child(card);
+                    }
+                }
+                Layout::Calendar => {
+                    visual = visual.child("First 3 titles per date; +N counts additional rows. Source retains all supplied rows.");
+                    if let Some(month) = view.calendar_page(page) {
+                        visual = visual.child(month.month.label()).child(self.query_pager(
+                            key,
+                            None,
+                            month.count,
+                            1,
+                            cx,
+                        ));
+                        let mut headings = div().flex().w_full().min_w_0();
+                        for heading in ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] {
+                            headings = headings.child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .p_1()
+                                    .overflow_hidden()
+                                    .child(heading),
+                            );
+                        }
+                        let mut grid = div().flex().flex_col().w_full().min_w_0().child(headings);
+                        for week in month.cells.chunks(7) {
+                            let mut week_row = div().flex().w_full().min_w_0();
+                            for day in week {
+                                let mut cell = div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .min_h(px(80.))
+                                    .p_1()
+                                    .border_1()
+                                    .border_color(rgb(line))
+                                    .overflow_hidden();
+                                if let Some(day) = day {
+                                    let mut content = div()
+                                        .id(gpui::SharedString::from(format!(
+                                            "query-date-{}-{}-{item}-{block_index}-{}-{}-{}",
+                                            state.serial,
+                                            state.preview_epoch,
+                                            month.month.year,
+                                            month.month.month,
+                                            day.day
+                                        )))
+                                        .flex()
+                                        .flex_col()
+                                        .gap_1()
+                                        .child(day.day.to_string());
+                                    if !day.titles.is_empty() {
+                                        cell = cell.border_t_2();
+                                    }
+                                    for (row_index, title) in day.titles.iter().enumerate() {
+                                        content = content.child(div().id(gpui::SharedString::from(format!(
+                                            "query-date-row-{}-{}-{item}-{block_index}-{}-{}-{}-{row_index}",
+                                            state.serial, state.preview_epoch, month.month.year, month.month.month, day.day
+                                        ))).truncate().child(if title.is_empty() { "Untitled".to_owned() } else { (*title).to_owned() }));
+                                    }
+                                    if day.excess > 0 {
+                                        content = content.child(format!("+{}", day.excess));
+                                    }
+                                    cell = cell.child(content);
+                                }
+                                // Blanks have no action, date or row identity.
+                                week_row = week_row.child(cell);
+                            }
+                            grid = grid.child(week_row);
+                        }
+                        visual = visual.child(grid);
+                    } else {
+                        visual = visual.child("No dated query rows in this snapshot");
+                    }
+                    visual = visual.child(self.query_source_button(key, cx));
+                    if state.query_sources.contains(&key) {
+                        visual = visual
+                            .child(markdown::render_themed(std::slice::from_ref(block), dark));
                     }
                 }
                 Layout::Board => {
@@ -1136,6 +1370,49 @@ mod query_projection_tests {
             preview.items[0],
             markdown::PreviewItem::Include { index: 0, .. }
         ));
+    }
+    #[test]
+    fn calendar_fallback_retains_returned_source_and_include_origin() {
+        for name in [
+            "2026-02-30",
+            "0000-01-01",
+            "2026-13-01",
+            "2026-7-01",
+            "２０２６-07-01",
+            "",
+        ] {
+            let source = json!({"layout":"calendar","columns":[],"groups":[{"name":name,"rows":[{"title":"retained","cells":[]}]}]}).to_string();
+            let (preview, queries) = project(&format!("```track-view\n{source}\n```"), json!([]));
+            assert!(queries[&(0, 0)].is_err());
+            let markdown::PreviewItem::Host(blocks) = &preview.items[0] else {
+                panic!()
+            };
+            assert_eq!(blocks[0].text, format!("{source}\n"));
+        }
+        let calendar =
+            "```track-view\n{\"layout\":\"calendar\",\"columns\":[],\"groups\":[]}\n```\n";
+        let (preview, queries) = project(
+            "![[Target]]\n",
+            json!([{"line":0,"source_line":0,"caption":"Target","lines":[calendar],"note_id":42,"kind":"note","etag":"rev"}]),
+        );
+        assert_eq!(queries.len(), 1);
+        assert_eq!(
+            queries[&(0, 0)].as_ref().unwrap().layout,
+            crate::query_view::Layout::Calendar
+        );
+        assert!(matches!(
+            preview.items[0],
+            markdown::PreviewItem::Include { index: 0, .. }
+        ));
+        let (preview, queries) = project(&calendar.repeat(9), json!([]));
+        assert_eq!(queries.values().filter(|q| q.is_ok()).count(), 8);
+        assert!(queries[&(0, 8)].is_err());
+        let markdown::PreviewItem::Host(blocks) = &preview.items[0] else {
+            panic!()
+        };
+        assert_eq!(blocks.len(), 9);
+        assert!(blocks[8].text.contains("calendar"));
+        assert!(project("_No results._", json!([])).1.is_empty());
     }
     #[test]
     fn independent_blocks_and_total_visual_limit_keep_source() {
