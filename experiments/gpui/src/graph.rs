@@ -674,13 +674,32 @@ impl Default for ForceOptions {
 /// Return an owned layout snapshot. `fixed` positions support preserving manually dragged
 /// nodes across a new settle. Explicit fixed positions override the automatic center anchor.
 /// Work is capped at 200 iterations; callers should use overview's 1000-node cap.
-/// The caller owns cancellation/stale-generation rejection when publishing the snapshot.
+/// Non-canceling convenience API; background callers should use `force_layout_cancellable`.
 pub fn force_layout(
     graph: &Graph,
     options: ForceOptions,
     fixed: &BTreeMap<i64, Point>,
 ) -> Vec<LayoutNode> {
+    force_layout_cancellable(graph, options, fixed, || false).expect("non-canceling layout")
+}
+
+/// Cancellation discards the entire snapshot, never returning a partial layout.
+/// Checkpoints bound force-loop work between polls; initial circular placement and
+/// allocation are not interruptible. Callers must still reject stale generations
+/// when publishing, because cancellation can race with successful completion.
+pub fn force_layout_cancellable(
+    graph: &Graph,
+    options: ForceOptions,
+    fixed: &BTreeMap<i64, Point>,
+    mut cancelled: impl FnMut() -> bool,
+) -> Option<Vec<LayoutNode>> {
+    if cancelled() {
+        return None;
+    }
     let mut nodes = circular_layout(graph);
+    if cancelled() {
+        return None;
+    }
     let mut state = options.seed.max(1);
     let mut random = || {
         state ^= state << 13;
@@ -705,6 +724,9 @@ pub fn force_layout(
         })
         .collect();
     for (i, node) in nodes.iter_mut().enumerate() {
+        if i % 256 == 0 && cancelled() {
+            return None;
+        }
         node.position = pins[i].unwrap_or_else(|| Point {
             x: (random() - 0.5) * spread,
             y: (random() - 0.5) * spread,
@@ -716,18 +738,27 @@ pub fn force_layout(
         .map(|(i, n)| (n.node.note_id, i))
         .collect();
     // Undirected unique springs: duplicate/reversed edges must not multiply strength.
-    let springs: BTreeSet<_> = graph
-        .edges
-        .iter()
-        .filter_map(|e| {
-            let (&a, &b) = (index.get(&e.source_id)?, index.get(&e.target_id)?);
-            (a != b).then_some((a.min(b), a.max(b)))
-        })
-        .collect();
+    let mut springs = BTreeSet::new();
+    for (i, edge) in graph.edges.iter().enumerate() {
+        if i % 256 == 0 && cancelled() {
+            return None;
+        }
+        if let (Some(&a), Some(&b)) = (index.get(&edge.source_id), index.get(&edge.target_id)) {
+            if a != b {
+                springs.insert((a.min(b), a.max(b)));
+            }
+        }
+    }
     let iterations = options.iterations.min(200);
     let mut forces = vec![Point::default(); nodes.len()];
     for step in 0..iterations {
-        for (force, node) in forces.iter_mut().zip(&nodes) {
+        if cancelled() {
+            return None;
+        }
+        for (i, (force, node)) in forces.iter_mut().zip(&nodes).enumerate() {
+            if i % 256 == 0 && cancelled() {
+                return None;
+            }
             *force = Point {
                 x: -node.position.x * 0.015,
                 y: -node.position.y * 0.015,
@@ -735,6 +766,9 @@ pub fn force_layout(
         }
         for a in 0..nodes.len() {
             for b in a + 1..nodes.len() {
+                if (b - a - 1) % 256 == 0 && cancelled() {
+                    return None;
+                }
                 let dx = nodes[a].position.x - nodes[b].position.x;
                 let dy = nodes[a].position.y - nodes[b].position.y;
                 let squared = (dx * dx + dy * dy).max(4.);
@@ -746,7 +780,10 @@ pub fn force_layout(
                 forces[b].y -= fy;
             }
         }
-        for &(a, b) in &springs {
+        for (i, &(a, b)) in springs.iter().enumerate() {
+            if i % 256 == 0 && cancelled() {
+                return None;
+            }
             let dx = nodes[b].position.x - nodes[a].position.x;
             let dy = nodes[b].position.y - nodes[a].position.y;
             let distance = dx.hypot(dy).max(0.001);
@@ -759,6 +796,9 @@ pub fn force_layout(
         }
         let max_step = 8. * (1. - step as f64 / iterations.max(1) as f64) + 0.5;
         for (i, node) in nodes.iter_mut().enumerate() {
+            if i % 256 == 0 && cancelled() {
+                return None;
+            }
             if let Some(pin) = pins[i] {
                 node.position = pin;
                 continue;
@@ -778,12 +818,61 @@ pub fn force_layout(
             }
         }
     }
-    nodes
+    if cancelled() { None } else { Some(nodes) }
 }
 
 #[cfg(test)]
 mod force_tests {
     use super::*;
+    #[test]
+    fn cancellation_discards_initial_mid_solve_and_final_snapshots() {
+        let graph = fixture(40);
+        let options = ForceOptions {
+            iterations: 3,
+            ..ForceOptions::default()
+        };
+        let fixed = BTreeMap::new();
+        let expected = force_layout(&graph, options, &fixed);
+        let mut polls = 0;
+        let actual = force_layout_cancellable(&graph, options, &fixed, || {
+            polls += 1;
+            false
+        })
+        .unwrap();
+        assert_eq!(actual.len(), expected.len());
+        for (a, b) in actual.iter().zip(&expected) {
+            assert_eq!(a.node.note_id, b.node.note_id);
+            assert_eq!(a.position, b.position);
+        }
+        assert!(
+            polls > 40,
+            "poll inside force loops, not only at iteration boundaries"
+        );
+        for cancel_at in [1, polls / 2, polls] {
+            let mut calls = 0;
+            let result = force_layout_cancellable(&graph, options, &fixed, || {
+                calls += 1;
+                calls == cancel_at
+            });
+            assert!(result.is_none(), "no partial snapshot at poll {cancel_at}");
+            assert_eq!(calls, cancel_at, "stop at first canceled checkpoint");
+        }
+    }
+
+    #[test]
+    fn cancellation_also_discards_empty_and_zero_iteration_layouts() {
+        for graph in [Graph::default(), fixture(2)] {
+            let options = ForceOptions {
+                iterations: 0,
+                ..ForceOptions::default()
+            };
+            assert!(force_layout_cancellable(&graph, options, &BTreeMap::new(), || true).is_none());
+            assert!(
+                force_layout_cancellable(&graph, options, &BTreeMap::new(), || false).is_some()
+            );
+        }
+    }
+
     #[test]
     fn deterministic_finite_disconnected_and_anchored() {
         let mut graph = fixture(40);

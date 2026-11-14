@@ -8,6 +8,10 @@ use gpui::{
     prelude::*, px, rgb, size,
 };
 use std::collections::BTreeMap;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 
 #[derive(Clone, Copy, Debug)]
 pub struct OpenNote(pub i64);
@@ -34,10 +38,17 @@ pub struct GraphView {
     click_start: Option<(i64, Point)>,
     dark: bool,
     layout_generation: u64,
+    layout_cancelled: Arc<AtomicBool>,
     camera_intent: graph::CameraIntent,
     layout_status: &'static str,
 }
 impl gpui::EventEmitter<OpenNote> for GraphView {}
+
+impl Drop for GraphView {
+    fn drop(&mut self) {
+        self.layout_cancelled.store(true, Ordering::Relaxed);
+    }
+}
 
 impl GraphView {
     pub fn new(graph: Graph) -> Self {
@@ -57,6 +68,7 @@ impl GraphView {
             click_start: None,
             dark: false,
             layout_generation: 0,
+            layout_cancelled: Arc::new(AtomicBool::new(false)),
             camera_intent: graph::CameraIntent::default(),
             layout_status: "circular initial layout",
         }
@@ -70,6 +82,7 @@ impl GraphView {
         let compact = self.compact;
         let overview = self.overview;
         let titles = self.titles;
+        // Dropping the old view cancels its worker, including on graph replacement.
         *self = Self::new(graph);
         self.dark = dark;
         self.compact = compact;
@@ -85,11 +98,19 @@ impl GraphView {
         self.layout_status = "settling in background";
         let graph = self.graph.clone();
         let camera_revision = self.camera_intent.revision();
+        let cancelled = Arc::clone(&self.layout_cancelled);
         let job = cx.background_executor().spawn(async move {
-            graph::force_layout(&graph, graph::ForceOptions::default(), &BTreeMap::new())
+            graph::force_layout_cancellable(
+                &graph,
+                graph::ForceOptions::default(),
+                &BTreeMap::new(),
+                || cancelled.load(Ordering::Relaxed),
+            )
         });
         cx.spawn(async move |this, cx| {
-            let nodes = job.await;
+            let Some(nodes) = job.await else {
+                return;
+            };
             let _ = this.update(cx, |this, cx| {
                 // Graph replacement or manual node movement makes an old result stale.
                 if this.layout_generation != generation {
@@ -258,6 +279,7 @@ impl Render for GraphView {
                 if event.dragging() {
                     if let Some((id, previous)) = this.node_drag.filter(|(_, previous)| *previous != p) {
                         moved_geometry = true;
+                        this.layout_cancelled.store(true, Ordering::Relaxed);
                         this.layout_generation = this.layout_generation.wrapping_add(1);
                         this.layout_status = "manual positions · no elastic physics";
                         graph::drag_node(
@@ -473,5 +495,23 @@ impl Render for GraphView {
                         el.child("Hover to identify · click to select · double-click to open · drag node or background · Ctrl/Shift-wheel to zoom")
                     })
             ))
+    }
+}
+
+#[cfg(test)]
+mod cancellation_tests {
+    use super::*;
+
+    #[test]
+    fn replacement_and_drop_cancel_only_their_own_worker() {
+        let mut view = GraphView::new(Graph::default());
+        let old_worker = Arc::clone(&view.layout_cancelled);
+        assert!(!old_worker.load(Ordering::Relaxed));
+        view = GraphView::new(Graph::default());
+        assert!(old_worker.load(Ordering::Relaxed));
+        let new_worker = Arc::clone(&view.layout_cancelled);
+        assert!(!new_worker.load(Ordering::Relaxed));
+        drop(view);
+        assert!(new_worker.load(Ordering::Relaxed));
     }
 }
