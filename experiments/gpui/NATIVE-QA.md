@@ -578,15 +578,17 @@ search, dialogs and IME composition never cause accidental navigation. Switch
 graph scope/reload while settling and ensure cleared/stale nodes cannot open.
 Validate Tab exit, focus indication, narrow layouts and VoiceOver independently.
 
-### All-day calendar events (pending native QA)
+### UTC calendar events (pending native QA)
 
-Use disposable vault events covering one day, several days and a leap day. Verify
-exclusive end dates, cancelled status, no deleted events, and the explicit
-vault-wide timed-event omission notice. An empty all-day result must not imply
-there are no timed events. Change scope/day or restart the server during delayed
-reads; old responses must not appear. Exercise independent event/agenda/task errors
-and Retry, long titles, over 100 matches, narrow layout and VoiceOver. No event
-or note writes and no external link opening should occur.
+Use disposable vault events spanning UTC midnight, offset timestamps with dates
+on either side of UTC, fractional seconds, multiple dates, leap day and cancelled
+status. Verify the UTC heading stays visible even for an empty result and original
+event-zone labels are not confused with display-zone membership. All-day ranges
+retain civil dates; no deleted events appear. Local-zone calendar parity is not
+claimed. Change scope/day or restart during delayed reads; old responses must not
+appear. Exercise independent event/agenda/task errors, Retry, 101+ results across
+pages, long titles, narrow layout, keyboard and VoiceOver. No event/note writes or
+external link opening should occur. No native evidence is claimed for this slice.
 
 ### Thematic rules (pending native QA)
 

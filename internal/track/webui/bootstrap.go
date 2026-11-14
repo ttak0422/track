@@ -558,6 +558,10 @@ func (b *Bootstrap) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errors.New(b.Status().Reason), http.StatusServiceUnavailable)
 		return
 	}
+	if r.URL.Path == "/api/calendar-events/day" && b.statusFor(r).ReadOnly {
+		writeError(w, errors.New("storage is not ready for calendar projection"), http.StatusServiceUnavailable)
+		return
+	}
 	if r.Method == http.MethodGet && b.statusFor(r).ReadOnly && b.progressResponse(w, r, "storage is not fully verified; showing confirmed information read-only") {
 		return
 	}
@@ -573,6 +577,10 @@ func (b *Bootstrap) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		response := &limitedResponse{ResponseRecorder: httptest.NewRecorder()}
 		srv.Handler().ServeHTTP(response, r)
 		status := b.statusFor(r)
+		if r.URL.Path == "/api/calendar-events/day" && status.ReadOnly {
+			writeError(w, errors.New("storage is not ready for calendar projection"), http.StatusServiceUnavailable)
+			return
+		}
 		if status.ReadOnly && response.Code == 200 && response.err == nil {
 			var document map[string]any
 			if decodeDocument(response.Body.Bytes(), &document) == nil {

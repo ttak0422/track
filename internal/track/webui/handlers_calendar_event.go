@@ -80,3 +80,24 @@ func (s *Server) handleCalendarEvent(v *vaultView, w http.ResponseWriter, r *htt
 		writeError(w, fmt.Errorf("method %s not allowed", r.Method), http.StatusMethodNotAllowed)
 	}
 }
+
+func (s *Server) handleCalendarEventsDay(v *vaultView, w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, fmt.Errorf("method %s not allowed", r.Method), http.StatusMethodNotAllowed)
+		return
+	}
+	query := r.URL.Query()
+	if query.Has("deleted") {
+		writeError(w, errors.New("deleted is not supported for day projection"), http.StatusBadRequest)
+		return
+	}
+	day, err := calendarevent.Day(v.cfg, query.Get("date"), query.Get("time_zone"))
+	if err != nil {
+		eventError(w, err)
+		return
+	}
+	writeJSON(w, struct {
+		Vault string `json:"vault"`
+		calendarevent.DayProjection
+	}{Vault: v.label, DayProjection: day})
+}

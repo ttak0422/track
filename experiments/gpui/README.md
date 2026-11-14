@@ -446,23 +446,28 @@ loads. Pinned previews and offline snapshots do not load images. Images are scal
 within reader bounds; orientation/color-profile and native GPU/layout/scroll/AX
 parity remain unverified. Ordinary editing stays disabled.
 
-### Native all-day calendar events
+### Native UTC calendar events
 
-The selected Home activity day also lists all-day calendar events from the working
-vault. Events include their first day and exclude their end date; multi-day
-events appear on each covered day. Cancelled events remain visible with their
-status. This list is read-only and does not open links, create events or edit dates.
+Select a Home activity day to list calendar events in the working vault. The
+section is explicitly labelled **Calendar events · YYYY-MM-DD (UTC)**. Timed
+events are matched against that UTC date, not the device-local day's interval.
+Their original start/end timestamps and event time zone remain visible; the
+selected date label is reused as a UTC date even if the Home picker is local.
+All-day events instead keep their independent civil-date range, including the
+first date and excluding the end date. Cancelled events remain visible.
 
-Timed events are not included yet. A separate count reports timed events in the
-whole vault, not events on the selected day. An empty all-day list therefore does
-not mean the day has no timed events. No time-zone conversion or recurrence
-expansion is attempted.
+The engine performs precise instant comparisons, including timestamp offsets and
+fractional seconds. Events ending exactly at UTC midnight do not belong to the
+following day. This is a UTC-only subset, not full calendar time-zone parity:
+there is no display-zone selector, recurrence expansion, event editing or link
+opening. Existing calendar clients retain their original list API.
 
-The response is limited to 4096 events and the day view to 100 all-day matches,
-with explicit error/truncation notices. Active notes, tasks and events show errors
-independently; Retry refreshes all three under the same scope/day identity and
-bounded request guard. Old responses cannot replace a newer selection. Native
-layout, keyboard and accessibility validation remains pending.
+Up to 4096 source events are accepted; larger or unreadable snapshots fail
+explicitly rather than appearing complete. Results use pages of 100 rows, so
+later matches remain reachable. Active notes, tasks and events report failures
+independently; Retry refreshes the selected scope/day. Stale responses cannot
+replace a newer selection. Successful results are snapshots, not a guarantee of
+vault-wide freshness. Native layout, keyboard and accessibility QA remains pending.
 
 ### Recorded reading milestones
 

@@ -438,6 +438,110 @@ pub struct CalendarEventsResponse {
     #[serde(flatten)]
     pub diagnostics: Fields,
 }
+/// UTC membership is authoritative engine output; stored event labels stay opaque.
+#[derive(Clone, Debug, Deserialize)]
+pub struct CalendarDayEventsResponse {
+    pub vault: String,
+    pub date: String,
+    pub time_zone: String,
+    pub day_start: String,
+    pub day_end: String,
+    pub events: Vec<CalendarEvent>,
+    #[serde(skip)]
+    pub source_vault: String,
+    #[serde(skip)]
+    pub launch_generation: u64,
+    #[serde(flatten)]
+    pub diagnostics: Fields,
+}
+
+// Validate the explicit UTC boundary contract with civil arithmetic, not a local
+// timezone conversion or interpretation of the stored event timestamps.
+fn utc_day_bounds(date: &str) -> Option<(String, String)> {
+    if !event_date_valid(date) || date.starts_with("9999") {
+        return None;
+    }
+    let mut year: u32 = date[..4].parse().ok()?;
+    let mut month: u32 = date[5..7].parse().ok()?;
+    let mut day: u32 = date[8..].parse().ok()?;
+    day += 1;
+    if !calendar_date_valid(&format!("{year:04}-{month:02}-{day:02}")) {
+        day = 1;
+        month += 1;
+        if month == 13 {
+            month = 1;
+            year += 1;
+        }
+    }
+    Some((
+        format!("{date}T00:00:00Z"),
+        format!("{year:04}-{month:02}-{day:02}T00:00:00Z"),
+    ))
+}
+
+fn validate_calendar_records(
+    returned_vault: &mut String,
+    events: &[CalendarEvent],
+    vault: &str,
+) -> Result<(), Error> {
+    if returned_vault.len() > 1024
+        || returned_vault.contains('\0')
+        || (!vault.is_empty() && !returned_vault.is_empty() && returned_vault.as_str() != vault)
+        || events.len() > 4096
+    {
+        return Err(Error::Shape(
+            "calendar vault mismatch or excessive rows".into(),
+        ));
+    }
+    if returned_vault.is_empty() {
+        *returned_vault = vault.into();
+    }
+    let mut ids = std::collections::HashSet::new();
+    for e in events {
+        let metadata = [
+            (&e.title, 500, false),
+            (&e.description, 32768, true),
+            (&e.location, 2048, false),
+            (&e.url, 4096, false),
+            (&e.time_zone, 128, false),
+            (&e.note_id, 20, false),
+            (&e.start, 64, false),
+            (&e.end, 64, false),
+            (&e.updated_at, 64, false),
+        ];
+        if e.version != 1
+            || e.revision == 0
+            || e.revision > i64::MAX as u64
+            || !event_id_valid(&e.id)
+            || !ids.insert(&e.id)
+            || e.deleted
+            || e.title.trim().is_empty()
+            || !matches!(e.status.as_str(), "confirmed" | "cancelled")
+            || metadata.iter().any(|(s, max, multiline)| {
+                s.len() > *max
+                    || s.chars()
+                        .any(|c| c.is_control() && !(*multiline && matches!(c, '\n' | '\r' | '\t')))
+            })
+            || (!e.note_id.is_empty()
+                && !e
+                    .note_id
+                    .parse::<i64>()
+                    .is_ok_and(|id| id > 0 && id.to_string() == e.note_id))
+            || (e.all_day
+                && (!event_date_valid(&e.start)
+                    || !event_date_valid(&e.end)
+                    || e.start >= e.end
+                    || !e.time_zone.is_empty()))
+            || (!e.all_day && (e.start.is_empty() || e.end.is_empty() || e.time_zone.is_empty()))
+        {
+            return Err(Error::Shape(
+                "invalid calendar event identity, range or metadata".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn event_date_valid(date: &str) -> bool {
     calendar_date_valid(date) && !date.starts_with("0000")
 }
@@ -871,63 +975,40 @@ impl ReadClient {
         }
         let mut result: CalendarEventsResponse =
             self.get("/api/calendar-events", &vault_query(vault))?;
-        if result.vault.len() > 1024
-            || result.vault.contains('\0')
-            || (!vault.is_empty() && !result.vault.is_empty() && result.vault != vault)
-            || result.events.len() > 4096
-        {
-            return Err(Error::Shape(
-                "calendar vault mismatch or excessive rows".into(),
+        validate_calendar_records(&mut result.vault, &result.events, vault)?;
+        result.source_vault = vault.into();
+        result.launch_generation = self.launch_generation;
+        Ok(result)
+    }
+
+    /// Explicit UTC projection, with no legacy-list fallback or local filtering.
+    pub fn calendar_day_events(
+        &self,
+        vault: &str,
+        date: &str,
+    ) -> Result<CalendarDayEventsResponse, Error> {
+        let (day_start, day_end) = utc_day_bounds(date).ok_or_else(|| {
+            Error::Config("calendar day requires a date in years 0001..9998".into())
+        })?;
+        if vault.len() > 1024 || vault.contains('\0') {
+            return Err(Error::Config(
+                "calendar events require a bounded vault name".into(),
             ));
         }
-        if result.vault.is_empty() {
-            result.vault = vault.into();
+        let mut args = vault_query(vault);
+        args.push(("date", date.into()));
+        args.push(("time_zone", "UTC".into()));
+        let mut result: CalendarDayEventsResponse = self.get("/api/calendar-events/day", &args)?;
+        if result.date != date
+            || result.time_zone != "UTC"
+            || result.day_start != day_start
+            || result.day_end != day_end
+        {
+            return Err(Error::Shape(
+                "calendar UTC date or boundaries mismatch".into(),
+            ));
         }
-        let mut ids = std::collections::HashSet::new();
-        for e in &result.events {
-            let metadata = [
-                (&e.title, 500, false),
-                (&e.description, 32768, true),
-                (&e.location, 2048, false),
-                (&e.url, 4096, false),
-                (&e.time_zone, 128, false),
-                (&e.note_id, 20, false),
-                (&e.start, 64, false),
-                (&e.end, 64, false),
-                (&e.updated_at, 64, false),
-            ];
-            if e.version != 1
-                || e.revision == 0
-                || e.revision > i64::MAX as u64
-                || !event_id_valid(&e.id)
-                || !ids.insert(&e.id)
-                || e.deleted
-                || e.title.trim().is_empty()
-                || !matches!(e.status.as_str(), "confirmed" | "cancelled")
-                || metadata.iter().any(|(s, max, multiline)| {
-                    s.len() > *max
-                        || s.chars().any(|c| {
-                            c.is_control() && !(*multiline && matches!(c, '\n' | '\r' | '\t'))
-                        })
-                })
-                || (!e.note_id.is_empty()
-                    && !e
-                        .note_id
-                        .parse::<i64>()
-                        .is_ok_and(|id| id > 0 && id.to_string() == e.note_id))
-                || (e.all_day
-                    && (!event_date_valid(&e.start)
-                        || !event_date_valid(&e.end)
-                        || e.start >= e.end
-                        || !e.time_zone.is_empty()))
-                || (!e.all_day
-                    && (e.start.is_empty() || e.end.is_empty() || e.time_zone.is_empty()))
-            {
-                return Err(Error::Shape(
-                    "invalid calendar event identity, range or metadata".into(),
-                ));
-            }
-        }
+        validate_calendar_records(&mut result.vault, &result.events, vault)?;
         result.source_vault = vault.into();
         result.launch_generation = self.launch_generation;
         Ok(result)
@@ -3059,6 +3140,238 @@ mod tests {
             .store(false, std::sync::atomic::Ordering::Release);
         assert!(matches!(client.calendar_events(""), Err(Error::Stale)));
     }
+    fn calendar_day_fixture() -> Value {
+        serde_json::json!({"vault":"work", "date":"2026-11-01", "time_zone":"UTC",
+            "day_start":"2026-11-01T00:00:00Z", "day_end":"2026-11-02T00:00:00Z", "events":[]})
+    }
+    #[test]
+    fn calendar_day_events_scoped_projection_preserves_labels() {
+        let mut e = calendar_event_fixture();
+        e["all_day"] = serde_json::json!(false);
+        e["start"] = serde_json::json!("2026-11-01T01:30:00.123456789-04:00");
+        e["end"] = serde_json::json!("2026-11-01T01:30:00.123456789-05:00");
+        e["time_zone"] = serde_json::json!("America/New_York");
+        e["status"] = serde_json::json!("cancelled");
+        let mut body = calendar_day_fixture();
+        body["vault"] = serde_json::json!("work & 日本語");
+        body["events"] = serde_json::json!([e]);
+        body["read_state"] = serde_json::json!({"partial":true});
+        let (client, worker) = mock(200, body.to_string());
+        let result = client
+            .calendar_day_events("work & 日本語", "2026-11-01")
+            .unwrap();
+        assert_eq!(result.source_vault, "work & 日本語");
+        assert_eq!(result.launch_generation, client.launch_generation);
+        assert_eq!(
+            result.events[0].start,
+            "2026-11-01T01:30:00.123456789-04:00"
+        );
+        assert_eq!(result.events[0].end, "2026-11-01T01:30:00.123456789-05:00");
+        assert_eq!(result.events[0].time_zone, "America/New_York");
+        assert_eq!(result.events[0].status, "cancelled");
+        assert_eq!(result.diagnostics["read_state"]["partial"], true);
+        assert!(worker.join().unwrap().starts_with("GET /api/calendar-events/day?vault=work+%26+%E6%97%A5%E6%9C%AC%E8%AA%9E&date=2026-11-01&time_zone=UTC HTTP/"));
+    }
+    #[test]
+    fn calendar_day_events_require_complete_exact_shape() {
+        for field in [
+            "vault",
+            "date",
+            "time_zone",
+            "day_start",
+            "day_end",
+            "events",
+        ] {
+            for replacement in [None, Some(Value::Null), Some(serde_json::json!(123))] {
+                let mut body = calendar_day_fixture();
+                match replacement {
+                    None => {
+                        body.as_object_mut().unwrap().remove(field);
+                    }
+                    Some(value) => body[field] = value,
+                }
+                let (client, worker) = mock(200, body.to_string());
+                assert!(
+                    matches!(
+                        client.calendar_day_events("work", "2026-11-01"),
+                        Err(Error::Shape(_))
+                    ),
+                    "{field}"
+                );
+                worker.join().unwrap();
+            }
+        }
+        for (field, value) in [
+            ("date", "2026-11-02"),
+            ("time_zone", "Etc/UTC"),
+            ("day_start", "2026-11-01T00:00:00+00:00"),
+            ("day_end", "2026-11-01T23:59:59Z"),
+            ("vault", "other"),
+        ] {
+            let mut body = calendar_day_fixture();
+            body[field] = serde_json::json!(value);
+            let (client, worker) = mock(200, body.to_string());
+            assert!(
+                matches!(
+                    client.calendar_day_events("work", "2026-11-01"),
+                    Err(Error::Shape(_))
+                ),
+                "{field}"
+            );
+            worker.join().unwrap();
+        }
+    }
+    #[test]
+    fn calendar_day_events_validate_dates_identity_and_bounds() {
+        for (date, end) in [
+            ("0001-01-01", "0001-01-02"),
+            ("2024-02-29", "2024-03-01"),
+            ("2026-12-31", "2027-01-01"),
+            ("9998-12-31", "9999-01-01"),
+        ] {
+            assert_eq!(
+                utc_day_bounds(date),
+                Some((format!("{date}T00:00:00Z"), format!("{end}T00:00:00Z")))
+            );
+        }
+        let (client, worker) = mock(200, calendar_day_fixture().to_string());
+        for date in [
+            "",
+            "0000-01-01",
+            "9999-01-01",
+            "2026-02-29",
+            "2026-11-01 ",
+            "２０２６-11-01",
+            "2026-1-01",
+        ] {
+            assert!(matches!(
+                client.calendar_day_events("work", date),
+                Err(Error::Config(_))
+            ));
+        }
+        assert!(matches!(
+            client.calendar_day_events("bad\0vault", "2026-11-01"),
+            Err(Error::Config(_))
+        ));
+        assert!(
+            client
+                .calendar_day_events("work", "2026-11-01")
+                .unwrap()
+                .events
+                .is_empty()
+        );
+        worker.join().unwrap();
+        for count in [1, 100, 101, 4096, 4097] {
+            let mut body = calendar_day_fixture();
+            body["events"] = Value::Array(
+                (0..count)
+                    .map(|n| {
+                        let mut e = calendar_event_fixture();
+                        e["id"] = serde_json::json!(format!("20000000-0000-4000-8000-{n:012x}"));
+                        e
+                    })
+                    .collect(),
+            );
+            let (client, worker) = mock(200, body.to_string());
+            let result = client.calendar_day_events("work", "2026-11-01");
+            if count <= 4096 {
+                assert_eq!(result.unwrap().events.len(), count);
+            } else {
+                assert!(matches!(result, Err(Error::Shape(_))));
+            }
+            worker.join().unwrap();
+        }
+        for events in [
+            serde_json::json!([calendar_event_fixture(), calendar_event_fixture()]),
+            serde_json::json!([{"id":"bad"}]),
+        ] {
+            let mut body = calendar_day_fixture();
+            body["events"] = events;
+            let (client, worker) = mock(200, body.to_string());
+            assert!(matches!(
+                client.calendar_day_events("work", "2026-11-01"),
+                Err(Error::Shape(_))
+            ));
+            worker.join().unwrap();
+        }
+    }
+    #[test]
+    fn calendar_day_events_no_fallback_and_launch_alias_stale() {
+        for status in [400, 404, 405, 500, 503] {
+            let (client, worker) = mock(status, "{}");
+            assert!(
+                matches!(client.calendar_day_events("work", "2026-11-01"), Err(Error::Http {status:s,..}) if s == status)
+            );
+            assert!(
+                worker
+                    .join()
+                    .unwrap()
+                    .starts_with("GET /api/calendar-events/day?")
+            );
+        }
+        let (client, worker) = mock(200, calendar_day_fixture().to_string());
+        let result = client.calendar_day_events("", "2026-11-01").unwrap();
+        assert_eq!(result.source_vault, "");
+        assert_eq!(result.vault, "work");
+        assert!(
+            worker
+                .join()
+                .unwrap()
+                .starts_with("GET /api/calendar-events/day?date=2026-11-01&time_zone=UTC HTTP/")
+        );
+        client.alive.store(false, Ordering::Release);
+        assert!(matches!(
+            client.calendar_day_events("", "2026-11-01"),
+            Err(Error::Stale)
+        ));
+    }
+
+    #[test]
+    fn calendar_day_events_timeout_is_error_without_fallback() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let worker = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let mut request = Vec::new();
+            let mut byte = [0; 1];
+            while !request.ends_with(b"\r\n\r\n") {
+                stream.read_exact(&mut byte).unwrap();
+                request.push(byte[0]);
+            }
+            thread::sleep(Duration::from_millis(500));
+            listener.set_nonblocking(true).unwrap();
+            assert!(
+                listener.accept().is_err(),
+                "must not retry the legacy endpoint"
+            );
+            String::from_utf8(request).unwrap()
+        });
+        let client = ReadClient {
+            http: reqwest::blocking::Client::builder()
+                .no_proxy()
+                .retry(reqwest::retry::never())
+                .timeout(Duration::from_millis(200))
+                .build()
+                .unwrap(),
+            origin,
+            alive: Arc::new(AtomicBool::new(true)),
+            launch_generation: 1,
+        };
+        assert!(matches!(
+            client.calendar_day_events("work", "2026-11-01"),
+            Err(Error::Transport(_))
+        ));
+        assert!(
+            worker
+                .join()
+                .unwrap()
+                .starts_with("GET /api/calendar-events/day?")
+        );
+    }
+
     fn dated_task_fixture() -> Value {
         serde_json::json!({"note_id":42,"file_kind":"note","title":"日本語",
             "line":3,"state":"TODO","done":false,"priority":"A",

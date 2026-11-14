@@ -46,6 +46,12 @@ func eventRoot(cfg *config.Config, create bool) (*os.Root, error) {
 	if err != nil {
 		return nil, err
 	}
+	return eventRootFromVault(root, create)
+}
+
+// eventRootFromVault consumes the open vault handle and descends without reopening
+// its pathname. This distinguishes an unavailable vault from absent event storage.
+func eventRootFromVault(root *os.Root, create bool) (*os.Root, error) {
 	for _, part := range []string{"calendar", "events"} {
 		info, err := root.Lstat(part)
 		if errors.Is(err, os.ErrNotExist) && create {
@@ -140,8 +146,23 @@ func Get(cfg *config.Config, id string) (Event, error) {
 }
 
 func List(cfg *config.Config, includeDeleted bool) ([]Event, error) {
+	return list(cfg, includeDeleted, 0)
+}
+
+// A positive limit bounds source records, including trash, before projection.
+func list(cfg *config.Config, includeDeleted bool, limit int) ([]Event, error) {
 	result := []Event{}
-	root, err := eventRoot(cfg, false)
+	var root *os.Root
+	var err error
+	if limit > 0 {
+		root, err = os.OpenRoot(cfg.VaultDir)
+		if err != nil {
+			return nil, err
+		}
+		root, err = eventRootFromVault(root, false)
+	} else {
+		root, err = eventRoot(cfg, false)
+	}
 	if errors.Is(err, os.ErrNotExist) {
 		return result, nil
 	}
@@ -154,9 +175,31 @@ func List(cfg *config.Config, includeDeleted bool) ([]Event, error) {
 		return nil, err
 	}
 	defer dir.Close()
-	entries, err := dir.ReadDir(-1)
-	if err != nil {
-		return nil, err
+	var entries []os.DirEntry
+	if limit == 0 {
+		entries, err = dir.ReadDir(-1)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		// Do not retain an unbounded directory listing for the bounded day API.
+		for {
+			batch, readErr := dir.ReadDir(128)
+			if readErr != nil && !errors.Is(readErr, io.EOF) {
+				return nil, readErr
+			}
+			for _, entry := range batch {
+				if strings.HasSuffix(entry.Name(), ".json") {
+					entries = append(entries, entry)
+					if len(entries) > limit {
+						return nil, fmt.Errorf("calendar source exceeds %d events", limit)
+					}
+				}
+			}
+			if errors.Is(readErr, io.EOF) {
+				break
+			}
+		}
 	}
 	for _, entry := range entries {
 		if !strings.HasSuffix(entry.Name(), ".json") {

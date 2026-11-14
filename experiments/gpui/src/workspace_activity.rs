@@ -1,7 +1,7 @@
-//! Read-only Home calendar. Dates use the local calendar shared with the owned
-//! child server; no journal endpoint or note mutation is used here.
+//! Read-only Home activity. The date picker uses the device-local date; selected
+//! calendar events explicitly use that date label in UTC, not a local-day interval.
 use super::*;
-use gpui::Div;
+use gpui::{Div, SharedString};
 
 static NEXT_AGENDA: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 static ACTIVE_AGENDA: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
@@ -29,6 +29,7 @@ struct Identity {
     launch: u64,
     epoch: u64,
     request: u64,
+    scope_revision: u64,
     vault: String,
     since: String,
     until: String,
@@ -39,6 +40,7 @@ impl Identity {
         launch: Option<u64>,
         epoch: Option<u64>,
         request: u64,
+        scope_revision: u64,
         vault: &str,
         available: bool,
     ) -> bool {
@@ -46,6 +48,7 @@ impl Identity {
             && launch == Some(self.launch)
             && epoch == Some(self.epoch)
             && request == self.request
+            && scope_revision == self.scope_revision
             && vault == self.vault
     }
 }
@@ -60,7 +63,8 @@ struct AgendaState {
     serial: u64,
     result: Option<Result<live::AgendaResponse, String>>,
     tasks: Option<Result<live::DatedTasksResponse, String>>,
-    events: Option<Result<live::CalendarEventsResponse, String>>,
+    events: Option<Result<live::CalendarDayEventsResponse, String>>,
+    events_page: usize,
 }
 impl AgendaState {
     fn accepts(&self, serial: u64, date: &str) -> bool {
@@ -188,6 +192,7 @@ impl Workspace {
             launch: session.client().launch_generation,
             epoch,
             request: self.request,
+            scope_revision: self.shell.scope_revision,
             vault: self.working_vault_scope().to_owned(),
             since: dates[0].text(),
             until: today.text(),
@@ -238,6 +243,7 @@ impl Workspace {
                         this.live.as_ref().map(|s| s.client().launch_generation),
                         this.accepted_storage_generation,
                         this.request,
+                        this.shell.scope_revision,
                         this.working_vault_scope(),
                         this.shell.home
                             && !this.quit_session.is_closing()
@@ -378,7 +384,7 @@ impl Workspace {
             )
             .child(self.activity_agenda(cx))
             .child(self.activity_tasks(cx))
-            .child(self.activity_events())
+            .child(self.activity_events(cx))
     }
 }
 #[cfg(test)]
@@ -390,18 +396,20 @@ mod tests {
             launch: 2,
             epoch: 8,
             request: 4,
+            scope_revision: 3,
             vault: "work".into(),
             since: "2026-11-01".into(),
             until: "2026-11-14".into(),
         };
-        assert!(id.accepts(Some(2), Some(8), 4, "work", true));
-        assert!(!id.accepts(Some(3), Some(8), 4, "work", true));
-        assert!(!id.accepts(Some(2), Some(9), 4, "work", true));
-        assert!(!id.accepts(Some(2), Some(8), 5, "work", true));
-        assert!(!id.accepts(Some(2), Some(8), 4, "", true));
-        assert!(!id.accepts(Some(2), Some(8), 4, "work", false));
-        assert!(!id.accepts(None, Some(8), 4, "work", true));
-        assert!(!id.accepts(Some(2), None, 4, "work", true));
+        assert!(id.accepts(Some(2), Some(8), 4, 3, "work", true));
+        assert!(!id.accepts(Some(3), Some(8), 4, 3, "work", true));
+        assert!(!id.accepts(Some(2), Some(9), 4, 3, "work", true));
+        assert!(!id.accepts(Some(2), Some(8), 5, 3, "work", true));
+        assert!(!id.accepts(Some(2), Some(8), 4, 3, "", true));
+        assert!(!id.accepts(Some(2), Some(8), 4, 3, "work", false));
+        assert!(!id.accepts(None, Some(8), 4, 3, "work", true));
+        assert!(!id.accepts(Some(2), None, 4, 3, "work", true));
+        assert!(!id.accepts(Some(2), Some(8), 4, 5, "work", true)); // scope ABA
         let mut changed = id.clone();
         changed.until = "2026-11-15".into();
         assert_ne!(id, changed);
@@ -498,6 +506,7 @@ impl Workspace {
             self.live.as_ref().map(|s| s.client().launch_generation),
             self.accepted_storage_generation,
             self.request,
+            self.shell.scope_revision,
             self.working_vault_scope(),
             self.shell.home
                 && !self.quit_session.is_closing()
@@ -528,6 +537,7 @@ impl Workspace {
             result: None,
             tasks: None,
             events: None,
+            events_page: 0,
         });
         let Some(permit) = AgendaPermit::acquire() else {
             state.agenda.as_mut().unwrap().events = Some(Err(
@@ -562,7 +572,7 @@ impl Workspace {
                 .dated_tasks(&captured.vault)
                 .map_err(|e| e.to_string());
             let events = client
-                .calendar_events(&captured.vault)
+                .calendar_day_events(&captured.vault, &selected)
                 .map_err(|e| e.to_string());
             let after = client.storage();
             if !after
@@ -589,7 +599,10 @@ impl Workspace {
                 }
             });
             let events = events.and_then(|r| {
-                if r.launch_generation == captured.launch && r.source_vault == captured.vault {
+                if r.launch_generation == captured.launch
+                    && r.source_vault == captured.vault
+                    && r.date == selected
+                {
                     Ok(r)
                 } else {
                     Err(stale())
@@ -613,6 +626,7 @@ impl Workspace {
                     agenda.result = Some(result.0);
                     agenda.tasks = Some(result.1);
                     agenda.events = Some(result.2);
+                    agenda.events_page = 0;
                     cx.notify();
                 }
             });
@@ -741,12 +755,13 @@ mod agenda_tests {
             )
             .unwrap())),
             events: Some(Err("unavailable".into())),
+            events_page: 0,
         };
         assert!(state.result.as_ref().unwrap().is_ok());
         assert!(state.tasks.as_ref().unwrap().is_ok());
         assert!(state.events.as_ref().unwrap().is_err());
         state.events = Some(Ok(serde_json::from_value(
-            serde_json::json!({"vault":"work","events":[],"read_state":{"partial":true}}),
+            serde_json::json!({"vault":"work","date":"2026-11-14","time_zone":"UTC","day_start":"2026-11-14T00:00:00Z","day_end":"2026-11-15T00:00:00Z","events":[],"read_state":{"partial":true}}),
         )
         .unwrap()));
         state.result = Some(Err("unavailable".into()));
@@ -766,6 +781,7 @@ mod agenda_tests {
             result: None,
             tasks: None,
             events: None,
+            events_page: 0,
         };
         assert!(state.accepts(1, "2026-11-14"));
         assert!(!state.accepts(1, "2026-11-13"));
@@ -897,13 +913,46 @@ mod daily_task_tests {
     }
 }
 
+fn events_page_range(total: usize, requested: usize) -> (usize, usize, std::ops::Range<usize>) {
+    let pages = total.div_ceil(100);
+    let page = requested.min(pages.saturating_sub(1));
+    let start = page * 100;
+    (page, pages, start..(start + 100).min(total))
+}
+fn events_heading(date: &str) -> String {
+    format!("Calendar events · {date} (UTC)")
+}
+fn event_label(event: &live::CalendarEvent) -> String {
+    format!(
+        "{} · {} · {} to {} · {}{}",
+        event.status,
+        event.title,
+        event.start,
+        event.end,
+        if event.all_day {
+            "all-day civil dates (end exclusive)".to_owned()
+        } else {
+            format!("event zone: {} (original timestamps)", event.time_zone)
+        },
+        if event.location.is_empty() {
+            String::new()
+        } else {
+            format!(" · {}", event.location)
+        }
+    )
+}
 impl Workspace {
-    fn activity_events(&self) -> Div {
+    fn activity_events(&self, cx: &mut Context<Self>) -> Div {
         let mut view = div().mt_3().flex().flex_col().gap_1();
-        let Some(agenda) = self.shell.activity.as_ref().and_then(|s| s.agenda.as_ref()) else {
+        let Some(state) = self.shell.activity.as_ref() else {
             return view;
         };
-        view = view.child(format!("All-day calendar events · {}", agenda.date));
+        let Some(agenda) = state.agenda.as_ref() else {
+            return view;
+        };
+        view = view.child(events_heading(&agenda.date)).child(
+            "Timed events are matched to this UTC date; all-day events use their civil dates.",
+        );
         let Some(result) = &agenda.events else {
             return view.child("Loading calendar events…");
         };
@@ -911,38 +960,116 @@ impl Workspace {
             Ok(response) => response,
             Err(_) => return view.child("Calendar events unavailable. Select the day again to retry; notes and tasks are independent."),
         };
-        let timed = response.events.iter().filter(|e| !e.all_day).count();
-        view = view.child(format!("All-day events only. {timed} timed event(s) in this vault are not included; this is not a selected-day count."));
-        let matching: Vec<_> = response
-            .events
-            .iter()
-            .filter(|e| e.all_day_on(&agenda.date))
-            .collect();
         if incomplete(&response.diagnostics) {
             view = view.child("Incomplete or cached calendar events; missing events are unknown.");
-        } else if matching.is_empty() {
-            view = view.child("No all-day events on this day.");
+        } else if response.events.is_empty() {
+            view = view.child("No calendar events on this UTC date.");
         }
-        for event in matching.iter().take(100) {
-            view = view.child(format!(
-                "{} · {} · {} to {} (end exclusive){}",
-                event.status,
-                event.title,
-                event.start,
-                event.end,
-                if event.location.is_empty() {
-                    String::new()
-                } else {
-                    format!(" · {}", event.location)
-                }
+        let (page, pages, range) = events_page_range(response.events.len(), agenda.events_page);
+        let mut controls = div().flex().gap_3();
+        if pages > 0 {
+            controls = controls.child(format!(
+                "{} events · page {}/{} · snapshot",
+                response.events.len(),
+                page + 1,
+                pages
             ));
         }
-        if matching.len() > 100 {
-            view = view.child(format!(
-                "Showing the first 100 of {} matching all-day events.",
-                matching.len()
-            ));
+        for (label, target) in [
+            ("Previous", page.checked_sub(1)),
+            ("Next", (page + 1 < pages).then_some(page + 1)),
+        ] {
+            if let Some(target) = target {
+                let identity = state.identity.clone();
+                let serial = agenda.serial;
+                let date = agenda.date.clone();
+                controls = controls.child(
+                    div()
+                        .id(if label == "Previous" {
+                            "calendar-events-prev"
+                        } else {
+                            "calendar-events-next"
+                        })
+                        .cursor_pointer()
+                        .child(label)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if !this.activity_identity_current(&identity) {
+                                return;
+                            }
+                            if let Some(agenda) = this
+                                .shell
+                                .activity
+                                .as_mut()
+                                .and_then(|s| s.agenda.as_mut())
+                                .filter(|a| {
+                                    a.accepts(serial, &date)
+                                        && a.events.as_ref().is_some_and(|r| r.is_ok())
+                                })
+                            {
+                                agenda.events_page = target;
+                                cx.notify();
+                            }
+                        })),
+                );
+            }
         }
-        view.child("Read-only calendar metadata · no event editing, links or recurrence expansion.")
+        // Serial is globally unique across selected-day requests, including ABA.
+        let mut rows = div()
+            .id(SharedString::from(format!(
+                "calendar-events-{}-{page}",
+                agenda.serial
+            )))
+            .max_h(px(300.))
+            .overflow_y_scroll();
+        for event in &response.events[range] {
+            rows = rows.child(div().mb_2().child(event_label(event)));
+        }
+        view.child(controls)
+            .child(rows)
+            .child("Read-only calendar metadata · no event editing, links or recurrence expansion.")
+    }
+}
+
+#[cfg(test)]
+mod utc_event_display_tests {
+    use super::*;
+    #[test]
+    fn pages_reach_every_record_in_engine_order() {
+        for total in [0usize, 1, 100, 101, 4096] {
+            let mut visited = Vec::new();
+            let pages = total.div_ceil(100);
+            for requested in 0..pages {
+                let (page, count, range) = events_page_range(total, requested);
+                assert_eq!(page, requested);
+                assert_eq!(count, pages);
+                assert!(range.len() <= 100);
+                visited.extend(range);
+            }
+            assert_eq!(visited, (0..total).collect::<Vec<_>>());
+            let (_, _, last) = events_page_range(total, usize::MAX);
+            assert_eq!(last.end, total);
+            assert_eq!(events_page_range(total, 0).2.start, 0);
+        }
+    }
+    #[test]
+    fn explicit_utc_heading_and_original_event_labels() {
+        assert_eq!(
+            events_heading("2026-11-01"),
+            "Calendar events · 2026-11-01 (UTC)"
+        );
+        let mut event: live::CalendarEvent = serde_json::from_value(serde_json::json!({
+            "version":1,"id":"00000000-0000-4000-8000-000000000001","revision":1,
+            "title":"Original","all_day":false,"start":"2026-11-01T01:30:00.123-04:00",
+            "end":"2026-11-01T01:30:00.456-05:00","time_zone":"America/New_York",
+            "status":"cancelled","description":"","location":"room","url":"","note_id":"",
+            "deleted":false,"updated_at":"2026-11-01T00:00:00Z"
+        }))
+        .unwrap();
+        let label = event_label(&event);
+        for original in [&event.start, &event.end, &event.time_zone, &event.status] {
+            assert!(label.contains(original));
+        }
+        event.all_day = true;
+        assert!(event_label(&event).contains("all-day civil dates (end exclusive)"));
     }
 }
