@@ -1572,6 +1572,48 @@ impl Render for Workspace {
                     })),
             )
         });
+        // Derive only from the accepted response; no additional reads or cache.
+        let external =
+            crate::external_refs::ExternalReferences::from_related(&self.current_related);
+        let external_source = self.current_link_source();
+        let aside = aside.when(external.visible(), |aside| {
+            aside.child(
+                div()
+                    .mt_6()
+                    .child(label("FROM OTHER VAULTS", p))
+                    .children(external.references.into_iter().enumerate().map(
+                        |(index, reference)| {
+                            let vault_label = if reference.key.vault.is_empty() {
+                                "Launch vault"
+                            } else {
+                                &reference.key.vault
+                            };
+                            div()
+                                .id(("external-reference", index))
+                                .py_1()
+                                .child(div().text_size(px(12.)).child(vault_label.to_owned()))
+                                .child(div().text_color(rgb(p.ink)).child(reference.title))
+                                .when_some(external_source.clone(), |row, source| {
+                                    row.cursor_pointer().on_click(cx.listener(
+                                        move |this, _, _, cx| {
+                                            // Reject a click from a previous note/session/storage render.
+                                            if this.current_link_source().as_ref() == Some(&source)
+                                            {
+                                                this.open_live_key(reference.key.clone(), cx);
+                                            }
+                                        },
+                                    ))
+                                })
+                        },
+                    ))
+                    .children(
+                        external
+                            .notices
+                            .into_iter()
+                            .map(|notice| div().py_1().child(notice)),
+                    ),
+            )
+        });
         let aside = aside.when(self.live.is_some() || self.backend.is_some(), |aside| {
             aside.child(
                 div()
@@ -2185,7 +2227,34 @@ impl Render for Workspace {
 
 #[cfg(test)]
 mod reference_tests {
-    use super::reference_key;
+    use super::{LinkSource, reference_key};
+
+    #[test]
+    fn external_click_source_changes_on_navigation_session_or_storage() {
+        let source = LinkSource {
+            note: crate::live::NoteKey {
+                vault: "work".into(),
+                note_id: 42,
+            },
+            etag: "a".into(),
+            storage_generation: 1,
+            launch_generation: 2,
+            request: 3,
+        };
+        let mut changed = vec![source.clone(); 6];
+        changed[0].note.vault = "research".into();
+        changed[1].note.note_id = 43;
+        changed[2].etag = "b".into();
+        changed[3].storage_generation += 1;
+        changed[4].launch_generation += 1;
+        changed[5].request += 1;
+        assert_eq!(Some(&source), Some(&source.clone()));
+        for stale in changed {
+            assert_ne!(Some(&source), Some(&stale));
+        }
+        assert_ne!(Some(&source), None);
+    }
+
     use serde_json::json;
 
     #[test]

@@ -5,6 +5,7 @@ use gpui::{
 mod backend;
 mod editing;
 mod editor_input;
+mod external_refs;
 mod graph;
 mod graph_view;
 mod input_trace;
