@@ -697,3 +697,15 @@ Find and scroll remain unchanged, with no vault/file writes or image/link loads.
 Verify long Unicode filenames, 101+ files, bounded errors, narrow/light/dark
 layout, focus, keyboard/IME and VoiceOver. Headless tests do not validate these
 native flows; normal editing remains disabled.
+
+### Query lists and boards (pending native QA)
+
+Use a disposable query-only note and a note mixing includes, headings and queries.
+Open Rendered content, then Rendered preview. Verify ordered list metadata and
+side-by-side board lanes, empty results/lanes, hidden-title cards and duplicate
+titles. Exercise 101+ list rows, five lanes and 51+ cards in one lane. Later pages
+must remain reachable, and controls must not navigate or write. Replace/close the
+preview during interaction and verify stale page actions do nothing. Confirm
+gallery/calendar and malformed/over-limit payloads retain source plus a notice.
+Check narrow layout, horizontal board scrolling, keyboard focus, IME, VoiceOver
+and light/dark contrast. No native evidence is claimed for this slice.

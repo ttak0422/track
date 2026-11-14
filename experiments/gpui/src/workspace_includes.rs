@@ -32,10 +32,44 @@ pub(crate) struct IncludesState {
     preview_open: bool,
     preview_focus: Option<gpui::FocusHandle>,
     preview_scroll: gpui::ScrollHandle,
+    preview_epoch: u64,
+    query_pages: std::collections::BTreeMap<(usize, usize, Option<usize>), usize>,
+}
+/// Preview controls must not use host-reader gates, which intentionally reject
+/// this surface. Capture only competing actions and composition here.
+#[derive(Default)]
+struct QueryPageGate {
+    preview_active: bool,
+    source_matches: bool,
+    handoff: bool,
+    gesture: bool,
+    editing: bool,
+    pending: bool,
+    find: bool,
+    search: bool,
+    menu: bool,
+    closing: bool,
+    composing: bool,
+}
+impl QueryPageGate {
+    fn allowed(&self) -> bool {
+        self.preview_active
+            && self.source_matches
+            && !(self.handoff
+                || self.gesture
+                || self.editing
+                || self.pending
+                || self.find
+                || self.search
+                || self.menu
+                || self.closing
+                || self.composing)
+    }
 }
 struct Snapshot {
     response: crate::included_notes::Response,
     preview: Result<markdown::IncludePreview, String>,
+    queries: std::collections::BTreeMap<(usize, usize), Result<crate::query_view::View, String>>,
 }
 impl IncludesState {
     fn new(identity: Identity) -> Self {
@@ -47,7 +81,68 @@ impl IncludesState {
             preview_open: false,
             preview_focus: None,
             preview_scroll: gpui::ScrollHandle::new(),
+            preview_epoch: 0,
+            query_pages: Default::default(),
         }
+    }
+    fn query_page_action(
+        &mut self,
+        gate: QueryPageGate,
+        identity: &Identity,
+        serial: u64,
+        epoch: u64,
+        key: (usize, usize),
+        group: Option<usize>,
+        page: usize,
+    ) -> bool {
+        gate.allowed() && self.set_query_page(identity, serial, epoch, key, group, page)
+    }
+    fn set_query_page(
+        &mut self,
+        identity: &Identity,
+        serial: u64,
+        epoch: u64,
+        key: (usize, usize),
+        group: Option<usize>,
+        page: usize,
+    ) -> bool {
+        if !self.accepts(identity, serial) || !self.preview_open || self.preview_epoch != epoch {
+            return false;
+        }
+        let Some(Ok(snapshot)) = &self.result else {
+            return false;
+        };
+        let Some(Ok(view)) = snapshot.queries.get(&key) else {
+            return false;
+        };
+        let (count, size) = match (view.layout, group) {
+            (crate::query_view::Layout::List, None) => {
+                (view.total_rows(), crate::query_view::LIST_PAGE)
+            }
+            (crate::query_view::Layout::Board, None) => {
+                (view.groups.len(), crate::query_view::LANE_PAGE)
+            }
+            (crate::query_view::Layout::Board, Some(index)) => {
+                let lane_page = self
+                    .query_pages
+                    .get(&(key.0, key.1, None))
+                    .copied()
+                    .unwrap_or(0);
+                if index / crate::query_view::LANE_PAGE != lane_page {
+                    return false;
+                }
+                let Some(lane) = view.groups.get(index) else {
+                    return false;
+                };
+                (lane.rows.len(), crate::query_view::CARD_PAGE)
+            }
+            _ => return false,
+        };
+        if page >= count.div_ceil(size).max(1) {
+            return false;
+        }
+        self.query_pages.insert((key.0, key.1, group), page);
+        true
     }
     fn accepts(&self, identity: &Identity, serial: u64) -> bool {
         self.open && &self.identity == identity && self.serial == serial
@@ -90,6 +185,8 @@ impl Workspace {
             return;
         };
         state.preview_open = true;
+        state.preview_epoch = SERIAL.fetch_add(1, Ordering::Relaxed);
+        state.query_pages.clear();
         state.preview_scroll = gpui::ScrollHandle::new();
         let focus = state
             .preview_focus
@@ -119,6 +216,7 @@ impl Workspace {
             return;
         };
         state.preview_open = false;
+        state.query_pages.clear();
         if let Some(focus) = &self.shell.reader_focus {
             window.focus(focus);
         } else {
@@ -153,14 +251,14 @@ impl Workspace {
                         )));
                         row = match item {
                             markdown::PreviewItem::Host(blocks) => {
-                                row.child(markdown::render_themed(blocks, dark))
+                                row.child(self.render_query_blocks(index, blocks, dark, line, cx))
                             }
                             markdown::PreviewItem::Include {
-                                index,
+                                index: entry_index,
                                 directive,
                                 blocks,
                             } => {
-                                let entry = &snapshot.response.entries[*index];
+                                let entry = &snapshot.response.entries[*entry_index];
                                 let origin = if entry.vault.is_empty() {
                                     "launch vault"
                                 } else {
@@ -202,7 +300,9 @@ impl Workspace {
                                 } else if entry.excerpt.is_empty() {
                                     row = row.child("Successful empty excerpt.");
                                 } else {
-                                    row = row.child(markdown::render_themed(blocks, dark));
+                                    row = row.child(
+                                        self.render_query_blocks(index, blocks, dark, line, cx),
+                                    );
                                 }
                                 row
                             }
@@ -219,7 +319,7 @@ impl Workspace {
                 // No host Find, navigation, checkpoint, task, link or copy shortcuts.
                 cx.stop_propagation();
             }))
-            .child(div().flex().justify_between().child("Rendered preview (read-only)").child(div().id("close-rendered-includes-preview").cursor_pointer().child("Close preview (Esc)").on_click(cx.listener(move |this, _, window, cx| this.close_includes_preview(&close_identity, serial, window, cx)))))
+            .child(div().flex().justify_between().child("Rendered content (read-only)").child(div().id("close-rendered-includes-preview").cursor_pointer().child("Close preview (Esc)").on_click(cx.listener(move |this, _, window, cx| this.close_includes_preview(&close_identity, serial, window, cx)))))
             .child("Engine-resolved snapshots; completeness and currentness are not guaranteed. Partial inline preview: only isolated top-level includes are embedded. Links, images, tasks, recursive includes, Find and navigation are unavailable. Text selection and code copy are not supported here.")
             .child(div().id(gpui::SharedString::from(format!("rendered-includes-scroll-{serial}"))).track_scroll(&scroll).flex_1().min_h_0().overflow_y_scroll().child(body))
     }
@@ -276,6 +376,7 @@ impl Workspace {
         state.serial = serial;
         state.result = None;
         state.preview_open = false;
+        state.query_pages.clear();
         let Some(permit) = Permit::acquire() else {
             state.result = Some(Err(
                 "An earlier include request is still finishing. Refresh shortly.".into(),
@@ -301,7 +402,12 @@ impl Workspace {
             if after.phase != "ready" || after.generation != captured.source.storage_generation {
                 return Err("Storage changed. Reload the workspace.".into());
             }
-            Ok(Snapshot { response, preview })
+            let queries = project_queries(&preview);
+            Ok(Snapshot {
+                response,
+                preview,
+                queries,
+            })
         });
         cx.spawn(async move |this, cx| {
             let result = job.await;
@@ -349,9 +455,9 @@ impl Workspace {
                 .id("includes-toggle")
                 .cursor_pointer()
                 .child(if open {
-                    "▾ Included notes (read-only)"
+                    "▾ Rendered content (read-only)"
                 } else {
-                    "▸ Included notes (read-only)"
+                    "▸ Rendered content (read-only)"
                 })
                 .on_click(cx.listener(move |this, _, _, cx| {
                     if this.includes_identity().as_ref() != Some(&captured)
@@ -382,9 +488,9 @@ impl Workspace {
         }
         let captured = identity.clone();
         view=view.child("Engine-resolved snapshots; refresh to request updated excerpts. Completeness and currentness are not guaranteed. Host Find does not search excerpts.")
-            .child(div().id("includes-refresh").cursor_pointer().child("Refresh included notes").on_click(cx.listener(move |this,_,_,cx|this.includes_fetch(captured.clone(),cx))));
+            .child(div().id("includes-refresh").cursor_pointer().child("Refresh rendered content").on_click(cx.listener(move |this,_,_,cx|this.includes_fetch(captured.clone(),cx))));
         let Some(result) = &self.shell.includes.as_ref().unwrap().result else {
-            return view.child("Loading included notes…");
+            return view.child("Loading rendered content…");
         };
         let entries = match result {
             Ok(snapshot) => &snapshot.response,
@@ -396,7 +502,7 @@ impl Workspace {
             div()
                 .id("includes-rendered-preview")
                 .cursor_pointer()
-                .child("Rendered preview (read-only)")
+                .child("Rendered content (read-only)")
                 .on_click(cx.listener(move |this, _, window, cx| {
                     this.open_includes_preview(&captured, serial, window, cx);
                 })),
@@ -508,10 +614,18 @@ mod tests {
         let mut state = IncludesState::new(id.clone());
         state.open = true;
         state.serial = 5;
-        state.result = Some(Ok(Snapshot { response, preview }));
+        let queries = project_queries(&preview);
+        state.result = Some(Ok(Snapshot {
+            response,
+            preview,
+            queries,
+        }));
         state.preview_open = true;
+        state.preview_epoch = SERIAL.fetch_add(1, Ordering::Relaxed);
+        state.query_pages.clear();
         assert!(state.accepts(&id, 5));
         state.preview_open = false;
+        state.query_pages.clear();
         assert_eq!(source, original);
         assert_eq!(state.identity, id);
         assert!(state.result.is_some());
@@ -522,6 +636,125 @@ mod tests {
         state.open = true;
         state.serial = 6;
         assert!(!state.accepts(&id, 5));
+    }
+    #[test]
+    fn query_pages_reject_stale_generation_and_preserve_reachable_bounds() {
+        use serde_json::json;
+        let id = identity();
+        for count in [0usize, 1, 100, 101, 4096] {
+            let rows = (0..count)
+                .map(|i| json!({"title":i.to_string(),"cells":[]}))
+                .collect::<Vec<_>>();
+            let body = format!(
+                "```track-view\n{}\n```",
+                json!({"layout":"list","columns":[],"groups":[{"rows":rows}]})
+            );
+            let response =
+                crate::included_notes::decode(json!({"markdown":body,"includes":[]}), "host")
+                    .unwrap();
+            let preview = markdown::included_preview(&response);
+            let queries = project_queries(&preview);
+            let mut state = IncludesState::new(id.clone());
+            state.open = true;
+            state.preview_open = true;
+            state.serial = 10;
+            state.preview_epoch = 20;
+            state.result = Some(Ok(Snapshot {
+                response,
+                preview,
+                queries,
+            }));
+            for page in 0..count.div_ceil(100).max(1) {
+                assert!(state.set_query_page(&id, 10, 20, (0, 0), None, page));
+            }
+            assert!(!state.set_query_page(&id, 10, 20, (0, 0), None, count.div_ceil(100).max(1)));
+            assert!(!state.set_query_page(&id, 10, 19, (0, 0), None, 0));
+            assert!(!state.set_query_page(&id, 9, 20, (0, 0), None, 0));
+            assert!(!state.set_query_page(&id, 10, 20, (0, 1), None, 0));
+            assert!(!state.set_query_page(&id, 10, 20, (0, 0), Some(0), 0));
+            for dimension in 0..7 {
+                let mut changed = id.clone();
+                match dimension {
+                    0 => changed.source.request += 1,
+                    1 => changed.source.launch_generation += 1,
+                    2 => changed.source.storage_generation += 1,
+                    3 => changed.source.etag.push('x'),
+                    4 => changed.source.note.note_id += 1,
+                    5 => changed.source.note.vault.push('x'),
+                    _ => changed.route.vault.clear(),
+                };
+                assert!(!state.set_query_page(&changed, 10, 20, (0, 0), None, 0));
+            }
+            state.preview_open = false;
+            assert!(!state.set_query_page(&id, 10, 20, (0, 0), None, 0));
+            state.preview_open = true;
+            state.preview_epoch = 21;
+            assert!(!state.set_query_page(&id, 10, 20, (0, 0), None, 0));
+        }
+    }
+    #[test]
+    fn board_lanes_and_cards_have_independent_bounded_pages() {
+        use serde_json::json;
+        let rows = (0..51)
+            .map(|_| json!({"title":"duplicate","cells":[]}))
+            .collect::<Vec<_>>();
+        let groups = (0..5)
+            .map(|_| json!({"name":"duplicate","rows":rows}))
+            .collect::<Vec<_>>();
+        let body = format!(
+            "```track-view\n{}\n```",
+            json!({"layout":"board","columns":[],"groups":groups})
+        );
+        let response =
+            crate::included_notes::decode(json!({"markdown":body,"includes":[]}), "host").unwrap();
+        let preview = markdown::included_preview(&response);
+        let queries = project_queries(&preview);
+        let id = identity();
+        let mut state = IncludesState::new(id.clone());
+        state.open = true;
+        state.preview_open = true;
+        state.serial = 10;
+        state.preview_epoch = 20;
+        state.result = Some(Ok(Snapshot {
+            response,
+            preview,
+            queries,
+        }));
+        // Exercise the exact action path called by the UI listener: an active
+        // preview is required, not rejected as it is by host Find/pin gates.
+        let ready = || QueryPageGate {
+            preview_active: true,
+            source_matches: true,
+            ..Default::default()
+        };
+        assert!(state.query_page_action(ready(), &id, 10, 20, (0, 0), Some(0), 1));
+        for blocker in 0..11 {
+            let mut gate = ready();
+            match blocker {
+                0 => gate.preview_active = false,
+                1 => gate.source_matches = false,
+                2 => gate.handoff = true,
+                3 => gate.gesture = true,
+                4 => gate.editing = true,
+                5 => gate.pending = true,
+                6 => gate.find = true,
+                7 => gate.search = true,
+                8 => gate.menu = true,
+                9 => gate.closing = true,
+                _ => gate.composing = true,
+            }
+            assert!(!state.query_page_action(gate, &id, 10, 20, (0, 0), Some(0), 0));
+            assert_eq!(state.query_pages[&(0, 0, Some(0))], 1);
+        }
+        assert!(!state.query_page_action(ready(), &id, 10, 19, (0, 0), Some(0), 0));
+        assert!(state.set_query_page(&id, 10, 20, (0, 0), Some(0), 1));
+        assert!(!state.set_query_page(&id, 10, 20, (0, 0), Some(0), 2));
+        assert!(!state.set_query_page(&id, 10, 20, (0, 0), Some(4), 0));
+        assert!(state.set_query_page(&id, 10, 20, (0, 0), None, 1));
+        assert!(state.set_query_page(&id, 10, 20, (0, 0), Some(4), 1));
+        assert!(!state.set_query_page(&id, 10, 20, (0, 0), Some(0), 0));
+        assert!(!state.set_query_page(&id, 10, 20, (0, 0), None, 2));
+        assert_eq!(state.query_pages[&(0, 0, Some(0))], 1);
     }
     #[test]
     fn includes_source_position_never_overflows_or_offers_a_jump() {
@@ -535,5 +768,391 @@ mod tests {
         assert!(Permit::acquire().is_none());
         drop(p);
         assert!(Permit::acquire().is_some());
+    }
+}
+
+/// Only parsed fenced blocks from the accepted response enter this cache.
+fn project_queries(
+    preview: &Result<markdown::IncludePreview, String>,
+) -> std::collections::BTreeMap<(usize, usize), Result<crate::query_view::View, String>> {
+    let mut result = std::collections::BTreeMap::new();
+    let Ok(preview) = preview else { return result };
+    let mut decoded = 0;
+    for (item, content) in preview.items.iter().enumerate() {
+        let blocks = match content {
+            markdown::PreviewItem::Host(blocks) | markdown::PreviewItem::Include { blocks, .. } => {
+                blocks
+            }
+        };
+        for (block, content) in blocks.iter().enumerate() {
+            if content.kind != markdown::BlockKind::Code
+                || content.fence_info.as_deref() != Some("track-view")
+            {
+                continue;
+            }
+            let view = if decoded >= 8 {
+                Err("Query visual resource limit (8 blocks); source retained.".into())
+            } else {
+                crate::query_view::decode(&content.text)
+            };
+            if view.is_ok() {
+                decoded += 1;
+            }
+            result.insert((item, block), view);
+        }
+    }
+    result
+}
+
+impl Workspace {
+    fn query_page_button(
+        &self,
+        label: &str,
+        key: (usize, usize),
+        group: Option<usize>,
+        page: usize,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<Div> {
+        let state = self.shell.includes.as_ref().unwrap();
+        let identity = state.identity.clone();
+        let serial = state.serial;
+        let epoch = state.preview_epoch;
+        div()
+            .id(gpui::SharedString::from(format!(
+                "query-{serial}-{epoch}-{}-{}-{group:?}-{label}",
+                key.0, key.1
+            )))
+            .cursor_pointer()
+            .px_2()
+            .child(label.to_owned())
+            .on_click(cx.listener(move |this, _, _, cx| {
+                let gate = QueryPageGate {
+                    preview_active: this.includes_preview_active(),
+                    source_matches: this.includes_identity().as_ref() == Some(&identity),
+                    handoff: this.handoff_active(),
+                    gesture: this.previews.model.geometry_active(),
+                    editing: this.editing_ui.active(),
+                    pending: this.editing_ui.has_pending(),
+                    find: this.shell.find.open,
+                    search: this.shell.search_open,
+                    menu: this.shell.vault_menu || this.shell.tab_menu || this.shell.diagnostics,
+                    closing: this.quit_session.is_closing(),
+                    composing: this.search.read(cx).is_composing(),
+                };
+                let Some(state) = this.shell.includes.as_mut() else {
+                    return;
+                };
+                if !state.query_page_action(gate, &identity, serial, epoch, key, group, page) {
+                    return;
+                }
+                cx.notify();
+            }))
+    }
+    fn query_pager(
+        &self,
+        key: (usize, usize),
+        group: Option<usize>,
+        count: usize,
+        size: usize,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let state = self.shell.includes.as_ref().unwrap();
+        let page = state
+            .query_pages
+            .get(&(key.0, key.1, group))
+            .copied()
+            .unwrap_or(0);
+        let pages = count.div_ceil(size).max(1);
+        let start = if count == 0 { 0 } else { page * size + 1 };
+        let mut row = div().flex().flex_wrap().gap_2().child(format!(
+            "{start}–{} of {count} · page {}/{pages}",
+            ((page + 1) * size).min(count),
+            page + 1
+        ));
+        if page > 0 {
+            row = row.child(self.query_page_button("Previous", key, group, page - 1, cx));
+        }
+        if page + 1 < pages {
+            row = row.child(self.query_page_button("Next", key, group, page + 1, cx));
+        }
+        row
+    }
+    fn render_query_blocks(
+        &self,
+        item: usize,
+        blocks: &[markdown::Block],
+        dark: bool,
+        line: u32,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        use crate::query_view::{CARD_PAGE, LANE_PAGE, LIST_PAGE, Layout};
+        let state = self.shell.includes.as_ref().unwrap();
+        let Some(Ok(snapshot)) = &state.result else {
+            return div();
+        };
+        let mut body = div().flex().flex_col().gap_3();
+        let mut ordinary_start = 0;
+        for (block_index, block) in blocks.iter().enumerate() {
+            let key = (item, block_index);
+            let Some(query) = snapshot.queries.get(&key) else {
+                continue;
+            };
+            if ordinary_start < block_index {
+                body = body.child(markdown::render_themed(
+                    &blocks[ordinary_start..block_index],
+                    dark,
+                ));
+            }
+            ordinary_start = block_index + 1;
+            let view = match query {
+                Ok(view) => view,
+                Err(reason) => {
+                    body = body.child(
+                        div()
+                            .child(format!("Query view unavailable: {reason}"))
+                            .child(markdown::render_themed(std::slice::from_ref(block), dark)),
+                    );
+                    continue;
+                }
+            };
+            let page = state
+                .query_pages
+                .get(&(item, block_index, None))
+                .copied()
+                .unwrap_or(0);
+            let mut visual = div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .ml(px(block.indent as f32 * 16.));
+            if block.quoted {
+                visual = visual.border_l_2().border_color(rgb(line)).pl_3();
+            }
+            if let Some(marker) = &block.marker {
+                visual = visual.child(marker.clone());
+            }
+            match view.layout {
+                Layout::List => {
+                    visual =
+                        visual.child(self.query_pager(key, None, view.total_rows(), LIST_PAGE, cx));
+                    if view.total_rows() == 0 {
+                        visual = visual.child("No query rows in this snapshot.");
+                    }
+                    for (index, row) in view
+                        .groups
+                        .iter()
+                        .flat_map(|g| g.rows.iter())
+                        .enumerate()
+                        .skip(page * LIST_PAGE)
+                        .take(LIST_PAGE)
+                    {
+                        let mut card = div()
+                            .id(gpui::SharedString::from(format!(
+                                "query-list-{}-{}-{item}-{block_index}-{index}",
+                                state.serial, state.preview_epoch
+                            )))
+                            .border_b_1()
+                            .border_color(rgb(line))
+                            .p_2()
+                            .child(row.title.clone());
+                        for text in view.metadata(row) {
+                            card = card.child(div().child(text));
+                        }
+                        visual = visual.child(card);
+                    }
+                }
+                Layout::Board => {
+                    visual =
+                        visual.child(self.query_pager(key, None, view.groups.len(), LANE_PAGE, cx));
+                    if view.groups.is_empty() {
+                        visual = visual.child("No query rows in this snapshot.");
+                    }
+                    let mut lanes = div()
+                        .id(gpui::SharedString::from(format!(
+                            "query-lanes-{}-{}-{item}-{block_index}",
+                            state.serial, state.preview_epoch
+                        )))
+                        .flex()
+                        .gap_3()
+                        .overflow_x_scroll();
+                    for (group_index, group) in view
+                        .groups
+                        .iter()
+                        .enumerate()
+                        .skip(page * LANE_PAGE)
+                        .take(LANE_PAGE)
+                    {
+                        let card_page = state
+                            .query_pages
+                            .get(&(item, block_index, Some(group_index)))
+                            .copied()
+                            .unwrap_or(0);
+                        let mut lane = div()
+                            .flex()
+                            .flex_col()
+                            .flex_shrink_0()
+                            .w(px(250.))
+                            .gap_2()
+                            .p_2()
+                            .border_1()
+                            .border_color(rgb(line))
+                            .child(format!(
+                                "{} ({})",
+                                group
+                                    .name
+                                    .as_deref()
+                                    .filter(|s| !s.is_empty())
+                                    .unwrap_or("Ungrouped"),
+                                group.rows.len()
+                            ))
+                            .child(self.query_pager(
+                                key,
+                                Some(group_index),
+                                group.rows.len(),
+                                CARD_PAGE,
+                                cx,
+                            ));
+                        if group.rows.is_empty() {
+                            lane = lane.child("No query rows in this lane.");
+                        }
+                        for (row_index, row) in group
+                            .rows
+                            .iter()
+                            .enumerate()
+                            .skip(card_page * CARD_PAGE)
+                            .take(CARD_PAGE)
+                        {
+                            let mut card = div().id(gpui::SharedString::from(format!("query-card-{}-{}-{item}-{block_index}-{group_index}-{row_index}",state.serial,state.preview_epoch)))
+                                .flex().flex_col().gap_1().p_2().border_1().border_color(rgb(line));
+                            let metadata = view.metadata(row);
+                            if view.show_title {
+                                card = card.child(row.title.clone());
+                            }
+                            if !view.show_title && metadata.is_empty() {
+                                card = card.child("Empty card");
+                            }
+                            for text in metadata {
+                                card = card.child(text);
+                            }
+                            lane = lane.child(card);
+                        }
+                        lanes = lanes.child(lane);
+                    }
+                    visual = visual.child(lanes);
+                }
+            }
+            body = body.child(visual);
+        }
+        if ordinary_start < blocks.len() {
+            body = body.child(markdown::render_themed(&blocks[ordinary_start..], dark));
+        }
+        body
+    }
+}
+
+#[cfg(test)]
+mod query_projection_tests {
+    use super::*;
+    use serde_json::json;
+    const JSON: &str = r#"{"layout":"list","columns":["title"],"groups":[{"rows":[{"title":"<b>literal</b>","cells":["value"]}]}]}"#;
+    fn fence() -> String {
+        format!("```track-view\n{JSON}\n```\n")
+    }
+    fn project(
+        body: &str,
+        includes: serde_json::Value,
+    ) -> (
+        markdown::IncludePreview,
+        std::collections::BTreeMap<(usize, usize), Result<crate::query_view::View, String>>,
+    ) {
+        let response =
+            crate::included_notes::decode(json!({"markdown":body,"includes":includes}), "host")
+                .unwrap();
+        let preview = markdown::included_preview(&response);
+        let queries = project_queries(&preview);
+        (preview.unwrap(), queries)
+    }
+    #[test]
+    fn exact_fence_only_and_unchanged_raw_text() {
+        for body in [
+            format!("````text\n{}\n````", fence()),
+            format!("<pre>\n{}\n</pre>", fence()),
+            format!("`track-view {JSON}`"),
+            fence().replace("```track-view", "```track-query"),
+            fence().replace("```track-view", "```track-view extra"),
+            format!("\\`\\`\\`track-view\n{JSON}"),
+        ] {
+            assert!(project(&body, json!([])).1.is_empty(), "{body}");
+        }
+        let source = format!("{}\n# Following", fence());
+        let raw = markdown::parse(&source);
+        let (preview, queries) = project(&source, json!([]));
+        assert_eq!(queries.len(), 1);
+        let markdown::PreviewItem::Host(blocks) = &preview.items[0] else {
+            panic!()
+        };
+        assert_eq!(raw, *blocks);
+        assert_eq!(blocks[0].text, format!("{JSON}\n"));
+        assert_eq!(blocks[1].text, "Following");
+    }
+    #[test]
+    fn nested_positions_and_included_origin_are_retained() {
+        let quoted = fence()
+            .lines()
+            .map(|s| format!("> {s}\n"))
+            .collect::<String>();
+        let (preview, queries) = project(&quoted, json!([]));
+        assert_eq!(queries.len(), 1);
+        let markdown::PreviewItem::Host(blocks) = &preview.items[0] else {
+            panic!()
+        };
+        assert!(blocks[0].quoted);
+        let list = format!(
+            "- item\n\n{}",
+            fence()
+                .lines()
+                .map(|s| format!("  {s}\n"))
+                .collect::<String>()
+        );
+        let (preview, queries) = project(&list, json!([]));
+        assert_eq!(queries.len(), 1);
+        let markdown::PreviewItem::Host(blocks) = &preview.items[0] else {
+            panic!()
+        };
+        assert!(
+            blocks
+                .iter()
+                .find(|b| b.fence_info.as_deref() == Some("track-view"))
+                .unwrap()
+                .indent
+                > 0
+        );
+        let (preview, queries) = project(
+            "![[Target]]\n",
+            json!([{"line":0,"source_line":0,"caption":"Target","lines":[fence()],"note_id":42,"kind":"note","etag":"rev"}]),
+        );
+        assert_eq!(queries.len(), 1);
+        assert!(matches!(
+            preview.items[0],
+            markdown::PreviewItem::Include { index: 0, .. }
+        ));
+    }
+    #[test]
+    fn independent_blocks_and_total_visual_limit_keep_source() {
+        let (preview, queries) = project(&fence().repeat(10), json!([]));
+        assert_eq!(queries.len(), 10);
+        assert_eq!(queries.values().filter(|v| v.is_ok()).count(), 8);
+        let markdown::PreviewItem::Host(blocks) = &preview.items[0] else {
+            panic!()
+        };
+        assert_eq!(blocks.len(), 10);
+        assert!(
+            queries[&(0, 8)]
+                .as_ref()
+                .unwrap_err()
+                .contains("resource limit")
+        );
+        let (_, queries) = project(&fence().replace("\"list\"", "\"gallery\""), json!([]));
+        assert!(queries[&(0, 0)].is_err());
     }
 }

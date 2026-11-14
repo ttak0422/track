@@ -33,6 +33,8 @@ pub struct Block {
     pub image: Option<String>,
     /// First fenced info token; never mixed into body/Find byte ranges.
     pub language: Option<String>,
+    /// Exact parser fence info, retained separately from syntax highlighting.
+    pub fence_info: Option<String>,
     /// Ingestion-time lexical ranges, shared across display projections.
     pub syntax: Arc<[crate::code_highlight::Token]>,
 }
@@ -1094,6 +1096,7 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
                     spans: vec![],
                     links: vec![],
                     language: None,
+                    fence_info: None,
                     syntax: Arc::from([]),
                     table: None,
                     image: None,
@@ -1123,6 +1126,7 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
                 spans: vec![],
                 links: vec![],
                 language: None,
+                fence_info: None,
                 syntax: Arc::from([]),
                 image: None,
                 table: Some(Table {
@@ -1195,6 +1199,7 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
                         table: None,
                         image: None,
                         language: None,
+                        fence_info: None,
                         syntax: Arc::from([]),
                     },
                 );
@@ -1228,6 +1233,12 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
         }
         _ => None,
     };
+    let fence_info = match &node.event {
+        Event::Start(Tag::CodeBlock(pulldown_cmark::CodeBlockKind::Fenced(info))) => {
+            Some(info.to_string())
+        }
+        _ => None,
+    };
     let syntax =
         Arc::from(crate::code_highlight::classify(&content.text, language.as_deref()).as_ref());
     let image = if kind == BlockKind::Paragraph && node.children.len() == 1 {
@@ -1241,6 +1252,7 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
     out.push(Block {
         syntax,
         language,
+        fence_info,
         kind,
         text: content.text,
         spans: content.spans,
@@ -1261,6 +1273,7 @@ fn flush_run(run: &mut Cell, indent: usize, quoted: bool, out: &mut Vec<Block>) 
             spans: std::mem::take(&mut run.spans),
             links: std::mem::take(&mut run.links),
             language: None,
+            fence_info: None,
             syntax: Arc::from([]),
             table: None,
             image: None,
@@ -1447,6 +1460,7 @@ fn fallback(text: &str, out: &mut Vec<Block>) {
             spans: vec![],
             links: vec![],
             language: None,
+            fence_info: None,
             syntax: Arc::from([]),
             table: None,
             image: None,

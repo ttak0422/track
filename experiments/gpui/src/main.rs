@@ -23,6 +23,7 @@ mod markdown_handoff;
 mod native_window;
 mod navigation;
 mod note_metadata;
+mod query_view;
 mod raster;
 mod reader_find;
 mod reader_relations;
