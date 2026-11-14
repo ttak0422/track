@@ -13,7 +13,8 @@ acceptance baseline.
 - Reader plus context aside on wide windows; the aside stacks below on narrow ones.
 - Actual metadata, title, source content, outline, hierarchy/backlinks and local graph
   use the server response, not fabricated placeholder data.
-- A configured Home note is restored. Without one, activity Home remains unimplemented.
+- A configured Home note is restored. Otherwise a scoped read-only activity
+  heatmap is shown; journal opening and live refresh remain incomplete.
 - Operational diagnostics are not primary chrome. Partial/unavailable data and
   read failures still produce visible warnings.
 
@@ -25,7 +26,8 @@ reference only, not native equivalence. The native shell is compile/unit-tested;
 the first independent native fixture confirms the new shell renders, while matched-size/theme comparisons are still pending. Use an isolated application instance and disposable fixtures for comparison.
 
 Remaining gaps include tab persistence, all dock destinations/actions,
-keyboard search-result navigation, Home activity, exact fonts, rich-format fidelity, persistent reading positions and
+complete keyboard search-result navigation, activity journal actions, exact fonts,
+rich-format fidelity, persistent reading positions and
 full accessibility/IME behavior. Missing actions must not look functional.
 
 Compare both implementations at 900×650, 1280×800 and 1600×1000, both themes and
@@ -33,7 +35,8 @@ text sizes, with the same fixture. Include empty/error/partial/loading states,
 search cancel and repeated navigation, narrow context stacking and graph pan/zoom.
 Retain actual measured differences instead of declaring parity from compilation.
 
-In-memory tab scroll positions, reader-focused tab shortcuts, and heading jumps are implemented. Native interaction verification remains pending. Markdown source soft breaks render as spaces; explicit hard breaks remain line breaks.
+In-memory tab scroll positions, reader-focused tab shortcuts, and heading jumps are implemented. A same-note heading jump and basic Find traversal were exercised; complete native
+interaction verification remains pending. Markdown source soft breaks render as spaces; explicit hard breaks remain line breaks.
 
 macOS native chrome now retains titled, resizable, closable and minimizable window
 styles while hiding this window's standard controls through public AppKit APIs.

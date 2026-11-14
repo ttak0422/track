@@ -12,6 +12,9 @@ fn tab_activation_needed(
 }
 
 pub struct ShellState {
+    code_copy: code_copy::State,
+    code_anchors: Option<std::rc::Rc<markdown::FindAnchors>>,
+    code_focus: std::collections::BTreeMap<usize, gpui::FocusHandle>,
     pub(crate) find: workspace_find::FindState,
     pub(crate) activity: Option<workspace_activity::ActivityState>,
     pub home: bool,
@@ -41,6 +44,9 @@ pub struct ShellState {
 impl Default for ShellState {
     fn default() -> Self {
         Self {
+            code_copy: Default::default(),
+            code_anchors: None,
+            code_focus: Default::default(),
             find: Default::default(),
             activity: None,
             home: true,
@@ -448,6 +454,16 @@ fn reference_row(
             }))
     }))
 }
+// show_graph only controls the reader's aside, never replaces the article.
+// Keep it explicit here so the availability regression covers both aside states.
+fn code_copy_available(
+    reader_available: bool,
+    find_open: bool,
+    read_failed: bool,
+    _aside_graph: bool,
+) -> bool {
+    reader_available && !find_open && !read_failed
+}
 fn cycle_index(index: usize, len: usize, backwards: bool) -> usize {
     if len == 0 {
         return 0;
@@ -459,6 +475,165 @@ fn cycle_index(index: usize, len: usize, backwards: bool) -> usize {
     }
 }
 impl Workspace {
+    fn copy_document(&self) -> Option<code_copy::Document> {
+        code_copy_available(
+            self.find_available(),
+            self.shell.find.open,
+            self.read_error.is_some(),
+            self.show_graph,
+        )
+        .then(|| code_copy::Document {
+            tab: self.tabs.active().map(|tab| tab.key.clone()),
+            request: self.request,
+            etag: self.current_note.as_ref().map(|note| note.etag.clone()),
+            storage: self.accepted_storage_generation,
+            launch: self
+                .live
+                .as_ref()
+                .map(|live| live.client().launch_generation),
+        })
+    }
+    fn copy_code(&mut self, epoch: u64, index: usize, cx: &mut Context<Self>) {
+        let Some(body) =
+            self.shell
+                .code_copy
+                .body(epoch, index, &self.copy_document(), &self.content)
+        else {
+            return;
+        };
+        // GPUI offers no failure result: this acknowledges submission only. Never read back.
+        cx.write_to_clipboard(gpui::ClipboardItem::new_string(body));
+        let serial = self.shell.code_copy.submitted(index);
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(1500))
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                let document = this.copy_document();
+                if this.shell.code_copy.sync(document, &this.content) {
+                    this.shell.code_focus.clear();
+                    this.shell.code_anchors = None;
+                }
+                if this.shell.code_copy.expire(epoch, index, serial) {
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+    fn code_controls(
+        &mut self,
+        scroll: &gpui::ScrollHandle,
+        cx: &mut Context<Self>,
+    ) -> markdown::CodeCallbacks {
+        let document = self.copy_document();
+        if self.shell.code_copy.sync(document, &self.content) {
+            self.shell.code_focus.clear();
+            self.shell.code_anchors = None;
+        }
+        if self.shell.code_copy.document.is_some() {
+            self.shell.code_anchors.get_or_insert_with(|| {
+                std::rc::Rc::new(markdown::FindAnchors::new(&self.content, scroll))
+            });
+            for (index, block) in self.shell.code_copy.blocks.iter().enumerate() {
+                if block.language.is_some() {
+                    self.shell
+                        .code_focus
+                        .entry(index)
+                        .or_insert_with(|| cx.focus_handle());
+                }
+            }
+        }
+        let controls = self
+            .shell
+            .code_focus
+            .iter()
+            .map(|(&index, focus)| {
+                (
+                    index,
+                    (
+                        focus.clone(),
+                        self.shell.code_copy.feedback.contains_key(&index),
+                    ),
+                )
+            })
+            .collect();
+        let epoch = self.shell.code_copy.epoch;
+        let weak = cx.entity().downgrade();
+        markdown::CodeCallbacks {
+            anchors: self.shell.code_anchors.clone(),
+            controls,
+            activate: std::rc::Rc::new(move |index, _, cx| {
+                let _ = weak.update(cx, |this, cx| this.copy_code(epoch, index, cx));
+            }),
+        }
+    }
+    fn code_keyboard(
+        &mut self,
+        event: &gpui::KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if self.copy_document().is_none() {
+            return false;
+        }
+        let current = self
+            .shell
+            .code_focus
+            .values()
+            .position(|focus| focus.is_focused(window));
+        let reader_focused = self
+            .shell
+            .reader_focus
+            .as_ref()
+            .is_some_and(|focus| focus.is_focused(window));
+        if current.is_none() && !reader_focused {
+            return false;
+        }
+        let modifiers = event.keystroke.modifiers;
+        if event.keystroke.key == "escape" && current.is_some() {
+            if let Some(focus) = &self.shell.reader_focus {
+                window.focus(focus);
+            }
+            cx.notify();
+            return true;
+        }
+        if event.keystroke.key == "c" && modifiers.alt && !modifiers.platform && !modifiers.control
+        {
+            let handles: Vec<_> = self.shell.code_focus.iter().collect();
+            if handles.is_empty() {
+                return false;
+            }
+            let next = current.map_or(
+                if modifiers.shift {
+                    handles.len() - 1
+                } else {
+                    0
+                },
+                |index| cycle_index(index, handles.len(), modifiers.shift),
+            );
+            let (&index, focus) = handles[next];
+            if !self.shell.code_copy.valid_block(
+                self.shell.code_copy.epoch,
+                index,
+                &self.copy_document(),
+                &self.content,
+            ) {
+                return false;
+            }
+            let revealed = self.shell.code_anchors.as_ref().is_some_and(|anchors| {
+                anchors.scroll_to(&reader_find::Target::Block(index), window, cx)
+            });
+            if !revealed {
+                return false;
+            }
+            window.focus(focus);
+            cx.notify();
+            return true;
+        }
+        false
+    }
     fn current_link_source(&self) -> Option<LinkSource> {
         let note = self.current_note.as_ref()?;
         Some(LinkSource {
@@ -1187,6 +1362,7 @@ impl Render for Workspace {
             .or_default()
             .clone();
         self.sync_find(reader_key.clone(), &reader_scroll, dark, window, cx);
+        let code_controls = self.code_controls(&reader_scroll, cx);
         let content_ready = self.current_note.is_some() || !self.content.is_empty();
         let headings = markdown::outline(&self.content);
         let outline_signature = format!("{headings:?}");
@@ -1785,6 +1961,7 @@ impl Render for Workspace {
                                         active: self.shell.find.active,
                                         anchors: self.shell.find.anchors.as_ref().unwrap(),
                                     }),
+                                Some(&code_controls),
                             ))
                             .on_mouse_down(
                                 gpui::MouseButton::Left,
@@ -1960,6 +2137,10 @@ impl Render for Workspace {
                 cx.listener(|this, _, _, _| this.shell.tab_cycle.clear()),
             )
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
+                if this.code_keyboard(event, window, cx) {
+                    cx.stop_propagation();
+                    return;
+                }
                 if this.find_keyboard(event, window, cx) {
                     cx.stop_propagation();
                     return;
@@ -2227,8 +2408,17 @@ impl Render for Workspace {
 
 #[cfg(test)]
 mod reference_tests {
-    use super::{LinkSource, reference_key};
+    use super::{LinkSource, code_copy_available, reference_key};
 
+    #[test]
+    fn copy_controls_remain_available_with_graph_in_reader_aside() {
+        for aside_graph in [false, true] {
+            assert!(code_copy_available(true, false, false, aside_graph));
+            assert!(!code_copy_available(false, false, false, aside_graph));
+            assert!(!code_copy_available(true, true, false, aside_graph));
+            assert!(!code_copy_available(true, false, true, aside_graph));
+        }
+    }
     #[test]
     fn external_click_source_changes_on_navigation_session_or_storage() {
         let source = LinkSource {

@@ -26,6 +26,8 @@ pub struct Block {
     pub spans: Vec<Span>,
     pub links: Vec<Link>,
     pub table: Option<Table>,
+    /// First fenced info token; never mixed into body/Find byte ranges.
+    pub language: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -74,6 +76,14 @@ pub struct Link {
 pub struct LinkCallbacks {
     pub resolved: Rc<dyn Fn(&LinkTarget) -> bool>,
     pub activate: Rc<dyn Fn(&LinkTarget, &mut Window, &mut App)>,
+}
+
+/// Controls are supplied by the shell only for the current live reader snapshot.
+#[derive(Clone)]
+pub struct CodeCallbacks {
+    pub anchors: Option<Rc<FindAnchors>>,
+    pub controls: std::collections::BTreeMap<usize, (gpui::FocusHandle, bool)>,
+    pub activate: Rc<dyn Fn(usize, &mut Window, &mut App)>,
 }
 
 /// Resolver input, with source vault passed separately by the shell. Never infer
@@ -522,6 +532,7 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
                     marker: None,
                     spans: vec![],
                     links: vec![],
+                    language: None,
                     table: None,
                 });
                 return;
@@ -548,6 +559,7 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
                 marker: None,
                 spans: vec![],
                 links: vec![],
+                language: None,
                 table: Some(Table {
                     alignments: alignments.clone(),
                     rows,
@@ -611,7 +623,14 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
     } else {
         inline(node, source, &mut content, InlineStyle::default());
     }
+    let language = match &node.event {
+        Event::Start(Tag::CodeBlock(pulldown_cmark::CodeBlockKind::Fenced(info))) => {
+            info.split_whitespace().next().map(str::to_owned)
+        }
+        _ => None,
+    };
     out.push(Block {
+        language,
         kind,
         text: content.text,
         spans: content.spans,
@@ -630,6 +649,7 @@ fn flush_run(run: &mut Cell, indent: usize, quoted: bool, out: &mut Vec<Block>) 
             text: std::mem::take(&mut run.text),
             spans: std::mem::take(&mut run.spans),
             links: std::mem::take(&mut run.links),
+            language: None,
             table: None,
             indent,
             quoted,
@@ -660,6 +680,7 @@ fn fallback(text: &str, out: &mut Vec<Block>) {
             text: text.to_owned(),
             spans: vec![],
             links: vec![],
+            language: None,
             table: None,
             indent: 0,
             quoted: false,
@@ -709,13 +730,13 @@ pub fn render(blocks: &[Block]) -> Div {
 /// Uses the system sans fallback; exact IBM Plex Sans JP typography is not claimed.
 /// No HTML execution, network fetching, or link navigation is performed.
 pub fn render_themed(blocks: &[Block], dark: bool) -> Div {
-    render_reader(blocks, dark, None, None, None)
+    render_reader(blocks, dark, None, None, None, None)
 }
 
 /// Anchor-aware variant that preserves nested article layout. The outer reader
 /// must track the same handle used to construct `anchors`.
 pub fn render_themed_with_anchors(blocks: &[Block], dark: bool, anchors: &HeadingAnchors) -> Div {
-    render_reader(blocks, dark, Some(anchors), None, None)
+    render_reader(blocks, dark, Some(anchors), None, None, None)
 }
 
 pub fn render_with_links(
@@ -724,7 +745,7 @@ pub fn render_with_links(
     anchors: Option<&HeadingAnchors>,
     callbacks: &LinkCallbacks,
 ) -> Div {
-    render_reader(blocks, dark, anchors, Some(callbacks), None)
+    render_reader(blocks, dark, anchors, Some(callbacks), None, None)
 }
 
 pub fn render_with_links_and_find(
@@ -733,8 +754,9 @@ pub fn render_with_links_and_find(
     anchors: Option<&HeadingAnchors>,
     callbacks: &LinkCallbacks,
     find: Option<FindPresentation<'_>>,
+    copy: Option<&CodeCallbacks>,
 ) -> Div {
-    render_reader(blocks, dark, anchors, Some(callbacks), find)
+    render_reader(blocks, dark, anchors, Some(callbacks), find, copy)
 }
 
 fn render_reader(
@@ -743,6 +765,7 @@ fn render_reader(
     anchors: Option<&HeadingAnchors>,
     callbacks: Option<&LinkCallbacks>,
     find: Option<FindPresentation<'_>>,
+    copy: Option<&CodeCallbacks>,
 ) -> Div {
     let theme = ReaderTheme::new(dark);
     div()
@@ -754,14 +777,16 @@ fn render_reader(
         .line_height(px(29.6))
         .font_family(".SystemUIFont")
         .text_color(rgb(theme.ink))
-        .children(render_elements(blocks, dark, anchors, callbacks, find))
+        .children(render_elements(
+            blocks, dark, anchors, callbacks, find, copy,
+        ))
 }
 
 /// Direct block children for a shell-owned tracked scroller. Keep each element
 /// as one direct child; wrapping the returned vector defeats child-index anchors.
 /// Each row carries the same body metrics as render_themed.
 pub fn render_block_elements_themed(blocks: &[Block], dark: bool) -> Vec<AnyElement> {
-    render_elements(blocks, dark, None, None, None)
+    render_elements(blocks, dark, None, None, None, None)
 }
 
 fn render_elements(
@@ -770,6 +795,7 @@ fn render_elements(
     anchors: Option<&HeadingAnchors>,
     callbacks: Option<&LinkCallbacks>,
     find: Option<FindPresentation<'_>>,
+    copy: Option<&CodeCallbacks>,
 ) -> Vec<AnyElement> {
     let theme = ReaderTheme::new(dark);
     let entries = outline(blocks);
@@ -845,6 +871,59 @@ fn render_elements(
                     (false, false)
                 }
             };
+            if let Some(language) = &block.language {
+                let group = SharedString::from(format!("code-bed-{index}"));
+                row = row.group(group.clone());
+                let mut header = div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .mb_2()
+                    .font_family("monospace")
+                    .text_size(px(11.))
+                    .text_color(rgb(theme.muted))
+                    .child(language.to_uppercase());
+                if let Some((focus, copied)) = copy.and_then(|copy| copy.controls.get(&index)) {
+                    let activate = copy.unwrap().activate.clone();
+                    let keyboard = activate.clone();
+                    let focus = focus.clone();
+                    let mouse_focus = focus.clone();
+                    header = header.child(
+                        div()
+                            .id(SharedString::from(format!("copy-code-{index}")))
+                            .track_focus(&focus)
+                            .tab_index(0)
+                            .opacity(if *copied { 1. } else { 0. })
+                            .group_hover(group, |style| style.opacity(1.))
+                            .focus(|style| style.opacity(1.).border_color(rgb(theme.strong_line)))
+                            .border_1()
+                            .border_color(rgb(theme.line))
+                            .rounded(px(4.))
+                            .px_2()
+                            .cursor_pointer()
+                            .child(if *copied { "Copied" } else { "Copy" })
+                            .on_mouse_down(gpui::MouseButton::Left, move |_, window, cx| {
+                                window.focus(&mouse_focus);
+                                cx.stop_propagation();
+                            })
+                            .on_click(move |_, window, cx| {
+                                activate(index, window, cx);
+                                cx.stop_propagation();
+                            })
+                            .on_key_down(move |event, window, cx| {
+                                if matches!(event.keystroke.key.as_str(), "enter" | "space")
+                                    && !event.keystroke.modifiers.platform
+                                    && !event.keystroke.modifiers.control
+                                    && !event.keystroke.modifiers.alt
+                                {
+                                    keyboard(index, window, cx);
+                                    cx.stop_propagation();
+                                }
+                            }),
+                    );
+                }
+                row = row.child(header);
+            }
             let offset = text.len() - block.text.len();
             let visible_spans = resolved_spans(&block.spans, &block.links, callbacks);
             let row = row.child(link_text(
@@ -881,6 +960,22 @@ fn render_elements(
                 } else {
                     row.into_any_element()
                 };
+            // Copy and Find may coexist after Find closes. Lay out both retained
+            // anchors; choosing just one leaves the other with stale/no bounds.
+            let element = if let Some(anchor) = copy
+                .filter(|_| block.language.is_some())
+                .and_then(|copy| copy.anchors.as_ref())
+                .and_then(|anchors| anchors.targets.get(&Target::Block(index)))
+            {
+                div()
+                    .id(SharedString::from(format!("code-block-anchor-{index}")))
+                    .w_full()
+                    .anchor_scroll(Some(anchor.clone()))
+                    .child(element)
+                    .into_any_element()
+            } else {
+                element
+            };
             if let Some(anchor) = find.and_then(|f| f.anchors.targets.get(&Target::Block(index))) {
                 div()
                     .id(SharedString::from(format!("find-block-{index}")))
@@ -1570,6 +1665,44 @@ mod tests {
         let parsed = parse(source);
         assert_eq!(parsed[0].kind, BlockKind::Literal);
         assert_eq!(parsed[0].text, source);
+    }
+    #[test]
+    fn code_info_does_not_change_exact_parser_body_or_find_ranges() {
+        let blocks = parse(
+            "```lua extra-info\n\tprint(\"日本語 🦀\")  \n```\n\n```unknownlang\nsecond\n```\n\n```\nplain\n```\n\n    indented\n\ninline `code`",
+        );
+        assert_eq!(blocks[0].language.as_deref(), Some("lua"));
+        assert_eq!(blocks[0].text, "\tprint(\"日本語 🦀\")  \n");
+        assert_eq!(blocks[1].language.as_deref(), Some("unknownlang"));
+        assert!(blocks[2..].iter().all(|block| block.language.is_none()));
+        assert!(crate::reader_find::search(&blocks, "lua").hits.is_empty());
+        let found = crate::reader_find::search(&blocks, "日本語");
+        assert_eq!(found.hits.len(), 1);
+        assert_eq!(found.hits[0].target, Target::Block(0));
+        assert_eq!(&blocks[0].text[found.hits[0].range.clone()], "日本語");
+    }
+    #[test]
+    fn code_copy_uses_parser_newlines_and_excludes_container_markers() {
+        let quoted = parse("> ```lua\n> a  \n> ```");
+        assert_eq!(quoted[0].text, "a  \n");
+        assert!(quoted[0].quoted);
+        let listed = parse("- ```lua\n  a\n    b\n  ```");
+        assert_eq!(listed[0].text, "a\n  b\n");
+        assert!(listed[0].marker.is_some());
+        assert_eq!(parse("```lua\nlast")[0].text, "last");
+        assert_eq!(parse("```lua\nlast\n```")[0].text, "last\n");
+        assert_eq!(parse("```lua\r\nline\r\n```")[0].text, "line\n");
+        assert_eq!(parse("```lua\n```")[0].text, "");
+    }
+    #[test]
+    fn rich_fences_remain_plain_inert_body_with_no_links_or_styles() {
+        let blocks = parse(
+            "```mermaid\ngraph TD; A-->B\n```\n\n```html\n<script>bad()</script> [[note]]\n```",
+        );
+        assert!(blocks.iter().all(|block| block.kind == BlockKind::Code
+            && block.links.is_empty()
+            && block.spans.is_empty()));
+        assert_eq!(blocks[1].text, "<script>bad()</script> [[note]]\n");
     }
     #[test]
     fn malformed_table_is_visible_and_code_is_not_styled() {

@@ -3,6 +3,7 @@ use gpui::{
     WindowOptions, actions, div, prelude::*, px, rgb, size, uniform_list,
 };
 mod backend;
+mod code_copy;
 mod editing;
 mod editor_input;
 mod external_refs;

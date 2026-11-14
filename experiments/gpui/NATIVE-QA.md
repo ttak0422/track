@@ -172,3 +172,22 @@ run with a new public fixture and real Go child did record SIGTERM, successful
 child reap (13 ms, exit 0) and adapter exit 0. This narrows the remaining gap to
 the GUI/adapter lifecycle sequence rather than proving it safe. The scaffold now
 records lifecycle signals and cleanup timing without logging note contents.
+
+## Fenced-code controls, 2026-11-14
+
+A disposable public-help fixture used the native executable with SHA-256
+`d488c781537af5c6ab4a5c9fe468969ab82b9bc1afedcaef07e85810e5515cf3`.
+At a 1906 × 1050 light-theme viewport, the CLI note displayed SH captions.
+After explicitly focusing the reader, Option-C revealed the first eligible code
+block and its Copy control; another Option-C moved the visible control to the
+next block. Shift-Option-C returned to the preceding block. Escape followed by
+pointer hover over its header showed the control without activating it.
+The right-hand note aside remained visible throughout. This caught and fixed an
+overly broad guard that treated an enabled aside graph as an unavailable reader.
+
+No Copy action was activated, preserving the existing system clipboard. Actual
+clipboard contents, copied feedback timing, assistive-technology labels and
+keyboard operation while Find is open are not validated by this observation.
+The first Cmd-Q observation showed a fresh Home; a second Cmd-Q reported app
+exit. As with the earlier lifecycle observations, this sequence is not evidence
+of clean first-attempt process termination. Normal editing remains read-only.
