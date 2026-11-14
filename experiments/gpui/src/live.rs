@@ -218,17 +218,55 @@ pub struct AgendaResponse {
     pub diagnostics: Fields,
 }
 
-// Calendar validation without timezone conversion or duration-based day arithmetic.
-fn calendar_date_valid(date: &str) -> bool {
+/// One indexed dated task. Display-only: line numbers are not write authority.
+#[derive(Clone, Debug, Deserialize)]
+pub struct DatedTask {
+    pub note_id: i64,
+    pub file_kind: String,
+    pub title: String,
+    #[serde(default)]
+    pub path: String,
+    pub line: u64,
+    pub state: String,
+    pub done: bool,
+    #[serde(default)]
+    pub priority: String,
+    #[serde(default)]
+    pub scheduled: String,
+    #[serde(default)]
+    pub due: String,
+    #[serde(default)]
+    pub completed: String,
+    pub text: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct DatedTasksResponse {
+    pub vault: String,
+    pub tasks: Vec<DatedTask>,
+    #[serde(skip)]
+    pub source_vault: String,
+    #[serde(skip)]
+    pub launch_generation: u64,
+    #[serde(flatten)]
+    pub diagnostics: Fields,
+}
+
+// Task tokens preserve the engine's lexical date shape, even for impossible
+// calendar days. Read-only listings must not discard other valid tasks for these.
+fn date_wire_shape(date: &str) -> bool {
     let b = date.as_bytes();
-    if b.len() != 10
-        || b[4] != b'-'
-        || b[7] != b'-'
-        || !b
-            .iter()
+    b.len() == 10
+        && b[4] == b'-'
+        && b[7] == b'-'
+        && b.iter()
             .enumerate()
             .all(|(i, c)| i == 4 || i == 7 || c.is_ascii_digit())
-    {
+}
+
+// Calendar validation without timezone conversion or duration-based day arithmetic.
+fn calendar_date_valid(date: &str) -> bool {
+    if !date_wire_shape(date) {
         return false;
     }
     let year: u32 = date[..4].parse().unwrap();
@@ -493,6 +531,62 @@ impl ReadClient {
             }
             if !identities.insert((note.vault.clone(), note.note_id)) {
                 return Err(Error::Shape("duplicate agenda note identity".into()));
+            }
+        }
+        result.source_vault = vault.into();
+        result.launch_generation = self.launch_generation;
+        Ok(result)
+    }
+
+    /// Vault-wide dated tasks in every state. No id/open filter, task mutation,
+    /// journal creation, recurrence expansion, or fallback vault request.
+    pub fn dated_tasks(&self, vault: &str) -> Result<DatedTasksResponse, Error> {
+        if vault.len() > 1024 || vault.contains('\0') {
+            return Err(Error::Config(
+                "dated tasks require a bounded vault name".into(),
+            ));
+        }
+        let mut result: DatedTasksResponse = self.get("/api/tasks", &vault_query(vault))?;
+        if result.vault.len() > 1024
+            || result.vault.contains('\0')
+            || (!vault.is_empty() && !result.vault.is_empty() && result.vault != vault)
+            || result.tasks.len() > 4096
+        {
+            return Err(Error::Shape(
+                "dated tasks vault mismatch or excessive rows".into(),
+            ));
+        }
+        if result.vault.is_empty() {
+            result.vault = vault.into();
+        }
+        let mut identities = std::collections::HashSet::new();
+        for task in &result.tasks {
+            let terminal = match task.state.as_str() {
+                "TODO" | "DOING" | "WAITING" => false,
+                "DONE" | "CANCELLED" => true,
+                _ => return Err(Error::Shape("unknown task state".into())),
+            };
+            if task.note_id <= 0
+                || task.line == 0
+                || task.line > i64::MAX as u64
+                || task.done != terminal
+                || !identities.insert((task.note_id, task.line))
+                || task.file_kind.is_empty()
+                || task.file_kind.len() > 128
+                || task.title.len() > 64 * 1024
+                || task.text.len() > 64 * 1024
+                || task.path.len() > 16 * 1024
+                || (!task.priority.is_empty()
+                    && !(task.priority.len() == 1
+                        && task.priority.as_bytes()[0].is_ascii_uppercase()))
+                || [&task.due, &task.scheduled, &task.completed]
+                    .iter()
+                    .any(|date| !date.is_empty() && !date_wire_shape(date))
+                || (task.due.is_empty() && task.scheduled.is_empty())
+            {
+                return Err(Error::Shape(
+                    "invalid dated task identity, state, dates or metadata".into(),
+                ));
             }
         }
         result.source_vault = vault.into();
@@ -2129,6 +2223,154 @@ mod tests {
             task,
         )
     }
+    fn dated_task_fixture() -> Value {
+        serde_json::json!({"note_id":42,"file_kind":"note","title":"日本語",
+            "line":3,"state":"TODO","done":false,"priority":"A",
+            "scheduled":"2026-11-13","due":"2026-11-14","text":"do the thing"})
+    }
+
+    #[test]
+    fn dated_tasks_listing_is_read_only_scoped_and_preserves_all_states() {
+        let tasks: Vec<_> = ["TODO", "DOING", "WAITING", "DONE", "CANCELLED"]
+            .iter()
+            .enumerate()
+            .map(|(index, state)| {
+                let mut row = dated_task_fixture();
+                row["line"] = serde_json::json!(index + 1);
+                row["state"] = serde_json::json!(state);
+                row["done"] = serde_json::json!(index >= 3);
+                if index >= 3 {
+                    row["completed"] = serde_json::json!("2026-11-13");
+                }
+                row
+            })
+            .collect();
+        let body = serde_json::json!({"vault":"work & 日本語","tasks":tasks,
+            "read_state":{"partial":true,"cache_used":true,"issues":["offline"]}});
+        let (client, task) = mock(200, body.to_string());
+        let result = client.dated_tasks("work & 日本語").unwrap();
+        assert_eq!(result.vault, "work & 日本語");
+        assert_eq!(result.source_vault, "work & 日本語");
+        assert_eq!(result.launch_generation, client.launch_generation);
+        assert_eq!(result.tasks.len(), 5);
+        assert!(result.tasks[4].done);
+        assert_eq!(result.tasks[0].path, "");
+        assert_eq!(result.tasks[0].completed, "");
+        assert_eq!(result.diagnostics["read_state"]["partial"], true);
+        assert_eq!(result.diagnostics["read_state"]["cache_used"], true);
+        let request = task.join().unwrap();
+        assert!(
+            request.starts_with("GET /api/tasks?vault=work+%26+%E6%97%A5%E6%9C%AC%E8%AA%9E HTTP/")
+        );
+        assert!(!request.contains("open="));
+        assert!(!request.contains("id="));
+        assert!(!request.contains("/api/journal"));
+    }
+
+    #[test]
+    fn dated_tasks_launch_scope_and_empty_results_are_valid() {
+        for label in ["", "main"] {
+            let (client, task) = mock(
+                200,
+                serde_json::json!({"vault":label,"tasks":[]}).to_string(),
+            );
+            let result = client.dated_tasks("").unwrap();
+            assert_eq!(result.vault, label);
+            assert_eq!(result.source_vault, "");
+            assert!(result.tasks.is_empty());
+            assert!(task.join().unwrap().starts_with("GET /api/tasks HTTP/"));
+        }
+    }
+
+    #[test]
+    fn dated_tasks_preserve_engine_date_labels_without_hiding_valid_rows() {
+        let mut unusual = dated_task_fixture();
+        unusual["due"] = serde_json::json!("2026-02-30");
+        unusual["completed"] = serde_json::json!("2026-99-00");
+        let mut valid = dated_task_fixture();
+        valid["note_id"] = serde_json::json!(43);
+        let (client, task) = mock(
+            200,
+            serde_json::json!({"vault":"work","tasks":[unusual, valid]}).to_string(),
+        );
+        let result = client.dated_tasks("work").unwrap();
+        assert_eq!(result.tasks.len(), 2);
+        assert_eq!(result.tasks[0].due, "2026-02-30");
+        assert_eq!(result.tasks[0].completed, "2026-99-00");
+        assert_eq!(result.tasks[0].scheduled, "2026-11-13");
+        assert_eq!(result.tasks[1].note_id, 43);
+        task.join().unwrap();
+        assert!(!calendar_date_valid("2026-02-30"));
+        assert!(!date_wire_shape("２０２６-02-30"));
+    }
+
+    #[test]
+    fn dated_tasks_reject_invalid_rows_and_ambiguous_metadata() {
+        for (field, invalid) in [
+            ("note_id", serde_json::json!(0)),
+            ("note_id", serde_json::json!(-1)),
+            ("line", serde_json::json!(0)),
+            ("line", serde_json::json!(-1)),
+            ("state", serde_json::json!("CUSTOM")),
+            ("done", serde_json::json!(true)),
+            ("due", serde_json::json!("2026-2-29")),
+            ("scheduled", serde_json::json!("tomorrow")),
+            ("completed", serde_json::json!("2026-11-XX")),
+            ("priority", serde_json::json!("AA")),
+            ("title", serde_json::json!("x".repeat(64 * 1024 + 1))),
+        ] {
+            let mut row = dated_task_fixture();
+            row[field] = invalid;
+            let (client, task) = mock(
+                200,
+                serde_json::json!({"vault":"work","tasks":[row]}).to_string(),
+            );
+            assert!(
+                matches!(client.dated_tasks("work"), Err(Error::Shape(_))),
+                "{field}"
+            );
+            task.join().unwrap();
+        }
+        let mut undated = dated_task_fixture();
+        undated["due"] = serde_json::json!("");
+        undated["scheduled"] = serde_json::json!("");
+        let mut terminal = dated_task_fixture();
+        terminal["state"] = serde_json::json!("DONE");
+        for body in [
+            serde_json::json!({"vault":"work","tasks":[undated]}),
+            serde_json::json!({"vault":"work","tasks":[terminal]}),
+            serde_json::json!({"vault":"work","tasks":[dated_task_fixture(),dated_task_fixture()]}),
+            serde_json::json!({"vault":"work","tasks":vec![dated_task_fixture();4097]}),
+            serde_json::json!({"vault":"other","tasks":[]}),
+            serde_json::json!({"vault":"work","tasks":null}),
+            serde_json::json!({"tasks":[]}),
+        ] {
+            let (client, task) = mock(200, body.to_string());
+            assert!(matches!(client.dated_tasks("work"), Err(Error::Shape(_))));
+            task.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn dated_tasks_fail_without_fallback_or_requests_for_invalid_scope() {
+        for status in [400, 403, 500, 503] {
+            let (client, task) = mock(status, r#"{"error":"selected vault unavailable"}"#);
+            for vault in ["x".repeat(1025), "bad\0vault".into()] {
+                assert!(matches!(client.dated_tasks(&vault), Err(Error::Config(_))));
+            }
+            assert!(
+                matches!(client.dated_tasks("work"), Err(Error::Http { status: actual, .. }) if actual == status)
+            );
+            assert!(
+                task.join()
+                    .unwrap()
+                    .starts_with("GET /api/tasks?vault=work HTTP/")
+            );
+            client.alive.store(false, Ordering::Release);
+            assert!(matches!(client.dated_tasks("work"), Err(Error::Stale)));
+        }
+    }
+
     #[test]
     fn agenda_is_explicit_read_only_scoped_and_preserves_partial_diagnostics() {
         let (client, task) = mock(

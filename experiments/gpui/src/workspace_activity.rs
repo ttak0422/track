@@ -59,6 +59,7 @@ struct AgendaState {
     date: String,
     serial: u64,
     result: Option<Result<live::AgendaResponse, String>>,
+    tasks: Option<Result<live::DatedTasksResponse, String>>,
 }
 impl AgendaState {
     fn accepts(&self, serial: u64, date: &str) -> bool {
@@ -375,6 +376,7 @@ impl Workspace {
                     .child("Select a day for active notes · journal creation is disabled."),
             )
             .child(self.activity_agenda(cx))
+            .child(self.activity_tasks(cx))
     }
 }
 #[cfg(test)]
@@ -522,8 +524,12 @@ impl Workspace {
             date: date.clone(),
             serial,
             result: None,
+            tasks: None,
         });
         let Some(permit) = AgendaPermit::acquire() else {
+            state.agenda.as_mut().unwrap().tasks = Some(Err(
+                "Earlier requests are still finishing. Retry shortly.".into(),
+            ));
             state.agenda.as_mut().unwrap().result = Some(Err(
                 "Earlier requests are still finishing. Retry shortly.".into(),
             ));
@@ -534,23 +540,46 @@ impl Workspace {
         let selected = date.clone();
         let job = cx.background_executor().spawn(async move {
             let _permit = permit;
-            let before = client.storage().map_err(|e| e.to_string())?;
-            if before.phase != "ready" || before.generation != captured.epoch {
-                return Err("Storage changed. Reload the workspace.".into());
+            let stale =
+                || "Storage or daily-view identity changed. Reload the workspace.".to_owned();
+            let before = client.storage();
+            if !before
+                .as_ref()
+                .is_ok_and(|s| s.phase == "ready" && s.generation == captured.epoch)
+            {
+                return (Err(stale()), Err(stale()));
             }
             let response = client
                 .agenda(&selected, &captured.vault)
-                .map_err(|e| e.to_string())?;
-            let after = client.storage().map_err(|e| e.to_string())?;
-            if after.phase != "ready"
-                || after.generation != before.generation
-                || response.launch_generation != captured.launch
-                || response.source_vault != captured.vault
-                || response.date != selected
+                .map_err(|e| e.to_string());
+            let tasks = client
+                .dated_tasks(&captured.vault)
+                .map_err(|e| e.to_string());
+            let after = client.storage();
+            if !after
+                .as_ref()
+                .is_ok_and(|s| s.phase == "ready" && s.generation == captured.epoch)
             {
-                return Err("Agenda response became stale. Reload the workspace.".into());
+                return (Err(stale()), Err(stale()));
             }
-            Ok(response)
+            let response = response.and_then(|r| {
+                if r.launch_generation == captured.launch
+                    && r.source_vault == captured.vault
+                    && r.date == selected
+                {
+                    Ok(r)
+                } else {
+                    Err(stale())
+                }
+            });
+            let tasks = tasks.and_then(|r| {
+                if r.launch_generation == captured.launch && r.source_vault == captured.vault {
+                    Ok(r)
+                } else {
+                    Err(stale())
+                }
+            });
+            (response, tasks)
         });
         cx.spawn(async move |this, cx| {
             let result = job.await;
@@ -565,7 +594,8 @@ impl Workspace {
                     .and_then(|s| s.agenda.as_mut())
                     .filter(|a| a.accepts(serial, &date))
                 {
-                    agenda.result = Some(result);
+                    agenda.result = Some(result.0);
+                    agenda.tasks = Some(result.1);
                     cx.notify();
                 }
             });
@@ -686,6 +716,7 @@ mod agenda_tests {
             date: "2026-11-14".into(),
             serial: 1,
             result: None,
+            tasks: None,
         };
         assert!(state.accepts(1, "2026-11-14"));
         assert!(!state.accepts(1, "2026-11-13"));
@@ -694,5 +725,125 @@ mod agenda_tests {
         assert!(state.accepts(2, "2026-11-14"));
         state.date = "2026-11-13".into();
         assert!(!state.accepts(2, "2026-11-14"));
+    }
+}
+
+impl Workspace {
+    fn activity_tasks(&self, cx: &mut Context<Self>) -> Div {
+        let mut view = div().mt_3().flex().flex_col().gap_1();
+        let Some(state) = self.shell.activity.as_ref() else {
+            return view;
+        };
+        let Some(agenda) = state.agenda.as_ref() else {
+            return view;
+        };
+        view = view.child(format!("Scheduled / due tasks · {}", agenda.date));
+        let Some(result) = &agenda.tasks else {
+            return view.child("Loading dated tasks…");
+        };
+        let response = match result {
+            Ok(value) => value,
+            Err(_) => {
+                let identity = state.identity.clone();
+                let date = agenda.date.clone();
+                let serial = agenda.serial;
+                return view.child("Dated tasks unavailable.").child(
+                    div()
+                        .id("daily-tasks-retry")
+                        .cursor_pointer()
+                        .child("Retry selected day")
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if this
+                                .shell
+                                .activity
+                                .as_ref()
+                                .and_then(|s| s.agenda.as_ref())
+                                .is_some_and(|a| a.accepts(serial, &date))
+                            {
+                                this.select_activity_day(identity.clone(), date.clone(), cx);
+                            }
+                        })),
+                );
+            }
+        };
+        let matching: Vec<_> = response
+            .tasks
+            .iter()
+            .filter(|t| task_on_day(&t.scheduled, &t.due, &agenda.date))
+            .collect();
+        if incomplete(&response.diagnostics) {
+            view = view.child("Incomplete or cached tasks; missing tasks are unknown.");
+        } else if matching.is_empty() {
+            view = view.child("No scheduled or due tasks on this day.");
+        }
+        for (index, task) in matching.iter().take(100).enumerate() {
+            let key = live::NoteKey {
+                vault: response.vault.clone(),
+                note_id: task.note_id,
+            };
+            let identity = state.identity.clone();
+            let date = agenda.date.clone();
+            let serial = agenda.serial;
+            let label = format!(
+                "{} · {} · {} (line {}) · scheduled {} · due {}",
+                task.state,
+                task.text,
+                task.title,
+                task.line,
+                if task.scheduled.is_empty() {
+                    "—"
+                } else {
+                    &task.scheduled
+                },
+                if task.due.is_empty() {
+                    "—"
+                } else {
+                    &task.due
+                }
+            );
+            view = view.child(
+                div()
+                    .id(("agenda-task", index))
+                    .cursor_pointer()
+                    .child(label)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if this.activity_identity_current(&identity)
+                            && this
+                                .shell
+                                .activity
+                                .as_ref()
+                                .and_then(|s| s.agenda.as_ref())
+                                .is_some_and(|a| {
+                                    a.accepts(serial, &date)
+                                        && a.tasks.as_ref().is_some_and(|r| r.is_ok())
+                                })
+                        {
+                            this.open_live_key(key.clone(), cx);
+                        }
+                    })),
+            );
+        }
+        if matching.len() > 100 {
+            view = view.child(format!(
+                "Showing the first 100 of {} matching tasks.",
+                matching.len()
+            ));
+        }
+        view.child("Read-only states · opens the note, not the task line. No overdue or recurrence expansion.")
+    }
+}
+fn task_on_day(scheduled: &str, due: &str, date: &str) -> bool {
+    scheduled == date || due == date
+}
+#[cfg(test)]
+mod daily_task_tests {
+    use super::*;
+    #[test]
+    fn exact_calendar_day_union_is_not_overdue_or_double_counted() {
+        assert!(task_on_day("2026-11-14", "", "2026-11-14"));
+        assert!(task_on_day("", "2026-11-14", "2026-11-14"));
+        assert!(task_on_day("2026-11-14", "2026-11-14", "2026-11-14"));
+        assert!(!task_on_day("2026-11-13", "2026-11-13", "2026-11-14"));
+        assert!(!task_on_day("", "", "2026-11-14"));
     }
 }

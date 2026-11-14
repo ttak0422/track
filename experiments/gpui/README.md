@@ -389,3 +389,17 @@ Native calendar picking, row layout, keyboard and accessibility remain unverifie
 
 Agenda reads allow at most two in-flight requests across experimental windows.
 If earlier reads are still finishing, retry the selected day after they finish.
+
+The selected day also lists tasks whose recorded scheduled or due date equals
+that day. The engine's dated-task GET includes all states, including DONE and
+CANCELLED; this is not an overdue or recurrence-expanded view. A task matching
+both fields is shown once. The state, scheduled/due dates and source note/line are
+labels only. Selecting a task opens its note, not a line jump or editor. No task
+mutation endpoint is called. Each response is bounded to 4096 dated tasks, and
+at most 100 matches are shown with a truncation notice. Task and active-note
+failures are shown separately; Retry refreshes both under the same identity and
+two-job concurrency guard. Native layout and accessibility remain unverified.
+
+Task dates remain authored date-shaped labels: an impossible calendar date is
+not repaired or used to hide other tasks. Only exact matches to the selected
+valid calendar day are included.

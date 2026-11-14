@@ -545,3 +545,14 @@ request; old responses and row callbacks must not navigate. Open a result and
 verify vault identity and dirty-state navigation guard. Check long titles, more
 than 100 results, narrow windows, keyboard access and VoiceOver. No journal or
 note should be created by selecting a day.
+
+### Daily task list (pending native QA)
+
+In disposable vaults, exercise TODO/DOING/WAITING/DONE/CANCELLED tasks with only
+scheduled, only due and both dates. Confirm exact-day matches, no duplicate row
+when both match, and no overdue or recurrence expansion. Trigger independent
+agenda/task failures and retry; the other successful list should remain visible.
+Switch day/scope during reads, then click old rows: stale callbacks must remain
+inert. A result opens the source note without changing task state or promising a
+line jump. Check more than 100 matches, partial empty results, long text and
+keyboard/accessibility behavior.

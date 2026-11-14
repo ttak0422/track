@@ -319,3 +319,12 @@ are displayed; links use guarded note navigation. Request identity rejects stale
 date/scope/launch/storage and superseded retry results. This adds no journal
 creation, task-state/calendar-event editing or timezone reinterpretation. Native
 interaction and visual parity remain pending, so G09 is not complete.
+
+### Read-only dated tasks
+
+The daily agenda now reads engine task states and displays exact scheduled/due
+date matches, including completed/cancelled tasks, without client-side state
+inference. Duplicate due/scheduled matches appear once. This adds no overdue,
+recurrence, mutation or task-line navigation semantics. Transport bounds,
+partial diagnostics and selection/source guards remain in force. Native task
+list interaction and visual parity remain pending.
