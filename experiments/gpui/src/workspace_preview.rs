@@ -236,9 +236,9 @@ impl Workspace {
                         else { this.previews.model.leave_preview(&hover_identity, this.previews.now()); }
                         this.schedule_preview(cx); cx.notify();
                     }))
-                    .child(div().p_2().border_b_1().border_color(rgb(line)).child(title)
-                        .child(div().text_xs().child(format!("{} · ID {}", if identity.target.vault.is_empty() { "launch vault" } else { &identity.target.vault }, identity.target.note_id)))
-                        .child(div().flex().gap_3().text_xs()
+                    .child(div().p_2().min_w_0().flex_shrink_0().border_b_1().border_color(rgb(line)).child(div().truncate().child(title))
+                        .child(div().text_xs().truncate().child(format!("{} · ID {}", if identity.target.vault.is_empty() { "launch vault" } else { &identity.target.vault }, identity.target.note_id)))
+                        .child(div().flex().flex_wrap().gap_3().text_xs()
                             .child(div().id(("preview-pin", identity.token as usize)).cursor_pointer().child(if pinned { "Unpin" } else { "Pin" })
                                 .on_click(cx.listener(move |this,_,_,cx| {
                                     if !this.preview_present(&pin_identity) { return; }
