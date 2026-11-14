@@ -680,3 +680,17 @@ on the preview or hidden reader, including already queued actions. Close should
 restore the original reader and offset without persisting projected positions.
 Check keyboard, narrow/light/dark layouts, scrolling and VoiceOver. No links,
 assets, tasks or nested includes should execute. No native evidence is claimed.
+
+### External Markdown handoff (pending native QA)
+
+Use only disposable folder snapshots and the current owned server. Verify
+Paste reads clipboard only on click; confirmation hides the token and explains
+one-use consumption. Cancel before Open must not consume. Check valid/expired
+URLs, foreign ports, malformed payloads, interrupted consume and replacement
+failure while an old snapshot is visible. Never retry automatically. Switch
+files/pages, close, restart the owned server and change host routes during a
+pending result; stale snapshots must not publish. Check normal reader source,
+Find and scroll remain unchanged, with no vault/file writes or image/link loads.
+Verify long Unicode filenames, 101+ files, bounded errors, narrow/light/dark
+layout, focus, keyboard/IME and VoiceOver. Headless tests do not validate these
+native flows; normal editing remains disabled.

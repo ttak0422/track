@@ -661,6 +661,103 @@ pub struct ReadClient {
     alive: Arc<AtomicBool>,
     pub launch_generation: u64,
 }
+/// Sanitized handoff errors never retain response bodies, URLs, or capabilities.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HandoffError {
+    NotSent,
+    Expired,
+    Http(u16),
+    Uncertain,
+    Invalid(&'static str),
+    Stale,
+}
+impl fmt::Display for HandoffError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NotSent => f.write_str("Owned server changed; handoff was not sent"),
+            Self::Expired => {
+                f.write_str("Handoff expired or was already used; run track markdown again")
+            }
+            Self::Http(status) => write!(
+                f,
+                "Handoff server returned HTTP {status}; run track markdown again"
+            ),
+            Self::Uncertain => f.write_str(
+                "Opening failed; the handoff may have been consumed. Run track markdown again",
+            ),
+            Self::Invalid(reason) => write!(
+                f,
+                "{reason}; the handoff may have been consumed. Run track markdown again"
+            ),
+            Self::Stale => f.write_str(
+                "Owned server changed while opening; the handoff may have been consumed",
+            ),
+        }
+    }
+}
+impl ReadClient {
+    pub(crate) fn markdown_origin(&self) -> &str {
+        &self.origin
+    }
+    pub(crate) fn is_alive(&self) -> bool {
+        self.alive.load(Ordering::Acquire)
+    }
+    /// Exactly one destructive temporary-queue consume; never probe storage,
+    /// follow the pasted URL, retry, or retain server-provided error content.
+    pub(crate) fn consume_markdown(
+        &self,
+        capability: crate::markdown_handoff::Capability,
+    ) -> Result<crate::markdown_handoff::Snapshot, HandoffError> {
+        self.consume_markdown_with_timeout(capability, Duration::from_secs(10))
+    }
+    fn consume_markdown_with_timeout(
+        &self,
+        capability: crate::markdown_handoff::Capability,
+        timeout: Duration,
+    ) -> Result<crate::markdown_handoff::Snapshot, HandoffError> {
+        if !self.is_alive()
+            || capability.launch != self.launch_generation
+            || capability.origin != self.origin
+        {
+            return Err(HandoffError::NotSent);
+        }
+        let request = self
+            .http
+            .post(format!("{}/api/markdown/consume", self.origin))
+            .header("Cache-Control", "no-cache, no-store")
+            .timeout(timeout)
+            .json(&serde_json::json!({"token": capability.token}));
+        drop(capability);
+        if !self.is_alive() {
+            return Err(HandoffError::NotSent);
+        }
+        let mut response = request.send().map_err(|_| HandoffError::Uncertain)?;
+        if !self.is_alive() {
+            return Err(HandoffError::Stale);
+        }
+        let status = response.status().as_u16();
+        if status == 410 {
+            return Err(HandoffError::Expired);
+        }
+        if status != 200 {
+            return Err(HandoffError::Http(status));
+        }
+        let mut bytes = Vec::new();
+        (&mut response)
+            .take(crate::markdown_handoff::WIRE_LIMIT as u64 + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|_| HandoffError::Uncertain)?;
+        if !self.is_alive() {
+            return Err(HandoffError::Stale);
+        }
+        let snapshot =
+            crate::markdown_handoff::Snapshot::decode(&bytes).map_err(HandoffError::Invalid)?;
+        if !self.is_alive() {
+            return Err(HandoffError::Stale);
+        }
+        Ok(snapshot)
+    }
+}
 impl ReadClient {
     fn get<T: DeserializeOwned>(&self, path: &str, query: &[(&str, String)]) -> Result<T, Error> {
         self.get_with_timeout(path, query, None)
@@ -3813,3 +3910,171 @@ mod tests {
 #[cfg(test)]
 #[path = "live_save_races.rs"]
 mod save_races;
+
+#[cfg(test)]
+mod markdown_consume_tests {
+    use super::*;
+    use std::io::Write;
+    fn fixture(
+        reply: Option<(u16, &'static str)>,
+        delay: bool,
+    ) -> (ReadClient, thread::JoinHandle<Vec<String>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        listener.set_nonblocking(true).unwrap();
+        let task = thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(2);
+            let mut requests = Vec::new();
+            while Instant::now() < deadline {
+                if let Ok((mut stream, _)) = listener.accept() {
+                    stream.set_nonblocking(false).unwrap();
+                    stream
+                        .set_read_timeout(Some(Duration::from_secs(1)))
+                        .unwrap();
+                    let mut bytes = Vec::new();
+                    let mut b = [0];
+                    while !bytes.ends_with(b"\r\n\r\n") {
+                        stream.read_exact(&mut b).unwrap();
+                        bytes.push(b[0]);
+                    }
+                    let header = String::from_utf8(bytes.clone()).unwrap();
+                    let size: usize = header
+                        .lines()
+                        .find_map(|l| {
+                            l.to_ascii_lowercase()
+                                .strip_prefix("content-length:")
+                                .map(str::trim)
+                                .map(str::to_string)
+                        })
+                        .unwrap()
+                        .parse()
+                        .unwrap();
+                    let mut body = vec![0; size];
+                    stream.read_exact(&mut body).unwrap();
+                    bytes.extend(body);
+                    requests.push(String::from_utf8(bytes).unwrap());
+                    if delay {
+                        thread::sleep(Duration::from_millis(100));
+                    }
+                    if let Some((status, body)) = reply {
+                        let _ = write!(
+                            stream,
+                            "HTTP/1.1 {status} Test\r\nContent-Length: {}\r\nLocation: /unexpected\r\nConnection: close\r\n\r\n{body}",
+                            body.len()
+                        );
+                    }
+                    let end = Instant::now() + Duration::from_millis(60);
+                    while Instant::now() < end {
+                        if listener.accept().is_ok() {
+                            requests.push("unexpected retry".into());
+                        }
+                        thread::sleep(Duration::from_millis(2));
+                    }
+                    break;
+                }
+                thread::sleep(Duration::from_millis(2));
+            }
+            requests
+        });
+        (
+            ReadClient {
+                http: reqwest::blocking::Client::builder()
+                    .no_proxy()
+                    .retry(reqwest::retry::never())
+                    .redirect(reqwest::redirect::Policy::none())
+                    .build()
+                    .unwrap(),
+                origin,
+                alive: Arc::new(AtomicBool::new(true)),
+                launch_generation: 77,
+            },
+            task,
+        )
+    }
+    fn capability(c: &ReadClient) -> crate::markdown_handoff::Capability {
+        crate::markdown_handoff::Capability::parse(
+            &format!("/markdown#handoff={}", "b".repeat(64)),
+            c.markdown_origin(),
+            c.launch_generation,
+        )
+        .unwrap()
+    }
+    #[test]
+    fn consume_exactly_one_post_and_never_fallback_or_redirect() {
+        for (reply, expected) in [
+            (
+                Some((
+                    200,
+                    r#"{"active":"a.md","files":[{"path":"a.md","data":"YQ=="}]}"#,
+                )),
+                None,
+            ),
+            (Some((410, "secret")), Some(HandoffError::Expired)),
+            (Some((500, "secret")), Some(HandoffError::Http(500))),
+            (Some((302, "secret")), Some(HandoffError::Http(302))),
+            (None, Some(HandoffError::Uncertain)),
+        ] {
+            let (c, task) = fixture(reply, false);
+            let result = c.consume_markdown(capability(&c));
+            if let Some(expected) = expected {
+                assert_eq!(result.unwrap_err(), expected);
+            } else {
+                assert_eq!(result.unwrap().markdown("a.md"), Some("a"));
+            }
+            let requests = task.join().unwrap();
+            assert_eq!(requests.len(), 1);
+            assert!(requests[0].starts_with("POST /api/markdown/consume HTTP/1.1"));
+            assert!(requests[0].contains("application/json"));
+            assert!(!requests[0].contains("handoff="));
+        }
+    }
+    #[test]
+    fn timeout_is_uncertain_and_does_not_retry() {
+        let (c, task) = fixture(Some((200, "{}")), true);
+        assert_eq!(
+            c.consume_markdown_with_timeout(capability(&c), Duration::from_millis(25))
+                .unwrap_err(),
+            HandoffError::Uncertain
+        );
+        assert_eq!(task.join().unwrap().len(), 1);
+    }
+    #[test]
+    fn launch_binding_and_dead_client_prevent_submission() {
+        let (c, task) = fixture(None, false);
+        let mut cap = capability(&c);
+        cap.launch += 1;
+        assert_eq!(c.consume_markdown(cap).unwrap_err(), HandoffError::NotSent);
+        let cap = capability(&c);
+        c.alive.store(false, Ordering::Release);
+        assert_eq!(c.consume_markdown(cap).unwrap_err(), HandoffError::NotSent);
+        assert!(task.join().unwrap().is_empty());
+    }
+    #[test]
+    fn stale_response_cannot_publish_and_errors_are_redacted() {
+        let (c, task) = fixture(
+            Some((
+                200,
+                r#"{"active":"a.md","files":[{"path":"a.md","data":"YQ=="}]}"#,
+            )),
+            true,
+        );
+        let alive = c.alive.clone();
+        let stop = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(30));
+            alive.store(false, Ordering::Release);
+        });
+        assert_eq!(
+            c.consume_markdown(capability(&c)).unwrap_err(),
+            HandoffError::Stale
+        );
+        stop.join().unwrap();
+        assert_eq!(task.join().unwrap().len(), 1);
+        for error in [
+            HandoffError::Uncertain,
+            HandoffError::Expired,
+            HandoffError::Http(500),
+        ] {
+            assert!(!error.to_string().contains(&"b".repeat(64)));
+        }
+    }
+}

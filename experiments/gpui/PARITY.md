@@ -49,6 +49,7 @@ of support. Use disposable fixture vaults, never a configured personal vault, fo
 | Focused full-graph keyboard selection and opening | [x] | [ ] | `graph_view.rs`; bounded deterministic selection, scoped focus and guarded navigation; native QA pending |
 | Full graph layout, previews and navigation parity | [ ] | [ ] | `GraphCanvas`, `GraphFullView`, `graphWheel` |
 | Themes, keyboard navigation, selection, clipboard and IME | [ ] | [ ] | `themeState`, `keybindings`, desktop reading shortcuts |
+| Explicit one-use external Markdown snapshot viewer | [x] | [ ] | Owned-origin consume, bounded inert snapshots; native clipboard/focus QA pending |
 | External Markdown handoff and editor-follow behavior | [ ] | [ ] | `MarkdownViewer`, `markdownHandoff`, `/api/follow` |
 | Read-only scoped Home activity heatmap | [x] | [ ] | `workspace_activity.rs`, `live.rs`; calendar/transport/identity tests; light/dark native rendering checked |
 | Read-only owned SSE change/gap notices | [x] | [ ] | `live_events.rs`, `event_awareness.rs`; bounded synthetic transport/model tests, native UI pending |

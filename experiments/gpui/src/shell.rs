@@ -351,6 +351,7 @@ fn position_compatible(
 }
 
 pub struct ShellState {
+    pub(crate) handoff: workspace_handoff::HandoffUi,
     positions: ReadingPositions,
     code_copy: code_copy::State,
     code_anchors: Option<std::rc::Rc<markdown::FindAnchors>>,
@@ -443,6 +444,7 @@ impl ShellState {
 impl Default for ShellState {
     fn default() -> Self {
         Self {
+            handoff: Default::default(),
             positions: Default::default(),
             code_copy: Default::default(),
             code_anchors: None,
@@ -1177,6 +1179,9 @@ impl Workspace {
         view.child(controls).child(rows_view)
     }
     pub(crate) fn current_link_source(&self) -> Option<LinkSource> {
+        if self.handoff_active() {
+            return None;
+        }
         let note = self.current_note.as_ref()?;
         Some(LinkSource {
             note: note.note.key(),
@@ -1928,6 +1933,10 @@ impl Render for Workspace {
             WindowAppearance::Dark | WindowAppearance::VibrantDark
         ));
         let p = Palette::new(dark);
+        self.reset_stale_handoff();
+        if self.handoff_active() {
+            return self.render_handoff(dark, (p.paper, p.ink, p.line), cx);
+        }
         self.reset_stale_includes();
         if self.includes_preview_active() {
             return self.rendered_includes_preview(dark, (p.paper, p.ink, p.line), cx);
@@ -2900,6 +2909,7 @@ impl Render for Workspace {
             );
         div()
             .id("workspace-shell")
+            .child(self.handoff_entry(cx))
             .on_action(
                 cx.listener(|this, _: &search_input::FindNext, _, cx| this.move_find(true, cx)),
             )

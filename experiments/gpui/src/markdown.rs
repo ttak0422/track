@@ -1332,7 +1332,7 @@ fn preview_tree(source: &str) -> Result<Vec<Node<'_>>, String> {
     }
     Ok(nodes(&mut events.into_iter()))
 }
-fn preview_blocks(source: &str) -> Result<Vec<Block>, String> {
+pub(crate) fn preview_blocks(source: &str) -> Result<Vec<Block>, String> {
     let tree = preview_tree(source)?;
     let mut result = Vec::new();
     let mut end = 0;
@@ -1345,6 +1345,9 @@ fn preview_blocks(source: &str) -> Result<Vec<Block>, String> {
         end = node.range.end;
     }
     fallback(&source[end..], &mut result);
+    if result.len() > PREVIEW_BLOCK_LIMIT {
+        return Err("Rendered preview exceeds 4096 blocks.".into());
+    }
     Ok(result)
 }
 

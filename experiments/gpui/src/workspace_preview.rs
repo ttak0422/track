@@ -83,7 +83,7 @@ fn pin_entry_focus_allowed(has_focus: bool, reader_focused: bool) -> bool {
 }
 impl Workspace {
     pub(crate) fn pin_keyboard_available(&self, cx: &App) -> bool {
-        if self.includes_preview_active() {
+        if self.handoff_active() || self.includes_preview_active() {
             return false;
         }
         PinKeyboardContext {

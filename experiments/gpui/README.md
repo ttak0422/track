@@ -588,3 +588,31 @@ that it survived an abrupt exit. Normal launches collect no checkpoint geometry
 and perform no session I/O. Nothing automatically saves on scroll, resumes at
 startup, fetches a note or changes seen/read milestones. Native interaction and
 layout validation remain pending.
+
+### External Markdown handoff snapshots
+
+In an owned live session, use the server address shown by the native viewer with
+`track markdown --addr 127.0.0.1:PORT -- "file.md"`, replacing `PORT` with that
+address's port. The CLI snapshots the file's containing folder and prints a
+one-use viewer URL; it neither starts the server nor opens a browser. Copy that
+URL, choose **Paste handoff**, then explicitly confirm **Open one-time snapshot**.
+Only the current owned server's URL is accepted. The token is not shown in the
+confirmation or saved in preferences.
+
+Opening consumes the handoff before its response arrives. It expires after one
+minute, and a failed or interrupted open may already have consumed it. Generate
+a new handoff instead of retrying the old URL. Pasting or canceling before Open
+does not consume it. A failed replacement keeps the previously opened snapshot.
+
+The external viewer is a separate, ephemeral read-only snapshot. Choose among its
+Markdown files using paged filenames; selection makes no filesystem or network
+request. Close returns to the unchanged vault reader. Links, images, nested
+includes, tasks, Find, reading checkpoints and editing are unavailable here.
+The snapshot is not imported, saved, automatically refreshed or restored after
+restart. Generate a fresh handoff to reflect source-folder changes.
+
+Malformed paths, duplicate names, invalid UTF-8/base64 and excessive snapshots
+are rejected rather than opened from the filesystem. The limits are 5000 files,
+24 MiB wire JSON, 16 MiB decoded content and 2 MiB per Markdown file, with further
+native parsing bounds. Image bytes are validated for size but not rendered.
+Native clipboard, focus, keyboard/IME and accessibility QA remains pending.
