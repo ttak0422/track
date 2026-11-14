@@ -433,3 +433,19 @@ Change query, source, tab and window dimensions around the deferred frame. Check
 that new content is not moved by an old request and that resize-during-Find stays
 usable. Multiline matches reveal only their first line; horizontal reveal remains
 out of scope. Ordinary note bodies and reading metadata are not written.
+
+## Fixture-only history persistence: native validation pending
+
+Model and temporary-directory tests cover bounded history/cursors, schema 1 reads
+and schema 2 writes, unknown/duplicate field rejection, artifact preservation,
+cursor-only changes, safe-Home startup without snapshot rewrite, and rejection
+after newer accepted navigation. Existing ownership/path/lock/revision/conflict
+checks remain. Tests do not establish native startup timing or OS shutdown.
+
+With only the explicit disposable fixture opt-in, visit notes and Graph, restart
+and confirm Home opens without a prior-note request. Use Back/Forward explicitly;
+check the saved Forward branch was truncated by the new Home visit. Navigate while
+startup is pending and confirm the newer route/history survives. Repeat with dirty
+Save/Discard/Cancel and pending/uncertain writes. Verify ordinary launches create
+no session files. Queued metadata is not guaranteed flushed on abrupt quit; this
+is neither durable draft recovery nor ordinary-profile persistence.

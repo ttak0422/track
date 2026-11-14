@@ -165,7 +165,8 @@ References:
 #### Fixture-only tab-session persistence checkpoint
 
 Separate `--developer-session-fixture` opt-in now stores bounded vault-qualified
-MRU tab metadata and title hints under the isolated temporary cache. Startup reads
+MRU tab metadata, title hints and up to 100 history routes under the isolated
+temporary cache. Startup reads
 before writes, restores the strip with safe Home rather than the previous active
 route, and does not auto-fetch a restored note. Lock/revision/identity validation,
 atomic writes, corruption-preserving memory-only degradation, and accepted versus
@@ -235,3 +236,13 @@ list prefixes, with per-render geometry invalidation and existing request/revisi
 guards. One bounded retry covers unavailable geometry. This is vertical first-line
 reveal, not whole-range or horizontal scrolling. Model tests pass; actual shaping,
 resize-during-Find and native visibility checks remain pending.
+
+### Fixture-only history restoration
+
+Schema 2 stores validated route history and cursor atomically with tab metadata.
+Legacy tabs-only snapshots remain readable; startup does not rewrite the snapshot.
+Restoration always adds safe Home and truncates saved Forward, without an automatic
+note fetch. Newer accepted navigation rejects both restored tabs and history.
+History-only cursor changes persist even when tabs are unchanged. Ordinary mode
+performs no session-file I/O. Native restart/Back/Forward and quit durability are
+not established by the model/temporary-directory tests.

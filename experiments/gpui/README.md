@@ -202,7 +202,7 @@ one explicit pin](GRAPH-PREVIEW-FOUNDATION.md) are implemented with synthetic
 lifecycle/transport tests; GUI behavior and broader parity remain unverified.
 See [GRAPH.md](GRAPH.md#full-vault-graph-prerequisite-2026-11-14).
 
-### Disposable fixture tab snapshots (developer opt-in)
+### Disposable fixture tab/history snapshots (developer opt-in)
 
 `--developer-session-fixture /canonical/temporary/vault` is independent of
 `--developer-edit-fixture`. It requires an owned `--server-port`, matching `--vault`,
@@ -215,8 +215,9 @@ Normal launches and editing-only launches perform no session filesystem I/O.
 
 The only persistent entries are `track-native-tabs-v1.json` and the retained
 `track-native-tabs-v1.lock` inside that cache. The JSON contains a format marker,
-version, binding fingerprint, revision, tab kind, vault-qualified note ID and title
-hint. Limits: 128 tabs, 2,048 title bytes each, 128 KiB serialized snapshot, 256
+version, binding fingerprint, revision, tab kind, vault-qualified note ID, title
+hint and bounded route history/cursor. Limits: 100 history routes, 128 tabs,
+2,048 title bytes each, 128 KiB serialized snapshot, 256
 registry names of at most 1,024 bytes. No body, draft, etag, server token, search
 query, preview, scroll position or credential is persisted. Home/Graph labels are
 fixed. Binding covers canonical fixture/cache/config identity, configuration bytes
@@ -225,7 +226,7 @@ invalidates it; fingerprints are identity checks, not cryptographic authenticati
 
 Startup reads on the background startup task before any tab write. If accepted
 navigation occurs while startup is pending, the server is attached but restored
-tabs and automatic list loading are skipped; the newer route is retained until
+tabs/history and automatic list loading are skipped; the newer route is retained until
 an explicit reload/navigation. Restored note
 order is retained, but Home is inserted/promoted as the safe active view. No note
 body GET is issued by restoration or initial list loading in this mode. Selecting
@@ -233,7 +234,14 @@ a restored tab makes a fresh current owned-server request; unknown/unavailable
 vaults never fall back to launch scope. Registry changes disable persistence.
 Malformed, oversized, unsupported or mismatched snapshots remain untouched and a
 nonfatal banner explains that tabs are now memory-only. There is no reset/delete
-button or automatic migration.
+button or startup migration.
+
+Fixture snapshots read legacy tabs-only schema 1 and write schema 2 after an
+accepted metadata/history change. Restored history discards its saved Forward
+branch and appends safe Home; Back revisits earlier routes only on explicit input.
+Startup does not rewrite the snapshot (the lock file may be created). Malformed
+history, duplicate/unknown fields, invalid cursors and unavailable vault identities
+preserve the original artifact and disable persistence.
 
 Accepted navigation and fetched title changes enqueue a bounded latest metadata
 snapshot to one background writer. Dirty Cancel, pending Save and failed Save do
