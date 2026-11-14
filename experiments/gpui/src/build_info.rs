@@ -12,6 +12,19 @@ pub fn display() -> String {
     )
 }
 
+/// Checkpoints deliberately refuse dirty/unknown renderer builds. No checkout I/O.
+pub fn checkpoint_renderer() -> Option<String> {
+    checkpoint_identity(
+        env!("TRACK_BUILD_REVISION"),
+        env!("TRACK_BUILD_SOURCE_STATE"),
+        env!("TRACK_BUILD_TARGET"),
+    )
+}
+fn checkpoint_identity(revision: &str, state: &str, target: &str) -> Option<String> {
+    (state == "clean" && revision.len() == 40 && revision.bytes().all(|b| b.is_ascii_hexdigit()))
+        .then(|| format!("native-block-v1:{revision}:{target}"))
+}
+
 /// Plain-text payload shared by explicit Copy Build Info and --version.
 /// No workspace/document state is accepted. The final newline matches CLI output.
 pub fn clipboard_payload() -> String {
@@ -46,6 +59,16 @@ mod tests {
         assert!(text.contains(revision));
         assert!(text.contains("Tracked source: modified"));
         assert!(text.contains("aarch64-apple-darwin"));
+    }
+
+    #[test]
+    fn checkpoints_require_known_clean_renderer() {
+        let revision = "0123456789012345678901234567890123456789";
+        assert!(checkpoint_identity(revision, "clean", "target").is_some());
+        for state in ["modified", "unknown", "dirty"] {
+            assert!(checkpoint_identity(revision, state, "target").is_none());
+        }
+        assert!(checkpoint_identity("unknown", "clean", "target").is_none());
     }
 
     #[test]

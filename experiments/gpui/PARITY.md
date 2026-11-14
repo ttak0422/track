@@ -22,6 +22,7 @@ of support. Use disposable fixture vaults, never a configured personal vault, fo
 | Persistent tabs, history and floating previews | [ ] | [ ] | `components/tabs`, `components/preview` |
 | Read-only rendered body/table Find | [x] | [ ] | `reader_find.rs`, `workspace_find.rs`; local matches/highlights; shaped active-match line reveal added, native line-reveal/IME checks pending |
 | Display of existing read/seen milestones | [x] | [ ] | `note_metadata.rs`; accepted live source only, no milestone writes or NEW inference; native QA pending |
+| Explicit disposable-fixture reading checkpoints | [x] | [ ] | `session_store.rs`, `shell.rs`, `markdown.rs`; protected block checkpoints and fresh prepaint guards, no automatic or ordinary persistence; native QA pending |
 | Reading positions, seen/read milestones and exact-range Find parity | [ ] | [ ] | `reading.ts`, `ReadingPositionBoundary`, `WebViewFindController` |
 | Create, edit, save, delete and metadata editing | [ ] | [ ] | `NoteEditor`, `NoteMetaDialog`, `NoteActionsMenu` |
 | Conflict detection, dirty-state protection and draft recovery | [ ] | [ ] | `NoteEditor.recovery`, `recovery.ts`, desktop termination tests |

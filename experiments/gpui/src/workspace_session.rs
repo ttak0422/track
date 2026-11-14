@@ -9,7 +9,13 @@ pub struct SessionOptions {
 }
 #[derive(Default)]
 struct Pending {
-    latest: Option<(u64, Vec<tabs::Tab>, navigation::Snapshot, String)>,
+    latest: Option<(
+        u64,
+        Vec<tabs::Tab>,
+        navigation::Snapshot,
+        String,
+        Vec<session_store::ReadingPosition>,
+    )>,
     completed: u64,
     error: Option<String>,
 }
@@ -28,8 +34,8 @@ impl Writer {
         let thread = std::thread::spawn(move || {
             while receiver.recv().is_ok() {
                 let snapshot = state.lock().unwrap().latest.take();
-                if let Some((sequence, entries, history, scope)) = snapshot {
-                    let result = store.save_with_scope(&entries, &history, &scope);
+                if let Some((sequence, entries, history, scope, positions)) = snapshot {
+                    let result = store.save_with_positions(&entries, &history, &scope, &positions);
                     let mut state = state.lock().unwrap();
                     state.completed = sequence;
                     if let Err(error) = result {
@@ -49,9 +55,15 @@ impl Writer {
             thread: Some(thread),
         }
     }
-    fn enqueue(&mut self, entries: Vec<tabs::Tab>, history: navigation::Snapshot, scope: String) {
+    fn enqueue(
+        &mut self,
+        entries: Vec<tabs::Tab>,
+        history: navigation::Snapshot,
+        scope: String,
+        positions: Vec<session_store::ReadingPosition>,
+    ) {
         self.sent += 1;
-        self.shared.lock().unwrap().latest = Some((self.sent, entries, history, scope));
+        self.shared.lock().unwrap().latest = Some((self.sent, entries, history, scope, positions));
         // Full means a wake already exists; that wake consumes the latest snapshot.
         let _ = self.wake.as_ref().unwrap().try_send(());
     }
@@ -73,6 +85,7 @@ pub struct SessionUi {
     last: Vec<tabs::Tab>,
     last_history: navigation::Snapshot,
     last_scope: String,
+    positions: Vec<session_store::ReadingPosition>,
     restored_scope: Option<String>,
     restored_history: Option<navigation::History>,
     pub warning: Option<String>,
@@ -106,6 +119,7 @@ impl SessionUi {
                     .take()
                     .and_then(navigation::History::restore_home)
                     .unwrap_or_default();
+                self.positions = store.reading_positions.clone();
                 self.restored_scope = store.restored_scope.take();
                 self.last_scope = self.restored_scope.clone().unwrap_or_default();
                 self.last_history = history.snapshot();
@@ -125,6 +139,9 @@ impl SessionUi {
     }
     /// Consume once; startup navigation races discard, never install, saved routes.
     pub fn take_restored_history(&mut self, startup_current: bool) -> Option<navigation::History> {
+        if !startup_current {
+            self.positions.clear();
+        }
         self.restored_history.take().filter(|_| startup_current)
     }
     /// Canonical launch-name aliases mean the empty working scope. Normalize the
@@ -136,6 +153,9 @@ impl SessionUi {
         }
     }
     pub fn take_restored_scope(&mut self, startup_current: bool) -> Option<String> {
+        if !startup_current {
+            self.positions.clear();
+        }
         self.restored_scope.take().filter(|_| startup_current)
     }
     #[cfg(test)]
@@ -181,10 +201,63 @@ impl SessionUi {
             return;
         };
         // Bounded latest snapshot, not a queue of disk writes. No filesystem work here.
-        worker.enqueue(tabs.entries().to_vec(), history.clone(), scope.to_owned());
+        self.positions
+            .retain(|p| tabs.entries().iter().any(|tab| tab.key == p.key()));
+        worker.enqueue(
+            tabs.entries().to_vec(),
+            history.clone(),
+            scope.to_owned(),
+            self.positions.clone(),
+        );
         self.last_scope = scope.to_owned();
         self.last_history = history;
         self.last = tabs.entries().to_vec();
+    }
+    pub fn positions_enabled(&self) -> bool {
+        self.safe_home && self.worker.is_some()
+    }
+    pub fn reading_position(&self, key: &tabs::TabKey) -> Option<&session_store::ReadingPosition> {
+        self.positions.iter().find(|p| &p.key() == key)
+    }
+    /// Returns a queued sequence, not a durability claim. Call completion after polling errors.
+    pub fn save_reading_position(
+        &mut self,
+        position: session_store::ReadingPosition,
+        tabs: &tabs::Tabs,
+        history: &navigation::History,
+        scope: &str,
+    ) -> Result<u64, String> {
+        self.poll_warning();
+        if !self.positions_enabled() {
+            return Err("Fixture position persistence unavailable".into());
+        }
+        if !position.valid()
+            || !self.known_vaults.contains(&position.vault)
+            || !tabs.entries().iter().any(|tab| tab.key == position.key())
+        {
+            self.warning = Some("Tab persistence disabled: invalid reading position".into());
+            self.worker = None;
+            return Err(self.warning.clone().unwrap());
+        }
+        self.sync_with_scope(tabs, history, scope);
+        let Some(worker) = self.worker.as_mut() else {
+            return Err("Fixture position persistence unavailable".into());
+        };
+        self.positions.retain(|p| p.key() != position.key());
+        self.positions.push(position);
+        worker.enqueue(
+            self.last.clone(),
+            self.last_history.clone(),
+            self.last_scope.clone(),
+            self.positions.clone(),
+        );
+        Ok(worker.sent)
+    }
+    pub fn position_save_completed(&self, sequence: u64) -> bool {
+        self.worker.as_ref().is_some_and(|w| {
+            let pending = w.shared.lock().unwrap();
+            pending.error.is_none() && pending.completed >= sequence
+        })
     }
     pub fn poll_warning(&mut self) {
         let error = self
@@ -522,5 +595,60 @@ mod tests {
                 .unwrap()
                 .contains("private")
         );
+    }
+    #[test]
+    fn explicit_position_only_queue_preserves_history_scope_and_startup_race_discards() {
+        let f = Fixture::new();
+        let mut ui = f.ui();
+        let mut tabs = ui.restore(registry()).unwrap();
+        let mut history = ui.take_restored_history(true).unwrap();
+        tabs.open_note("work", 7, "A");
+        history.record(tabs.active().map(|t| t.key.clone()));
+        ui.sync_with_scope(&tabs, &history, "work");
+        ui.flush();
+        let before = f.bytes();
+        let position = session_store::ReadingPosition {
+            vault: "work".into(),
+            note_id: 7,
+            etag: "revision".into(),
+            body_bytes: 12,
+            renderer: "checkpoint-v1:clean-test".into(),
+            block_index: 0,
+            geometry: session_store::PositionGeometry {
+                viewport_width: 800.,
+                viewport_height: 600.,
+                reader_width: 700.,
+                reader_height: 500.,
+                scale: 1.,
+            },
+        };
+        let sequence = ui
+            .save_reading_position(position.clone(), &tabs, &history, "work")
+            .unwrap();
+        ui.flush();
+        assert!(ui.position_save_completed(sequence));
+        assert_ne!(f.bytes(), before);
+        tabs.open_graph();
+        history.record(Some(tabs::TabKey::Graph));
+        ui.sync_with_scope(&tabs, &history, "");
+        ui.flush();
+        drop(ui);
+        let before = f.bytes();
+        let mut ui = f.ui();
+        let _ = ui.restore(registry()).unwrap();
+        assert_eq!(ui.reading_position(&position.key()), Some(&position));
+        assert_eq!(f.bytes(), before);
+        ui.take_restored_history(false);
+        assert!(ui.reading_position(&position.key()).is_none());
+        assert_eq!(f.bytes(), before);
+        let mut normal = SessionUi::new(None);
+        assert!(!normal.positions_enabled());
+        assert!(
+            normal
+                .save_reading_position(position, &tabs, &history, "work")
+                .is_err()
+        );
+        assert!(normal.positions.is_empty());
+        assert!(normal.worker.is_none());
     }
 }

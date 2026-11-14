@@ -654,3 +654,14 @@ layout, scrolling, keyboard and VoiceOver. This does not validate task editing.
 - Switch source or close while a request is pending. Old responses must not
   repopulate the inspector. Check native keyboard, focus and accessible labels.
 - No normal editing or nested link/image execution is enabled by this inspector.
+
+### Explicit fixture reading checkpoints (pending native QA)
+
+- Build from a known clean checkout and use an isolated session fixture. Save a
+  visible Markdown block, restart to Home, manually open that same note and Resume.
+- Verify large paragraphs/code resume at block start, never claimed exact-line.
+  Metadata, task/include inspectors and previews must not become checkpoints.
+- Change body revision, viewport size, scale or build; Resume must refuse. Pending
+  jumps must be cancelled by manual scroll/Find/navigation and source replacement.
+- Check queued-write/error feedback, keyboard/AX and missing native measurement.
+  Ordinary launches must have no checkpoint controls, geometry collection or I/O.

@@ -32,7 +32,316 @@ impl ReaderContentIdentity {
     }
 }
 
+#[derive(Default)]
+struct ReadingPositions {
+    source: Option<(LinkSource, tabs::TabKey)>,
+    anchors: Option<std::rc::Rc<markdown::PositionAnchors>>,
+    interaction: u64,
+    message: String,
+    queued: Option<u64>,
+}
+
+impl Workspace {
+    pub(crate) fn cancel_position_resume(&mut self) {
+        self.shell.positions.interaction = self.shell.positions.interaction.wrapping_add(1);
+    }
+    fn position_source(&self) -> Result<(LinkSource, tabs::TabKey), &'static str> {
+        if !self.session_ui.positions_enabled() {
+            return Err("Reading checkpoints require active disposable-fixture persistence.");
+        }
+        if build_info::checkpoint_renderer().is_none() {
+            return Err("Reading checkpoints require a known clean renderer build.");
+        }
+        if !self.find_available()
+            || self.shell.find.open
+            || self.shell.find.highlighted
+            || self.partial_read
+            || self.read_error.is_some()
+            || self.quit_session.is_closing()
+            || self.quit_session.failure().is_some()
+            || self.shell.pending_fragment.is_some()
+            || self.previews.model.transient.is_some()
+        {
+            return Err("Reading checkpoints are unavailable while the reader is busy.");
+        }
+        let source = self
+            .current_link_source()
+            .ok_or("Open a live note first.")?;
+        let storage = self
+            .live
+            .as_ref()
+            .and_then(|live| live.initial_storage.as_ref())
+            .ok_or("Storage readiness is unknown.")?;
+        if storage.phase != "ready" || storage.generation != source.storage_generation {
+            return Err("Storage readiness changed.");
+        }
+        let route = self
+            .current_note_request
+            .as_ref()
+            .ok_or("No accepted note route.")?;
+        let key = self
+            .tabs
+            .active()
+            .map(|tab| tab.key.clone())
+            .ok_or("No active note.")?;
+        if !position_route_matches(&source, route, &key) || source.etag.is_empty() {
+            return Err("The accepted source does not match the active note.");
+        }
+        // Resolved-title projections can change without a new host etag. Refuse
+        // those displays rather than persisting an ambiguous parser index.
+        if self.displayed_content().as_ref() != &self.content {
+            return Err("Checkpoints are unavailable for projected link titles.");
+        }
+        if self.content.is_empty() || self.content.len() > 4096 {
+            return Err("This document exceeds supported checkpoint block bounds.");
+        }
+        Ok((source, key))
+    }
+
+    fn position_capture(&self, window: &Window) -> Option<markdown::PositionCapture> {
+        let source = self.position_source().ok()?;
+        if self.shell.positions.source.as_ref() != Some(&source) {
+            return None;
+        }
+        self.shell
+            .positions
+            .anchors
+            .as_ref()?
+            .capture(window.viewport_size(), window.scale_factor())
+    }
+
+    fn position_record(
+        &self,
+        capture: &markdown::PositionCapture,
+    ) -> Option<session_store::ReadingPosition> {
+        let (source, key) = self.position_source().ok()?;
+        let tabs::TabKey::Note { vault, note_id } = key else {
+            return None;
+        };
+        Some(session_store::ReadingPosition {
+            vault,
+            note_id,
+            etag: source.etag,
+            body_bytes: self.current_note.as_ref()?.body.len() as u64,
+            renderer: build_info::checkpoint_renderer()?,
+            block_index: capture.block_index,
+            geometry: capture.geometry.clone(),
+        })
+    }
+
+    fn save_position(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.request_position(false, window, cx);
+    }
+
+    fn resume_position(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.request_position(true, window, cx);
+    }
+
+    fn request_position(&mut self, resume: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(requested) = self
+            .position_capture(window)
+            .and_then(|capture| self.position_record(&capture))
+        else {
+            self.shell.positions.message =
+                "No fresh visible host block; nothing saved or moved.".into();
+            cx.notify();
+            return;
+        };
+        let source = self.position_source().unwrap();
+        let saved = if resume {
+            let Some(saved) = self
+                .session_ui
+                .reading_position(&source.1)
+                .cloned()
+                .filter(|saved| position_compatible(saved, &requested, self.content.len()))
+            else {
+                self.shell.positions.message =
+                    "Saved position does not match this revision, renderer, or geometry.".into();
+                cx.notify();
+                return;
+            };
+            Some(saved)
+        } else {
+            None
+        };
+        let anchors = self.shell.positions.anchors.as_ref().unwrap().clone();
+        let anchor_weak = std::rc::Rc::downgrade(&anchors);
+        let interaction = self.shell.positions.interaction;
+        let weak = cx.entity().downgrade();
+        // on_next_frame runs BEFORE prepaint and can see stale image/reflow
+        // geometry. Both actions are consumed only by the next completed host
+        // prepaint, and only if its entire measurement still matches the click.
+        // Weak captures ensure removed source renderers cannot retain commands.
+        anchors.request_after_layout(move |unchanged, window, cx| {
+            let _ = weak.update(cx, |this, cx| {
+                let Some(anchors) = anchor_weak.upgrade() else { return; };
+                let valid = unchanged && position_callback_current(
+                    &source, this.position_source().ok().as_ref(), interaction,
+                    this.shell.positions.interaction,
+                ) && this.shell.positions.anchors.as_ref()
+                    .is_some_and(|now| std::rc::Rc::ptr_eq(now, &anchors));
+                let capture = valid.then(|| anchors.capture(window.viewport_size(), window.scale_factor())).flatten();
+                let current = capture.as_ref().and_then(|capture| this.position_record(capture));
+                if current.as_ref() != Some(&requested) {
+                    this.shell.positions.message = "Checkpoint action canceled because source, interaction, or layout changed.".into();
+                } else if let Some(saved) = saved {
+                    let applied = position_compatible(&saved, current.as_ref().unwrap(), this.content.len())
+                        && anchors.apply(saved.block_index, capture.as_ref().unwrap(), window.viewport_size(), window.scale_factor());
+                    this.shell.positions.message = if applied {
+                        "Resumed at the saved block beginning, not the exact line."
+                    } else { "Resume canceled because source, interaction, or layout changed." }.into();
+                } else {
+                    this.shell.positions.message = match this.session_ui.save_reading_position(
+                        current.unwrap(), &this.tabs, &this.history, &this.shell.working_scope,
+                    ) {
+                        Ok(sequence) => {
+                            this.shell.positions.queued = Some(sequence);
+                            "Reading position queued; disk completion pending.".into()
+                        }
+                        Err(error) => error,
+                    };
+                }
+                cx.notify();
+            });
+        });
+        // Do not change the controls' text before measurement: that can itself
+        // shift host blocks. One render is requested, never a timer/retry loop.
+        cx.notify();
+    }
+
+    fn position_controls(&mut self, window: &Window, cx: &mut Context<Self>) -> Div {
+        if !self.session_ui.positions_enabled() {
+            return div();
+        }
+        if let Some(sequence) = self.shell.positions.queued {
+            if self.session_ui.position_save_completed(sequence) {
+                self.shell.positions.queued = None;
+                self.shell.positions.message = "Reading position saved.".into();
+            }
+        }
+        let capture = self.position_capture(window);
+        let save_enabled = capture.is_some();
+        let resume_enabled = capture
+            .as_ref()
+            .and_then(|capture| self.position_record(capture))
+            .zip(
+                self.tabs
+                    .active()
+                    .and_then(|tab| self.session_ui.reading_position(&tab.key)),
+            )
+            .is_some_and(|(current, saved)| {
+                position_compatible(saved, &current, self.content.len())
+            });
+        let explanation = self
+            .position_source()
+            .err()
+            .map(str::to_owned)
+            .unwrap_or_else(|| {
+                if !self.shell.positions.message.is_empty() {
+                    self.shell.positions.message.clone()
+                } else if capture.is_none() {
+                    "No fresh visible host block is measured.".into()
+                } else if self
+                    .tabs
+                    .active()
+                    .and_then(|tab| self.session_ui.reading_position(&tab.key))
+                    .is_some()
+                    && !resume_enabled
+                {
+                    "Saved position is incompatible with this revision, renderer, or geometry."
+                        .into()
+                } else {
+                    "Coarse block checkpoints, not exact-line resume.".into()
+                }
+            });
+        div()
+            .mb_3()
+            .text_size(px(11.))
+            .child(
+                div()
+                    .flex()
+                    .h(px(24.))
+                    .min_h(px(24.))
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .gap_3()
+                    .child(
+                        div()
+                            .id("save-reading-position")
+                            .flex_shrink_0()
+                            .opacity(if save_enabled { 1. } else { 0.4 })
+                            .child("Save reading position")
+                            .when(save_enabled, |button| {
+                                button.cursor_pointer().on_click(
+                                    cx.listener(|this, _, window, cx| {
+                                        this.save_position(window, cx)
+                                    }),
+                                )
+                            }),
+                    )
+                    .child(
+                        div()
+                            .id("resume-reading-position")
+                            .flex_shrink_0()
+                            .opacity(if resume_enabled { 1. } else { 0.4 })
+                            .child("Resume saved position")
+                            .when(resume_enabled, |button| {
+                                button.cursor_pointer().on_click(cx.listener(
+                                    |this, _, window, cx| this.resume_position(window, cx),
+                                ))
+                            }),
+                    ),
+            )
+            // Feedback must not shift the host block after a successful jump.
+            // Keep both rows' geometry fixed; long diagnostics scroll locally.
+            .child(
+                div()
+                    .id("reading-position-status")
+                    .h(px(32.))
+                    .min_h(px(32.))
+                    .max_h(px(32.))
+                    .line_height(px(16.))
+                    .overflow_y_scroll()
+                    .child(explanation),
+            )
+    }
+}
+
+fn position_route_matches(
+    source: &LinkSource,
+    route: &live::NoteKey,
+    active: &tabs::TabKey,
+) -> bool {
+    route.note_id > 0
+        && source.note.note_id == route.note_id
+        && (route.vault.is_empty() || source.note.vault == route.vault)
+        && matches!(active, tabs::TabKey::Note {vault, note_id} if vault == &route.vault && *note_id == route.note_id)
+}
+fn position_callback_current(
+    expected: &(LinkSource, tabs::TabKey),
+    current: Option<&(LinkSource, tabs::TabKey)>,
+    interaction: u64,
+    current_interaction: u64,
+) -> bool {
+    current == Some(expected) && interaction == current_interaction
+}
+fn position_compatible(
+    saved: &session_store::ReadingPosition,
+    current: &session_store::ReadingPosition,
+    blocks: usize,
+) -> bool {
+    saved.vault == current.vault
+        && saved.note_id == current.note_id
+        && saved.etag == current.etag
+        && saved.body_bytes == current.body_bytes
+        && saved.renderer == current.renderer
+        && saved.geometry == current.geometry
+        && saved.block_index < blocks
+        && blocks <= 4096
+}
+
 pub struct ShellState {
+    positions: ReadingPositions,
     code_copy: code_copy::State,
     code_anchors: Option<std::rc::Rc<markdown::FindAnchors>>,
     code_focus: std::collections::BTreeMap<usize, gpui::FocusHandle>,
@@ -79,6 +388,7 @@ impl ShellState {
         source: &str,
         live: Option<(u64, Option<u64>, String)>,
     ) {
+        self.positions.interaction = self.positions.interaction.wrapping_add(1);
         let identity = ReaderContentIdentity::new(source, live);
         if self.reader_content.get(&key) != Some(&identity) {
             self.reader_scrolls
@@ -105,6 +415,7 @@ impl ShellState {
 impl Default for ShellState {
     fn default() -> Self {
         Self {
+            positions: Default::default(),
             code_copy: Default::default(),
             code_anchors: None,
             code_focus: Default::default(),
@@ -741,6 +1052,7 @@ impl Workspace {
             ) {
                 return false;
             }
+            self.shell.positions.interaction = self.shell.positions.interaction.wrapping_add(1);
             let revealed = self.shell.code_anchors.as_ref().is_some_and(|anchors| {
                 anchors.scroll_to(&reader_find::Target::Block(index), window, cx)
             });
@@ -1655,6 +1967,7 @@ impl Render for Workspace {
                                         else {
                                             return;
                                         };
+                                        this.cancel_position_resume();
                                         if let Some(anchors) = this.tabs.active().and_then(|tab| {
                                             this.shell.heading_anchors.get(&tab.key)
                                         }) {
@@ -1781,6 +2094,16 @@ impl Render for Workspace {
         let code_controls = self.code_controls(&reader_scroll, cx);
         let content_ready = self.current_note.is_some() || !self.content.is_empty();
         let displayed_content = self.displayed_content();
+        let position_source = self.position_source().ok();
+        if self.shell.positions.source != position_source {
+            self.shell.positions.source = position_source.clone();
+            self.shell.positions.anchors = position_source.as_ref().and_then(|_| {
+                markdown::PositionAnchors::new(self.content.len(), &reader_scroll)
+                    .map(std::rc::Rc::new)
+            });
+        }
+        let position_anchors = self.shell.positions.anchors.clone();
+        let position_controls = self.position_controls(window, cx);
         let mut headings = markdown::outline(&self.content);
         let outline_signature = format!(
             "{headings:?}:{:?}",
@@ -2145,6 +2468,7 @@ impl Render for Workspace {
                                 .cursor_pointer()
                                 .child(heading.title)
                                 .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.cancel_position_resume();
                                     if anchors.scroll_to(&anchor, window, cx) {
                                         cx.notify();
                                     }
@@ -2310,6 +2634,7 @@ impl Render for Workspace {
                                 })),
                         )
                     })
+                    .child(position_controls)
                     .child(task_inspector)
                     .child(includes_inspector)
                     .when_some(note_labels.milestone, |reader, label| {
@@ -2381,7 +2706,7 @@ impl Render for Workspace {
                                     .mb(px(6.))
                                     .child(title),
                             )
-                            .child(markdown::render_with_links_and_find(
+                            .child(markdown::render_with_positions(
                                 &displayed_content,
                                 dark,
                                 Some(&heading_anchors),
@@ -2396,6 +2721,7 @@ impl Render for Workspace {
                                     }),
                                 Some(&code_controls),
                                 Some(&self.reader_images.images),
+                                position_anchors.as_deref(),
                             ))
                             .when_some(self.reader_images.notice.clone(), |view, notice| {
                                 view.child(div().text_size(px(11.)).child(notice))
@@ -2576,9 +2902,17 @@ impl Render for Workspace {
             )
             .on_mouse_down(
                 gpui::MouseButton::Left,
-                cx.listener(|this, _, _, _| this.shell.tab_cycle.clear()),
+                cx.listener(|this, _, _, _| {
+                    this.shell.tab_cycle.clear();
+                    this.shell.positions.interaction =
+                        this.shell.positions.interaction.wrapping_add(1);
+                }),
             )
+            .on_scroll_wheel(cx.listener(|this, _, _, _| {
+                this.shell.positions.interaction = this.shell.positions.interaction.wrapping_add(1);
+            }))
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
+                this.shell.positions.interaction = this.shell.positions.interaction.wrapping_add(1);
                 if this.graph_entry_keyboard(event, window, cx) {
                     cx.stop_propagation();
                     return;
@@ -3557,6 +3891,115 @@ mod footnote_jump_tests {
             &blocks,
             &forged,
             true
+        ));
+    }
+}
+
+#[cfg(test)]
+mod reading_position_tests {
+    use super::*;
+    fn record() -> session_store::ReadingPosition {
+        session_store::ReadingPosition {
+            vault: "work".into(),
+            note_id: 7,
+            etag: "revision".into(),
+            body_bytes: 100,
+            renderer: "native-block-v1:clean-build".into(),
+            block_index: 2,
+            geometry: session_store::PositionGeometry {
+                viewport_width: 1000.,
+                viewport_height: 800.,
+                reader_width: 600.,
+                reader_height: 700.,
+                scale: 2.,
+            },
+        }
+    }
+    fn source() -> LinkSource {
+        LinkSource {
+            note: live::NoteKey {
+                vault: "work".into(),
+                note_id: 7,
+            },
+            etag: "revision".into(),
+            storage_generation: 3,
+            launch_generation: 4,
+            request: 5,
+        }
+    }
+    #[test]
+    fn position_compatibility_requires_exact_revision_build_route_and_geometry() {
+        let saved = record();
+        assert!(position_compatible(&saved, &saved, 3));
+        assert!(!position_compatible(&saved, &saved, 2));
+        assert!(!position_compatible(&saved, &saved, 4097));
+        for field in 0..10 {
+            let mut changed = saved.clone();
+            match field {
+                0 => changed.vault = "foreign".into(),
+                1 => changed.note_id += 1,
+                2 => changed.etag.push('x'),
+                3 => changed.body_bytes += 1,
+                4 => changed.renderer.push('x'),
+                5 => changed.geometry.viewport_width += 0.01,
+                6 => changed.geometry.viewport_height += 0.01,
+                7 => changed.geometry.reader_width += 0.01,
+                8 => changed.geometry.reader_height += 0.01,
+                _ => changed.geometry.scale += 0.01,
+            }
+            assert!(!position_compatible(&saved, &changed, 3));
+        }
+    }
+    #[test]
+    fn position_callbacks_cannot_resurrect_after_navigation_or_interaction() {
+        let expected = (
+            source(),
+            tabs::TabKey::Note {
+                vault: "work".into(),
+                note_id: 7,
+            },
+        );
+        assert!(position_callback_current(&expected, Some(&expected), 1, 1));
+        assert!(!position_callback_current(&expected, None, 1, 1));
+        // Even scroll-away-then-back or a jump to the same offset cancels.
+        assert!(!position_callback_current(&expected, Some(&expected), 1, 2));
+        for field in 0..6 {
+            let mut changed = expected.clone();
+            match field {
+                0 => changed.0.request += 1,
+                1 => changed.0.launch_generation += 1,
+                2 => changed.0.storage_generation += 1,
+                3 => changed.0.etag.push('x'),
+                4 => changed.0.note.vault = "foreign".into(),
+                _ => changed.1 = tabs::TabKey::Home,
+            }
+            assert!(!position_callback_current(&expected, Some(&changed), 1, 1));
+        }
+    }
+    #[test]
+    fn position_route_uses_accepted_launch_alias_not_equal_foreign_id() {
+        let source = source();
+        let route = live::NoteKey {
+            vault: String::new(),
+            note_id: 7,
+        };
+        let key = tabs::TabKey::Note {
+            vault: String::new(),
+            note_id: 7,
+        };
+        assert!(position_route_matches(&source, &route, &key));
+        let foreign = live::NoteKey {
+            vault: "foreign".into(),
+            note_id: 7,
+        };
+        assert!(!position_route_matches(&source, &foreign, &key));
+        assert!(!position_route_matches(
+            &source,
+            &route,
+            &tabs::TabKey::Note {
+                vault: "foreign".into(),
+                note_id: 7
+            }
         ));
     }
 }

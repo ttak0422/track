@@ -237,8 +237,9 @@ The only persistent entries are `track-native-tabs-v1.json` and the retained
 version, binding fingerprint, revision, tab kind, vault-qualified note ID, title
 hint, bounded route history/cursor and working-vault scope. Limits: 100 history routes, 128 tabs,
 2,048 title bytes each, 128 KiB serialized snapshot, 256
-registry names of at most 1,024 bytes. No body, draft, etag, server token, search
-query, preview, scroll position or credential is persisted. Home/Graph labels are
+registry names of at most 1,024 bytes. Explicit reading checkpoints may additionally
+store up to 128 note revisions, semantic block indices and layout/build identifiers.
+No body, draft, server token, search query, preview or credential is persisted. Home/Graph labels are
 fixed. Binding covers canonical fixture/cache/config identity, configuration bytes
 and current available registry names. Replacing even an identical config inode
 invalidates it; fingerprints are identity checks, not cryptographic authentication.
@@ -255,8 +256,9 @@ Malformed, oversized, unsupported or mismatched snapshots remain untouched and a
 nonfatal banner explains that tabs are now memory-only. There is no reset/delete
 button or startup migration.
 
-Fixture snapshots read legacy tabs-only schema 1 and tabs/history schema 2, and
-write schema 3 after an accepted metadata/history/scope change. Legacy snapshots
+Fixture snapshots read legacy tabs-only schema 1, tabs/history schema 2 and
+tabs/history/scope schema 3, and write schema 4 after an accepted metadata or
+checkpoint change. Legacy snapshots
 start with the launch scope. The saved working scope must still be available in
 the same validated fixture registry; unknown scopes disable persistence rather
 than falling back. Scope restoration does not reinterpret note identities or
@@ -389,7 +391,8 @@ validation; full live refresh and external-editor follow remain unimplemented.
 Reader offsets are kept per vault-qualified note during tab/history navigation.
 Changed accepted content or owned-source identity resets the old position; a
 loading placeholder alone does not. Find and explicit fragment jumps retain
-their own behavior. This does not save positions to disk or mark notes seen/read.
+their own behavior. These automatic offsets are not saved to disk and do not mark
+notes seen/read. Explicit fixture-only block checkpoints are a separate opt-in.
 Native scroll behavior after source changes, resize and reload remains unverified.
 
 ### Read-only daily agenda
@@ -543,3 +546,26 @@ responses show an error, not a silently incomplete list. Note, request, server a
 storage changes invalidate old results; loading, editing and closing gates remain
 in effect. The operation renders only, without saving a note or reading milestone.
 Native layout, keyboard and accessibility validation remains pending.
+
+### Fixture-only reading checkpoints
+
+With disposable-fixture session persistence enabled, **Save reading position**
+records the first visible Markdown block. **Resume saved position** explicitly
+returns to that block after you manually reopen the note. Long paragraphs and
+code blocks resume at their beginning, not the exact line previously visible.
+
+This requires a known clean build, an unchanged accepted note revision and matching
+measured reader/viewport geometry. Unknown, changed or unmeasured conditions refuse
+resume rather than guessing. Only the main Markdown article is eligible, not
+metadata, task/include inspectors or graph previews. Resolved-title projections
+that change the displayed host blocks also make checkpoints unavailable. At least
+one host block must be visible, including when requesting Resume. Source changes, newer manual
+scrolling and other navigation invalidate a pending resume.
+
+Checkpoints share the protected fixture session snapshot and background writer.
+They contain note identity, revision, block index and layout/build identifiers,
+not note bodies or drafts. Saving is queued; a queued update is not a guarantee
+that it survived an abrupt exit. Normal launches collect no checkpoint geometry
+and perform no session I/O. Nothing automatically saves on scroll, resumes at
+startup, fetches a note or changes seen/read milestones. Native interaction and
+layout validation remain pending.

@@ -19,6 +19,61 @@ const LOCK: &str = "track-native-tabs-v1.lock";
 const LIMIT: u64 = 128 * 1024;
 const OWNER: &str = "track-gpui-fixture-tabs";
 
+/// Coarse host Markdown checkpoint. No source text or volatile request identity.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PositionGeometry {
+    pub viewport_width: f64,
+    pub viewport_height: f64,
+    pub reader_width: f64,
+    pub reader_height: f64,
+    pub scale: f64,
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReadingPosition {
+    pub vault: String,
+    pub note_id: i64,
+    pub etag: String,
+    pub body_bytes: u64,
+    pub renderer: String,
+    pub block_index: usize,
+    pub geometry: PositionGeometry,
+}
+impl ReadingPosition {
+    pub fn key(&self) -> TabKey {
+        TabKey::Note {
+            vault: self.vault.clone(),
+            note_id: self.note_id,
+        }
+    }
+    pub fn valid(&self) -> bool {
+        let g = &self.geometry;
+        self.note_id > 0
+            && self.vault.len() <= 1024
+            && !self.vault.contains('\0')
+            && !self.etag.is_empty()
+            && self.etag.len() <= 4096
+            && !self.etag.contains('\0')
+            && !self.renderer.is_empty()
+            && self.renderer.len() <= 256
+            && !self.renderer.contains('\0')
+            && self.body_bytes <= 64 * 1024 * 1024
+            && self.block_index < 4096
+            && [
+                g.viewport_width,
+                g.viewport_height,
+                g.reader_width,
+                g.reader_height,
+            ]
+            .into_iter()
+            .all(|v| v.is_finite() && v > 0.0 && v <= 65536.0)
+            && g.scale.is_finite()
+            && g.scale > 0.0
+            && g.scale <= 16.0
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Snapshot {
@@ -31,6 +86,8 @@ struct Snapshot {
     history: Option<HistoryEntry>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     working_scope: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    reading_positions: Option<Vec<ReadingPosition>>,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -75,6 +132,7 @@ pub struct SessionStore {
     original: Option<Vec<u8>>,
     pub restored_history: Option<crate::navigation::Snapshot>,
     pub restored_scope: Option<String>,
+    pub reading_positions: Vec<ReadingPosition>,
 }
 fn err(e: impl std::fmt::Display) -> String {
     format!("Fixture tab persistence disabled: {e}")
@@ -220,6 +278,7 @@ impl SessionStore {
             original: None,
             restored_history: None,
             restored_scope: None,
+            reading_positions: vec![],
         };
         let original = store.read()?;
         let tabs = if let Some(bytes) = &original {
@@ -237,9 +296,23 @@ impl SessionStore {
             {
                 return Err(err("unexpected scope in legacy snapshot"));
             }
+            if value
+                .get("version")
+                .and_then(|v| v.as_u64())
+                .is_some_and(|v| v < 4)
+                && value.get("reading_positions").is_some()
+            {
+                return Err(err("unexpected positions in legacy snapshot"));
+            }
+            if value
+                .get("reading_positions")
+                .is_some_and(|p| !p.is_array())
+            {
+                return Err(err("reading positions must be a list"));
+            }
             let s: Snapshot = serde_json::from_slice(bytes).map_err(err)?;
             if s.owner != OWNER
-                || !matches!(s.version, 1 | 2 | 3)
+                || !matches!(s.version, 1 | 2 | 3 | 4)
                 || s.binding != store.binding
                 || s.revision == 0
             {
@@ -247,19 +320,23 @@ impl SessionStore {
             }
             store.restored_history = match (s.version, s.history) {
                 (1, None) => None,
-                (2 | 3, Some(history)) => Some(store.decode_history(history)?),
+                (2 | 3 | 4, Some(history)) => Some(store.decode_history(history)?),
                 _ => return Err(err("invalid history schema")),
             };
             store.restored_scope = match (s.version, s.working_scope) {
                 (1 | 2, None) => None,
-                (3, Some(scope)) => {
+                (3 | 4, Some(scope)) => {
                     store.validate_scope(&scope)?;
                     Some(scope)
                 }
                 _ => return Err(err("invalid working scope schema")),
             };
             store.revision = s.revision;
-            store.decode(s.tabs)?
+            let tabs = store.decode(s.tabs)?;
+            let positions = s.reading_positions.unwrap_or_default();
+            store.validate_positions(&positions, &tabs)?;
+            store.reading_positions = positions;
+            tabs
         } else {
             vec![]
         };
@@ -341,6 +418,39 @@ impl SessionStore {
         scope: &str,
     ) -> Result<(), String> {
         self.save_snapshot(tabs, history, Some(scope), false)
+    }
+    pub fn save_with_positions(
+        &mut self,
+        tabs: &[Tab],
+        history: &crate::navigation::Snapshot,
+        scope: &str,
+        positions: &[ReadingPosition],
+    ) -> Result<(), String> {
+        self.validate_positions(positions, tabs)?;
+        let previous = std::mem::replace(&mut self.reading_positions, positions.to_vec());
+        let result = self.save_with_scope(tabs, history, scope);
+        if result.is_err() {
+            self.reading_positions = previous;
+        }
+        result
+    }
+    fn validate_positions(
+        &self,
+        positions: &[ReadingPosition],
+        tabs: &[Tab],
+    ) -> Result<(), String> {
+        let mut seen = HashSet::new();
+        if positions.len() > 128
+            || positions.iter().any(|p| {
+                !p.valid()
+                    || !self.registry.contains(&p.vault)
+                    || !seen.insert(p.key())
+                    || !tabs.iter().any(|tab| tab.key == p.key())
+            })
+        {
+            return Err(err("invalid, duplicate or orphan reading position"));
+        }
+        Ok(())
     }
     fn decode(&self, entries: Vec<Entry>) -> Result<Vec<Tab>, String> {
         if entries.len() > 128 {
@@ -435,13 +545,21 @@ impl SessionStore {
             .revision
             .checked_add(1)
             .ok_or_else(|| err("revision overflow"))?;
+        let positions: Vec<_> = self
+            .reading_positions
+            .iter()
+            .filter(|p| tabs.iter().any(|t| t.key == p.key()))
+            .cloned()
+            .collect();
+        self.validate_positions(&positions, tabs)?;
         let bytes = serde_json::to_vec(&Snapshot {
             owner: OWNER.into(),
-            version: if scope.is_some() { 3 } else { 2 },
+            version: 4,
             binding: self.binding.clone(),
             revision,
             tabs: entries,
-            working_scope: scope.map(str::to_owned),
+            working_scope: Some(scope.unwrap_or(&self.registry[0]).to_owned()),
+            reading_positions: Some(positions.clone()),
             history: Some(HistoryEntry {
                 routes: history.routes.iter().map(encode_kind).collect(),
                 cursor: history.cursor,
@@ -476,6 +594,7 @@ impl SessionStore {
             }
             self.original = Some(bytes);
             self.revision = revision;
+            self.reading_positions = positions;
             self.dir.sync_all().map_err(err)
         })();
         // This name was exclusively created by us; never remove any other artifact.
@@ -603,6 +722,7 @@ mod tests {
         for version in [1, 2] {
             let mut legacy = original.clone();
             legacy["version"] = version.into();
+            legacy.as_object_mut().unwrap().remove("reading_positions");
             if version == 1 {
                 legacy.as_object_mut().unwrap().remove("history");
             }
@@ -618,7 +738,7 @@ mod tests {
             assert_eq!(
                 serde_json::from_slice::<serde_json::Value>(&std::fs::read(f.state()).unwrap())
                     .unwrap()["version"],
-                3
+                4
             );
         }
         let duplicate = String::from_utf8(before).unwrap().replacen(
@@ -651,6 +771,8 @@ mod tests {
         drop(store);
         let mut legacy: serde_json::Value = serde_json::from_slice(&before).unwrap();
         legacy["version"] = 1.into();
+        legacy.as_object_mut().unwrap().remove("reading_positions");
+        legacy.as_object_mut().unwrap().remove("working_scope");
         legacy.as_object_mut().unwrap().remove("history");
         let legacy = serde_json::to_vec(&legacy).unwrap();
         f.replace(&legacy);
@@ -662,7 +784,7 @@ mod tests {
             .unwrap();
         let saved: serde_json::Value =
             serde_json::from_slice(&std::fs::read(f.state()).unwrap()).unwrap();
-        assert_eq!(saved["version"], 2);
+        assert_eq!(saved["version"], 4);
         assert_eq!(saved["history"]["routes"][1]["vault"], "two");
     }
     #[test]
@@ -950,5 +1072,160 @@ mod tests {
             assert!(!cache.join(LOCK).exists());
             assert!(!cache.join(STATE).exists());
         }
+    }
+    fn checkpoint(vault: &str) -> ReadingPosition {
+        ReadingPosition {
+            vault: vault.into(),
+            note_id: 7,
+            etag: "revision-A".into(),
+            body_bytes: 42,
+            renderer: "checkpoint-v1:clean-fixture-build".into(),
+            block_index: 4095,
+            geometry: PositionGeometry {
+                viewport_width: 800.,
+                viewport_height: 600.,
+                reader_width: 700.,
+                reader_height: 500.,
+                scale: 2.,
+            },
+        }
+    }
+    #[test]
+    fn positions_roundtrip_preserved_and_orphans_removed_without_startup_rewrite() {
+        let f = Fixture::new();
+        let (mut store, _) = f.open().unwrap();
+        let positions = vec![checkpoint("one"), checkpoint("two")];
+        store
+            .save_with_positions(
+                &tabs(),
+                &crate::navigation::Snapshot::default(),
+                "one",
+                &positions,
+            )
+            .unwrap();
+        drop(store);
+        let bytes = std::fs::read(f.state()).unwrap();
+        let (mut store, entries) = f.open().unwrap();
+        assert_eq!(store.reading_positions, positions);
+        assert_eq!(std::fs::read(f.state()).unwrap(), bytes);
+        store
+            .save_with_scope(&entries, &crate::navigation::Snapshot::default(), "two")
+            .unwrap();
+        assert_eq!(store.reading_positions, positions);
+        store
+            .save_with_scope(
+                &entries[1..],
+                &crate::navigation::Snapshot::default(),
+                "two",
+            )
+            .unwrap();
+        assert_eq!(store.reading_positions, vec![checkpoint("two")]);
+        drop(store);
+        assert_eq!(
+            f.open().unwrap().0.reading_positions,
+            vec![checkpoint("two")]
+        );
+    }
+    #[test]
+    fn positions_invalid_records_preserve_artifact() {
+        let f = Fixture::new();
+        let (mut store, _) = f.open().unwrap();
+        store
+            .save_with_positions(
+                &tabs(),
+                &crate::navigation::Snapshot::default(),
+                "one",
+                &[checkpoint("one")],
+            )
+            .unwrap();
+        let bytes = std::fs::read(f.state()).unwrap();
+        let mut bad = checkpoint("one");
+        bad.geometry.scale = f64::NAN;
+        assert!(
+            store
+                .save_with_positions(
+                    &tabs(),
+                    &crate::navigation::Snapshot::default(),
+                    "one",
+                    &[bad]
+                )
+                .is_err()
+        );
+        assert_eq!(std::fs::read(f.state()).unwrap(), bytes);
+        drop(store);
+        let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        for (field, invalid) in [
+            ("vault", serde_json::json!("unknown")),
+            ("note_id", serde_json::json!(-1)),
+            ("etag", serde_json::json!("")),
+            ("renderer", serde_json::json!("")),
+            ("block_index", serde_json::json!(4096)),
+            ("body_bytes", serde_json::json!(67108865)),
+            (
+                "geometry",
+                serde_json::json!({"viewport_width":0,"viewport_height":600,"reader_width":700,"reader_height":500,"scale":2}),
+            ),
+        ] {
+            let mut bad = value.clone();
+            bad["reading_positions"][0][field] = invalid;
+            let bad = serde_json::to_vec(&bad).unwrap();
+            f.replace(&bad);
+            assert!(f.open().is_err(), "{field}");
+            assert_eq!(std::fs::read(f.state()).unwrap(), bad);
+        }
+        for count in [2, 129] {
+            let mut bad = value.clone();
+            bad["reading_positions"] = serde_json::json!(vec![checkpoint("one"); count]);
+            let bad = serde_json::to_vec(&bad).unwrap();
+            f.replace(&bad);
+            assert!(f.open().is_err());
+            assert_eq!(std::fs::read(f.state()).unwrap(), bad);
+        }
+        for version in [1, 2, 3] {
+            let mut legacy = value.clone();
+            legacy["version"] = version.into();
+            legacy.as_object_mut().unwrap().remove("reading_positions");
+            if version < 3 {
+                legacy.as_object_mut().unwrap().remove("working_scope");
+            }
+            if version == 1 {
+                legacy.as_object_mut().unwrap().remove("history");
+            }
+            let legacy = serde_json::to_vec(&legacy).unwrap();
+            f.replace(&legacy);
+            assert!(f.open().unwrap().0.reading_positions.is_empty());
+            assert_eq!(std::fs::read(f.state()).unwrap(), legacy);
+        }
+    }
+    #[test]
+    fn oversized_position_payload_is_not_truncated_or_written() {
+        let f = Fixture::new();
+        let (mut store, _) = f.open().unwrap();
+        store.save(&tabs()).unwrap();
+        let before = std::fs::read(f.state()).unwrap();
+        let mut entries = vec![];
+        let mut positions = vec![];
+        for id in 1..=128 {
+            let mut p = checkpoint("one");
+            p.note_id = id;
+            p.etag = "e".repeat(4096);
+            entries.push(Tab {
+                key: p.key(),
+                title: "bounded".into(),
+            });
+            positions.push(p);
+        }
+        assert!(
+            store
+                .save_with_positions(
+                    &entries,
+                    &crate::navigation::Snapshot::default(),
+                    "one",
+                    &positions
+                )
+                .is_err()
+        );
+        assert_eq!(std::fs::read(f.state()).unwrap(), before);
+        assert!(store.reading_positions.is_empty());
     }
 }

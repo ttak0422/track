@@ -172,6 +172,7 @@ impl Workspace {
                             this.find_available(),
                             this.shell.find.highlighted,
                         ) {
+                            this.cancel_position_resume();
                             if !anchors.scroll_to_hit(&target, window.viewport_size())
                                 && this.shell.find.scroll_retries == 0
                             {

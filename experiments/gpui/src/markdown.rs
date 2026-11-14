@@ -511,6 +511,240 @@ impl HeadingAnchors {
     }
 }
 
+/// Fixture-only semantic host-block measurements. Never constructed in normal mode.
+/// Bounds are transient native layout evidence, never serialized coordinates.
+pub struct PositionAnchors {
+    handle: ScrollHandle,
+    count: usize,
+    layout: Rc<RefCell<PositionLayout>>,
+}
+#[derive(Default)]
+struct PositionLayout {
+    generation: u64,
+    measured: Option<PositionMeasurement>,
+    refreshed: Option<PositionMeasurement>,
+    pending: Option<PositionAfterLayout>,
+}
+struct PositionAfterLayout {
+    expected: PositionMeasurement,
+    callback: Box<dyn FnOnce(bool, &mut Window, &mut App)>,
+}
+#[derive(Clone, PartialEq)]
+struct PositionMeasurement {
+    blocks: Vec<gpui::Bounds<gpui::Pixels>>,
+    reader: gpui::Bounds<gpui::Pixels>,
+    viewport: gpui::Size<gpui::Pixels>,
+    scale: f32,
+    offset: gpui::Point<gpui::Pixels>,
+}
+#[derive(Clone, Debug, PartialEq)]
+pub struct PositionCapture {
+    pub generation: u64,
+    pub block_index: usize,
+    pub geometry: crate::session_store::PositionGeometry,
+}
+impl PositionLayout {
+    fn consume_pending(&mut self) -> Option<(bool, Box<dyn FnOnce(bool, &mut Window, &mut App)>)> {
+        let pending = self.pending.take()?;
+        let fresh = self.measured.as_ref() == Some(&pending.expected);
+        Some((fresh, pending.callback))
+    }
+    fn capture(
+        &self,
+        reader: gpui::Bounds<gpui::Pixels>,
+        offset: gpui::Point<gpui::Pixels>,
+        viewport: gpui::Size<gpui::Pixels>,
+        scale: f32,
+    ) -> Option<PositionCapture> {
+        let measured = self.measured.as_ref()?;
+        if measured.reader != reader
+            || measured.viewport != viewport
+            || measured.scale != scale
+            || measured.offset != offset
+        {
+            return None;
+        }
+        let geometry = crate::session_store::PositionGeometry {
+            viewport_width: f32::from(viewport.width) as f64,
+            viewport_height: f32::from(viewport.height) as f64,
+            reader_width: f32::from(measured.reader.size.width) as f64,
+            reader_height: f32::from(measured.reader.size.height) as f64,
+            scale: scale as f64,
+        };
+        if ![
+            geometry.viewport_width,
+            geometry.viewport_height,
+            geometry.reader_width,
+            geometry.reader_height,
+        ]
+        .iter()
+        .all(|v| v.is_finite() && *v > 0. && *v <= 65536.)
+        {
+            return None;
+        }
+        if !scale.is_finite() || scale <= 0. || scale > 16. {
+            return None;
+        }
+        if measured.blocks.iter().any(|b| {
+            !f32::from(b.origin.x).is_finite()
+                || !f32::from(b.size.width).is_finite()
+                || f32::from(b.size.width) <= 0.
+        }) || !f32::from(measured.reader.origin.x).is_finite()
+        {
+            return None;
+        }
+        let rows: Vec<_> = measured
+            .blocks
+            .iter()
+            .map(|b| (f32::from(b.origin.y), f32::from(b.size.height)))
+            .collect();
+        let block_index = first_visible_position(
+            &rows,
+            f32::from(measured.reader.origin.y),
+            f32::from(measured.reader.size.height),
+        )?;
+        Some(PositionCapture {
+            generation: self.generation,
+            block_index,
+            geometry,
+        })
+    }
+}
+
+fn first_visible_position(blocks: &[(f32, f32)], top: f32, height: f32) -> Option<usize> {
+    if blocks.is_empty()
+        || blocks.len() > 4096
+        || !top.is_finite()
+        || !height.is_finite()
+        || height <= 0.
+        || blocks
+            .iter()
+            .any(|(y, h)| !y.is_finite() || !h.is_finite() || !(*y + *h).is_finite() || *h <= 0.)
+    {
+        return None;
+    }
+    if blocks
+        .windows(2)
+        .any(|pair| pair[0].0 + pair[0].1 > pair[1].0)
+    {
+        return None;
+    }
+    blocks
+        .iter()
+        .position(|(y, h)| *y < top + height && *y + *h > top)
+}
+impl PositionAnchors {
+    pub fn new(count: usize, handle: &ScrollHandle) -> Option<Self> {
+        (count > 0 && count <= 4096).then(|| Self {
+            handle: handle.clone(),
+            count,
+            layout: Rc::default(),
+        })
+    }
+    pub fn current_generation(&self) -> u64 {
+        self.layout.borrow().generation
+    }
+    /// A single explicit action, consumed by the next completed host prepaint.
+    /// The callback must only retain a Weak reference to these anchors.
+    pub fn request_after_layout(
+        &self,
+        callback: impl FnOnce(bool, &mut Window, &mut App) + 'static,
+    ) -> bool {
+        let mut layout = self.layout.borrow_mut();
+        let Some(expected) = layout.measured.clone() else {
+            return false;
+        };
+        layout.pending = Some(PositionAfterLayout {
+            expected,
+            callback: Box::new(callback),
+        });
+        true
+    }
+    pub fn cancel_after_layout(&self) {
+        self.layout.borrow_mut().pending = None;
+    }
+    fn track(&self, reader: Div, count: usize) -> Div {
+        let generation = {
+            let mut state = self.layout.borrow_mut();
+            state.generation = state.generation.wrapping_add(1);
+            state.measured = None;
+            state.generation
+        };
+        let expected_count = self.count;
+        let state = self.layout.clone();
+        let handle = self.handle.clone();
+        reader.on_children_prepainted(move |blocks, window, cx| {
+            let mut state = state.borrow_mut();
+            if state.generation != generation {
+                return;
+            }
+            let count_matches = blocks.len() == count && count == expected_count;
+            let measured = PositionMeasurement {
+                blocks,
+                reader: handle.bounds(),
+                viewport: window.viewport_size(),
+                scale: window.scale_factor(),
+                offset: handle.offset(),
+            };
+            if state.refreshed.as_ref() != Some(&measured) {
+                state.refreshed = Some(measured.clone());
+                window.refresh();
+            }
+            state.measured = count_matches.then_some(measured);
+            let pending = state.consume_pending();
+            drop(state);
+            if let Some((fresh, callback)) = pending {
+                callback(fresh, window, cx);
+            }
+        })
+    }
+    pub fn capture(
+        &self,
+        viewport: gpui::Size<gpui::Pixels>,
+        scale: f32,
+    ) -> Option<PositionCapture> {
+        self.layout
+            .borrow()
+            .capture(self.handle.bounds(), self.handle.offset(), viewport, scale)
+    }
+
+    pub fn matches_capture(
+        &self,
+        capture: &PositionCapture,
+        viewport: gpui::Size<gpui::Pixels>,
+        scale: f32,
+    ) -> bool {
+        self.capture(viewport, scale).as_ref() == Some(capture)
+    }
+    /// Apply once inside the caller's guarded after-layout callback. ScrollAnchor's
+    /// public scroll_to queues another unguarded frame, so use the same measured
+    /// native origin directly here. No persisted or estimated pixel offset is used.
+    pub fn apply(
+        &self,
+        index: usize,
+        capture: &PositionCapture,
+        viewport: gpui::Size<gpui::Pixels>,
+        scale: f32,
+    ) -> bool {
+        if !self.matches_capture(capture, viewport, scale) {
+            return false;
+        }
+        let state = self.layout.borrow();
+        let Some(measured) = state.measured.as_ref() else {
+            return false;
+        };
+        let Some(block) = measured.blocks.get(index) else {
+            return false;
+        };
+        let mut offset = self.handle.offset();
+        offset.y += measured.reader.origin.y - block.origin.y;
+        offset.y =
+            px(f32::from(offset.y).clamp(-f32::from(self.handle.max_offset().height).max(0.), 0.));
+        self.handle.set_offset(offset);
+        true
+    }
+}
+
 /// Geometry from a completed native prepaint, in unscrolled window coordinates.
 #[derive(Clone, Copy)]
 struct FindLine {
@@ -1144,6 +1378,25 @@ pub fn render_with_links_and_find(
     images: Option<&std::collections::BTreeMap<usize, crate::raster::Decoded>>,
 ) -> Div {
     render_reader(blocks, dark, anchors, Some(callbacks), find, copy, images)
+}
+
+/// Explicit fixture-position variant; ordinary callers collect no position geometry.
+pub fn render_with_positions(
+    blocks: &[Block],
+    dark: bool,
+    anchors: Option<&HeadingAnchors>,
+    callbacks: &LinkCallbacks,
+    find: Option<FindPresentation<'_>>,
+    copy: Option<&CodeCallbacks>,
+    images: Option<&std::collections::BTreeMap<usize, crate::raster::Decoded>>,
+    positions: Option<&PositionAnchors>,
+) -> Div {
+    let reader = render_with_links_and_find(blocks, dark, anchors, callbacks, find, copy, images);
+    if let Some(positions) = positions {
+        positions.track(reader, blocks.len())
+    } else {
+        reader
+    }
 }
 
 fn render_reader(
@@ -3240,5 +3493,155 @@ mod footnote_navigation_tests {
         let anchors = HeadingAnchors::new(&parsed, &ScrollHandle::new());
         assert!(anchors.targets.is_empty());
         assert_eq!(anchors.footnotes["x"].0, 1);
+    }
+}
+
+#[cfg(test)]
+mod position_tests {
+    use super::*;
+    #[test]
+    fn measured_semantic_blocks_not_lines_or_percentages() {
+        assert_eq!(
+            first_visible_position(&[(0., 20.), (25., 900.), (930., 20.)], 100., 300.),
+            Some(1)
+        );
+        assert_eq!(first_visible_position(&[(100., 20.)], 0., 50.), None);
+        assert_eq!(
+            first_visible_position(&[(0., 20.), (20., 20.)], 20., 20.),
+            Some(1)
+        );
+        assert_eq!(
+            first_visible_position(&[(0., 30.), (20., 20.)], 20., 20.),
+            None
+        );
+        assert_eq!(
+            first_visible_position(&[(0., 0.), (20., 20.)], 20., 20.),
+            None
+        );
+        assert_eq!(first_visible_position(&[(0., f32::NAN)], 0., 20.), None);
+        assert_eq!(
+            first_visible_position(&vec![(0., 20.); 4097], 0., 20.),
+            None
+        );
+    }
+    #[test]
+    fn capture_rejects_stale_layout_and_exact_geometry() {
+        let reader = gpui::Bounds::new(
+            gpui::point(px(10.), px(20.)),
+            gpui::size(px(600.), px(400.)),
+        );
+        let viewport = gpui::size(px(800.), px(600.));
+        let offset = gpui::point(px(0.), px(-10.));
+        let mut layout = PositionLayout {
+            generation: 3,
+            measured: Some(PositionMeasurement {
+                blocks: vec![gpui::Bounds::new(
+                    gpui::point(px(10.), px(0.)),
+                    gpui::size(px(600.), px(900.)),
+                )],
+                reader,
+                viewport,
+                scale: 2.,
+                offset,
+            }),
+            refreshed: None,
+            pending: None,
+        };
+        let captured = layout.capture(reader, offset, viewport, 2.).unwrap();
+        assert_eq!(captured.block_index, 0);
+        assert_eq!(captured.generation, 3);
+        assert!(layout.capture(reader, offset, viewport, 1.).is_none());
+        assert!(
+            layout
+                .capture(reader, offset, gpui::size(px(801.), px(600.)), 2.)
+                .is_none()
+        );
+        assert!(
+            layout
+                .capture(reader, gpui::point(px(0.), px(-11.)), viewport, 2.)
+                .is_none()
+        );
+        let mut changed = reader;
+        changed.size.width += px(1.);
+        assert!(layout.capture(changed, offset, viewport, 2.).is_none());
+        layout.generation += 1;
+        assert_ne!(
+            layout.capture(reader, offset, viewport, 2.).as_ref(),
+            Some(&captured)
+        );
+        layout.measured = None;
+        assert!(layout.capture(reader, offset, viewport, 2.).is_none());
+    }
+    #[test]
+    fn queued_action_requires_unchanged_complete_prepaint_and_is_consumed_once() {
+        let handle = ScrollHandle::new();
+        let anchors = PositionAnchors::new(1, &handle).unwrap();
+        assert!(!anchors.request_after_layout(|_, _, _| {}));
+        let measurement = PositionMeasurement {
+            blocks: vec![gpui::Bounds::new(
+                gpui::point(px(0.), px(10.)),
+                gpui::size(px(600.), px(900.)),
+            )],
+            reader: gpui::Bounds::new(gpui::point(px(0.), px(0.)), gpui::size(px(600.), px(400.))),
+            viewport: gpui::size(px(800.), px(600.)),
+            scale: 1.,
+            offset: gpui::point(px(0.), px(0.)),
+        };
+        anchors.layout.borrow_mut().measured = Some(measurement.clone());
+        assert!(anchors.request_after_layout(|_, _, _| {}));
+        // A new render generation alone is not a changed measurement.
+        anchors.layout.borrow_mut().generation += 1;
+        assert!(anchors.layout.borrow_mut().consume_pending().unwrap().0);
+        assert!(anchors.layout.borrow_mut().consume_pending().is_none());
+        assert!(anchors.request_after_layout(|_, _, _| {}));
+        // An asynchronously decoded image/preamble shifts the host block.
+        anchors
+            .layout
+            .borrow_mut()
+            .measured
+            .as_mut()
+            .unwrap()
+            .blocks[0]
+            .origin
+            .y += px(30.);
+        assert!(!anchors.layout.borrow_mut().consume_pending().unwrap().0);
+        assert!(anchors.layout.borrow_mut().consume_pending().is_none());
+        assert!(anchors.request_after_layout(|_, _, _| {}));
+        anchors.cancel_after_layout();
+        assert!(anchors.layout.borrow_mut().consume_pending().is_none());
+        // Source replacement drops a queued callback, rather than retaining a
+        // renderer/callback cycle that could resurrect it on later navigation.
+        let anchors = Rc::new(anchors);
+        let weak = Rc::downgrade(&anchors);
+        let callback_weak = weak.clone();
+        let invoked = Rc::new(std::cell::Cell::new(false));
+        let callback_invoked = invoked.clone();
+        assert!(anchors.request_after_layout(move |_, _, _| {
+            callback_invoked.set(true);
+            let _ = callback_weak.upgrade();
+        }));
+        assert_eq!(Rc::strong_count(&anchors), 1);
+        drop(anchors);
+        assert!(weak.upgrade().is_none());
+        assert!(!invoked.get());
+    }
+    #[test]
+    fn no_layout_no_capture_and_bounded_document() {
+        let handle = ScrollHandle::new();
+        assert!(PositionAnchors::new(0, &handle).is_none());
+        assert!(PositionAnchors::new(4097, &handle).is_none());
+        let positions = PositionAnchors::new(1, &handle).unwrap();
+        assert!(
+            positions
+                .capture(gpui::size(px(800.), px(600.)), 1.)
+                .is_none()
+        );
+        positions.track(div(), 1);
+        assert_eq!(positions.current_generation(), 1);
+        assert!(
+            positions
+                .capture(gpui::size(px(800.), px(600.)), 1.)
+                .is_none()
+        );
     }
 }
