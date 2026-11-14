@@ -6,6 +6,7 @@ mod backend;
 mod code_copy;
 mod editing;
 mod editor_input;
+mod external_links;
 mod external_refs;
 mod graph;
 mod graph_view;

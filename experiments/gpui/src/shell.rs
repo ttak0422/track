@@ -1299,18 +1299,40 @@ impl Render for Workspace {
                 .unwrap_or_default(),
         );
         let link_source = self.current_link_source();
+        let external_displayed = self.displayed_content();
         let local_fragments_ready = link_source.is_some();
+        let external_ready =
+            local_fragments_ready && self.find_available() && self.read_error.is_none();
         let weak = cx.entity().downgrade();
         let link_callbacks = markdown::LinkCallbacks {
             resolved: std::rc::Rc::new(move |target| {
                 (local_fragments_ready && markdown::is_local_fragment(target))
+                    || (external_ready && external_links::destination(target).is_some())
                     || markdown::resolve_term(target)
                         .is_some_and(|term| resolved_terms.contains_key(&term))
             }),
-            activate: std::rc::Rc::new(move |target, _, cx| {
+            activate: std::rc::Rc::new(move |link, _, cx| {
                 if let Some(source) = &link_source {
                     let _ = weak.update(cx, |this, cx| {
-                        this.activate_internal_target(target, source, cx)
+                        if external_links::destination(&link.target).is_some() {
+                            // Browser dispatch is not a note transition: never save, discard,
+                            // or mutate the editor, tab, selection, or draft here.
+                            if !this.find_available() || this.read_error.is_some() {
+                                return;
+                            }
+                            let current_source = this.current_link_source();
+                            let current_displayed = this.displayed_content();
+                            external_links::dispatch(
+                                source,
+                                current_source.as_ref(),
+                                &external_displayed,
+                                &current_displayed,
+                                link,
+                                |url| cx.open_url(url),
+                            );
+                        } else {
+                            this.activate_internal_target(&link.target, source, cx);
+                        }
                     });
                 }
             }),
@@ -2470,8 +2492,17 @@ mod reference_tests {
         changed[4].launch_generation += 1;
         changed[5].request += 1;
         assert_eq!(Some(&source), Some(&source.clone()));
+        let displayed = crate::markdown::parse("[link](https://example.com)");
         for stale in changed {
             assert_ne!(Some(&source), Some(&stale));
+            assert!(!crate::external_links::dispatch(
+                &source,
+                Some(&stale),
+                &displayed,
+                &displayed,
+                &displayed[0].links[0],
+                |_| panic!("stale provenance must not open")
+            ));
         }
         assert_ne!(Some(&source), None);
     }

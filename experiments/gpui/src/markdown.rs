@@ -143,11 +143,11 @@ pub fn with_resolved_titles(
     displayed
 }
 
-/// Shell supplies only resolved internal links. Pending, missing and errors stay inert.
+/// Shell supplies verified internal or explicit HTTP(S) links. Others stay inert.
 #[derive(Clone)]
 pub struct LinkCallbacks {
     pub resolved: Rc<dyn Fn(&LinkTarget) -> bool>,
-    pub activate: Rc<dyn Fn(&LinkTarget, &mut Window, &mut App)>,
+    pub activate: Rc<dyn Fn(&Link, &mut Window, &mut App)>,
 }
 
 /// Controls are supplied by the shell only for the current live reader snapshot.
@@ -1071,6 +1071,7 @@ fn render_elements(
                 offset,
                 callbacks,
                 format!("md-block-{index}"),
+                theme,
             ));
             let element =
                 if let Some(entry) = entries.iter().find(|entry| entry.block_index == index) {
@@ -1126,7 +1127,9 @@ fn resolved_spans(spans: &[Span], links: &[Link], callbacks: Option<&LinkCallbac
                 let resolved = links.iter().any(|link| {
                     link.range.start <= span.range.start
                         && link.range.end >= span.range.end
-                        && (resolve_term(&link.target).is_some() || is_local_fragment(&link.target))
+                        && (resolve_term(&link.target).is_some()
+                            || is_local_fragment(&link.target)
+                            || crate::external_links::destination(&link.target).is_some())
                         && callbacks.is_some_and(|callbacks| (callbacks.resolved)(&link.target))
                 });
                 span.style.link = resolved;
@@ -1137,12 +1140,30 @@ fn resolved_spans(spans: &[Span], links: &[Link], callbacks: Option<&LinkCallbac
         .collect()
 }
 
+struct DestinationTooltip(String, ReaderTheme);
+impl gpui::Render for DestinationTooltip {
+    fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+        div()
+            .px_2()
+            .py_1()
+            .max_w(px(600.))
+            .bg(rgb(self.1.soft))
+            .border_1()
+            .border_color(rgb(self.1.line))
+            .whitespace_normal()
+            .text_color(rgb(self.1.ink))
+            .text_size(px(12.))
+            .child(self.0.clone())
+    }
+}
+
 fn link_text(
     text: StyledText,
     links: &[Link],
     offset: usize,
     callbacks: Option<&LinkCallbacks>,
     id: String,
+    theme: ReaderTheme,
 ) -> AnyElement {
     let Some(callbacks) = callbacks else {
         return text.into_any_element();
@@ -1150,7 +1171,9 @@ fn link_text(
     let active: Vec<_> = links
         .iter()
         .filter(|link| {
-            (resolve_term(&link.target).is_some() || is_local_fragment(&link.target))
+            (resolve_term(&link.target).is_some()
+                || is_local_fragment(&link.target)
+                || crate::external_links::destination(&link.target).is_some())
                 && (callbacks.resolved)(&link.target)
         })
         .cloned()
@@ -1159,11 +1182,25 @@ fn link_text(
         .iter()
         .map(|link| link.range.start + offset..link.range.end + offset)
         .collect();
+    // Destination text only: no title, icon, network request, or opener on hover.
+    let destinations: Vec<_> = active
+        .iter()
+        .filter_map(|link| {
+            crate::external_links::destination(&link.target)
+                .map(|url| (link.range.start + offset..link.range.end + offset, url))
+        })
+        .collect();
     let activate = callbacks.activate.clone();
     InteractiveText::new(SharedString::from(id), text)
+        .tooltip(move |index, _, cx| {
+            destinations
+                .iter()
+                .find(|(range, _)| range.contains(&index))
+                .map(|(_, url)| cx.new(|_| DestinationTooltip(url.clone(), theme)).into())
+        })
         .on_click(ranges, move |index, window, cx| {
             if let Some(link) = active.get(index) {
-                activate(&link.target, window, cx);
+                activate(link, window, cx);
             }
         })
         .into_any_element()
@@ -1375,6 +1412,7 @@ fn render_table(
                     0,
                     callbacks,
                     format!("md-table-{block_index}-{index}-{column}"),
+                    theme,
                 ));
                 view.id(SharedString::from(format!(
                     "find-cell-{block_index}-{index}-{column}"
@@ -1888,7 +1926,8 @@ mod tests {
     }
     #[test]
     fn unresolved_and_unsafe_links_cannot_look_actionable() {
-        let block = parse("[[Title]] [external](https://example.com)").remove(0);
+        let block =
+            parse("[[Title]] [external](https://example.com) [unsafe](javascript:alert)").remove(0);
         let pending = resolved_spans(&block.spans, &block.links, None);
         assert!(pending.iter().filter(|span| span.style.unresolved).count() >= 2);
         assert!(pending.iter().all(|span| !span.style.link));
@@ -1898,6 +1937,7 @@ mod tests {
         };
         let resolved = resolved_spans(&block.spans, &block.links, Some(&callbacks));
         assert!(resolved[0].style.link);
+        assert!(resolved.iter().filter(|span| span.style.link).count() >= 2);
         assert!(resolved.last().unwrap().style.unresolved);
     }
     #[test]

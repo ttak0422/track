@@ -43,7 +43,8 @@ of support. Use disposable fixture vaults, never a configured personal vault, fo
 | External Markdown handoff and editor-follow behavior | [ ] | [ ] | `MarkdownViewer`, `markdownHandoff`, `/api/follow` |
 | Read-only scoped Home activity heatmap | [x] | [ ] | `workspace_activity.rs`, `live.rs`; calendar/transport/identity tests; light/dark native rendering checked |
 | Activity journal navigation, live refresh, partial reads and recovery | [ ] | [ ] | `ActivityPanel`, `reading.ts`, `useLiveEvents` |
-| Native menus, build information and safe external links | [ ] | [ ] | `AppDelegate`, `BuildInfo`, `WebURLPolicy` |
+| Explicit absolute HTTP(S) browser links | [x] | [ ] | `external_links.rs`; fake-opener/provenance tests, actual browser/keyboard/AX pending |
+| Native menus and build information | [ ] | [ ] | `AppDelegate`, `BuildInfo`, `WebURLPolicy` |
 | Native notifications and speech input | [ ] | [ ] | `NativeNotificationBridge`, `NativeSpeechBridge`, `VoiceView` |
 | Owned server startup, restart and bounded shutdown | [ ] | [ ] | `TrackServerProcess`, `WebServerSupervisor` |
 
