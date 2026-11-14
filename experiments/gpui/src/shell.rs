@@ -2023,7 +2023,7 @@ impl Render for Workspace {
         }
         self.reset_stale_includes();
         if self.includes_preview_active() {
-            return self.rendered_includes_preview(dark, (p.paper, p.ink, p.line), cx);
+            return self.rendered_includes_preview(dark, (p.paper, p.ink, p.line), window, cx);
         }
         self.sync_editor_theme(dark, cx);
         self.ensure_link_resolutions(cx);

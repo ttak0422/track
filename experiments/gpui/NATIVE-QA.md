@@ -783,3 +783,13 @@ new preview. Confirm cross-vault includes require their own verified origin,
 duplicates do not repeat requests, and invalid/file-backed specs never submit.
 Ordinary readers, handoffs and pinned previews must not resolve ViewSpec.
 Native keyboard, high-DPI layout and accessibility remain unverified.
+
+### Native mindmaps (pending native QA)
+
+Use disposable notes with heading/list maps, multiple roots, duplicate labels,
+Japanese/emoji/combining labels and empty fences. Check node spacing, edges and
+text at narrow/wide sizes and both themes/high-DPI. Empty host maps must use the
+same captured source and exclude fenced headings; empty includes must not borrow
+host headings. Unsupported indentation/caps retain the entire source. Links stay
+inert and do not open browsers or notes. Source replacement/close/reopen must not
+show a prior tree. Native keyboard/AX and reader scrolling remain unverified.

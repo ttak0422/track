@@ -23,6 +23,8 @@ mod live;
 mod live_events;
 mod markdown;
 mod markdown_handoff;
+mod mindmap;
+mod mindmap_view;
 mod native_window;
 mod navigation;
 mod note_metadata;

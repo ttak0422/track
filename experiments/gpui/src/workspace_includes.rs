@@ -45,6 +45,7 @@ pub(crate) struct IncludesState {
     query_sources: std::collections::BTreeSet<(usize, usize)>,
     gallery: gallery_covers::Gallery,
     viewspecs: viewspec_preview::Resolved,
+    mindmap_cache: crate::mindmap_view::Cache,
 }
 /// Preview controls must not use host-reader gates, which intentionally reject
 /// this surface. Capture only competing actions and composition here.
@@ -100,6 +101,7 @@ impl IncludesState {
             query_sources: Default::default(),
             gallery: Default::default(),
             viewspecs: Default::default(),
+            mindmap_cache: Default::default(),
         }
     }
     fn query_page_action(
@@ -277,6 +279,7 @@ impl Workspace {
             return;
         };
         state.preview_open = false;
+        state.mindmap_cache.clear();
         state.gallery.cancel();
         state.viewspecs.cancel();
         state.query_pages.clear();
@@ -292,6 +295,7 @@ impl Workspace {
         &mut self,
         dark: bool,
         colors: (u32, u32, u32),
+        window: &mut gpui::Window,
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<Div> {
         let state = self.shell.includes.as_ref().unwrap();
@@ -314,9 +318,9 @@ impl Workspace {
                             "include-preview-{serial}-{index}"
                         )));
                         row = match item {
-                            markdown::PreviewItem::Host(blocks) => {
-                                row.child(self.render_query_blocks(index, blocks, dark, line, cx))
-                            }
+                            markdown::PreviewItem::Host(blocks) => row.child(
+                                self.render_query_blocks(index, blocks, dark, line, window, cx),
+                            ),
                             markdown::PreviewItem::Include {
                                 index: entry_index,
                                 directive,
@@ -364,9 +368,9 @@ impl Workspace {
                                 } else if entry.excerpt.is_empty() {
                                     row = row.child("Successful empty excerpt.");
                                 } else {
-                                    row = row.child(
-                                        self.render_query_blocks(index, blocks, dark, line, cx),
-                                    );
+                                    row = row.child(self.render_query_blocks(
+                                        index, blocks, dark, line, window, cx,
+                                    ));
                                 }
                                 row
                             }
@@ -459,6 +463,7 @@ impl Workspace {
             .is_some_and(serde_json::Value::is_null);
         state.serial = serial;
         state.result = None;
+        state.mindmap_cache.clear();
         state.gallery = Default::default();
         state.viewspecs = Default::default();
         state.preview_open = false;
@@ -491,7 +496,7 @@ impl Workspace {
             if after.phase != "ready" || after.generation != captured.source.storage_generation {
                 return Err("Storage changed. Reload the workspace.".into());
             }
-            let (queries, boards) = task_boards::project(&preview, tasks);
+            let (queries, boards) = task_boards::project_with_source(&preview, tasks, Some(&body));
             Ok(Snapshot {
                 boards,
                 response,
@@ -572,6 +577,7 @@ impl Workspace {
                     state.open = !state.open;
                     state.serial = SERIAL.fetch_add(1, Ordering::Relaxed);
                     state.result = None;
+                    state.mindmap_cache.clear();
                     state.gallery.cancel();
                     state.viewspecs.cancel();
                     if state.open {
@@ -734,6 +740,7 @@ mod tests {
         // Closing the inspector discards the response and makes old preview clicks invalid.
         state.open = false;
         state.result = None;
+        state.mindmap_cache.clear();
         assert!(!state.accepts(&id, 5));
         state.open = true;
         state.serial = 6;
@@ -1099,6 +1106,7 @@ impl Workspace {
         blocks: &[markdown::Block],
         dark: bool,
         line: u32,
+        window: &mut gpui::Window,
         cx: &mut Context<Self>,
     ) -> Div {
         use crate::query_view::{CARD_PAGE, LANE_PAGE, LIST_PAGE, Layout};
@@ -1133,6 +1141,44 @@ impl Workspace {
                     Err(reason) => visual.child(reason.clone()),
                     Ok(()) => self.viewspec_face(visual, key, dark),
                 };
+                body = body.child(
+                    visual.child(markdown::render_themed(std::slice::from_ref(block), dark)),
+                );
+                continue;
+            }
+            if let Some(map) = snapshot.boards.mindmaps.get(&key) {
+                if ordinary_start < block_index {
+                    body = body.child(markdown::render_themed(
+                        &blocks[ordinary_start..block_index],
+                        dark,
+                    ));
+                }
+                ordinary_start = block_index + 1;
+                let mut visual = div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .ml(px(block.indent as f32 * 16.));
+                if block.quoted {
+                    visual = visual.border_l_2().border_color(rgb(line)).pl_3();
+                }
+                if let Some(marker) = &block.marker {
+                    visual = visual.child(marker.clone());
+                }
+                visual = match map {
+                    Ok(tree) => visual.child(crate::mindmap_view::render(
+                        tree.clone(),
+                        dark,
+                        format!(
+                            "mindmap-{}-{}-{item}-{block_index}",
+                            state.serial, state.preview_epoch
+                        ),
+                        &state.mindmap_cache,
+                        window,
+                    )),
+                    Err(reason) => visual.child(format!("Mindmap unavailable: {reason}")),
+                };
+                // Inert original source remains visible; raw-reader Copy is unchanged.
                 body = body.child(
                     visual.child(markdown::render_themed(std::slice::from_ref(block), dark)),
                 );

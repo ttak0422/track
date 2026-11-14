@@ -10,6 +10,7 @@ type Queries = BTreeMap<Key, Result<crate::query_view::View, String>>;
 pub(super) struct Boards {
     pub blocks: BTreeMap<Key, Result<(), String>>,
     pub viewspecs: BTreeMap<Key, Result<(), String>>,
+    pub mindmaps: BTreeMap<Key, Result<std::sync::Arc<crate::mindmap::Tree>, String>>,
     pub charts: BTreeMap<Key, Result<std::sync::Arc<crate::numeric_chart::Chart>, String>>,
     tasks: Arc<Vec<live::NoteTask>>,
     lanes: [Vec<usize>; 5],
@@ -17,6 +18,13 @@ pub(super) struct Boards {
 pub(super) fn project(
     preview: &Result<markdown::IncludePreview, String>,
     tasks: Result<Arc<Vec<live::NoteTask>>, String>,
+) -> (Queries, Boards) {
+    project_with_source(preview, tasks, None)
+}
+pub(super) fn project_with_source(
+    preview: &Result<markdown::IncludePreview, String>,
+    tasks: Result<Arc<Vec<live::NoteTask>>, String>,
+    host_source: Option<&str>,
 ) -> (Queries, Boards) {
     let mut queries = BTreeMap::new();
     let mut boards = Boards::default();
@@ -43,7 +51,20 @@ pub(super) fn project(
             }
             let key = (item, block);
             let info = content.fence_info.as_deref();
-            if info == Some("viewspec") {
+            if content.language.as_deref() == Some("mindmap") {
+                let result = if info != Some("mindmap") {
+                    Err("Unsupported mindmap options; source retained.".into())
+                } else if visuals >= 8 {
+                    Err("Combined visual resource limit (8 blocks); source retained.".into())
+                } else {
+                    crate::mindmap::parse(&content.text, if host { host_source } else { None })
+                        .map(std::sync::Arc::new)
+                };
+                if result.is_ok() {
+                    visuals += 1;
+                }
+                boards.mindmaps.insert(key, result);
+            } else if info == Some("viewspec") {
                 let result = if visuals >= 8 {
                     Err("Combined visual resource limit (8 blocks); source retained.".into())
                 } else {
@@ -501,5 +522,116 @@ mod chart_projection_tests {
         assert_eq!(boards.charts.len(), 9);
         assert_eq!(boards.charts.values().filter(|v| v.is_ok()).count(), 8);
         assert!(boards.charts.first_key_value().unwrap().1.is_err());
+    }
+}
+
+#[cfg(test)]
+mod mindmap_tests {
+    use super::*;
+    use serde_json::json;
+    fn project_body(body: &str, source: Option<&str>) -> (markdown::IncludePreview, Boards) {
+        let response =
+            crate::included_notes::decode(json!({"markdown":body,"includes":[]}), "host").unwrap();
+        let preview = markdown::included_preview(&response);
+        let (_, boards) = project_with_source(&preview, Ok(Arc::new(vec![])), source);
+        (preview.unwrap(), boards)
+    }
+    const MAP: &str = "```mindmap\n# Vault\n## Notes\n- [[Syntax]]\n- [[Diagrams|Visuals]]\n## Resources\n- [Graphviz](https://graphviz.org/)\n```\n";
+    #[test]
+    fn parser_activation_retains_source_and_placement() {
+        for body in [
+            format!("````text\n{MAP}\n````"),
+            format!("<pre>\n{MAP}\n</pre>"),
+            "`mindmap`".into(),
+        ] {
+            assert!(project_body(&body, None).1.mindmaps.is_empty());
+        }
+        assert!(
+            project_body(&MAP.replace("```mindmap", "```mindmap extra"), None)
+                .1
+                .mindmaps
+                .values()
+                .all(Result::is_err)
+        );
+        let quoted = MAP
+            .lines()
+            .map(|line| format!("> {line}\n"))
+            .collect::<String>();
+        let (preview, boards) = project_body(&quoted, None);
+        let markdown::PreviewItem::Host(blocks) = &preview.items[0] else {
+            panic!()
+        };
+        assert!(blocks[0].quoted);
+        assert!(blocks[0].text.contains("[[Diagrams|Visuals]]"));
+        assert_eq!(
+            boards.mindmaps[&(0, 0)]
+                .as_ref()
+                .unwrap()
+                .nodes
+                .iter()
+                .map(|n| n.label.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "Vault",
+                "Notes",
+                "Syntax",
+                "Visuals",
+                "Resources",
+                "Graphviz"
+            ]
+        );
+    }
+    #[test]
+    fn empty_host_uses_captured_source_never_display_or_include_host() {
+        let (_, board) = project_body(
+            "# Render projection\n```mindmap\n \n```",
+            Some("# Captured source\n## Child"),
+        );
+        assert_eq!(
+            board
+                .mindmaps
+                .values()
+                .next()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .nodes[0]
+                .label,
+            "Captured source"
+        );
+        let response=crate::included_notes::decode(json!({"markdown":"![[Target]]\n","includes":[{"line":0,"source_line":0,"caption":"Target","lines":["```mindmap\n```\n", MAP],"note_id":42,"kind":"note","etag":"rev"}]}),"host").unwrap();
+        let preview = markdown::included_preview(&response);
+        let (_, board) =
+            project_with_source(&preview, Ok(Arc::new(vec![])), Some("# Never borrow"));
+        assert_eq!(board.mindmaps.len(), 2);
+        assert!(
+            board
+                .mindmaps
+                .values()
+                .next()
+                .unwrap()
+                .as_ref()
+                .unwrap_err()
+                .contains("surrounding source unavailable")
+        );
+        assert!(board.mindmaps.values().nth(1).unwrap().is_ok());
+    }
+    #[test]
+    fn mindmaps_share_the_eight_visual_budget() {
+        let mut body = "```taskboard\n```\n".repeat(2);
+        body.push_str("```track-view\n{\"layout\":\"list\",\"columns\":[],\"groups\":[]}\n```\n");
+        body.push_str(&MAP.repeat(6));
+        let (_, board) = project_body(&body, None);
+        assert_eq!(board.mindmaps.values().filter(|v| v.is_ok()).count(), 5);
+        assert!(
+            board
+                .mindmaps
+                .values()
+                .last()
+                .unwrap()
+                .as_ref()
+                .unwrap_err()
+                .contains("8 blocks")
+        );
     }
 }

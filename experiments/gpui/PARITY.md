@@ -37,6 +37,7 @@ of support. Use disposable fixture vaults, never a configured personal vault, fo
 | Unaliased explicit-ID wiki link title display | [x] | [ ] | `markdown.rs`, `shell.rs`; bounded verified resolver titles, Unicode/Find/anchor tests; native interaction pending |
 | Explicit read-only included-note inspector and rendered preview | [x] | [ ] | `included_notes.rs`, `workspace_includes.rs`; owned render API, inert bounded snapshots and standalone-paragraph projection; automatic/full transclusion and native QA pending |
 | Transclusion and line-copy links | [ ] | [ ] | `wikiLinks`, `toc`, `copyRange`, `NoteInclude` |
+| Static native heading/list mindmaps | [x] | [ ] | Bounded node/edge diagram in rendered preview, same-source outline context; native visual/AX and interactive links pending |
 | Diagram fences: Mermaid, D2, Graphviz, LikeC4, draw.io, Pele, mindmap | [ ] | [ ] | `components/markdown/*Diagram*` |
 | Engine-resolved query layout snapshot reading | [x] | [ ] | Bounded inert blocks in explicit rendered preview; other layouts/navigation/native QA pending |
 | Embedded host-note read-only task boards | [x] | [ ] | Exact accepted task metadata, bounded lanes/cards; included sources and mutation unavailable, native QA pending |
