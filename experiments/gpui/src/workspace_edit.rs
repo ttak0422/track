@@ -19,6 +19,7 @@ pub enum Transition {
     ActivateTab(tabs::TabKey),
     CloseTab(tabs::TabKey),
     Home,
+    History(navigation::Ticket),
     Reload,
     Graph,
     FullGraph,
@@ -326,6 +327,7 @@ impl Workspace {
             Transition::ActivateTab(key) => self.activate_tab(key, cx),
             Transition::CloseTab(key) => self.close_tab(&key, cx),
             Transition::Home => self.open_home(cx),
+            Transition::History(ticket) => self.replay_history(ticket, cx),
             Transition::Reload => self.load_notes(cx),
             Transition::Graph => self.load_graph(cx),
             Transition::FullGraph => self.open_full_graph(cx),
@@ -1363,6 +1365,60 @@ mod pending_transition_tests {
         let b = tabs.open_note("two", 7, "B");
         let a = tabs.open_note("one", 7, "A");
         (tabs, a, b)
+    }
+    #[test]
+    fn history_cancel_repeated_back_and_stale_save_preserve_destination() {
+        let mut history = navigation::History::default();
+        history.record(Some(tabs::TabKey::Note {
+            vault: "two".into(),
+            note_id: 7,
+        }));
+        history.record(Some(tabs::TabKey::Note {
+            vault: "one".into(),
+            note_id: 7,
+        }));
+        let before = history.clone();
+        let mut edit = draft();
+        let mut pending = PendingTransition::default();
+        let ticket = history.peek(false).unwrap();
+        pending.capture(Transition::History(ticket.clone()));
+        pending.capture(Transition::History(history.peek(false).unwrap()));
+        assert_eq!(pending.intent, Some(Transition::History(ticket.clone())));
+        let attempt = start(&mut edit, &mut pending);
+        assert!(matches!(
+            edit.choose_leave(LeaveChoice::Cancel, 1, &storage())
+                .unwrap(),
+            LeaveAction::Stay
+        ));
+        pending.cancel();
+        assert_eq!(history, before);
+        assert_eq!(edit.draft(), "exact draft\n\n");
+        pending.capture(Transition::Home);
+        let outcome = edit.finish_save(attempt, 1, 2, Ok(ack()));
+        assert!(pending.finish_save(attempt, &outcome, true).is_none());
+        assert_eq!(history, before);
+        assert_eq!(pending.intent, Some(Transition::Home));
+        history.record(Some(tabs::TabKey::Graph));
+        assert!(!history.commit(&ticket));
+    }
+    #[test]
+    fn history_save_accepts_exact_ticket_once() {
+        let mut history = navigation::History::default();
+        history.record(Some(tabs::TabKey::Graph));
+        let ticket = history.peek(false).unwrap();
+        let mut pending = PendingTransition::default();
+        let mut edit = draft();
+        pending.capture(Transition::History(ticket.clone()));
+        let attempt = start(&mut edit, &mut pending);
+        let outcome = edit.finish_save(attempt, 1, 2, Ok(ack()));
+        let Some(Transition::History(accepted)) = pending.finish_save(attempt, &outcome, true)
+        else {
+            panic!("missing ticket")
+        };
+        assert_eq!(accepted, ticket);
+        assert!(history.commit(&accepted));
+        assert!(!history.commit(&accepted));
+        assert!(history.peek(true).is_some());
     }
     #[test]
     fn acknowledged_save_replays_first_exact_destination_once() {

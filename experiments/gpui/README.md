@@ -265,3 +265,26 @@ and writes only those notes after owned-server and canonical fixture checks.
 A test-only loopback gate exercises a real post-preflight conflict and a real
 commit whose acknowledgment is dropped. It does not launch GPUI, change the
 production save path, or establish GUI/IME/Dock behavior. See [NATIVE-QA.md](NATIVE-QA.md).
+
+## Session page history
+
+Use the Back and Forward rail controls on Home, Graph or a note. Unavailable
+directions are dimmed. With reader focus, Cmd-[ and Cmd-] also request Back and
+Forward through the last 100
+accepted Home, Graph and note routes. This is chronological page history, not tab
+cycling. Notes retain their vault and ID; visiting a closed note reopens its tab.
+Closing an active tab records its neighbor (or empty Home); a background close
+leaves the active draft and route alone. Empty Home replays as literal Home, never
+as the configured Home note. Graph uses the current working-vault scope.
+
+A new route after Back drops Forward; title changes and repeated navigation to the
+same route do not add entries. Note reads may fail after the route is accepted;
+the destination remains selected with its read error, and Back remains available.
+Fixture-only editing uses the existing Save/Discard/Cancel gate before moving the
+history cursor. Cancel retains the draft and route; repeated requests while the
+prompt is open do not skip destinations. Ordinary editing remains disabled.
+
+History is in-memory only, with no heading positions or unsupported route kinds.
+Model and disposable-fixture tests do not establish native shortcut/IME delivery;
+GUI validation remains deferred until explicitly authorized. Mouse side-button
+behavior is unchanged.

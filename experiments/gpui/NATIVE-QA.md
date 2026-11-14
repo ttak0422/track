@@ -313,3 +313,16 @@ build, formatting, termination-gate/preparation checks and seven proxy tests.
 The previous real-engine tests are separate evidence and were not rerun for this
 controller-only change. No GUI or personal-vault validation was performed here;
 the release gates above remain open and ordinary editing remains disabled.
+
+## Page history: pending native validation
+
+Model and disposable-fixture tests cover bounded chronological history, branching,
+vault-qualified IDs, Cancel, frozen save tickets and stale read/save completions.
+No native keyboard or IME delivery was tested for this slice. When GUI validation
+is authorized, check Back/Forward rail availability on Home, Graph and notes;
+reader-focused Cmd-[ / Cmd-]; reopening closed notes; same-ID cross-vault routes;
+failed GET then Back; repeated Back during Save/Discard/Cancel; and late GET/save
+after Cancel or newer navigation. Confirm a reload retains the selected route,
+Graph uses the current working vault, empty Home does not become the configured
+Home note, and mouse side-button tab cycling is unchanged. Ordinary editing must
+remain disabled; dirty-flow checks use only isolated disposable fixtures.

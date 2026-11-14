@@ -2,6 +2,36 @@
 //! publish only if their navigation generation is still current.
 use super::*;
 
+/// The accepted route is visible even if its GET fails. Admission is checked
+/// before either success or error can touch the reader/history.
+fn accept_note_route(
+    tabs: &mut tabs::Tabs,
+    history: &mut navigation::History,
+    key: &live::NoteKey,
+) {
+    tabs.open_note(
+        key.vault.clone(),
+        key.note_id,
+        format!("Note {}", key.note_id),
+    );
+    history.record(tabs.active().map(|t| t.key.clone()));
+}
+fn note_read_is_current(
+    request: u64,
+    current: u64,
+    key: &live::NoteKey,
+    tabs: &tabs::Tabs,
+) -> bool {
+    request == current
+        && tabs.active().is_some_and(|t| {
+            t.key
+                == tabs::TabKey::Note {
+                    vault: key.vault.clone(),
+                    note_id: key.note_id,
+                }
+        })
+}
+
 /// A startup result may attach its owned server, but must not replace a newer route.
 #[derive(Clone)]
 struct StartupNavigation {
@@ -187,6 +217,7 @@ impl Workspace {
         let Some(session) = self.live.clone() else {
             return;
         };
+        let reload_route = self.history.reload_route(&self.tabs);
         self.request += 1;
         let request = self.request;
         self.status = "Reading server notes…".into();
@@ -254,7 +285,9 @@ impl Workspace {
                         this.selected = None;
                         this.content.clear();
                         this.status.clear();
-                        if this.session_ui.safe_home {
+                        if this.restore_reload_route(reload_route.clone(), cx) {
+                            // Refresh the accepted route, not a new first/Home-note visit.
+                        } else if this.session_ui.safe_home {
                             this.shell.home = true;
                         } else if let Some(index) = this.configured_home_index() {
                             this.shell.home = false;
@@ -462,9 +495,20 @@ impl Workspace {
             self.select(index, cx);
             return;
         }
+        // Accept before I/O; completion fills this route without adding a visit.
+        accept_note_route(&mut self.tabs, &mut self.history, &key);
+        self.session_ui.sync(&self.tabs);
+        self.selected = None;
+        self.content.clear();
+        self.current_note = None;
+        self.current_related.clear();
+        self.show_graph = false;
+        self.read_error = None;
         self.request += 1;
         self.graph_request += 1;
+        cx.notify(); // Publish the accepted destination before its asynchronous read.
         let request = self.request;
+        let destination = key.clone();
         let expected_epoch = self.accepted_storage_generation;
         let job = cx.background_executor().spawn(async move {
             let client = session.client();
@@ -479,7 +523,7 @@ impl Workspace {
         cx.spawn(async move |this, cx| {
             let (result, storage) = job.await;
             let _ = this.update(cx, |this, cx| {
-                if this.request != request {
+                if !note_read_is_current(request, this.request, &destination, &this.tabs) {
                     return;
                 }
                 if !epoch_compatible(
@@ -730,5 +774,45 @@ mod startup_navigation_tests {
         let mut graph_only = initial();
         graph_only.graph_request += 1;
         assert!(!before.accepts(&graph_only, false));
+    }
+}
+
+#[cfg(test)]
+mod history_read_tests {
+    use super::*;
+    #[test]
+    fn failed_read_keeps_destination_and_late_completion_cannot_branch() {
+        let mut tabs = tabs::Tabs::default();
+        let mut history = navigation::History::default();
+        let key = live::NoteKey {
+            vault: "one".into(),
+            note_id: 7,
+        };
+        accept_note_route(&mut tabs, &mut history, &key);
+        assert!(note_read_is_current(1, 1, &key, &tabs));
+        // An error only sets read_error, leaving the accepted route/cursor intact.
+        assert_eq!(
+            tabs.active().unwrap().key,
+            tabs::TabKey::Note {
+                vault: "one".into(),
+                note_id: 7
+            }
+        );
+        assert!(history.peek(false).is_some());
+        assert!(history.commit(&history.peek(false).unwrap()));
+        tabs.open_home();
+        let before = history.clone();
+        assert!(!note_read_is_current(1, 2, &key, &tabs));
+        assert_eq!(history, before);
+        assert!(history.peek(true).is_some());
+        // Even returning to the identical note cannot admit its earlier response.
+        assert!(history.commit(&history.peek(true).unwrap()));
+        accept_note_route(&mut tabs, &mut history, &key);
+        assert!(!note_read_is_current(1, 3, &key, &tabs));
+        let before = history.clone();
+        assert!(note_read_is_current(3, 3, &key, &tabs));
+        tabs.open_note("one", 7, "Resolved");
+        history.record(tabs.active().map(|t| t.key.clone()));
+        assert_eq!(history, before);
     }
 }

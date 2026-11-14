@@ -1074,6 +1074,88 @@ impl Workspace {
         })
         .detach();
     }
+    pub(crate) fn restore_reload_route(
+        &mut self,
+        route: Option<tabs::TabKey>,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(route) = route else {
+            return false;
+        };
+        match route {
+            tabs::TabKey::Home => self.show_empty_home(),
+            tabs::TabKey::Graph => self.open_full_graph(cx),
+            tabs::TabKey::Note { vault, note_id } => {
+                self.shell.home = false;
+                if self.live.is_some() {
+                    self.open_live_key(live::NoteKey { vault, note_id }, cx);
+                } else if let Some(i) = self
+                    .snapshot
+                    .notes
+                    .iter()
+                    .position(|n| n.note_id == note_id)
+                {
+                    self.select(i, cx);
+                } else {
+                    self.read_error =
+                        Some("Selected note is absent after reload; route retained.".into());
+                }
+            }
+        }
+        true
+    }
+    pub(crate) fn navigate_history(&mut self, forward: bool, cx: &mut Context<Self>) {
+        if let Some(ticket) = self.history.peek(forward) {
+            self.replay_history(ticket, cx);
+        }
+    }
+    pub(crate) fn replay_history(&mut self, ticket: navigation::Ticket, cx: &mut Context<Self>) {
+        if !self.history.accepts(&ticket) {
+            return;
+        }
+        if let Some(tabs::TabKey::Note { vault, note_id }) = &ticket.route {
+            if !self.session_ui.permits(vault)
+                || (self.live.is_none()
+                    && !self.snapshot.notes.iter().any(|n| n.note_id == *note_id))
+            {
+                return;
+            }
+        }
+        if self.guard_transition(workspace_edit::Transition::History(ticket.clone()), cx) {
+            return;
+        }
+        if !self.history.commit(&ticket) {
+            return;
+        }
+        self.shell.search_open = false;
+        self.shell.vault_menu = false;
+        self.shell.tab_menu = false;
+        self.shell.tab_cycle.clear();
+        match ticket.route {
+            Some(tabs::TabKey::Note { vault, note_id }) => {
+                self.shell.home = false;
+                if self.live.is_some() {
+                    self.open_live_key(live::NoteKey { vault, note_id }, cx);
+                } else if let Some(i) = self
+                    .snapshot
+                    .notes
+                    .iter()
+                    .position(|n| n.note_id == note_id)
+                {
+                    self.select(i, cx);
+                }
+            }
+            Some(tabs::TabKey::Graph) => self.open_full_graph(cx),
+            _ => {
+                // History Home is the literal destination, not today's configured note.
+                self.tabs.open_home();
+                // Reopen literal Home while preserving background tabs.
+                self.show_empty_home();
+                self.session_ui.sync(&self.tabs);
+            }
+        }
+        cx.notify();
+    }
     pub(crate) fn activate_tab(&mut self, key: tabs::TabKey, cx: &mut Context<Self>) {
         self.activate_tab_inner(key, false, cx);
     }
@@ -1130,13 +1212,18 @@ impl Workspace {
         cx.notify();
     }
     pub(crate) fn close_tab(&mut self, key: &tabs::TabKey, cx: &mut Context<Self>) {
-        if self.guard_transition(workspace_edit::Transition::CloseTab(key.clone()), cx) {
+        if self.tabs.get(key).is_none() {
+            return;
+        }
+        let was_active = self.tabs.active().is_some_and(|tab| &tab.key == key);
+        if was_active
+            && self.guard_transition(workspace_edit::Transition::CloseTab(key.clone()), cx)
+        {
             return;
         }
         self.shell.tab_cycle.clear();
         self.shell.reader_scrolls.remove(key);
         self.shell.heading_anchors.remove(key);
-        let was_active = self.tabs.active().is_some_and(|tab| &tab.key == key);
         if !self.tabs.close(key) {
             return;
         }
@@ -1185,6 +1272,7 @@ impl Workspace {
             .map(|(index, _)| index)
     }
     fn show_empty_home(&mut self) {
+        self.history.record(Some(tabs::TabKey::Home));
         self.request += 1;
         self.graph_request += 1;
         self.query_epoch
@@ -1673,6 +1761,29 @@ impl Render for Workspace {
             .border_1()
             .border_color(rgb(p.line))
             .rounded_lg()
+            .children(
+                [
+                    (false, "history-back", "Back"),
+                    (true, "history-forward", "Forward"),
+                ]
+                .into_iter()
+                .map(|(forward, id, label)| {
+                    let enabled = self.history.peek(forward).is_some();
+                    div()
+                        .id(id)
+                        .text_size(px(10.))
+                        .text_color(rgb(p.muted))
+                        .opacity(if enabled { 1.0 } else { 0.4 })
+                        .child(label)
+                        .when(enabled, |button| {
+                            button.cursor_pointer().on_click(
+                                cx.listener(move |this, _, _, cx| {
+                                    this.navigate_history(forward, cx)
+                                }),
+                            )
+                        })
+                }),
+            )
             .child(
                 rail_button("home", "home", p, home).on_click(cx.listener(|this, _, _, cx| {
                     this.open_home(cx);
@@ -2275,7 +2386,15 @@ impl Render for Workspace {
                     return;
                 }
                 let modifiers = event.keystroke.modifiers;
-                if event.keystroke.key == "w"
+                if matches!(event.keystroke.key.as_str(), "[" | "]")
+                    && modifiers.platform
+                    && !modifiers.control
+                    && !modifiers.alt
+                    && !modifiers.shift
+                {
+                    this.navigate_history(event.keystroke.key == "]", cx);
+                    cx.stop_propagation();
+                } else if event.keystroke.key == "w"
                     && modifiers.platform
                     && !modifiers.control
                     && !modifiers.alt

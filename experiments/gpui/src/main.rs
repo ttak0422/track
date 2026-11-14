@@ -16,6 +16,7 @@ mod input_trace;
 mod live;
 mod markdown;
 mod native_window;
+mod navigation;
 mod reader_find;
 mod search_input;
 mod session_store;
@@ -67,6 +68,7 @@ struct Workspace {
     shell: shell::ShellState,
     editing_ui: workspace_edit::EditingUi,
     tabs: tabs::Tabs,
+    history: navigation::History,
     session_ui: workspace_session::SessionUi,
     snapshot: Snapshot,
     selected: Option<usize>,
@@ -171,6 +173,7 @@ impl Workspace {
         let Some(backend) = self.backend.clone() else {
             return;
         };
+        let reload_route = self.history.reload_route(&self.tabs);
         self.request += 1;
         let request = self.request;
         self.status = "Loading notes…".into();
@@ -194,7 +197,7 @@ impl Workspace {
                         }
                         this.selected = None;
                         this.content.clear();
-                        if !this.snapshot.notes.is_empty() {
+                        if !this.restore_reload_route(reload_route.clone(), cx) && !this.snapshot.notes.is_empty() {
                             this.select(0, cx);
                         }
                     }
@@ -248,6 +251,8 @@ impl Workspace {
                 .unwrap_or_default();
             self.tabs.open_note(vault, note.note_id, note.title.clone());
             self.session_ui.sync(&self.tabs);
+            self.history
+                .record(self.tabs.active().map(|t| t.key.clone()));
         }
         self.query_epoch
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -554,6 +559,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         shell: shell::ShellState::default(),
                         editing_ui: workspace_edit::EditingUi::new(developer_fixture),
                         tabs: tabs::Tabs::default(),
+                        history: navigation::History::default(),
                         session_ui: workspace_session::SessionUi::new(session_options),
                         selected: (!snapshot.notes.is_empty()).then_some(0),
                         snapshot,
