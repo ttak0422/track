@@ -27,6 +27,8 @@ pub struct Block {
     pub spans: Vec<Span>,
     pub links: Vec<Link>,
     pub table: Option<Table>,
+    /// Standalone parser image node; never inferred from rendered text.
+    pub image: Option<String>,
     /// First fenced info token; never mixed into body/Find byte ranges.
     pub language: Option<String>,
     /// Ingestion-time lexical ranges, shared across display projections.
@@ -781,6 +783,7 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
                     language: None,
                     syntax: Rc::from([]),
                     table: None,
+                    image: None,
                 });
                 return;
             }
@@ -808,6 +811,7 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
                 links: vec![],
                 language: None,
                 syntax: Rc::from([]),
+                image: None,
                 table: Some(Table {
                     alignments: alignments.clone(),
                     rows,
@@ -874,6 +878,7 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
                         spans: vec![],
                         links: vec![],
                         table: None,
+                        image: None,
                         language: None,
                         syntax: Rc::from([]),
                     },
@@ -908,6 +913,14 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
         _ => None,
     };
     let syntax = crate::code_highlight::classify(&content.text, language.as_deref());
+    let image = if kind == BlockKind::Paragraph && node.children.len() == 1 {
+        match &node.children[0].event {
+            Event::Start(Tag::Image { dest_url, .. }) => Some(dest_url.to_string()),
+            _ => None,
+        }
+    } else {
+        None
+    };
     out.push(Block {
         syntax,
         language,
@@ -916,6 +929,7 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
         spans: content.spans,
         links: content.links,
         table: None,
+        image,
         indent,
         quoted,
         marker: None,
@@ -932,6 +946,7 @@ fn flush_run(run: &mut Cell, indent: usize, quoted: bool, out: &mut Vec<Block>) 
             language: None,
             syntax: Rc::from([]),
             table: None,
+            image: None,
             indent,
             quoted,
             marker: None,
@@ -967,6 +982,7 @@ fn fallback(text: &str, out: &mut Vec<Block>) {
             language: None,
             syntax: Rc::from([]),
             table: None,
+            image: None,
             indent: 0,
             quoted: false,
             marker: None,
@@ -1015,13 +1031,13 @@ pub fn render(blocks: &[Block]) -> Div {
 /// Uses the system sans fallback; exact IBM Plex Sans JP typography is not claimed.
 /// No HTML execution, network fetching, or link navigation is performed.
 pub fn render_themed(blocks: &[Block], dark: bool) -> Div {
-    render_reader(blocks, dark, None, None, None, None)
+    render_reader(blocks, dark, None, None, None, None, None)
 }
 
 /// Anchor-aware variant that preserves nested article layout. The outer reader
 /// must track the same handle used to construct `anchors`.
 pub fn render_themed_with_anchors(blocks: &[Block], dark: bool, anchors: &HeadingAnchors) -> Div {
-    render_reader(blocks, dark, Some(anchors), None, None, None)
+    render_reader(blocks, dark, Some(anchors), None, None, None, None)
 }
 
 pub fn render_with_links(
@@ -1030,7 +1046,7 @@ pub fn render_with_links(
     anchors: Option<&HeadingAnchors>,
     callbacks: &LinkCallbacks,
 ) -> Div {
-    render_reader(blocks, dark, anchors, Some(callbacks), None, None)
+    render_reader(blocks, dark, anchors, Some(callbacks), None, None, None)
 }
 
 pub fn render_with_links_and_find(
@@ -1040,8 +1056,9 @@ pub fn render_with_links_and_find(
     callbacks: &LinkCallbacks,
     find: Option<FindPresentation<'_>>,
     copy: Option<&CodeCallbacks>,
+    images: Option<&std::collections::BTreeMap<usize, crate::raster::Decoded>>,
 ) -> Div {
-    render_reader(blocks, dark, anchors, Some(callbacks), find, copy)
+    render_reader(blocks, dark, anchors, Some(callbacks), find, copy, images)
 }
 
 fn render_reader(
@@ -1051,6 +1068,7 @@ fn render_reader(
     callbacks: Option<&LinkCallbacks>,
     find: Option<FindPresentation<'_>>,
     copy: Option<&CodeCallbacks>,
+    images: Option<&std::collections::BTreeMap<usize, crate::raster::Decoded>>,
 ) -> Div {
     let theme = ReaderTheme::new(dark);
     div()
@@ -1063,7 +1081,7 @@ fn render_reader(
         .font_family(".SystemUIFont")
         .text_color(rgb(theme.ink))
         .children(render_elements(
-            blocks, dark, anchors, callbacks, find, copy,
+            blocks, dark, anchors, callbacks, find, copy, images,
         ))
 }
 
@@ -1071,7 +1089,7 @@ fn render_reader(
 /// as one direct child; wrapping the returned vector defeats child-index anchors.
 /// Each row carries the same body metrics as render_themed.
 pub fn render_block_elements_themed(blocks: &[Block], dark: bool) -> Vec<AnyElement> {
-    render_elements(blocks, dark, None, None, None, None)
+    render_elements(blocks, dark, None, None, None, None, None)
 }
 
 fn render_elements(
@@ -1081,6 +1099,7 @@ fn render_elements(
     callbacks: Option<&LinkCallbacks>,
     find: Option<FindPresentation<'_>>,
     copy: Option<&CodeCallbacks>,
+    images: Option<&std::collections::BTreeMap<usize, crate::raster::Decoded>>,
 ) -> Vec<AnyElement> {
     let theme = ReaderTheme::new(dark);
     let entries = anchors
@@ -1265,6 +1284,16 @@ fn render_elements(
                 format!("md-block-{index}"),
                 theme,
             ));
+            let row = if let Some(image) = images.and_then(|images| images.get(&index)) {
+                row.child(
+                    gpui::img(image.image.clone())
+                        .w(px((image.width as f32).min(620.)))
+                        .max_w_full()
+                        .max_h(px(480.)),
+                )
+            } else {
+                row
+            };
             let element =
                 if let Some(entry) = entries.iter().find(|entry| entry.block_index == index) {
                     row.id(SharedString::from(format!(
@@ -2836,5 +2865,46 @@ mod exact_find_geometry_tests {
         assert!(!anchors.scroll_to_hit(&first, gpui::Size::default()));
         anchors.begin_layout(Some(second));
         assert!(anchors.layout.borrow().line.is_none());
+    }
+}
+
+/// Only standalone image paragraphs, never inline/table/code/HTML references.
+/// The original source text remains the searchable caption and fallback.
+pub fn standalone_images(blocks: &[Block]) -> Vec<(usize, String)> {
+    blocks
+        .iter()
+        .enumerate()
+        .filter_map(|(index, block)| {
+            let reference = block.image.as_ref()?;
+            crate::raster::asset_name(reference).ok()?;
+            Some((index, reference.clone()))
+        })
+        .take(4)
+        .collect()
+}
+
+#[cfg(test)]
+mod raster_reference_tests {
+    use super::*;
+    #[test]
+    fn standalone_rasters_keep_original_text_and_ignore_inline_tables_and_code() {
+        let source = "![日本語](assets/a.png)\n\nprefix ![inline](assets/b.jpg)\n\n```md\n![code](assets/c.png)\n```\n\n![remote](https://example.com/x.png)";
+        let blocks = parse(source);
+        let refs = standalone_images(&blocks);
+        assert_eq!(refs.len(), 1);
+        assert_eq!(refs[0].1, "assets/a.png");
+        assert_eq!(blocks[refs[0].0].text, "![日本語](assets/a.png)");
+        assert_eq!(crate::reader_find::search(&blocks, "日本語").hits.len(), 1);
+        assert!(standalone_images(&parse("| Image |\n|---|\n| ![x](assets/a.png) |")).is_empty());
+        assert!(standalone_images(&parse("![x](assets/a.png) ![y](assets/b.png)")).is_empty());
+        assert!(standalone_images(&parse(r"\![escaped](assets/a.png)")).is_empty());
+        assert!(standalone_images(&parse("`![code](assets/a.png)`")).is_empty());
+    }
+    #[test]
+    fn current_reader_raster_requests_are_capped() {
+        let source = (0..10)
+            .map(|n| format!("![x](assets/{n}.jpg)\n\n"))
+            .collect::<String>();
+        assert_eq!(standalone_images(&parse(&source)).len(), 4);
     }
 }

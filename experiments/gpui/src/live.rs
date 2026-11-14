@@ -594,6 +594,79 @@ impl ReadClient {
         Ok(result)
     }
 
+    /// Fetch a raster from the owned engine only. Lexical validation cannot prove
+    /// physical filesystem containment: the engine owns asset symlink policy.
+    pub fn raster_asset(
+        &self,
+        reference: &str,
+        vault: &str,
+    ) -> Result<crate::raster::Decoded, Error> {
+        let name = crate::raster::asset_name(reference).map_err(Error::Config)?;
+        if vault.len() > 1024 || vault.contains('\0') {
+            return Err(Error::Config("image requires a bounded vault name".into()));
+        }
+        let origin = reqwest::Url::parse(&self.origin).map_err(|e| Error::Config(e.to_string()))?;
+        if origin.scheme() != "http"
+            || origin.host_str() != Some("127.0.0.1")
+            || !origin.username().is_empty()
+            || origin.password().is_some()
+            || origin.path() != "/"
+            || origin.query().is_some()
+            || origin.fragment().is_some()
+        {
+            return Err(Error::Config(
+                "image origin must be the owned loopback server".into(),
+            ));
+        }
+        if !self.alive.load(Ordering::Acquire) {
+            return Err(Error::Stale);
+        }
+        let mut args = vault_query(vault);
+        args.push(("name", name.into()));
+        let mut response = self
+            .http
+            .get(format!("{}/api/asset", self.origin))
+            .query(&args)
+            .header("Cache-Control", "no-cache, no-store")
+            .send()
+            .map_err(|e| Error::Transport(e.to_string()))?;
+        let status = response.status().as_u16();
+        let mime = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or("")
+            .to_owned();
+        if response
+            .content_length()
+            .is_some_and(|n| n > crate::raster::MAX_ENCODED as u64)
+        {
+            return Err(Error::Oversized);
+        }
+        let mut bytes = Vec::new();
+        (&mut response)
+            .take(crate::raster::MAX_ENCODED as u64 + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|e| Error::Transport(e.to_string()))?;
+        if !self.alive.load(Ordering::Acquire) {
+            return Err(Error::Stale);
+        }
+        if bytes.len() > crate::raster::MAX_ENCODED {
+            return Err(Error::Oversized);
+        }
+        if status != 200 {
+            return Err(Error::Http {
+                status,
+                body: String::from_utf8_lossy(&bytes[..bytes.len().min(1024)]).into_owned(),
+            });
+        }
+        let decoded = crate::raster::decode(&bytes, &mime).map_err(Error::Shape)?;
+        if !self.alive.load(Ordering::Acquire) {
+            return Err(Error::Stale);
+        }
+        Ok(decoded)
+    }
+
     /// The caller supplies the parsed target without label or anchor suffix.
     /// Do not interpret ID-shaped/numeric terms or vault prefixes in this client.
     pub fn resolve(&self, term: &str, source_vault: &str) -> Result<Resolution, Error> {
@@ -2223,6 +2296,112 @@ mod tests {
             task,
         )
     }
+    #[test]
+    fn raster_transport_scopes_bytes_and_never_follows_redirects() {
+        use std::io::Write;
+        for status in [200, 302, 404] {
+            let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+            let origin = format!("http://{}", listener.local_addr().unwrap());
+            let bytes = crate::raster::tests::png(1, 1);
+            let worker = thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(2)))
+                    .unwrap();
+                let mut request = Vec::new();
+                while !request.ends_with(b"\r\n\r\n") {
+                    let mut b = [0];
+                    stream.read_exact(&mut b).unwrap();
+                    request.push(b[0]);
+                }
+                write!(stream, "HTTP/1.1 {status} Test\r\nContent-Type: image/png\r\nLocation: http://127.0.0.1:1/forbidden\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", bytes.len()).unwrap();
+                stream.write_all(&bytes).unwrap();
+                String::from_utf8(request).unwrap()
+            });
+            let client = ReadClient {
+                http: reqwest::blocking::Client::builder()
+                    .no_proxy()
+                    .redirect(reqwest::redirect::Policy::none())
+                    .timeout(Duration::from_secs(2))
+                    .build()
+                    .unwrap(),
+                origin,
+                alive: Arc::new(AtomicBool::new(true)),
+                launch_generation: 1,
+            };
+            // Rejections occur before issuing any request.
+            assert!(matches!(
+                client.raster_asset("assets/../x.png", "work"),
+                Err(Error::Config(_))
+            ));
+            client.alive.store(false, Ordering::Release);
+            assert!(matches!(
+                client.raster_asset("assets/a.png", "work"),
+                Err(Error::Stale)
+            ));
+            client.alive.store(true, Ordering::Release);
+            let result = client.raster_asset("assets/図/a & b.png", "work & 日本語");
+            if status == 200 {
+                assert_eq!(result.unwrap().width, 1);
+            } else {
+                assert!(matches!(result, Err(Error::Http {status: actual,..}) if actual == status));
+            }
+            let request = worker.join().unwrap();
+            assert!(request.starts_with("GET /api/asset?"));
+            assert!(request.contains("vault=work+%26+%E6%97%A5%E6%9C%AC%E8%AA%9E"));
+            assert!(request.contains("name=%E5%9B%B3%2Fa+%26+b.png"));
+        }
+    }
+
+    #[test]
+    fn raster_transport_rejects_oversized_headers_and_retired_inflight_session() {
+        use std::io::Write;
+        for retired in [false, true] {
+            let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+            let origin = format!("http://{}", listener.local_addr().unwrap());
+            let alive = Arc::new(AtomicBool::new(true));
+            let server_alive = alive.clone();
+            let worker = thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(2)))
+                    .unwrap();
+                let mut request = Vec::new();
+                while !request.ends_with(b"\r\n\r\n") {
+                    let mut b = [0];
+                    stream.read_exact(&mut b).unwrap();
+                    request.push(b[0]);
+                }
+                if retired {
+                    let bytes = crate::raster::tests::png(1, 1);
+                    server_alive.store(false, Ordering::Release);
+                    write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", bytes.len()).unwrap();
+                    stream.write_all(&bytes).unwrap();
+                } else {
+                    write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", crate::raster::MAX_ENCODED+1).unwrap();
+                }
+            });
+            let client = ReadClient {
+                http: reqwest::blocking::Client::builder()
+                    .no_proxy()
+                    .redirect(reqwest::redirect::Policy::none())
+                    .timeout(Duration::from_secs(2))
+                    .build()
+                    .unwrap(),
+                origin,
+                alive,
+                launch_generation: 1,
+            };
+            let result = client.raster_asset("assets/a.png", "");
+            if retired {
+                assert!(matches!(result, Err(Error::Stale)));
+            } else {
+                assert!(matches!(result, Err(Error::Oversized)));
+            }
+            worker.join().unwrap();
+        }
+    }
+
     fn dated_task_fixture() -> Value {
         serde_json::json!({"note_id":42,"file_kind":"note","title":"日本語",
             "line":3,"state":"TODO","done":false,"priority":"A",

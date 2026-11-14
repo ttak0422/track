@@ -328,3 +328,13 @@ inference. Duplicate due/scheduled matches appear once. This adds no overdue,
 recurrence, mutation or task-line navigation semantics. Transport bounds,
 partial diagnostics and selection/source guards remain in force. Native task
 list interaction and visual parity remain pending.
+
+### Bounded local raster subset
+
+The owned live current-note reader displays at most four standalone local
+PNG/JPEG image paragraphs while preserving source captions. Lexical asset path
+validation, scoped bounded reads, explicit raster-only decoding and source
+identity guards precede GPUI rendering. Inline/table images, remote resources,
+other formats and pinned previews remain unsupported. Asset filesystem symlink
+policy remains the engine's responsibility, not a client containment guarantee.
+Native rendering, color/orientation, reflow/scroll and accessibility remain open.

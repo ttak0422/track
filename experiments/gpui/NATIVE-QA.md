@@ -556,3 +556,14 @@ Switch day/scope during reads, then click old rows: stale callbacks must remain
 inert. A result opens the source note without changing task state or promising a
 line jump. Check more than 100 matches, partial empty results, long text and
 keyboard/accessibility behavior.
+
+### Local raster subset (pending native QA)
+
+Use disposable PNG/JPEG assets with Japanese names, transparency and landscape/
+portrait dimensions. Verify source captions remain searchable, four-image limit,
+fit inside narrow reader, and Find/heading jumps after image reflow. Navigate,
+reload/change source and restart server during delayed reads: stale frames must
+not appear. Test unavailable/oversize/corrupt assets and explicit Reload retry.
+Confirm inline/table/code, external/data/file URLs and SVG remain literal without
+network fetch. Inspect memory/GPU lifecycle, color/orientation and accessibility
+separately; headless decode tests do not establish native visual correctness.

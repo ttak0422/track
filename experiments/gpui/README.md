@@ -78,7 +78,8 @@ output pipes concurrently. The specified executable should be Track itself, not 
 wrapper spawning descendants that inherit pipes.
 
 The body supports native headings, paragraphs, lists, quotes and code blocks. Links
-remain inert text; HTML, images and other unsupported blocks remain literal.
+remain inert text; HTML and unsupported media remain literal. A bounded local
+PNG/JPEG subset can be displayed in the owned live reader (see below).
 Inline emphasis, code styling and simple native tables are supported. Ordinary
 fences have bounded lexical coloring for JS aliases (js/javascript/jsx/ts/typescript/tsx),
 Lua, JSON, Python (python/py/python3) and shell (bash/sh/shell). Shell coloring
@@ -403,3 +404,24 @@ two-job concurrency guard. Native layout and accessibility remain unverified.
 Task dates remain authored date-shaped labels: an impossible calendar date is
 not repaired or used to hide other tasks. Only exact matches to the selected
 valid calendar day are included.
+
+### Bounded local raster images
+
+The current owned live reader can display up to four standalone Markdown image
+paragraphs referring literally to `assets/<name>.png|jpg|jpeg`. Source captions
+remain visible and searchable. Inline/table/code images, external URLs, data/file
+URLs, SVG, GIF and other formats remain literal; no external image fetch is sent.
+Only the owned engine's scoped `GET /api/asset` is used. Paths reject traversal,
+percent-encoding ambiguity, query/fragment syntax and backslashes. This is lexical
+validation, not physical containment: the engine owns filesystem/symlink policy.
+
+Encoded payloads are limited to 4 MiB, dimensions to 2048 per axis and four million
+pixels. Decoder allocation accounting is capped at 16 MiB, not a hard process-RSS
+guarantee. Decoded BGRA frames are passed directly to GPUI; its URL/encoded-image
+loader and SVG fallback are never invoked. One image worker runs at a time across
+experimental windows, with only the current reader cache retained. Launch,
+storage, requested note, request and ETag changes reject old results. Loading is
+read-only, with no disk cache or automatic retries; Reload retries failed/busy
+loads. Pinned previews and offline snapshots do not load images. Images are scaled
+within reader bounds; orientation/color-profile and native GPU/layout/scroll/AX
+parity remain unverified. Ordinary editing stays disabled.

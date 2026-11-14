@@ -4945,6 +4945,7 @@ version = "0.1.0"
 dependencies = [
  "cocoa",
  "gpui",
+ "image",
  "libc",
  "log",
  "objc",

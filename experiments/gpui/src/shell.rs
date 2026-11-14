@@ -1474,6 +1474,7 @@ impl Render for Workspace {
         let p = Palette::new(dark);
         self.sync_editor_theme(dark, cx);
         self.ensure_link_resolutions(cx);
+        self.ensure_reader_images(cx);
         let link_warning=self.shell.links.as_ref().filter(|cache|!cache.warnings.is_empty()).map(|cache|if cache.deferred_targets>0 {format!("Internal-link checking is limited to 128 targets; {} additional targets remain inactive. Details in diagnostics.",cache.deferred_targets)} else {"Some internal links could not be verified and remain inactive. Open diagnostics for details.".into()});
         let resolved_terms = std::rc::Rc::new(
             self.shell
@@ -2257,7 +2258,11 @@ impl Render for Workspace {
                                         anchors: self.shell.find.anchors.as_ref().unwrap(),
                                     }),
                                 Some(&code_controls),
+                                Some(&self.reader_images.images),
                             ))
+                            .when_some(self.reader_images.notice.clone(), |view, notice| {
+                                view.child(div().text_size(px(11.)).child(notice))
+                            })
                             .on_mouse_down(
                                 gpui::MouseButton::Left,
                                 cx.listener(|this, _, window, _| {

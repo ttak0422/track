@@ -21,6 +21,7 @@ mod markdown;
 mod native_window;
 mod navigation;
 mod note_metadata;
+mod raster;
 mod reader_find;
 mod search_input;
 mod session_store;
@@ -30,6 +31,7 @@ mod workspace_activity;
 mod workspace_edit;
 mod workspace_find;
 mod workspace_graph;
+mod workspace_images;
 mod workspace_live;
 mod workspace_preview;
 mod workspace_session;
@@ -76,6 +78,7 @@ struct Workspace {
     history: navigation::History,
     session_ui: workspace_session::SessionUi,
     event_awareness: event_awareness::State,
+    reader_images: workspace_images::State,
     snapshot: Snapshot,
     selected: Option<usize>,
     rendered_rows: usize,
@@ -590,6 +593,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         history: navigation::History::default(),
                         session_ui: workspace_session::SessionUi::new(session_options),
                         event_awareness: Default::default(),
+                        reader_images: Default::default(),
                         selected: (!snapshot.notes.is_empty()).then_some(0),
                         snapshot,
                         rendered_rows: 0,
