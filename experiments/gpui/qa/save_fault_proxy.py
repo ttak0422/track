@@ -95,6 +95,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 })
                 response = conn.getresponse()
                 status, content_type = response.status, response.getheader('Content-Type', 'application/json')
+                # Never relay folded or injected upstream fields into a new header.
+                safe_content_type = content_type.replace('\r', '').replace('\n', '')
+                if safe_content_type != content_type:
+                    raise ValueError('invalid upstream Content-Type')
                 payload = response.read(LIMIT + 1)
                 if len(payload) > LIMIT:
                     raise ValueError('oversized upstream response')
@@ -114,7 +118,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.close_connection = True
                 return
             self.send_response(status)
-            self.send_header('Content-Type', content_type)
+            self.send_header('Content-Type', safe_content_type)
             self.send_header('Content-Length', str(len(payload)))
             self.end_headers()
             self.wfile.write(payload)

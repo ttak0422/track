@@ -34,6 +34,8 @@ class Upstream(http.server.BaseHTTPRequestHandler):
 
     def reply(self, status, body):
         self.send_response(status)
+        if hasattr(self.server, 'content_type'):
+            self.send_header('Content-Type', self.server.content_type)
         self.send_header('Content-Length', str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -66,6 +68,27 @@ class FaultTests(unittest.TestCase):
             return response.status, response.read()
         finally:
             connection.close()
+
+    def test_upstream_content_type_is_preserved(self):
+        self.upstream.content_type = 'application/json; charset=utf-8'
+        connection = http.client.HTTPConnection('127.0.0.1', self.proxy.server_port, timeout=2)
+        try:
+            connection.request('GET', '/api/note?id=42')
+            response = connection.getresponse()
+            self.assertEqual(response.getheader('Content-Type'), self.upstream.content_type)
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.read(), b'{}')
+        finally:
+            connection.close()
+
+    def test_folded_upstream_content_type_is_rejected_before_response(self):
+        # http.client preserves obsolete folded headers; BaseHTTPRequestHandler
+        # would otherwise write those CR/LF bytes into its own response.
+        self.upstream.content_type = 'application/json\r\n X-Injected: yes'
+        with self.assertRaises(http.client.RemoteDisconnected):
+            self.request('GET', '/api/note?id=42')
+        events = [json.loads(line) for line in (self.root / 'events.jsonl').read_text().splitlines()]
+        self.assertEqual(events, [{'event': 'proxy_error', 'type': 'ValueError'}])
 
     def test_pending_ack_release_and_exactly_one_unicode_put(self):
         body = json.dumps({'body': '日本😀\n\n', 'etag': 'old-tag'}, ensure_ascii=False).encode()

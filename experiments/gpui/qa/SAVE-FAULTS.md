@@ -4,7 +4,8 @@ This is test-only scaffolding, not a production feature. It is an executable
 `--track-bin` adapter that owns a real Track child and forwards loopback requests.
 It does not replace validation, etags, storage checks, or editing opt-in in GPUI.
 It rejects unmarked/out-of-root fixture paths, symlinks in the fixture, external
-proxy URLs, and PUT destinations other than `/api/note`. Other mutation methods
+proxy URLs, and PUT destinations other than `/api/note`. Upstream Content-Type
+values containing CR/LF are rejected before any response header is emitted. Other mutation methods
 are unsupported. No retries. It does not attach to an existing server.
 
 ## Prepare a NEW public fixture (do not reuse an active QA fixture)
@@ -105,9 +106,9 @@ this new fixture changed. Do not delete a fixture while its app is still live.
 python3 -m unittest discover -s experiments/gpui/qa -p 'test_save_fault_proxy.py' -v
 ```
 
-Six controlled-loopback tests cover Unicode/raw request forwarding, held ack
+Controlled-loopback tests cover Unicode/raw request forwarding, held ack
 and release, dropped ack with real readback/conflict, forbidden mutation/URL
-routes, fixture rejection, and adapter readiness plus owned fake-child
+routes, malformed upstream response headers, fixture rejection, and adapter readiness plus owned fake-child
 termination/reap/public-port release, including a SIGTERM-resistant child
 requiring SIGKILL and adapter exit within the 0.7s outer deadline. These are scaffolding tests, not actual
 Go+GPUI pending/uncertain save validation. The real app still needs GUI evidence.
