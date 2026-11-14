@@ -524,3 +524,22 @@ Up to 4096 tasks are accepted, with 100 rows per page. Malformed or larger task
 sets show an error rather than being interpreted as no tasks. Note/source changes
 reset the inspector and stale controls cannot operate on a different note.
 Native layout, keyboard, scrolling and accessibility validation remains pending.
+
+### Read-only included-note previews
+
+Open **Included notes (read-only)** in the live reader to ask the owned engine to
+resolve includes in the accepted note body. **Refresh** requests another snapshot;
+closing the section discards it. Rendering a closed section makes no request.
+The inspector displays engine-selected excerpt text, origin and resolution errors.
+
+These are inert text previews, not inline transclusion parity. Nested includes,
+links, images and task controls inside excerpts are not executed. Host Find does
+not search the inspector, and the host Markdown, headings and source positions
+remain unchanged. Target revisions describe that response only; the endpoint does
+not provide per-target completeness diagnostics or guarantee they remain current.
+
+Results are limited to 32 includes and 256 KiB of excerpt text. Malformed or larger
+responses show an error, not a silently incomplete list. Note, request, server and
+storage changes invalidate old results; loading, editing and closing gates remain
+in effect. The operation renders only, without saving a note or reading milestone.
+Native layout, keyboard and accessibility validation remains pending.

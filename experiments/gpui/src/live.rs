@@ -603,6 +603,47 @@ impl ReadClient {
             serde_json::from_slice(&bytes).map_err(|e| Error::Json(e.to_string()))?;
         serde_json::from_value(value).map_err(|e| Error::Shape(e.to_string()))
     }
+    /// Render-only POST. Returned Markdown is validated but never installed in the reader.
+    pub(crate) fn included_notes(
+        &self,
+        vault: &str,
+        body: &str,
+    ) -> Result<Vec<crate::included_notes::Include>, Error> {
+        if !self.alive.load(Ordering::Acquire) {
+            return Err(Error::Stale);
+        }
+        if vault.len() > 1024 || vault.contains('\0') || body.len() as u64 > BODY_LIMIT {
+            return Err(Error::Oversized);
+        }
+        let mut response = self
+            .http
+            .post(format!("{}/api/render", self.origin))
+            .query(&vault_query(vault))
+            .header("Cache-Control", "no-cache, no-store")
+            .json(&serde_json::json!({"body":body}))
+            .send()
+            .map_err(|e| Error::Transport(e.to_string()))?;
+        let status = response.status().as_u16();
+        let mut bytes = Vec::new();
+        (&mut response)
+            .take(BODY_LIMIT + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|e| Error::Transport(e.to_string()))?;
+        if !self.alive.load(Ordering::Acquire) {
+            return Err(Error::Stale);
+        }
+        if bytes.len() as u64 > BODY_LIMIT {
+            return Err(Error::Oversized);
+        }
+        if !(200..300).contains(&status) {
+            return Err(Error::Http {
+                status,
+                body: String::from_utf8_lossy(&bytes).into_owned(),
+            });
+        }
+        let value = serde_json::from_slice(&bytes).map_err(|e| Error::Json(e.to_string()))?;
+        crate::included_notes::decode(value, vault)
+    }
     pub fn vaults(&self) -> Result<Value, Error> {
         self.vaults_with_timeout(None)
     }
@@ -2570,6 +2611,17 @@ mod tests {
                 stream.read_exact(&mut byte).unwrap();
                 request.push(byte[0]);
             }
+            // Consume POST payloads too, so closing the fixture socket cannot reset
+            // a render response with unread request data.
+            let headers = String::from_utf8_lossy(&request);
+            if let Some(len) = headers.lines().find_map(|line| {
+                line.to_ascii_lowercase()
+                    .strip_prefix("content-length: ")
+                    .and_then(|n| n.parse::<usize>().ok())
+            }) {
+                let mut payload = vec![0; len];
+                stream.read_exact(&mut payload).unwrap();
+            }
             write!(
                 stream,
                 "HTTP/1.1 {status} Test\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -2593,6 +2645,87 @@ mod tests {
             },
             task,
         )
+    }
+    #[test]
+    fn includes_transport_is_render_only_and_scoped() {
+        use std::io::Write;
+        for vault in ["", "work & 日本語"] {
+            let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+            let (mut client, unused) = mock(200, "{}");
+            // Release the helper server without using its response for this request.
+            client.vaults().unwrap_err();
+            unused.join().unwrap();
+            client.origin = format!("http://{}", listener.local_addr().unwrap());
+            let worker = thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(2)))
+                    .unwrap();
+                let mut headers = Vec::new();
+                let mut byte = [0u8; 1];
+                while !headers.ends_with(b"\r\n\r\n") {
+                    stream.read_exact(&mut byte).unwrap();
+                    headers.push(byte[0]);
+                }
+                let headers = String::from_utf8(headers).unwrap();
+                let len = headers
+                    .lines()
+                    .find_map(|l| {
+                        l.to_ascii_lowercase()
+                            .strip_prefix("content-length: ")
+                            .and_then(|v| v.parse::<usize>().ok())
+                    })
+                    .unwrap();
+                let mut body = vec![0; len];
+                stream.read_exact(&mut body).unwrap();
+                let response = r#"{"markdown":"ignored","includes":[]}"#;
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}",
+                    response.len()
+                )
+                .unwrap();
+                (headers, body)
+            });
+            let body = "# Host\r\n![[Other]]\n";
+            assert!(client.included_notes(vault, body).unwrap().is_empty());
+            let (headers, bytes) = worker.join().unwrap();
+            assert!(headers.starts_with(if vault.is_empty() {
+                "POST /api/render HTTP/"
+            } else {
+                "POST /api/render?vault=work+%26+%E6%97%A5%E6%9C%AC%E8%AA%9E HTTP/"
+            }));
+            assert!(
+                headers
+                    .to_ascii_lowercase()
+                    .contains("content-type: application/json")
+            );
+            assert_eq!(
+                serde_json::from_slice::<Value>(&bytes).unwrap(),
+                serde_json::json!({"body":body})
+            );
+        }
+    }
+    #[test]
+    fn includes_transport_fails_closed_on_http_json_size_and_session() {
+        for (status, body) in [
+            (302, r#"{"markdown":"","includes":[]}"#.to_owned()),
+            (500, "failure".into()),
+            (200, "not json".into()),
+            (200, "x".repeat(BODY_LIMIT as usize + 1)),
+        ] {
+            let (client, worker) = mock(status, body);
+            assert!(client.included_notes("work", "host").is_err());
+            worker.join().unwrap();
+        }
+        let (client, worker) = mock(200, r#"{"markdown":"","includes":[]}"#);
+        assert!(client.included_notes("", "host").is_ok());
+        worker.join().unwrap();
+        client.alive.store(false, Ordering::Release);
+        assert!(matches!(
+            client.included_notes("", "host"),
+            Err(Error::Stale)
+        ));
     }
     #[test]
     fn raster_transport_scopes_bytes_and_never_follows_redirects() {

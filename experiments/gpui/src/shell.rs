@@ -38,6 +38,7 @@ pub struct ShellState {
     code_focus: std::collections::BTreeMap<usize, gpui::FocusHandle>,
     pub(crate) find: workspace_find::FindState,
     relation_pages: reader_relations::Pages,
+    pub(crate) includes: Option<workspace_includes::IncludesState>,
     pub(crate) note_tasks: Option<workspace_note_tasks::NoteTasksState>,
     pub(crate) hierarchy: Option<workspace_hierarchy::HierarchyState>,
     pub(crate) activity: Option<workspace_activity::ActivityState>,
@@ -110,6 +111,7 @@ impl Default for ShellState {
             find: Default::default(),
             hierarchy: None,
             note_tasks: None,
+            includes: None,
             relation_pages: Default::default(),
             activity: None,
             home: true,
@@ -1586,6 +1588,7 @@ impl Render for Workspace {
             WindowAppearance::Dark | WindowAppearance::VibrantDark
         ));
         let p = Palette::new(dark);
+        self.reset_stale_includes();
         self.sync_editor_theme(dark, cx);
         self.ensure_link_resolutions(cx);
         self.ensure_reader_images(cx);
@@ -1756,6 +1759,7 @@ impl Render for Workspace {
             .map(|tab| tab.key.clone())
             .unwrap_or(tabs::TabKey::Home);
         let task_inspector = self.note_tasks_inspector(cx);
+        let includes_inspector = self.includes_inspector(cx);
         let children_relations = self.relation_section("children", cx);
         let backlink_relations = self.relation_section("backlinks", cx);
         let note_labels = crate::note_metadata::Metadata::current(
@@ -2307,6 +2311,7 @@ impl Render for Workspace {
                         )
                     })
                     .child(task_inspector)
+                    .child(includes_inspector)
                     .when_some(note_labels.milestone, |reader, label| {
                         reader.child(
                             div()

@@ -644,3 +644,13 @@ layout, scrolling, keyboard and VoiceOver. This does not validate task editing.
   breadcrumbs must not navigate. Exercise loading, error, edit and closing gates.
 - Check keyboard focus and accessible labels. Headless pagination/source tests do
   not establish native interaction parity. Ordinary editing remains disabled.
+
+### Included-note inspector (pending native QA)
+
+- Use isolated fixtures with same-vault, cross-vault, unresolved and selected-line
+  includes; compare literal excerpts and diagnostics with the owned engine result.
+- Verify opening/Refresh/collapse behavior, long text scrolling and no request
+  while closed. Host Find/headings must retain their original ranges.
+- Switch source or close while a request is pending. Old responses must not
+  repopulate the inspector. Check native keyboard, focus and accessible labels.
+- No normal editing or nested link/image execution is enabled by this inspector.
