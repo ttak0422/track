@@ -200,3 +200,52 @@ overview counts and title/reset controls. A [bounded read-only hover preview and
 one explicit pin](GRAPH-PREVIEW-FOUNDATION.md) are implemented with synthetic
 lifecycle/transport tests; GUI behavior and broader parity remain unverified.
 See [GRAPH.md](GRAPH.md#full-vault-graph-prerequisite-2026-11-14).
+
+### Disposable fixture tab snapshots (developer opt-in)
+
+`--developer-session-fixture /canonical/temporary/vault` is independent of
+`--developer-edit-fixture`. It requires an owned `--server-port`, matching `--vault`,
+an exact `.track-native-edit-fixture` marker (`disposable-fixture-only` plus LF),
+and explicit existing canonical temporary `--config` and `--cache`. Cache and
+fixture trees must not overlap, and config must be outside cache. Cache and
+fixture directories must be owned and not group/other writable; session files are
+owner-only regular files with no hardlinks. No arbitrary session path is accepted.
+Normal launches and editing-only launches perform no session filesystem I/O.
+
+The only persistent entries are `track-native-tabs-v1.json` and the retained
+`track-native-tabs-v1.lock` inside that cache. The JSON contains a format marker,
+version, binding fingerprint, revision, tab kind, vault-qualified note ID and title
+hint. Limits: 128 tabs, 2,048 title bytes each, 128 KiB serialized snapshot, 256
+registry names of at most 1,024 bytes. No body, draft, etag, server token, search
+query, preview, scroll position or credential is persisted. Home/Graph labels are
+fixed. Binding covers canonical fixture/cache/config identity, configuration bytes
+and current available registry names. Replacing even an identical config inode
+invalidates it; fingerprints are identity checks, not cryptographic authentication.
+
+Startup reads on the background startup task before any tab write. If accepted
+navigation occurs while startup is pending, the server is attached but restored
+tabs and automatic list loading are skipped; the newer route is retained until
+an explicit reload/navigation. Restored note
+order is retained, but Home is inserted/promoted as the safe active view. No note
+body GET is issued by restoration or initial list loading in this mode. Selecting
+a restored tab makes a fresh current owned-server request; unknown/unavailable
+vaults never fall back to launch scope. Registry changes disable persistence.
+Malformed, oversized, unsupported or mismatched snapshots remain untouched and a
+nonfatal banner explains that tabs are now memory-only. There is no reset/delete
+button or automatic migration.
+
+Accepted navigation and fetched title changes enqueue a bounded latest metadata
+snapshot to one background writer. Dirty Cancel, pending Save and failed Save do
+not enqueue rejected navigation. This is UI-state persistence, not note autosave.
+Writes use a held exclusive advisory lock, expected original bytes/revision,
+no-follow descriptor-relative access, private same-directory temporary files and
+atomic rename with file/directory fsync. Another cooperating instance is disabled,
+not allowed to overwrite. Failures stop retries and preserve a complete old/new
+snapshot, with a nonfatal UI warning. Do not remove a live instance's lock file.
+These protections are not a sandbox against malicious same-user filesystem races.
+
+The UI and quit guard never wait for disk. Coalesced, queued snapshots may be lost
+on immediate quit/crash; restart uses the last completed atomic snapshot. No
+power-loss durability guarantee is made. Note Save and the dirty/quit gate are
+unchanged. Native relaunch/quit interaction remains manual QA pending; automated
+tests create only fresh synthetic temporary fixtures.

@@ -1054,6 +1054,12 @@ impl Workspace {
                 this.shell.vault_loading = false;
                 match result {
                     Ok(discovery) => {
+                        let mut known: Vec<_> =
+                            discovery.available.iter().map(|v| v.name.clone()).collect();
+                        if known.contains(&discovery.launch_name) {
+                            known.push(String::new());
+                        }
+                        this.session_ui.registry_changed(known);
                         this.shell.working_scope =
                             discovery.reconcile_scope(&this.shell.working_scope);
                         this.shell.vault_discovery = Some(discovery);
@@ -1085,10 +1091,19 @@ impl Workspace {
         if self.guard_transition(workspace_edit::Transition::ActivateTab(key.clone()), cx) {
             return;
         }
+        if let tabs::TabKey::Note { vault, .. } = &key {
+            if !self.session_ui.permits(vault) {
+                self.read_error =
+                    Some("Restored vault is unavailable; no fallback request was sent.".into());
+                cx.notify();
+                return;
+            }
+        }
         self.shell.tab_cycle.clear();
         if !self.tabs.activate(&key) {
             return;
         }
+        self.session_ui.sync(&self.tabs);
         self.shell.tab_menu = false;
         self.shell.search_open = false;
         match key {
@@ -1125,6 +1140,7 @@ impl Workspace {
         if !self.tabs.close(key) {
             return;
         }
+        self.session_ui.sync(&self.tabs);
         self.shell.tab_menu = false;
         if was_active {
             if let Some(next) = self.tabs.active().map(|tab| tab.key.clone()) {
@@ -1199,6 +1215,7 @@ impl Workspace {
             self.load_live_notes(cx);
         } else {
             self.tabs.open_home();
+            self.session_ui.sync(&self.tabs);
             self.show_empty_home();
         }
         cx.notify();
@@ -1386,6 +1403,7 @@ impl Render for Workspace {
                 body.note.title.clone(),
             );
         }
+        self.session_ui.sync(&self.tabs);
         self.search.update(cx, |search, _| search.set_dark(dark));
         let full_graph_active = self.full_graph_active();
         self.graph_view.update(cx, |graph, cx| {
@@ -2356,6 +2374,16 @@ impl Render for Workspace {
                     )
                 },
             )
+            .when(self.session_ui.warning.is_some(), |root| {
+                root.child(
+                    div()
+                        .pl(px(64.))
+                        .py_1()
+                        .text_size(px(11.))
+                        .text_color(rgb(p.mark))
+                        .child(self.session_ui.warning.clone().unwrap_or_default()),
+                )
+            })
             .when(self.read_error.is_some(), |root| {
                 root.child(
                     div()
@@ -2927,4 +2955,25 @@ mod fragment_navigation_tests {
         ));
         assert!(!fragment_accepts(&i, 10, 10, Some(7), None, &i.destination));
     }
+}
+
+/// Reuse strict current discovery; only available names and the verified launch alias.
+pub(crate) fn session_registry(value: &serde_json::Value) -> Result<Vec<String>, String> {
+    let discovery = VaultDiscovery::parse(value)?;
+    if !discovery
+        .available
+        .iter()
+        .any(|entry| entry.name == discovery.launch_name)
+    {
+        return Err("Launch vault is absent from available registry".into());
+    }
+    let mut names: Vec<String> = discovery
+        .available
+        .into_iter()
+        .map(|entry| entry.name)
+        .collect();
+    names.push(String::new());
+    names.sort();
+    names.dedup();
+    Ok(names)
 }

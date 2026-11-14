@@ -18,6 +18,7 @@ mod markdown;
 mod native_window;
 mod reader_find;
 mod search_input;
+mod session_store;
 mod shell;
 mod tabs;
 mod workspace_activity;
@@ -26,6 +27,7 @@ mod workspace_find;
 mod workspace_graph;
 mod workspace_live;
 mod workspace_preview;
+mod workspace_session;
 use backend::{Backend, Note, Snapshot};
 actions!(
     native_workspace,
@@ -65,6 +67,7 @@ struct Workspace {
     shell: shell::ShellState,
     editing_ui: workspace_edit::EditingUi,
     tabs: tabs::Tabs,
+    session_ui: workspace_session::SessionUi,
     snapshot: Snapshot,
     selected: Option<usize>,
     rendered_rows: usize,
@@ -244,6 +247,7 @@ impl Workspace {
                 .map(|note| note.vault.clone())
                 .unwrap_or_default();
             self.tabs.open_note(vault, note.note_id, note.title.clone());
+            self.session_ui.sync(&self.tabs);
         }
         self.query_epoch
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -356,14 +360,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().is_some_and(|a| a == "--help") {
         println!(
-            "track-gpui-poc [notes.json]\ntrack-gpui-poc --vault /absolute/vault --track-bin /absolute/track [--config /absolute/config] [--cache /absolute/cache] [--server-port 19000] [--developer-edit-fixture /temporary/disposable/vault]\nDeveloper editing requires a disposable marker and isolated temporary config/cache; not release-ready.\nNo arguments: synthetic fixture. Vault mode is read-only; CLI may refresh derived caches."
+            "track-gpui-poc [notes.json]\ntrack-gpui-poc --vault /absolute/vault --track-bin /absolute/track [--config /absolute/config] [--cache /absolute/cache] [--server-port 19000] [--developer-edit-fixture /temporary/disposable/vault] [--developer-session-fixture /canonical/temporary/disposable/vault]\nTab persistence is a separate opt-in: cache/track-native-tabs-v1.json, metadata only, safe Home on restart.\nDeveloper editing requires a disposable marker and isolated temporary config/cache; not release-ready.\nNo arguments: synthetic fixture. Vault mode is read-only; CLI may refresh derived caches."
         );
         return Ok(());
     }
     let mut live_config = None;
     let mut developer_fixture = None;
+    let mut session_options = None;
     let (snapshot, source, backend) = if args.first().is_some_and(|a| a.starts_with("--")) {
         let mut server_port = None;
+        let mut session_fixture: Option<std::path::PathBuf> = None;
         let mut fixture_option: Option<std::path::PathBuf> = None;
         let mut vault = None;
         let mut executable = None;
@@ -373,6 +379,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         while let Some(flag) = iter.next() {
             let value = iter.next().ok_or("missing option value")?;
             match flag.as_str() {
+                "--developer-session-fixture" => session_fixture = Some(value.into()),
                 "--developer-edit-fixture" => fixture_option = Some(value.into()),
                 "--server-port" => server_port = Some(value.parse::<u16>()?),
                 "--vault" => vault = Some(value.into()),
@@ -392,6 +399,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 config.as_deref(),
                 cache.as_deref(),
             )?);
+        }
+        if let Some(root) = session_fixture {
+            if server_port.is_none() {
+                return Err("Developer tab persistence requires an owned --server-port.".into());
+            }
+            workspace_edit::validate_fixture(
+                &root,
+                vault.as_deref().ok_or("--vault is required")?,
+                config.as_deref(),
+                cache.as_deref(),
+            )?;
+            session_options = Some(workspace_session::SessionOptions {
+                fixture: root,
+                config: config.clone().ok_or("--config is required")?,
+                cache: cache.clone().ok_or("--cache is required")?,
+            });
         }
         if let Some(port) = server_port {
             let mut config_live = live::LaunchConfig::new(
@@ -531,6 +554,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         shell: shell::ShellState::default(),
                         editing_ui: workspace_edit::EditingUi::new(developer_fixture),
                         tabs: tabs::Tabs::default(),
+                        session_ui: workspace_session::SessionUi::new(session_options),
                         selected: (!snapshot.notes.is_empty()).then_some(0),
                         snapshot,
                         rendered_rows: 0,

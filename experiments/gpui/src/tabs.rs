@@ -1,4 +1,4 @@
-//! In-memory reader tabs. No persistence, editor state, or implicit I/O.
+//! Reader tab model. No editor state or implicit I/O; optional persistence is external.
 //! Entries are kept in presentation/MRU order: the active tab is always first.
 
 pub const ACTIVE_WIDTH: u32 = 336;
@@ -37,6 +37,11 @@ impl TabLayout {
 }
 
 impl Tabs {
+    /// Entries have already passed the session schema and registry validator.
+    pub(crate) fn restore(entries: Vec<Tab>) -> Self {
+        Self { entries }
+    }
+
     pub fn entries(&self) -> &[Tab] {
         &self.entries
     }

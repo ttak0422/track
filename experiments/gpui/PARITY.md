@@ -159,3 +159,16 @@ References:
   (0.57.2 documentation inspected; not a validated GPUI dependency pairing).
 - [WebKit website data stores](https://developer.apple.com/documentation/webkit/wkwebviewconfiguration/websitedatastore).
 - [PDFKit page drawing](https://developer.apple.com/documentation/pdfkit/pdfpage/draw(with:to:)).
+
+#### Fixture-only tab-session persistence checkpoint
+
+Separate `--developer-session-fixture` opt-in now stores bounded vault-qualified
+MRU tab metadata and title hints under the isolated temporary cache. Startup reads
+before writes, restores the strip with safe Home rather than the previous active
+route, and does not auto-fetch a restored note. Lock/revision/identity validation,
+atomic writes, corruption-preserving memory-only degradation, and accepted versus
+rejected dirty-navigation snapshots have synthetic coverage. Startup and writes
+run off the UI thread; queued latest metadata is not guaranteed flushed on quit.
+This is not durable drafts, note autosave, scroll restoration, Web storage
+migration, or release-ready desktop recovery. Exact active-route parity and native
+GUI relaunch/quit validation remain deferred. See README for opt-in and limits.

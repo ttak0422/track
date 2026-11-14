@@ -1,6 +1,25 @@
 //! UI integration for the owned read-only server. Requests retain the session and
 //! publish only if their navigation generation is still current.
 use super::*;
+
+/// A startup result may attach its owned server, but must not replace a newer route.
+#[derive(Clone)]
+struct StartupNavigation {
+    request: u64,
+    graph_request: u64,
+    tabs: tabs::Tabs,
+    home: bool,
+}
+impl StartupNavigation {
+    fn accepts(&self, current: &Self, closing: bool) -> bool {
+        !closing
+            && self.request == current.request
+            && self.graph_request == current.graph_request
+            && self.tabs == current.tabs
+            && self.home == current.home
+    }
+}
+
 impl Workspace {
     fn watch_live_lifecycle(&mut self, cx: &mut Context<Self>) {
         cx.spawn(async move |this, cx| {
@@ -11,6 +30,11 @@ impl Workspace {
                     .await;
                 if this
                     .update(cx, |this, cx| {
+                        let warning = this.session_ui.warning.clone();
+                        this.session_ui.poll_warning();
+                        if warning != this.session_ui.warning {
+                            cx.notify();
+                        }
                         let failure = this.quit_session.failure();
                         if failure != previous {
                             previous = failure.clone();
@@ -63,6 +87,15 @@ impl Workspace {
         }
     }
 
+    fn startup_navigation(&self) -> StartupNavigation {
+        StartupNavigation {
+            request: self.request,
+            graph_request: self.graph_request,
+            tabs: self.tabs.clone(),
+            home: self.shell.home,
+        }
+    }
+
     pub fn start_live(&mut self, config: live::LaunchConfig, cx: &mut Context<Self>) {
         self.previews.model.invalidate_session();
         self.previews.cancel_wake();
@@ -73,7 +106,10 @@ impl Workspace {
             return;
         }
         self.watch_live_lifecycle(cx);
+        let startup_navigation = self.startup_navigation();
         let owner = self.quit_session.clone();
+        let mut session_ui = std::mem::take(&mut self.session_ui);
+        self.session_ui.safe_home = session_ui.safe_home;
         let job = cx.background_executor().spawn(async move {
             let mut session = owner.start(config)?;
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
@@ -94,7 +130,8 @@ impl Workspace {
                     }
                 }
             }
-            Ok::<_, live::Error>(session)
+            let tabs = session_ui.restore(shell::session_registry(&session.initial_vaults));
+            Ok::<_, live::Error>((session, session_ui, tabs))
         });
         cx.spawn(async move |this, cx| {
             let result = job.await;
@@ -103,14 +140,34 @@ impl Workspace {
                     return;
                 }
                 match result {
-                    Ok(session) => {
+                    Ok((session, session_ui, tabs)) => {
                         this.list_status = format!(
                             "Storage: {:?}; {}",
                             session.initial_storage,
                             session.storage_error.clone().unwrap_or_default()
                         );
-                        this.live = Some(session);
-                        this.load_live_notes(cx);
+                        let apply_startup_route = startup_navigation
+                            .accepts(&this.startup_navigation(), this.quit_session.is_closing());
+                        this.session_ui = session_ui;
+                        if apply_startup_route {
+                            if let Some(tabs) = tabs {
+                                this.tabs = tabs;
+                            }
+                            this.live = Some(session);
+                            this.load_live_notes(cx);
+                        } else {
+                            // Keep accepted Graph/Home/tab navigation. A later explicit
+                            // Reload may fetch the list; startup performs no route reset/GET.
+                            this.accepted_storage_generation = session
+                                .initial_storage
+                                .as_ref()
+                                .map(|state| state.generation);
+                            this.live = Some(session);
+                            this.session_ui.sync(&this.tabs);
+                            this.status =
+                                "Owned server ready; current view retained. Reload for fresh data."
+                                    .into();
+                        }
                     }
                     Err(error) => {
                         this.status = error.to_string();
@@ -197,7 +254,9 @@ impl Workspace {
                         this.selected = None;
                         this.content.clear();
                         this.status.clear();
-                        if let Some(index) = this.configured_home_index() {
+                        if this.session_ui.safe_home {
+                            this.shell.home = true;
+                        } else if let Some(index) = this.configured_home_index() {
                             this.shell.home = false;
                             this.select(index, cx);
                         } else if !this.snapshot.notes.is_empty() {
@@ -384,6 +443,11 @@ impl Workspace {
     }
 
     pub fn open_live_key(&mut self, key: live::NoteKey, cx: &mut Context<Self>) {
+        if !self.session_ui.permits(&key.vault) {
+            self.read_error = Some("Vault is absent from the validated session registry; no fallback request was sent.".into());
+            cx.notify();
+            return;
+        }
         if self.guard_transition(workspace_edit::Transition::Note(key.clone()), cx) {
             return;
         }
@@ -619,5 +683,52 @@ mod tests {
         )
         .unwrap();
         assert!(!partial(&fields));
+    }
+}
+
+#[cfg(test)]
+mod startup_navigation_tests {
+    use super::*;
+    fn initial() -> StartupNavigation {
+        StartupNavigation {
+            request: 0,
+            graph_request: 0,
+            tabs: tabs::Tabs::default(),
+            home: true,
+        }
+    }
+    #[test]
+    fn untouched_startup_accepts_but_quit_never_applies_restoration() {
+        let before = initial();
+        assert!(before.accepts(&initial(), false));
+        assert!(!before.accepts(&initial(), true));
+    }
+    #[test]
+    fn accepted_graph_home_and_tab_changes_reject_late_restore() {
+        let before = initial();
+        let mut graph = initial();
+        graph.tabs.open_graph();
+        graph.home = false;
+        graph.request += 1;
+        graph.graph_request += 1;
+        assert!(!before.accepts(&graph, false));
+        let mut home = initial();
+        home.tabs.open_home();
+        home.request += 1;
+        assert!(!before.accepts(&home, false));
+        let mut closed = initial();
+        closed.tabs.open_graph();
+        closed.tabs.close(&tabs::TabKey::Graph);
+        closed.request += 1; // A route returning to the same tab set is still newer.
+        assert!(!before.accepts(&closed, false));
+        let mut tab_only = initial();
+        tab_only.tabs.open_note("work", 7, "Accepted");
+        assert!(!before.accepts(&tab_only, false));
+        let mut route_only = initial();
+        route_only.home = false;
+        assert!(!before.accepts(&route_only, false));
+        let mut graph_only = initial();
+        graph_only.graph_request += 1;
+        assert!(!before.accepts(&graph_only, false));
     }
 }

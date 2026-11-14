@@ -29,6 +29,7 @@ impl Workspace {
             return;
         }
         self.tabs.open_graph();
+        self.session_ui.sync(&self.tabs);
         self.shell.home = false;
         self.shell.search_open = false;
         self.shell.tab_menu = false;
