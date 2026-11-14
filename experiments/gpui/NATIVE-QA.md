@@ -390,3 +390,12 @@ Labels and picking remain on their existing paths. Automated suite: 312 passed,
 predicate measurements are recorded in GRAPH.md. Verify border antialiasing, compact
 node outlines, selection highlights and crossing edges under native pan/zoom before
 claiming visual parity. No native FPS or GPU improvement has been measured.
+
+## Background force cancellation: native validation pending
+
+Headless suite: 315 passed, 7 ignored. Cancellation tests cover initial, mid-solve
+and final checkpoints, empty/zero-iteration solves and replacement/drop token
+isolation. Confirm with a fixture that rapid graph replacement and node dragging
+do not allow a late snapshot to move nodes or override the camera. Verify settling
+still completes normally when only panning or zooming. Cancellation does not
+interrupt initial circular placement/allocation; no native latency claim is made.

@@ -208,3 +208,11 @@ paint primitives. Crossing edges and padded border strokes remain; labels, picki
 camera and layout do not change. Pure geometry tests and CPU-only predicate counts
 are verified. Native visual comparison and frame/GPU performance remain pending;
 this does not complete full graph layout or navigation parity.
+
+### Superseded graph calculations
+
+Background settling now cooperatively cancels when graph data is replaced, nodes
+are manually moved or the graph view is destroyed. No partial result is published,
+and stale-generation rejection remains. Headless tests cover cancellation before,
+during and after solving and independent replacement/drop tokens. Native
+rapid-navigation and drag responsiveness remain unverified.

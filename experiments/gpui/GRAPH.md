@@ -283,3 +283,14 @@ label layout, GPU work, presentation and input latency are excluded. The pass is
 still O(V+E), and adds predicate overhead when everything is visible. These results
 establish bounded decision cost and avoided submissions, not a renderer speedup.
 Native visual comparison at borders and actual frame/CPU/GPU measurement remain open.
+
+## Superseded background solves
+
+Graph replacement, manual node movement and destruction of the native graph view
+now cancel the previous background force job. Cooperative checkpoints stop force
+loops and discard the whole result rather than publishing a partial layout. The
+existing generation check remains necessary for a completion/cancellation race.
+Initial circular placement and allocation are not interruptible; this is not a
+hard real-time cancellation bound or a change to the force model. Camera movement
+alone does not restart or cancel settling. Native rapid-navigation and dragging
+validation remains pending.
