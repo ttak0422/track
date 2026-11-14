@@ -2223,3 +2223,7 @@ mod tests {
         assert!(std::net::TcpStream::connect(listener.local_addr().unwrap()).is_ok());
     }
 }
+
+#[cfg(test)]
+#[path = "live_save_races.rs"]
+mod save_races;

@@ -249,3 +249,19 @@ on immediate quit/crash; restart uses the last completed atomic snapshot. No
 power-loss durability guarantee is made. Note Save and the dirty/quit gate are
 unchanged. Native relaunch/quit interaction remains manual QA pending; automated
 tests create only fresh synthetic temporary fixtures.
+
+### Opt-in real-engine save races (headless)
+
+`live::save_races::owned_engine_post_preflight_conflict_and_lost_ack` is ignored
+by default. Set `TRACK_NATIVE_TEST_BINARY` to an explicit absolute Track executable
+and `TRACK_NATIVE_TEST_SYNTHETIC_ONLY=1`, then run:
+
+```sh
+cargo test --offline --locked --manifest-path experiments/gpui/Cargo.toml \
+  owned_engine_post_preflight_conflict_and_lost_ack -- --ignored --nocapture
+```
+It creates an empty temporary vault and two uniquely titled synthetic notes through the CLI,
+and writes only those notes after owned-server and canonical fixture checks.
+A test-only loopback gate exercises a real post-preflight conflict and a real
+commit whose acknowledgment is dropped. It does not launch GPUI, change the
+production save path, or establish GUI/IME/Dock behavior. See [NATIVE-QA.md](NATIVE-QA.md).

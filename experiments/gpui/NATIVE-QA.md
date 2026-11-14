@@ -223,3 +223,50 @@ verifies inherited bits, signal-driven cleanup, child reap and timely exit.
 Seven adapter tests pass; production native signaling/timeouts are unchanged.
 The post-fix GUI repeat was blocked by the locked Mac, so actual native/proxy
 reap confirmation remains pending. No app was launched by that blocked attempt.
+
+### Headless real-engine save races (2026-11-14)
+
+Added ignored `live::save_races::owned_engine_post_preflight_conflict_and_lost_ack`.
+It requires an absolute `TRACK_NATIVE_TEST_BINARY` and
+`TRACK_NATIVE_TEST_SYNTHETIC_ONLY=1`. Each run creates an empty temporary vault,
+explicit sibling config/cache locations, and two unique synthetic notes using
+`track new --title` with piped stdin. No shell, existing server, user vault,
+manual note-storage format, GUI or clipboard is involved. The normal owned
+startup/readiness and native save preflight remain active. Canonical vault and
+note paths, title/body/revision and child liveness are checked before writes.
+The test-only bounded loopback gate cannot forward to other origins or notes.
+
+Verified against a binary built from checkout `c394df8` with `go build ./cmd/track`:
+SHA256 `b5c10e65873fef9588bf31d0aa5f95de40fff4bf21aa057feb6c373effafd61c`.
+The ordinary offline/locked Rust suite passed: **271 passed, 6 ignored**.
+The explicit real-engine test passed: **1 passed**, with these separate outcomes:
+
+- Conflict: after the native storage/source/storage preflight, the gate held the
+  complete primary PUT. One deliberately acknowledged competing native save
+  changed the revision. The original PUT then received the real engine's HTTP409
+  changed-on-disk response. Native completion retained Conflict, authored draft,
+  original baseline/etag and canceled the pending leave. The competing body
+  remained on disk. One gated primary PUT plus one deliberate competitor save;
+  no third retry or substituted revision.
+- Lost acknowledgment: the gate consumed and validated the real upstream HTTP200
+  acknowledgment, then closed the downstream connection. Native completion was
+  Uncertain, with draft/baseline/etag retained and leave canceled. Explicit GET
+  comparison showed the committed read-model text; disk retained both authored
+  final LFs. Comparison did not clear dirty/uncertain state, exact reconciliation
+  refused the LF ambiguity, and explicit Cancel stayed on the draft. One PUT.
+- Both cases preserved note identity/title/tags. Pending duplicate saves and
+  edits were rejected. Owned child reaping and release of both engine listeners
+  and both test relay listeners were asserted; temporary fixture data was removed.
+
+Sandboxed attempts stopped before any PUT while waiting for writable storage.
+The synthetic-only diagnostic identified `read own start time: fork/exec /bin/ps:
+operation not permitted`. The identical reviewed test command succeeded with the
+supported execution approval, allowing the engine's own process verification;
+no readiness or production safety check was disabled. This does not establish a
+problem with the earlier public-help seed. The final test uses only fresh
+synthetic CLI notes, independently simplifying fixture isolation.
+
+This is headless engine-plus-draft-model evidence, not Dock Quit, modal focus,
+IME, clipboard or rendered dirty-state evidence. The conflict checks a competing
+revision visible at the engine's revision check, not atomic protection against
+every external filesystem race. Production save code is unchanged.
