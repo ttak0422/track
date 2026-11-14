@@ -23,6 +23,7 @@ mod navigation;
 mod note_metadata;
 mod raster;
 mod reader_find;
+mod reader_relations;
 mod search_input;
 mod session_store;
 mod shell;

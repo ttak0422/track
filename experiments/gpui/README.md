@@ -347,6 +347,14 @@ body after server failure retains its matching labels and existing error warning
 Snapshot/synthetic mode keeps its snapshot tags. `CONFIDENTIAL` is a display label,
 not access control. No extra requests or metadata writes are introduced.
 
+Children and backlinks use 100-row pages in engine order. Lists over 4096 entries
+show a limit notice instead of truncating results. Partial or cached reads are
+labeled incomplete rather than implying that missing relations do not exist.
+Pagination resets when the
+accepted source changes. Relation and breadcrumb navigation reject stale sources
+and destinations no longer present in the accepted response. No extra fetch or
+write is triggered by paging.
+
 Headless tests cover source preference, empty values, clearing/identity changes,
 and relation labels. Native layout, long labels, accessibility and decorative
 stamp parity remain unverified. Read-only metadata parity remains partial: existing hierarchy and

@@ -635,3 +635,12 @@ rows or extra requests, and no writes/state changes. After fixture Save or
 accepted comparison, old embedded tasks must be unavailable until Reload.
 Exercise narrow/light/dark
 layout, scrolling, keyboard and VoiceOver. This does not validate task editing.
+
+### Reader relation pages (pending native QA)
+
+- Use an isolated fixture with more than 100 children and backlinks. Verify both
+  page controls, engine order, flags and cross-vault destinations at narrow widths.
+- Change/reload the source between pointer-down and activation; stale rows and
+  breadcrumbs must not navigate. Exercise loading, error, edit and closing gates.
+- Check keyboard focus and accessible labels. Headless pagination/source tests do
+  not establish native interaction parity. Ordinary editing remains disabled.

@@ -37,6 +37,7 @@ pub struct ShellState {
     code_anchors: Option<std::rc::Rc<markdown::FindAnchors>>,
     code_focus: std::collections::BTreeMap<usize, gpui::FocusHandle>,
     pub(crate) find: workspace_find::FindState,
+    relation_pages: reader_relations::Pages,
     pub(crate) note_tasks: Option<workspace_note_tasks::NoteTasksState>,
     pub(crate) hierarchy: Option<workspace_hierarchy::HierarchyState>,
     pub(crate) activity: Option<workspace_activity::ActivityState>,
@@ -109,6 +110,7 @@ impl Default for ShellState {
             find: Default::default(),
             hierarchy: None,
             note_tasks: None,
+            relation_pages: Default::default(),
             activity: None,
             home: true,
             search_open: false,
@@ -538,6 +540,8 @@ fn reference_row(
     value: &serde_json::Value,
     inherited_vault: Option<&str>,
     id: (&'static str, usize),
+    source: Option<LinkSource>,
+    section: &'static str,
     cx: &mut Context<Workspace>,
 ) -> Option<Stateful<Div>> {
     let title = crate::note_metadata::relation_title(
@@ -545,10 +549,25 @@ fn reference_row(
         &crate::note_metadata::relation_flags(value),
     );
     let key = inherited_vault.and_then(|scope| reference_key(value, scope));
+    let captured = value.clone();
     Some(div().id(id).py_1().child(title).when_some(key, |row, key| {
         row.cursor_pointer()
             .on_click(cx.listener(move |this, _, _, cx| {
-                this.open_live_key(key.clone(), cx);
+                if source.as_ref().is_some_and(|source| {
+                    reader_relations::allows(
+                        source,
+                        this.current_link_source().as_ref(),
+                        this.current_related.get(section),
+                        id.1,
+                        &captured,
+                        this.find_available()
+                            && this.read_error.is_none()
+                            && !this.quit_session.is_closing()
+                            && this.quit_session.failure().is_none(),
+                    )
+                }) {
+                    this.open_live_key(key.clone(), cx);
+                }
             }))
     }))
 }
@@ -738,6 +757,82 @@ impl Workspace {
             .as_ref()
             .and_then(|cache| cache.displayed_for(self.current_link_source().as_ref()))
             .unwrap_or_else(|| std::rc::Rc::new(self.content.clone()))
+    }
+    fn relation_section(&mut self, section: &'static str, cx: &mut Context<Self>) -> Div {
+        let mut view = div().text_size(px(12.));
+        let source = self.current_link_source();
+        let requested = self.shell.relation_pages.current(source.as_ref(), section);
+        let rows = match reader_relations::entries(self.current_related.get(section)) {
+            Ok(None) => return view,
+            Ok(Some(rows)) => rows,
+            Err(error) => return view.mt_6().child(section.to_uppercase()).child(error),
+        };
+        view = view.mt_6().child(section.to_uppercase());
+        let summary = reader_relations::summary(
+            section,
+            rows.len(),
+            workspace_activity::incomplete(&self.current_related),
+        );
+        if rows.is_empty() {
+            return view.child(summary);
+        }
+        let (page, pages, range) = reader_relations::page(rows.len(), requested);
+        let mut controls =
+            div()
+                .flex()
+                .gap_2()
+                .child(format!("{summary} · {}/{}", page + 1, pages));
+        for (label, target) in [
+            ("Previous", page.checked_sub(1)),
+            ("Next", (page + 1 < pages).then_some(page + 1)),
+        ] {
+            if let (Some(target), Some(captured)) = (target, source.clone()) {
+                controls = controls.child(
+                    div()
+                        .id(gpui::SharedString::from(format!("{section}-{label}")))
+                        .cursor_pointer()
+                        .child(label)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if this.current_link_source().as_ref() == Some(&captured)
+                                && this.find_available()
+                                && this.read_error.is_none()
+                                && !this.quit_session.is_closing()
+                                && this.quit_session.failure().is_none()
+                            {
+                                this.shell.relation_pages.set(&captured, section, target);
+                                cx.notify();
+                            }
+                        })),
+                );
+            }
+        }
+        let inherited = source.as_ref().map(|s| s.note.vault.as_str());
+        let rows_view = div()
+            .id(gpui::SharedString::from(reader_relations::scroll_id(
+                section,
+                source.as_ref(),
+                page,
+            )))
+            .max_h(px(240.))
+            .overflow_y_scroll()
+            .children(range.filter_map(|index| {
+                reference_row(
+                    &rows[index],
+                    inherited,
+                    (
+                        if section == "children" {
+                            "child-reference"
+                        } else {
+                            "backlink-reference"
+                        },
+                        index,
+                    ),
+                    source.clone(),
+                    section,
+                    cx,
+                )
+            }));
+        view.child(controls).child(rows_view)
     }
     pub(crate) fn current_link_source(&self) -> Option<LinkSource> {
         let note = self.current_note.as_ref()?;
@@ -1661,6 +1756,8 @@ impl Render for Workspace {
             .map(|tab| tab.key.clone())
             .unwrap_or(tabs::TabKey::Home);
         let task_inspector = self.note_tasks_inspector(cx);
+        let children_relations = self.relation_section("children", cx);
+        let backlink_relations = self.relation_section("backlinks", cx);
         let note_labels = crate::note_metadata::Metadata::current(
             self.live.is_some(),
             &reader_key,
@@ -2054,53 +2151,7 @@ impl Render for Workspace {
                         }),
                     ))
                 });
-        let aside = aside.when(
-            self.current_related
-                .get("children")
-                .and_then(|v| v.as_array())
-                .is_some_and(|children| !children.is_empty()),
-            |aside| {
-                aside.child(
-                    div().mt_6().child(label("CHILDREN", p)).children(
-                        self.current_related["children"]
-                            .as_array()
-                            .unwrap()
-                            .iter()
-                            .enumerate()
-                            .filter_map(|(index, entry)| {
-                                reference_row(
-                                    entry,
-                                    reference_vault.as_deref(),
-                                    ("child-reference", index),
-                                    cx,
-                                )
-                            }),
-                    ),
-                )
-            },
-        );
-        let aside = aside.when(self.current_related.contains_key("backlinks"), |aside| {
-            let links = self
-                .current_related
-                .get("backlinks")
-                .and_then(|v| v.as_array())
-                .cloned()
-                .unwrap_or_default();
-            aside.child(
-                div()
-                    .mt_6()
-                    .child(label("BACKLINKS", p))
-                    .when(links.is_empty(), |section| section.child("No backlinks."))
-                    .children(links.iter().enumerate().filter_map(|(index, link)| {
-                        reference_row(
-                            link,
-                            reference_vault.as_deref(),
-                            ("backlink-reference", index),
-                            cx,
-                        )
-                    })),
-            )
-        });
+        let aside = aside.child(children_relations).child(backlink_relations);
         // Derive only from the accepted response; no additional reads or cache.
         let external =
             crate::external_refs::ExternalReferences::from_related(&self.current_related);
@@ -2206,12 +2257,9 @@ impl Render for Workspace {
                 fields
             })
             .unwrap_or_default();
-        let trail = self
-            .current_related
-            .get("trail")
-            .and_then(|v| v.as_array())
-            .cloned()
-            .unwrap_or_default();
+        let trail_result = reader_relations::entries(self.current_related.get("trail"));
+        let trail_error = trail_result.as_ref().err().copied();
+        let trail = trail_result.ok().flatten().unwrap_or_default().to_vec();
         let reader = div()
             .flex_1()
             .min_w_0()
@@ -2234,6 +2282,7 @@ impl Render for Workspace {
                     .h_full()
                     .overflow_y_scroll()
                     .pb_12()
+                    .when_some(trail_error, |reader, error| reader.child(error))
                     .when(!trail.is_empty(), |reader| {
                         reader.child(
                             div()
@@ -2247,6 +2296,8 @@ impl Render for Workspace {
                                         entry,
                                         reference_vault.as_deref(),
                                         ("breadcrumb-reference", index),
+                                        self.current_link_source(),
+                                        "trail",
                                         cx,
                                     )
                                     .map(|row| {
