@@ -469,3 +469,14 @@ accept pin keys. Open as page must retain dirty-navigation guards. Verify key
 repeat, modifier combinations, tiny windows and simultaneous pointer input.
 Transient previews remain pointer-only; native focus, VoiceOver and full keyboard
 parity are not established by the headless key/model tests.
+
+## Explicit build-information copy: native validation pending
+
+In a disposable fixture, invoke Copy Build Info from the application menu and
+from diagnostics. Paste into a scratch editor and compare against this exact
+executable's `--version` output. Only package version, full compile-time revision,
+tracked-source state and target should appear, never note content, vault paths,
+server URLs or diagnostics. Opening the drawer, selecting a note and hovering a
+control must leave the existing clipboard untouched. Verify menu discoverability,
+keyboard menu invocation and Quit remain intact. Headless payload tests cannot
+establish actual macOS pasteboard delivery or accessibility.

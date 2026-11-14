@@ -12,9 +12,32 @@ pub fn display() -> String {
     )
 }
 
+/// Plain-text payload shared by explicit Copy Build Info and --version.
+/// No workspace/document state is accepted. The final newline matches CLI output.
+pub fn clipboard_payload() -> String {
+    format!("{}\n", display())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clipboard_payload_is_exact_version_output_and_compile_time_metadata_only() {
+        let payload = clipboard_payload();
+        assert_eq!(payload, format!("{}\n", display()));
+        assert_eq!(
+            payload,
+            format!(
+                "Track Native {}\nCommit: {}\nTracked source: {}\nTarget: {}\n",
+                env!("CARGO_PKG_VERSION"),
+                env!("TRACK_BUILD_REVISION"),
+                env!("TRACK_BUILD_SOURCE_STATE"),
+                env!("TRACK_BUILD_TARGET")
+            )
+        );
+        assert_eq!(payload.lines().count(), 4);
+    }
 
     #[test]
     fn preserves_full_revision_and_modified_state() {

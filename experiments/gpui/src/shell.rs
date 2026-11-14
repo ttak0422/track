@@ -2635,6 +2635,21 @@ impl Render for Workspace {
                                 .unwrap_or_default()
                         ))
                         .child(crate::build_info::display())
+                        // Design: text control, explicit metadata-only clipboard submission.
+                        .child(
+                            div()
+                                .id("copy-build-info")
+                                .cursor_pointer()
+                                .text_color(rgb(p.muted))
+                                .hover(|style| style.text_color(rgb(p.ink)))
+                                .child("Copy Build Info")
+                                .on_click(|_, _, cx| {
+                                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(
+                                        crate::build_info::clipboard_payload(),
+                                    ));
+                                    cx.stop_propagation();
+                                }),
+                        )
                         .child(self.render_edit_diagnostics(cx)),
                 )
             })

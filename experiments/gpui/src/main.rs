@@ -39,7 +39,8 @@ actions!(
         CloseWindow,
         MinimizeWindow,
         ZoomWindow,
-        ToggleFullscreen
+        ToggleFullscreen,
+        CopyBuildInfo
     ]
 );
 
@@ -368,7 +369,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     log::set_max_level(log::LevelFilter::Warn);
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.as_slice() == ["--version"] {
-        println!("{}", build_info::display());
+        print!("{}", build_info::clipboard_payload());
         return Ok(());
     }
     if args.first().is_some_and(|a| a == "--help") {
@@ -515,11 +516,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let _ = handle.update(cx, |_, window, _| window.toggle_fullscreen());
             }
         });
+        cx.on_action(|_: &CopyBuildInfo, cx| {
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(
+                build_info::clipboard_payload(),
+            ));
+        });
         cx.bind_keys(workspace_key_bindings());
         cx.set_menus(vec![
             Menu {
                 name: "Track Native".into(),
-                items: vec![MenuItem::action("Quit", Quit)],
+                items: vec![
+                    MenuItem::action("Copy Build Info", CopyBuildInfo),
+                    MenuItem::action("Quit", Quit),
+                ],
             },
             Menu {
                 name: "Window".into(),

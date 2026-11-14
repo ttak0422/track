@@ -49,7 +49,7 @@ of support. Use disposable fixture vaults, never a configured personal vault, fo
 | Activity journal navigation, live refresh, partial reads and recovery | [ ] | [ ] | `ActivityPanel`, `reading.ts`, `useLiveEvents` |
 | Explicit absolute HTTP(S) browser links | [x] | [ ] | `external_links.rs`; fake-opener/provenance tests, actual browser/keyboard/AX pending |
 | Compile-time build identity and headless version display | [x] | [ ] | `build_info.rs`, `build.rs`; native diagnostics visual QA pending |
-| Native menus and build information parity | [ ] | [ ] | `AppDelegate`, `BuildInfo`, `WebURLPolicy`; About/Copy Build Info still pending |
+| Native menus and build information parity | [ ] | [ ] | `AppDelegate`, `BuildInfo`, `WebURLPolicy`; explicit Copy Build Info implemented; native delivery and About pending |
 | Native notifications and speech input | [ ] | [ ] | `NativeNotificationBridge`, `NativeSpeechBridge`, `VoiceView` |
 | Owned server startup, restart and bounded shutdown | [ ] | [ ] | `TrackServerProcess`, `WebServerSupervisor` |
 
@@ -256,3 +256,11 @@ Tab traversal, arrow movement and Shift-arrow resizing. Reader Tab navigation is
 unchanged; editing, IME composition, dialogs, search, menus and pointer geometry
 block these actions. Captured read identity protects stale controls. Model tests
 do not validate native focus delivery, macOS function-key handling or accessibility.
+
+### Explicit build-information copy
+
+The application menu and diagnostics expose Copy Build Info. Its plain-text payload
+is exactly the same compile-time version, full revision, tracked-source state and
+target as `--version`; it accepts no workspace state. No global shortcut or automatic
+clipboard update is added. Payload tests pass without accessing the pasteboard.
+Actual native clipboard delivery, accessibility and About-panel parity remain open.
