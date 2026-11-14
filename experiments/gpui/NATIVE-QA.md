@@ -698,6 +698,17 @@ Verify long Unicode filenames, 101+ files, bounded errors, narrow/light/dark
 layout, focus, keyboard/IME and VoiceOver. Headless tests do not validate these
 native flows; normal editing remains disabled.
 
+### Embedded task boards (pending native QA)
+
+Use a disposable note with five task states and two empty taskboard fences.
+Verify state/source order, counts, dates, empty and untitled tasks, three-lane
+paging and 51+ cards in one lane. Each board keeps independent pages. Replace the
+source while rendering, and verify no stale metadata or page action appears.
+Included taskboards and invalid/nonempty fences must retain source, not host tasks.
+Combine query/taskboard blocks beyond eight and check explicit limit notices.
+No checkbox, state mutation, drag/drop or line navigation should be available.
+Check narrow scrolling, keyboard/IME, VoiceOver and theme contrast separately.
+
 ### Query layouts (pending native QA)
 
 Use a disposable query-only note and a note mixing includes, headings and queries.

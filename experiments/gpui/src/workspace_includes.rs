@@ -1,5 +1,7 @@
 #[path = "gallery_covers.rs"]
 mod gallery_covers;
+#[path = "task_boards.rs"]
+mod task_boards;
 // Explicit, inert engine-resolved snapshots bound to the accepted host source.
 use super::*;
 use crate::shell::LinkSource;
@@ -28,6 +30,8 @@ struct Identity {
 }
 pub(crate) struct IncludesState {
     identity: Identity,
+    accepted_body: Option<String>,
+    tasks_invalidated: bool,
     open: bool,
     serial: u64,
     result: Option<Result<Snapshot, String>>,
@@ -71,6 +75,7 @@ impl QueryPageGate {
     }
 }
 struct Snapshot {
+    boards: task_boards::Boards,
     response: crate::included_notes::Response,
     preview: Result<markdown::IncludePreview, String>,
     queries: std::collections::BTreeMap<(usize, usize), Result<crate::query_view::View, String>>,
@@ -79,6 +84,8 @@ impl IncludesState {
     fn new(identity: Identity) -> Self {
         Self {
             identity,
+            accepted_body: None,
+            tasks_invalidated: false,
             open: false,
             serial: 0,
             result: None,
@@ -118,6 +125,9 @@ impl IncludesState {
         let Some(Ok(snapshot)) = &self.result else {
             return false;
         };
+        if snapshot.boards.blocks.contains_key(&key) {
+            return task_boards::set_page(self, key, group, page);
+        }
         let Some(Ok(view)) = snapshot.queries.get(&key) else {
             return false;
         };
@@ -367,7 +377,7 @@ impl Workspace {
                 cx.stop_propagation();
             }))
             .child(div().flex().justify_between().child("Rendered content (read-only)").child(div().id("close-rendered-includes-preview").cursor_pointer().child("Close preview (Esc)").on_click(cx.listener(move |this, _, window, cx| this.close_includes_preview(&close_identity, serial, window, cx)))))
-            .child("Engine-resolved snapshots; completeness and currentness are not guaranteed. Partial inline preview: only isolated top-level includes are embedded. Links, tasks, recursive includes, Find and navigation are unavailable. Gallery covers support bounded local PNG/JPEG only. Text selection and code copy are not supported here.")
+            .child("Engine-resolved snapshots; completeness and currentness are not guaranteed. Partial inline preview: only isolated top-level includes are embedded. Links, task changes, recursive includes, Find and navigation are unavailable. Gallery covers support bounded local PNG/JPEG only. Text selection and code copy are not supported here.")
             .child(div().id(gpui::SharedString::from(format!("rendered-includes-scroll-{serial}"))).track_scroll(&scroll).flex_1().min_h_0().overflow_y_scroll().child(body))
     }
     fn includes_identity(&self) -> Option<Identity> {
@@ -394,13 +404,23 @@ impl Workspace {
             route: route.clone(),
         })
     }
+    fn includes_body_current(&self, state: &IncludesState) -> bool {
+        state.accepted_body.as_ref().is_none_or(|body| {
+            self.current_note.as_ref().is_some_and(|note| {
+                &note.body == body
+                    && note
+                        .note
+                        .additional
+                        .get("tasks")
+                        .is_some_and(serde_json::Value::is_null)
+                        == state.tasks_invalidated
+            })
+        })
+    }
     pub(crate) fn reset_stale_includes(&mut self) {
-        if self
-            .shell
-            .includes
-            .as_ref()
-            .is_some_and(|s| self.includes_identity().as_ref() != Some(&s.identity))
-        {
+        if self.shell.includes.as_ref().is_some_and(|s| {
+            self.includes_identity().as_ref() != Some(&s.identity) || !self.includes_body_current(s)
+        }) {
             self.shell.includes = None;
         }
     }
@@ -411,6 +431,7 @@ impl Workspace {
         {
             return;
         }
+        let tasks = self.accepted_tasks();
         let Some(state) = self
             .shell
             .includes
@@ -420,6 +441,15 @@ impl Workspace {
             return;
         };
         let serial = SERIAL.fetch_add(1, Ordering::Relaxed);
+        state.accepted_body = Some(self.current_note.as_ref().unwrap().body.clone());
+        state.tasks_invalidated = self
+            .current_note
+            .as_ref()
+            .unwrap()
+            .note
+            .additional
+            .get("tasks")
+            .is_some_and(serde_json::Value::is_null);
         state.serial = serial;
         state.result = None;
         state.gallery = Default::default();
@@ -452,8 +482,9 @@ impl Workspace {
             if after.phase != "ready" || after.generation != captured.source.storage_generation {
                 return Err("Storage changed. Reload the workspace.".into());
             }
-            let queries = project_queries(&preview);
+            let (queries, boards) = task_boards::project(&preview, tasks);
             Ok(Snapshot {
+                boards,
                 response,
                 preview,
                 queries,
@@ -463,6 +494,11 @@ impl Workspace {
             let result = job.await;
             let _ = this.update(cx, |this, cx| {
                 if this.includes_identity().as_ref() != Some(&identity)
+                    || this
+                        .shell
+                        .includes
+                        .as_ref()
+                        .is_none_or(|state| !this.includes_body_current(state))
                     || this
                         .current_note
                         .as_ref()
@@ -667,6 +703,7 @@ mod tests {
         state.serial = 5;
         let queries = project_queries(&preview);
         state.result = Some(Ok(Snapshot {
+            boards: Default::default(),
             response,
             preview,
             queries,
@@ -715,6 +752,7 @@ mod tests {
                 state.serial = 10;
                 state.preview_epoch = 20;
                 state.result = Some(Ok(Snapshot {
+                    boards: Default::default(),
                     response,
                     preview,
                     queries,
@@ -777,6 +815,7 @@ mod tests {
         state.serial = 10;
         state.preview_epoch = 20;
         state.result = Some(Ok(Snapshot {
+            boards: Default::default(),
             response,
             preview,
             queries,
@@ -864,6 +903,7 @@ mod tests {
         state.serial = 10;
         state.preview_epoch = 20;
         state.result = Some(Ok(Snapshot {
+            boards: Default::default(),
             response,
             preview,
             queries,
@@ -920,43 +960,23 @@ mod tests {
 }
 
 /// Only parsed fenced blocks from the accepted response enter this cache.
+#[cfg(test)]
 fn project_queries(
     preview: &Result<markdown::IncludePreview, String>,
 ) -> std::collections::BTreeMap<(usize, usize), Result<crate::query_view::View, String>> {
-    let mut result = std::collections::BTreeMap::new();
-    let Ok(preview) = preview else { return result };
-    let mut decoded = 0;
-    for (item, content) in preview.items.iter().enumerate() {
-        let blocks = match content {
-            markdown::PreviewItem::Host(blocks) | markdown::PreviewItem::Include { blocks, .. } => {
-                blocks
-            }
-        };
-        for (block, content) in blocks.iter().enumerate() {
-            if content.kind != markdown::BlockKind::Code
-                || content.fence_info.as_deref() != Some("track-view")
-            {
-                continue;
-            }
-            let view = if decoded >= 8 {
-                Err("Query visual resource limit (8 blocks); source retained.".into())
-            } else {
-                crate::query_view::decode(&content.text)
-            };
-            if view.is_ok() {
-                decoded += 1;
-            }
-            result.insert((item, block), view);
-        }
-    }
-    result
+    task_boards::project(preview, Err("No accepted task source".into())).0
 }
 
 impl Workspace {
     fn query_control_gate(&self, identity: &Identity, cx: &Context<Self>) -> QueryPageGate {
         QueryPageGate {
             preview_active: self.includes_preview_active(),
-            source_matches: self.includes_identity().as_ref() == Some(identity),
+            source_matches: self.includes_identity().as_ref() == Some(identity)
+                && self
+                    .shell
+                    .includes
+                    .as_ref()
+                    .is_some_and(|state| self.includes_body_current(state)),
             handoff: self.handoff_active(),
             gesture: self.previews.model.geometry_active(),
             editing: self.editing_ui.active(),
@@ -1077,6 +1097,17 @@ impl Workspace {
         let mut ordinary_start = 0;
         for (block_index, block) in blocks.iter().enumerate() {
             let key = (item, block_index);
+            if snapshot.boards.blocks.contains_key(&key) {
+                if ordinary_start < block_index {
+                    body = body.child(markdown::render_themed(
+                        &blocks[ordinary_start..block_index],
+                        dark,
+                    ));
+                }
+                ordinary_start = block_index + 1;
+                body = body.child(self.render_task_board(key, block, dark, line, cx));
+                continue;
+            }
             let Some(query) = snapshot.queries.get(&key) else {
                 continue;
             };

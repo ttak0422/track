@@ -5,9 +5,11 @@ use gpui::Div;
 
 pub(crate) struct NoteTasksState {
     source: LinkSource,
+    body: String,
+    invalidated: bool,
     open: bool,
     page: usize,
-    items: Result<Vec<live::NoteTask>, String>,
+    items: Result<std::sync::Arc<Vec<live::NoteTask>>, String>,
 }
 fn source_matches(
     source: &LinkSource,
@@ -46,18 +48,17 @@ impl Workspace {
         }
         Some(source)
     }
-    pub(crate) fn note_tasks_inspector(&mut self, cx: &mut Context<Self>) -> Div {
-        let mut view = div().mb_3().text_size(px(12.));
-        let Some(source) = self.tasks_source() else {
-            self.shell.note_tasks = None;
-            return view;
-        };
-        if self
-            .shell
-            .note_tasks
-            .as_ref()
-            .is_none_or(|s| s.source != source)
-        {
+    pub(crate) fn accepted_tasks(&mut self) -> Result<std::sync::Arc<Vec<live::NoteTask>>, String> {
+        let source = self.tasks_source().ok_or("Task source unavailable")?;
+        let note = self.current_note.as_ref().unwrap();
+        let invalidated = note
+            .note
+            .additional
+            .get("tasks")
+            .is_some_and(serde_json::Value::is_null);
+        if self.shell.note_tasks.as_ref().is_none_or(|s| {
+            s.source != source || s.body != note.body || s.invalidated != invalidated
+        }) {
             let items = live::note_tasks(
                 self.current_note
                     .as_ref()
@@ -66,14 +67,26 @@ impl Workspace {
                     .additional
                     .get("tasks"),
             )
+            .map(std::sync::Arc::new)
             .map_err(|e| e.to_string());
             self.shell.note_tasks = Some(NoteTasksState {
                 source: source.clone(),
+                body: note.body.clone(),
+                invalidated,
                 open: false,
                 page: 0,
                 items,
             });
         }
+        self.shell.note_tasks.as_ref().unwrap().items.clone()
+    }
+    pub(crate) fn note_tasks_inspector(&mut self, cx: &mut Context<Self>) -> Div {
+        let mut view = div().mb_3().text_size(px(12.));
+        let Some(source) = self.tasks_source() else {
+            self.shell.note_tasks = None;
+            return view;
+        };
+        let _ = self.accepted_tasks();
         let state = self.shell.note_tasks.as_ref().unwrap();
         let open = state.open;
         let captured = source.clone();
