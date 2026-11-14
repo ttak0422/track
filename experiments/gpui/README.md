@@ -119,8 +119,11 @@ The previous dashboard-style experiment has been replaced by the existing Track
 shell composition and palette. See [UI.md](UI.md). The current Web reference was
 captured with public help fixtures in an isolated headless browser. The revised
 native shell has compile/unit coverage but still requires fresh matched native
-captures; earlier screenshots do not validate this layout. Tab persistence, activity
-Home activity and complete dock actions remain incomplete. Search supports Up/Down,
+captures; earlier screenshots do not validate this layout. Tab persistence and
+complete dock actions remain incomplete. Home now requests scoped activity from
+the owned server and displays a bounded, read-only heatmap. Partial/cache states
+remain explicit; cells do not create or open journals. Native heatmap appearance
+and accessibility remain unverified. Search supports Up/Down,
 Enter (selected or first result), and Escape with focus restoration. These bindings
 are disabled during composition; full native IME validation remains pending.
 

@@ -181,6 +181,56 @@ pub struct Search {
     #[serde(flatten)]
     pub diagnostics: Fields,
 }
+/// Sparse per-day activity in the requested working vault, never a federated sum.
+#[derive(Clone, Debug, Deserialize)]
+pub struct ActivityCount {
+    pub date: String,
+    pub count: u64,
+}
+#[derive(Clone, Debug, Deserialize)]
+pub struct ActivitySummary {
+    pub since: String,
+    pub until: String,
+    pub total: u64,
+    pub counts: Vec<ActivityCount>,
+}
+#[derive(Clone, Debug, Deserialize)]
+pub struct ActivityResponse {
+    pub activity: ActivitySummary,
+    #[serde(skip)]
+    pub source_vault: String,
+    #[serde(skip)]
+    pub launch_generation: u64,
+    #[serde(flatten)]
+    pub diagnostics: Fields,
+}
+
+// Calendar validation without timezone conversion or duration-based day arithmetic.
+fn calendar_date_valid(date: &str) -> bool {
+    let b = date.as_bytes();
+    if b.len() != 10
+        || b[4] != b'-'
+        || b[7] != b'-'
+        || !b
+            .iter()
+            .enumerate()
+            .all(|(i, c)| i == 4 || i == 7 || c.is_ascii_digit())
+    {
+        return false;
+    }
+    let year: u32 = date[..4].parse().unwrap();
+    let month: u32 = date[5..7].parse().unwrap();
+    let day: u32 = date[8..].parse().unwrap();
+    let days = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) => 29,
+        2 => 28,
+        _ => return false,
+    };
+    day >= 1 && day <= days
+}
+
 /// Resolve accepts a source scope but returns an independent target identity.
 /// In particular an omitted target vault means launch, never the source vault.
 #[derive(Clone, Debug, Deserialize)]
@@ -340,6 +390,50 @@ impl ReadClient {
         }
         Ok(data)
     }
+    /// Supply an explicit bounded calendar window. No server-default dates, pagination,
+    /// journal creation, or fallback to a different vault is performed here.
+    pub fn activity(
+        &self,
+        since: &str,
+        until: &str,
+        vault: &str,
+    ) -> Result<ActivityResponse, Error> {
+        if !calendar_date_valid(since) || !calendar_date_valid(until) || since > until {
+            return Err(Error::Config(
+                "activity requires an ordered YYYY-MM-DD range".into(),
+            ));
+        }
+        let mut args = vault_query(vault);
+        args.extend([("since", since.into()), ("until", until.into())]);
+        let mut result: ActivityResponse = self.get("/api/activity", &args)?;
+        let summary = &result.activity;
+        if summary.since != since || summary.until != until {
+            return Err(Error::Shape("activity date range mismatch".into()));
+        }
+        let mut previous: Option<&str> = None;
+        let mut total = 0u64;
+        for bucket in &summary.counts {
+            let date = bucket.date.as_str();
+            if !calendar_date_valid(date)
+                || date < since
+                || date > until
+                || previous.is_some_and(|prior| prior >= date)
+            {
+                return Err(Error::Shape("invalid activity bucket date or order".into()));
+            }
+            total = total
+                .checked_add(bucket.count)
+                .ok_or_else(|| Error::Shape("activity count overflow".into()))?;
+            previous = Some(date);
+        }
+        if total != summary.total {
+            return Err(Error::Shape("activity total mismatch".into()));
+        }
+        result.source_vault = vault.to_owned();
+        result.launch_generation = self.launch_generation;
+        Ok(result)
+    }
+
     /// The caller supplies the parsed target without label or anchor suffix.
     /// Do not interpret ID-shaped/numeric terms or vault prefixes in this client.
     pub fn resolve(&self, term: &str, source_vault: &str) -> Result<Resolution, Error> {
@@ -1913,6 +2007,105 @@ mod tests {
             task,
         )
     }
+    #[test]
+    fn activity_preserves_sparse_counts_scope_and_partial_diagnostics() {
+        let (client, task) = mock(
+            200,
+            r#"{"activity":{"since":"2026-11-01","until":"2026-11-13","total":4,"counts":[{"date":"2026-11-02","count":1},{"date":"2026-11-10","count":3}]},"read_state":{"partial":true,"cache_used":true,"issues":["offline"]}}"#,
+        );
+        let result = client
+            .activity("2026-11-01", "2026-11-13", "work & 日本語")
+            .unwrap();
+        assert_eq!(result.source_vault, "work & 日本語");
+        assert_eq!(result.launch_generation, client.launch_generation);
+        assert_eq!(result.activity.total, 4);
+        assert_eq!(result.activity.counts.len(), 2);
+        assert_eq!(result.activity.counts[1].count, 3);
+        assert_eq!(result.diagnostics["read_state"]["partial"], true);
+        assert_eq!(result.diagnostics["read_state"]["cache_used"], true);
+        let request = task.join().unwrap();
+        assert!(request.starts_with("GET /api/activity?"));
+        assert!(request.contains("vault=work+%26+%E6%97%A5%E6%9C%AC%E8%AA%9E"));
+        assert!(request.contains("since=2026-11-01&until=2026-11-13"));
+    }
+
+    #[test]
+    fn activity_valid_empty_launch_scope_is_not_an_error() {
+        let (client, task) = mock(
+            200,
+            r#"{"activity":{"since":"2024-02-29","until":"2024-03-01","total":0,"counts":[]}}"#,
+        );
+        let result = client.activity("2024-02-29", "2024-03-01", "").unwrap();
+        assert!(result.source_vault.is_empty());
+        assert!(result.activity.counts.is_empty());
+        assert_eq!(result.activity.total, 0);
+        let request = task.join().unwrap();
+        assert!(!request.contains("vault="));
+        assert!(request.starts_with("GET /api/activity?"));
+    }
+
+    #[test]
+    fn activity_rejects_malformed_or_inconsistent_success() {
+        for body in [
+            "{}",
+            r#"{"activity":{"since":"2026-11-01","until":"2026-11-13","total":0,"counts":null}}"#,
+            r#"{"activity":{"since":"2026-11-02","until":"2026-11-13","total":0,"counts":[]}}"#,
+            r#"{"activity":{"since":"2026-11-01","until":"2026-11-13","total":1,"counts":[]}}"#,
+            r#"{"activity":{"since":"2026-11-01","until":"2026-11-13","total":-1,"counts":[]}}"#,
+            r#"{"activity":{"since":"2026-11-01","until":"2026-11-13","total":1,"counts":[{"date":"2026-11-14","count":1}]}}"#,
+            r#"{"activity":{"since":"2026-11-01","until":"2026-11-13","total":1,"counts":[{"date":"2026-11-02","count":"1"}]}}"#,
+            r#"{"activity":{"since":"2026-11-01","until":"2026-11-13","total":2,"counts":[{"date":"2026-11-02","count":1},{"date":"2026-11-02","count":1}]}}"#,
+            r#"{"activity":{"since":"2026-11-01","until":"2026-11-13","total":2,"counts":[{"date":"2026-11-03","count":1},{"date":"2026-11-02","count":1}]}}"#,
+        ] {
+            let (client, task) = mock(200, body);
+            assert!(
+                matches!(
+                    client.activity("2026-11-01", "2026-11-13", "work"),
+                    Err(Error::Shape(_))
+                ),
+                "{body}"
+            );
+            task.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn activity_errors_do_not_fallback_and_invalid_ranges_are_not_sent() {
+        for status in [400, 403, 500, 503] {
+            let (client, task) = mock(status, r#"{"error":"unavailable selected vault"}"#);
+            assert!(
+                matches!(client.activity("2026-11-01", "2026-11-13", "missing"), Err(Error::Http { status: actual, body }) if actual == status && body.contains("selected vault"))
+            );
+            let request = task.join().unwrap();
+            assert!(request.contains("vault=missing"));
+        }
+        let (client, task) = mock(200, "<html>foreign server</html>");
+        // Invalid arguments fail locally, without consuming the single mock request.
+        for (since, until) in [
+            ("", "2026-11-13"),
+            ("2026-02-29", "2026-11-13"),
+            ("2026-11-14", "2026-11-13"),
+            ("日本語", "2026-11-13"),
+        ] {
+            assert!(matches!(
+                client.activity(since, until, ""),
+                Err(Error::Config(_))
+            ));
+        }
+        assert!(matches!(
+            client.activity("2026-11-01", "2026-11-13", ""),
+            Err(Error::Json(_))
+        ));
+        task.join().unwrap();
+        client.alive.store(false, Ordering::Release);
+        assert!(matches!(
+            client.activity("2026-11-01", "2026-11-13", ""),
+            Err(Error::Stale)
+        ));
+        assert!(!calendar_date_valid("1900-02-29"));
+        assert!(calendar_date_valid("2000-02-29"));
+    }
+
     #[test]
     fn queries_are_encoded_and_requests_read_only() {
         let (client, task) = mock(200, r#"{"results":[],"unavailable":[{"name":"offline"}]}"#);

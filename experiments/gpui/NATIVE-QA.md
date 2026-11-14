@@ -79,3 +79,12 @@ A test-only socket failure was reproduced on macOS: accepted sockets inherited
 nonblocking mode and returned WouldBlock immediately. Resetting the controlled
 server's accepted sockets to blocking fixes the harness without relaxing any
 production timeout or save validation.
+
+## Heading and native close follow-up
+
+On the f8ba5c1 build, a same-note plain Markdown heading link in the disposable
+fixture scrolled Calendar display to the top of the reader after activation.
+This validates one native fragment path, not encoded anchors or dirty transitions.
+Window → Close Window on a clean note exited the fixture and released its ports.
+A later dirty-window-close preparation was interrupted before editing; that case
+remains unverified.

@@ -14,6 +14,7 @@ mod native_window;
 mod search_input;
 mod shell;
 mod tabs;
+mod workspace_activity;
 mod workspace_edit;
 mod workspace_live;
 use backend::{Backend, Note, Snapshot};

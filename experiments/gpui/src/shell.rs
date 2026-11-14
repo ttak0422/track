@@ -12,6 +12,7 @@ fn tab_activation_needed(
 }
 
 pub struct ShellState {
+    pub(crate) activity: Option<workspace_activity::ActivityState>,
     pub home: bool,
     pub search_open: bool,
     search_return_focus: Option<gpui::FocusHandle>,
@@ -39,6 +40,7 @@ pub struct ShellState {
 impl Default for ShellState {
     fn default() -> Self {
         Self {
+            activity: None,
             home: true,
             search_open: false,
             search_return_focus: None,
@@ -1734,15 +1736,17 @@ impl Render for Workspace {
             .justify_center()
             .pl(px(70.))
             .pb(px(100.))
-            .child(
+            .child(if home {
+                self.home_activity(
+                    f32::from(window.viewport_size().width - px(120.))
+                        .min(520.)
+                        .max(80.),
+                    dark,
+                    cx,
+                )
+            } else {
                 div()
-                    .w(px(520.))
-                    .max_w_full()
-                    .text_size(px(11.))
-                    .text_color(rgb(p.muted))
-                    .mb_8()
-                    .child("Activity history is not available in this preview."),
-            )
+            })
             .when(!self.shell.search_open, |home| {
                 home.child(
                     div()
