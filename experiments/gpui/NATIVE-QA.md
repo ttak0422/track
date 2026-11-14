@@ -535,3 +535,13 @@ stale offsets are discarded. Also exercise a slow loading placeholder, a failed
 read, a fragment link and Find to ensure position bookkeeping never overrides an
 explicit jump. Check geometry clamping after resize. No on-disk reading position
 or seen/read milestone should be written.
+
+### Daily agenda (pending native QA)
+
+Use disposable vaults with notes recorded as active on adjacent dates. Select Home
+activity days, including zero-count/partial days, and confirm the engine's active
+notes appear. Change scope/day rapidly, resize the calendar and retry a failed
+request; old responses and row callbacks must not navigate. Open a result and
+verify vault identity and dirty-state navigation guard. Check long titles, more
+than 100 results, narrow windows, keyboard access and VoiceOver. No journal or
+note should be created by selecting a day.

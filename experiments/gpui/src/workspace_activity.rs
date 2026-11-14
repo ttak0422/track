@@ -3,6 +3,27 @@
 use super::*;
 use gpui::Div;
 
+static NEXT_AGENDA: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+static ACTIVE_AGENDA: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+struct AgendaPermit;
+impl AgendaPermit {
+    fn acquire() -> Option<Self> {
+        ACTIVE_AGENDA
+            .fetch_update(
+                std::sync::atomic::Ordering::AcqRel,
+                std::sync::atomic::Ordering::Acquire,
+                |n| (n < 2).then_some(n + 1),
+            )
+            .ok()
+            .map(|_| Self)
+    }
+}
+impl Drop for AgendaPermit {
+    fn drop(&mut self) {
+        ACTIVE_AGENDA.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Identity {
     launch: u64,
@@ -32,7 +53,19 @@ pub(crate) struct ActivityState {
     identity: Identity,
     result: Option<Result<live::ActivityResponse, String>>,
     hover: Option<String>,
+    agenda: Option<AgendaState>,
 }
+struct AgendaState {
+    date: String,
+    serial: u64,
+    result: Option<Result<live::AgendaResponse, String>>,
+}
+impl AgendaState {
+    fn accepts(&self, serial: u64, date: &str) -> bool {
+        self.serial == serial && self.date == date
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Day {
     year: i32,
@@ -168,6 +201,7 @@ impl Workspace {
                 identity: identity.clone(),
                 result: None,
                 hover: None,
+                agenda: None,
             });
             let task_identity = identity.clone();
             let job = cx.background_executor().spawn(async move {
@@ -194,10 +228,11 @@ impl Workspace {
                 }
                 Ok(response)
             });
+            let response_identity = identity.clone();
             cx.spawn(async move |this, cx| {
                 let result = job.await;
                 let _ = this.update(cx, |this, cx| {
-                    if !identity.accepts(
+                    if !response_identity.accepts(
                         this.live.as_ref().map(|s| s.client().launch_generation),
                         this.accepted_storage_generation,
                         this.request,
@@ -212,7 +247,7 @@ impl Workspace {
                         .shell
                         .activity
                         .as_mut()
-                        .filter(|state| state.identity == identity)
+                        .filter(|state| state.identity == response_identity)
                     {
                         state.result = Some(result);
                         cx.notify();
@@ -288,12 +323,22 @@ impl Workspace {
                     None => format!("{date}: count unavailable"),
                 };
                 let color = colors[band(count.unwrap_or(0))];
+                let click_identity = identity.clone();
+                let click_date = date.clone();
                 column = column.child(
                     div()
                         .id(gpui::SharedString::from(format!("activity-{date}")))
                         .size(px(9.))
                         .rounded(px(2.))
                         .bg(rgb(color))
+                        .cursor_pointer()
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.select_activity_day(
+                                click_identity.clone(),
+                                click_date.clone(),
+                                cx,
+                            );
+                        }))
                         .on_hover(cx.listener(move |this, hover, _, cx| {
                             if let Some(state) = &mut this.shell.activity {
                                 state.hover = if *hover { Some(label.clone()) } else { None };
@@ -327,8 +372,9 @@ impl Workspace {
             .child(
                 div()
                     .mt_1()
-                    .child("Read-only activity · journal opening is not enabled."),
+                    .child("Select a day for active notes · journal creation is disabled."),
             )
+            .child(self.activity_agenda(cx))
     }
 }
 #[cfg(test)]
@@ -439,5 +485,214 @@ mod tests {
             assert!(incomplete(&d));
         }
         assert!(!incomplete(&Default::default()));
+    }
+}
+
+impl Workspace {
+    fn activity_identity_current(&self, identity: &Identity) -> bool {
+        identity.accepts(
+            self.live.as_ref().map(|s| s.client().launch_generation),
+            self.accepted_storage_generation,
+            self.request,
+            self.working_vault_scope(),
+            self.shell.home
+                && !self.quit_session.is_closing()
+                && self.quit_session.failure().is_none(),
+        ) && self
+            .shell
+            .activity
+            .as_ref()
+            .is_some_and(|s| &s.identity == identity)
+    }
+
+    fn select_activity_day(&mut self, identity: Identity, date: String, cx: &mut Context<Self>) {
+        if !self.activity_identity_current(&identity)
+            || date < identity.since
+            || date > identity.until
+        {
+            return;
+        }
+        let Some(session) = self.live.as_ref() else {
+            return;
+        };
+        let client = session.client();
+        let state = self.shell.activity.as_mut().unwrap();
+        let serial = NEXT_AGENDA.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        state.agenda = Some(AgendaState {
+            date: date.clone(),
+            serial,
+            result: None,
+        });
+        let Some(permit) = AgendaPermit::acquire() else {
+            state.agenda.as_mut().unwrap().result = Some(Err(
+                "Earlier requests are still finishing. Retry shortly.".into(),
+            ));
+            cx.notify();
+            return;
+        };
+        let captured = identity.clone();
+        let selected = date.clone();
+        let job = cx.background_executor().spawn(async move {
+            let _permit = permit;
+            let before = client.storage().map_err(|e| e.to_string())?;
+            if before.phase != "ready" || before.generation != captured.epoch {
+                return Err("Storage changed. Reload the workspace.".into());
+            }
+            let response = client
+                .agenda(&selected, &captured.vault)
+                .map_err(|e| e.to_string())?;
+            let after = client.storage().map_err(|e| e.to_string())?;
+            if after.phase != "ready"
+                || after.generation != before.generation
+                || response.launch_generation != captured.launch
+                || response.source_vault != captured.vault
+                || response.date != selected
+            {
+                return Err("Agenda response became stale. Reload the workspace.".into());
+            }
+            Ok(response)
+        });
+        cx.spawn(async move |this, cx| {
+            let result = job.await;
+            let _ = this.update(cx, |this, cx| {
+                if !this.activity_identity_current(&identity) {
+                    return;
+                }
+                if let Some(agenda) = this
+                    .shell
+                    .activity
+                    .as_mut()
+                    .and_then(|s| s.agenda.as_mut())
+                    .filter(|a| a.accepts(serial, &date))
+                {
+                    agenda.result = Some(result);
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    fn activity_agenda(&self, cx: &mut Context<Self>) -> Div {
+        let mut view = div().mt_3().flex().flex_col().gap_1();
+        let Some(state) = self.shell.activity.as_ref() else {
+            return view;
+        };
+        let Some(agenda) = state.agenda.as_ref() else {
+            return view;
+        };
+        view = view.child(format!("Active notes · {}", agenda.date));
+        let Some(result) = &agenda.result else {
+            return view.child("Loading active notes…");
+        };
+        let response = match result {
+            Ok(value) => value,
+            Err(_) => {
+                let identity = state.identity.clone();
+                let date = agenda.date.clone();
+                let serial = agenda.serial;
+                return view
+                    .child(
+                        "Active notes unavailable; the request failed, is busy, or became stale.",
+                    )
+                    .child(
+                        div()
+                            .id("agenda-retry")
+                            .cursor_pointer()
+                            .child("Retry selected day")
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                if this
+                                    .shell
+                                    .activity
+                                    .as_ref()
+                                    .and_then(|s| s.agenda.as_ref())
+                                    .is_some_and(|a| a.accepts(serial, &date))
+                                {
+                                    this.select_activity_day(identity.clone(), date.clone(), cx);
+                                }
+                            })),
+                    );
+            }
+        };
+        if incomplete(&response.diagnostics) {
+            view = view.child("Incomplete or cached results; missing notes are unknown.");
+        } else if response.notes.is_empty() {
+            view = view.child("No active notes on this day.");
+        }
+        for (index, note) in response.notes.iter().take(100).enumerate() {
+            let key = note.key();
+            let label = format!(
+                "{} · {}",
+                note.title,
+                if key.vault.is_empty() {
+                    "launch vault"
+                } else {
+                    &key.vault
+                }
+            );
+            let identity = state.identity.clone();
+            let date = agenda.date.clone();
+            let serial = agenda.serial;
+            view = view.child(
+                div()
+                    .id(("agenda-note", index))
+                    .cursor_pointer()
+                    .child(label)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if this.activity_identity_current(&identity)
+                            && this
+                                .shell
+                                .activity
+                                .as_ref()
+                                .and_then(|s| s.agenda.as_ref())
+                                .is_some_and(|a| {
+                                    a.accepts(serial, &date)
+                                        && a.result.as_ref().is_some_and(|r| r.is_ok())
+                                })
+                        {
+                            this.open_live_key(key.clone(), cx);
+                        }
+                    })),
+            );
+        }
+        if response.notes.len() > 100 {
+            view = view.child(format!(
+                "Showing the first 100 of {} notes; no further pages are fetched.",
+                response.notes.len()
+            ));
+        }
+        view
+    }
+}
+
+#[cfg(test)]
+mod agenda_tests {
+    use super::*;
+    #[test]
+    fn outstanding_agenda_requests_are_bounded_and_release_on_drop() {
+        let one = AgendaPermit::acquire().unwrap();
+        let two = AgendaPermit::acquire().unwrap();
+        assert!(AgendaPermit::acquire().is_none());
+        drop(one);
+        let replacement = AgendaPermit::acquire().unwrap();
+        drop(two);
+        drop(replacement);
+        assert_eq!(ACTIVE_AGENDA.load(std::sync::atomic::Ordering::Acquire), 0);
+    }
+    #[test]
+    fn day_selection_rejects_out_of_order_and_same_day_retry_results() {
+        let mut state = AgendaState {
+            date: "2026-11-14".into(),
+            serial: 1,
+            result: None,
+        };
+        assert!(state.accepts(1, "2026-11-14"));
+        assert!(!state.accepts(1, "2026-11-13"));
+        state.serial = 2;
+        assert!(!state.accepts(1, "2026-11-14"));
+        assert!(state.accepts(2, "2026-11-14"));
+        state.date = "2026-11-13".into();
+        assert!(!state.accepts(2, "2026-11-14"));
     }
 }

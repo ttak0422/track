@@ -373,3 +373,19 @@ Changed accepted content or owned-source identity resets the old position; a
 loading placeholder alone does not. Find and explicit fragment jumps retain
 their own behavior. This does not save positions to disk or mark notes seen/read.
 Native scroll behavior after source changes, resize and reload remains unverified.
+
+### Read-only daily agenda
+
+Select an activity-calendar day on Home to list notes recorded as active that day
+in the working vault. This sends an explicit-date `GET /api/agenda`; it never calls
+the journal-creation endpoint. Selecting a result uses the existing vault-qualified
+note navigation and dirty-state guard. At most 100 rows are shown (the transport
+rejects responses over 4096 notes); truncation and incomplete/cached results are
+labelled. Failures retain the selected date and offer an explicit retry. There is
+no background polling, automatic navigation, pagination or event/task mutation.
+Late responses from another date, scope, source or retry are discarded. Date
+semantics come from the existing Go engine, not a new client timezone conversion.
+Native calendar picking, row layout, keyboard and accessibility remain unverified.
+
+Agenda reads allow at most two in-flight requests across experimental windows.
+If earlier reads are still finishing, retry the selected day after they finish.

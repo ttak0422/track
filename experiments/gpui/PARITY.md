@@ -310,3 +310,12 @@ or storage identity resets the retained offset instead of applying an old readin
 position to new content. Loading placeholders do not overwrite the last accepted
 identity. Explicit Find and heading navigation still control their own jumps.
 This is not persisted reading position, seen/read tracking or native scroll QA.
+
+### Read-only daily agenda
+
+Home activity day selection fetches the existing engine's active-note agenda for
+an explicit date and working-vault scope. Bounded results and partial diagnostics
+are displayed; links use guarded note navigation. Request identity rejects stale
+date/scope/launch/storage and superseded retry results. This adds no journal
+creation, task-state/calendar-event editing or timezone reinterpretation. Native
+interaction and visual parity remain pending, so G09 is not complete.

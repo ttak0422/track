@@ -205,6 +205,19 @@ pub struct ActivityResponse {
     pub diagnostics: Fields,
 }
 
+/// Read-only notes active on one explicit calendar day, never journal creation.
+#[derive(Clone, Debug, Deserialize)]
+pub struct AgendaResponse {
+    pub date: String,
+    pub notes: Vec<Note>,
+    #[serde(skip)]
+    pub source_vault: String,
+    #[serde(skip)]
+    pub launch_generation: u64,
+    #[serde(flatten)]
+    pub diagnostics: Fields,
+}
+
 // Calendar validation without timezone conversion or duration-based day arithmetic.
 fn calendar_date_valid(date: &str) -> bool {
     let b = date.as_bytes();
@@ -430,6 +443,59 @@ impl ReadClient {
             return Err(Error::Shape("activity total mismatch".into()));
         }
         result.source_vault = vault.to_owned();
+        result.launch_generation = self.launch_generation;
+        Ok(result)
+    }
+
+    /// Only the listing endpoint is used. Empty vault means the launch vault;
+    /// canonical returned labels are retained so activation never loses identity.
+    pub fn agenda(&self, date: &str, vault: &str) -> Result<AgendaResponse, Error> {
+        if !calendar_date_valid(date) || vault.len() > 1024 || vault.contains('\0') {
+            return Err(Error::Config(
+                "agenda requires YYYY-MM-DD and a bounded vault name".into(),
+            ));
+        }
+        let mut args = vault_query(vault);
+        args.push(("date", date.into()));
+        let mut result: AgendaResponse = self.get("/api/agenda", &args)?;
+        if result.date != date || result.notes.len() > 4096 {
+            return Err(Error::Shape(
+                "agenda date mismatch or excessive notes".into(),
+            ));
+        }
+        let mut identities = std::collections::HashSet::new();
+        let mut launch_label: Option<String> = None;
+        for note in &mut result.notes {
+            if note.note_id <= 0
+                || note.vault.len() > 1024
+                || note.vault.contains('\0')
+                || note.title.len() > 64 * 1024
+                || note.path.len() > 16 * 1024
+                || note.file_kind.is_empty()
+                || note.file_kind.len() > 128
+            {
+                return Err(Error::Shape(
+                    "invalid agenda note identity or metadata".into(),
+                ));
+            }
+            if !vault.is_empty() {
+                if !note.vault.is_empty() && note.vault != vault {
+                    return Err(Error::Shape("agenda returned a different vault".into()));
+                }
+                note.vault = vault.into();
+            } else if launch_label
+                .as_ref()
+                .is_some_and(|label| label != &note.vault)
+            {
+                return Err(Error::Shape("agenda mixed vault identities".into()));
+            } else {
+                launch_label = Some(note.vault.clone());
+            }
+            if !identities.insert((note.vault.clone(), note.note_id)) {
+                return Err(Error::Shape("duplicate agenda note identity".into()));
+            }
+        }
+        result.source_vault = vault.into();
         result.launch_generation = self.launch_generation;
         Ok(result)
     }
@@ -2023,7 +2089,8 @@ mod tests {
                 .is_err()
         );
     }
-    fn mock(status: u16, body: &'static str) -> (ReadClient, thread::JoinHandle<String>) {
+    fn mock(status: u16, body: impl Into<String>) -> (ReadClient, thread::JoinHandle<String>) {
+        let body = body.into();
         use std::io::Write;
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let origin = format!("http://{}", listener.local_addr().unwrap());
@@ -2062,6 +2129,125 @@ mod tests {
             task,
         )
     }
+    #[test]
+    fn agenda_is_explicit_read_only_scoped_and_preserves_partial_diagnostics() {
+        let (client, task) = mock(
+            200,
+            r#"{"date":"2024-02-29","notes":[{"note_id":42,"title":"日本語","file_kind":"note","path":"/fixture/42.md"}],"read_state":{"partial":true,"cache_used":true,"issues":["offline"]}}"#,
+        );
+        let result = client.agenda("2024-02-29", "work & 日本語").unwrap();
+        assert_eq!(result.date, "2024-02-29");
+        assert_eq!(result.source_vault, "work & 日本語");
+        assert_eq!(
+            result.notes[0].key(),
+            NoteKey {
+                vault: "work & 日本語".into(),
+                note_id: 42
+            }
+        );
+        assert_eq!(result.launch_generation, client.launch_generation);
+        assert_eq!(result.diagnostics["read_state"]["partial"], true);
+        assert_eq!(result.diagnostics["read_state"]["cache_used"], true);
+        let request = task.join().unwrap();
+        assert!(request.starts_with("GET /api/agenda?"));
+        assert!(request.contains("vault=work+%26+%E6%97%A5%E6%9C%AC%E8%AA%9E"));
+        assert!(request.contains("date=2024-02-29"));
+        assert!(!request.contains("/api/journal"));
+    }
+
+    #[test]
+    fn agenda_empty_and_canonical_launch_scope_are_valid() {
+        for body in [
+            r#"{"date":"2026-11-13","notes":[]}"#,
+            r#"{"date":"2026-11-13","notes":[{"note_id":42,"title":"note","file_kind":"note","path":"/fixture/42.md","vault":"main"}]}"#,
+        ] {
+            let (client, task) = mock(200, body);
+            let result = client.agenda("2026-11-13", "").unwrap();
+            assert_eq!(result.source_vault, "");
+            if let Some(note) = result.notes.first() {
+                assert_eq!(note.vault, "main");
+            }
+            let request = task.join().unwrap();
+            assert!(request.starts_with("GET /api/agenda?date=2026-11-13"));
+            assert!(!request.contains("vault="));
+        }
+    }
+
+    #[test]
+    fn agenda_bounds_note_count_and_metadata_without_silent_truncation() {
+        let note = serde_json::json!({"note_id":42,"title":"note","file_kind":"note","path":"p"});
+        let bodies = [
+            serde_json::json!({"date":"2026-11-13","notes":vec![note.clone();4097]}),
+            serde_json::json!({"date":"2026-11-13","notes":[{"title":"x".repeat(64*1024+1),"note_id":42,"file_kind":"note","path":"p"}]}),
+        ];
+        for body in bodies {
+            let (client, task) = mock(200, body.to_string());
+            assert!(matches!(
+                client.agenda("2026-11-13", ""),
+                Err(Error::Shape(_))
+            ));
+            task.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn agenda_rejects_invalid_dates_identity_and_shapes() {
+        for body in [
+            "{}",
+            r#"{"date":"2026-11-13","notes":null}"#,
+            r#"{"date":"2026-11-12","notes":[]}"#,
+            r#"{"date":"2026-11-13","notes":[{"note_id":0,"title":"note","file_kind":"note","path":"p"}]}"#,
+            r#"{"date":"2026-11-13","notes":[{"note_id":-42,"title":"note","file_kind":"note","path":"p"}]}"#,
+            r#"{"date":"2026-11-13","notes":[{"note_id":42,"title":"note","file_kind":"note","path":"p","vault":"other"}]}"#,
+            r#"{"date":"2026-11-13","notes":[{"note_id":42,"title":"note","file_kind":"note","path":"p"},{"note_id":42,"title":"again","file_kind":"note","path":"p"}]}"#,
+        ] {
+            let (client, task) = mock(200, body);
+            assert!(matches!(
+                client.agenda("2026-11-13", "work"),
+                Err(Error::Shape(_))
+            ));
+            task.join().unwrap();
+        }
+        let (client, task) = mock(
+            200,
+            r#"{"date":"2026-11-13","notes":[{"note_id":42,"title":"note","file_kind":"note","path":"p","vault":"main"},{"note_id":43,"title":"note","file_kind":"note","path":"q","vault":"other"}]}"#,
+        );
+        assert!(matches!(
+            client.agenda("2026-11-13", ""),
+            Err(Error::Shape(_))
+        ));
+        task.join().unwrap();
+        let (client, task) = mock(503, r#"{"error":"selected vault unavailable"}"#);
+        for date in [
+            "",
+            "2026-02-29",
+            "2026-11-32",
+            "2026-1-01",
+            "日本語",
+            " 2026-11-13",
+        ] {
+            assert!(matches!(client.agenda(date, "work"), Err(Error::Config(_))));
+        }
+        for vault in ["x".repeat(1025), "bad\0vault".into()] {
+            assert!(matches!(
+                client.agenda("2026-11-13", &vault),
+                Err(Error::Config(_))
+            ));
+        }
+        // Local rejection did not consume the fixture's single request. Failure
+        // remains an error; there is no journal/default-vault fallback request.
+        assert!(matches!(
+            client.agenda("2026-11-13", "work"),
+            Err(Error::Http { status: 503, .. })
+        ));
+        assert!(task.join().unwrap().starts_with("GET /api/agenda?"));
+        client.alive.store(false, Ordering::Release);
+        assert!(matches!(
+            client.agenda("2026-11-13", "work"),
+            Err(Error::Stale)
+        ));
+    }
+
     #[test]
     fn activity_preserves_sparse_counts_scope_and_partial_diagnostics() {
         let (client, task) = mock(
