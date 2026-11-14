@@ -34,6 +34,7 @@ pub struct GraphView {
     click_start: Option<(i64, Point)>,
     dark: bool,
     layout_generation: u64,
+    camera_intent: graph::CameraIntent,
     layout_status: &'static str,
 }
 impl gpui::EventEmitter<OpenNote> for GraphView {}
@@ -56,6 +57,7 @@ impl GraphView {
             click_start: None,
             dark: false,
             layout_generation: 0,
+            camera_intent: graph::CameraIntent::default(),
             layout_status: "circular initial layout",
         }
     }
@@ -82,6 +84,7 @@ impl GraphView {
         }
         self.layout_status = "settling in background";
         let graph = self.graph.clone();
+        let camera_revision = self.camera_intent.revision();
         let job = cx.background_executor().spawn(async move {
             graph::force_layout(&graph, graph::ForceOptions::default(), &BTreeMap::new())
         });
@@ -93,7 +96,7 @@ impl GraphView {
                     return;
                 }
                 this.nodes = nodes;
-                if this.overview {
+                if this.overview && this.camera_intent.permits_auto_fit(camera_revision) {
                     this.reset_view(cx);
                 }
                 this.layout_status = "force snapshot · drag has no elastic physics";
@@ -118,6 +121,7 @@ impl GraphView {
         cx.notify();
     }
     pub fn reset_view(&mut self, cx: &mut Context<Self>) {
+        self.camera_intent.changed();
         if self.overview {
             cx.emit(PreviewIntent::Cancel);
         }
@@ -256,6 +260,7 @@ impl Render for GraphView {
                         this.node_drag = Some((id, p));
                     }
                     if let Some(previous) = this.pan_from {
+                        this.camera_intent.changed();
                         this.viewport.pan(Point {
                             x: p.x - previous.x,
                             y: p.y - previous.y,
@@ -301,19 +306,18 @@ impl Render for GraphView {
                 }
             }))
             .on_scroll_wheel(cx.listener(|this, event: &gpui::ScrollWheelEvent, _, cx| {
-                if this.overview { cx.emit(PreviewIntent::Cancel); }
-                let delta = event.delta.pixel_delta(px(20.));
-                if event.modifiers.control || event.modifiers.shift {
-                    this.viewport.zoom_at(
-                        this.local(event.position),
-                        (f32::from(delta.y) as f64 * 0.005).exp(),
-                    );
-                } else {
-                    this.viewport.pan(Point {
-                        x: f32::from(delta.x) as f64,
-                        y: f32::from(delta.y) as f64,
-                    });
+                if !graph::is_zoom_wheel(event.modifiers.control, event.modifiers.shift) {
+                    return;
                 }
+                if this.overview { cx.emit(PreviewIntent::Cancel); }
+                this.hovered = None;
+                this.click_start = None;
+                this.camera_intent.changed();
+                let delta = event.delta.pixel_delta(px(20.));
+                this.viewport.zoom_at(
+                    this.local(event.position),
+                    (f32::from(delta.y) as f64 * 0.005).exp(),
+                );
                 cx.stop_propagation();
                 cx.notify();
             }))
@@ -410,6 +414,7 @@ impl Render for GraphView {
                     .text_xs().text_color(rgb(muted)).cursor_pointer().child("↺")
                     .on_mouse_down(MouseButton::Left, |_,_,cx|cx.stop_propagation())
                     .on_click(cx.listener(|this,_,_,cx| {
+                        this.camera_intent.changed();
                         this.viewport.offset=Point::default(); this.viewport.scale=1.;
                         this.pan_from=None; this.node_drag=None; cx.stop_propagation(); cx.notify();
                     }))

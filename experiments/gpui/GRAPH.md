@@ -219,3 +219,17 @@ existing bounded force snapshot/circular fallback rather than reference physics,
 number grouping currently uses commas rather than OS locale, and native GUI,
 high-DPI, gesture, accessibility and timing behavior are unverified. Automated
 synthetic model/wire tests do not establish visual or performance parity.
+
+## Camera intent follow-up (2026-11-14)
+
+Unmodified wheel input is no longer consumed as graph panning, matching the Web
+surface's surrounding-scroll behavior. Explicit Ctrl/Shift wheel still zooms,
+and background dragging still pans. A separate camera-intent revision prevents
+a late background force snapshot from auto-fitting over newer pan, zoom or Reset
+input; the accepted layout itself is retained. Graph replacement continues to
+invalidate old layout completions through its existing generation guard.
+
+Three pure policy tests cover untouched/changed camera intent and wheel modifiers;
+compilation covers the native event wiring. Real wheel propagation, native pinch,
+pointer capture and visual camera behavior remain GUI-unverified. No performance
+improvement is claimed for this correctness change.

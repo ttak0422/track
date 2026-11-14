@@ -97,7 +97,7 @@ updates, and full Markdown rendering are still tracked as incomplete in `PARITY.
 ## Native graph
 
 The context aside shows the selected note’s local graph. The synthetic mode
-uses a 100-node fixture. Pan by dragging the background or scrolling; hold Ctrl or
+uses a 100-node fixture. Pan by dragging the background; unmodified scrolling remains available to the enclosing reader. Hold Ctrl or
 Shift while scrolling to zoom around the pointer. Click a node to select it, drag
 to move it, and double-click to navigate. Hover/selection
 shows metadata. Leaving the canvas ends dragging.

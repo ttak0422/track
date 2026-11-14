@@ -48,6 +48,27 @@ impl Point {
         self.x.is_finite() && self.y.is_finite()
     }
 }
+/// Camera intent is independent of layout generation: a layout may settle after a
+/// pan or zoom, but it must not replace the user's chosen view with an auto-fit.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct CameraIntent(u64);
+impl CameraIntent {
+    pub fn revision(self) -> u64 {
+        self.0
+    }
+    pub fn changed(&mut self) {
+        self.0 = self.0.wrapping_add(1);
+    }
+    pub fn permits_auto_fit(self, started_at: u64) -> bool {
+        self.0 == started_at
+    }
+}
+
+/// Unmodified wheel input belongs to the surrounding scroll surface.
+pub fn is_zoom_wheel(control: bool, shift: bool) -> bool {
+    control || shift
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Viewport {
     pub width: f64,
@@ -890,5 +911,35 @@ mod overview_tests {
         assert_eq!(graph.nodes[0].vault.as_deref(), Some("work"));
         assert_eq!(graph.nodes[0].area_score, Some(1.5));
         assert_eq!(graph.nodes[0].size, Some(2));
+    }
+}
+
+#[cfg(test)]
+mod camera_intent_tests {
+    use super::*;
+
+    #[test]
+    fn untouched_camera_accepts_initial_fit() {
+        let intent = CameraIntent::default();
+        assert!(intent.permits_auto_fit(intent.revision()));
+    }
+
+    #[test]
+    fn newer_camera_intent_rejects_late_fit_without_canceling_layout() {
+        let mut intent = CameraIntent::default();
+        let layout_started = intent.revision();
+        for _ in 0..3 {
+            intent.changed();
+            assert!(!intent.permits_auto_fit(layout_started));
+        }
+        assert!(intent.permits_auto_fit(intent.revision()));
+    }
+
+    #[test]
+    fn wheel_requires_explicit_zoom_modifier() {
+        assert!(!is_zoom_wheel(false, false));
+        assert!(is_zoom_wheel(true, false));
+        assert!(is_zoom_wheel(false, true));
+        assert!(is_zoom_wheel(true, true));
     }
 }
