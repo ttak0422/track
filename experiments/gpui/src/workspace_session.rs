@@ -1,11 +1,30 @@
-//! Explicit disposable-fixture tab/history metadata only. Never loads or saves note bodies.
+//! Disposable-fixture UI metadata and explicitly enabled draft checkpoints.
+//! One worker owns the protected store and serializes both artifact lifecycles.
 use super::*;
+use crate::draft_recovery::{
+    LocalStatus, OperationKind, Record, RecoveryContext, RecoveryModel, RecoveryToken,
+};
 use std::path::PathBuf;
 
 pub struct SessionOptions {
     pub fixture: PathBuf,
     pub config: PathBuf,
     pub cache: PathBuf,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RecoveryStatus {
+    Disabled,
+    Loading,
+    Ready(LocalStatus),
+    Failed,
+}
+#[derive(Default)]
+struct RecoveryShared {
+    model: Option<RecoveryModel>,
+    binding: Option<String>,
+    high_water: u64,
+    failed: bool,
+    frozen: bool,
 }
 #[derive(Default)]
 struct Pending {
@@ -18,6 +37,7 @@ struct Pending {
     )>,
     completed: u64,
     error: Option<String>,
+    recovery: RecoveryShared,
 }
 struct Writer {
     wake: Option<std::sync::mpsc::SyncSender<()>>,
@@ -27,19 +47,96 @@ struct Writer {
     thread: Option<std::thread::JoinHandle<()>>,
 }
 impl Writer {
-    fn new(mut store: session_store::SessionStore) -> Self {
+    fn new(
+        mut store: session_store::SessionStore,
+        recovery_enabled: bool,
+        registry: Vec<String>,
+    ) -> Self {
         let (wake, receiver) = std::sync::mpsc::sync_channel(1);
         let shared = std::sync::Arc::new(std::sync::Mutex::new(Pending::default()));
         let state = shared.clone();
         let thread = std::thread::spawn(move || {
+            // This branch is the only recovery-file entry point. Ordinary launches
+            // do not load, stat, inspect or create the artifact.
+            let mut recovery = if recovery_enabled {
+                match store.load_recovery() {
+                    Ok(token) => {
+                        let binding = store.recovery_binding().to_owned();
+                        let prior = token.record().cloned();
+                        let model = RecoveryModel::new(binding.clone(), registry, prior.clone());
+                        let mut shared = state.lock().unwrap();
+                        match model {
+                            Ok(model) => {
+                                shared.recovery.high_water =
+                                    prior.as_ref().map_or(0, |r| r.revision);
+                                shared.recovery.binding = Some(binding);
+                                shared.recovery.model = Some(model);
+                            }
+                            Err(_) => shared.recovery.failed = true,
+                        }
+                        Some(token)
+                    }
+                    Err(_) => {
+                        state.lock().unwrap().recovery.failed = true;
+                        None
+                    }
+                }
+            } else {
+                None
+            };
             while receiver.recv().is_ok() {
-                let snapshot = state.lock().unwrap().latest.take();
+                let snapshot = {
+                    let mut shared = state.lock().unwrap();
+                    if shared.error.is_none() {
+                        shared.latest.take()
+                    } else {
+                        shared.latest = None;
+                        None
+                    }
+                };
                 if let Some((sequence, entries, history, scope, positions)) = snapshot {
                     let result = store.save_with_positions(&entries, &history, &scope, &positions);
-                    let mut state = state.lock().unwrap();
-                    state.completed = sequence;
+                    let mut shared = state.lock().unwrap();
+                    shared.completed = sequence;
                     if let Err(error) = result {
-                        state.error = Some(error);
+                        shared.error = Some(error);
+                    }
+                }
+                // No per-keystroke thread and no filesystem operation holds the
+                // model mutex. One active operation and one coalesced latest remain.
+                loop {
+                    let op = {
+                        let mut shared = state.lock().unwrap();
+                        if shared.recovery.frozen || shared.recovery.failed {
+                            None
+                        } else {
+                            shared
+                                .recovery
+                                .model
+                                .as_mut()
+                                .and_then(RecoveryModel::next_operation)
+                        }
+                    };
+                    let Some(op) = op else {
+                        break;
+                    };
+                    let result = match recovery.as_mut() {
+                        Some(token) => match op.kind {
+                            OperationKind::Write(record) => {
+                                // Model only yields writes after explicit recovery
+                                // or from an initially absent artifact.
+                                token.resolve();
+                                store.checkpoint_recovery(token, record)
+                            }
+                            OperationKind::Clear => store.clear_recovery_if_present(token),
+                        },
+                        None => Err("Fixture draft persistence unavailable".into()),
+                    };
+                    if let Some(model) = state.lock().unwrap().recovery.model.as_mut() {
+                        model.complete(op.token, result.is_ok());
+                    }
+                    // Post-rename/fsync uncertainty never retries automatically.
+                    if result.is_err() {
                         break;
                     }
                 }
@@ -55,6 +152,11 @@ impl Writer {
             thread: Some(thread),
         }
     }
+    fn notify(&self) {
+        if let Some(wake) = &self.wake {
+            let _ = wake.try_send(());
+        }
+    }
     fn enqueue(
         &mut self,
         entries: Vec<tabs::Tab>,
@@ -64,8 +166,7 @@ impl Writer {
     ) {
         self.sent += 1;
         self.shared.lock().unwrap().latest = Some((self.sent, entries, history, scope, positions));
-        // Full means a wake already exists; that wake consumes the latest snapshot.
-        let _ = self.wake.as_ref().unwrap().try_send(());
+        self.notify();
     }
 }
 impl Drop for Writer {
@@ -91,6 +192,7 @@ pub struct SessionUi {
     pub warning: Option<String>,
     pub safe_home: bool,
     known_vaults: Vec<String>,
+    recovery_enabled: bool,
 }
 impl SessionUi {
     pub fn new(options: Option<SessionOptions>) -> Self {
@@ -98,6 +200,164 @@ impl SessionUi {
             safe_home: options.is_some(),
             options,
             ..Self::default()
+        }
+    }
+    /// Must be called before restore; path/fixture authorization belongs to startup.
+    pub fn enable_recovery(&mut self) {
+        if self.worker.is_none() && self.options.is_some() {
+            self.recovery_enabled = true;
+        }
+    }
+    pub fn recovery_enabled(&self) -> bool {
+        self.recovery_enabled
+    }
+    pub fn recovery_status(&self) -> RecoveryStatus {
+        if !self.recovery_enabled {
+            return RecoveryStatus::Disabled;
+        }
+        let Some(worker) = &self.worker else {
+            return if self.options.is_some() {
+                RecoveryStatus::Loading
+            } else {
+                RecoveryStatus::Failed
+            };
+        };
+        let shared = worker.shared.lock().unwrap();
+        let state = &shared.recovery;
+        if state.failed || state.frozen {
+            return RecoveryStatus::Failed;
+        }
+        match &state.model {
+            Some(model) if model.status() == LocalStatus::Failed => RecoveryStatus::Failed,
+            Some(model) => RecoveryStatus::Ready(model.status()),
+            None => RecoveryStatus::Loading,
+        }
+    }
+    pub fn recovery_ready(&self) -> bool {
+        matches!(self.recovery_status(), RecoveryStatus::Ready(_))
+    }
+    pub fn recovery_record(&self) -> Option<Record> {
+        self.worker
+            .as_ref()?
+            .shared
+            .lock()
+            .unwrap()
+            .recovery
+            .model
+            .as_ref()?
+            .latest()
+            .cloned()
+    }
+    pub fn recovery_binding(&self) -> Option<String> {
+        self.worker
+            .as_ref()?
+            .shared
+            .lock()
+            .unwrap()
+            .recovery
+            .binding
+            .clone()
+    }
+    pub fn next_revision(&self) -> Result<u64, String> {
+        let worker = self
+            .worker
+            .as_ref()
+            .ok_or("Fixture draft persistence unavailable")?;
+        let shared = worker.shared.lock().unwrap();
+        if shared.recovery.frozen || shared.recovery.failed || shared.recovery.model.is_none() {
+            return Err("Fixture draft persistence unavailable".into());
+        }
+        shared
+            .recovery
+            .high_water
+            .checked_add(1)
+            .ok_or_else(|| "Fixture draft revision exhausted".into())
+    }
+    pub fn checkpoint(&mut self, record: Record) -> Result<(), String> {
+        let worker = self
+            .worker
+            .as_ref()
+            .ok_or("Fixture draft persistence unavailable")?;
+        {
+            let mut shared = worker.shared.lock().unwrap();
+            if shared.recovery.frozen || shared.recovery.failed {
+                return Err("Fixture draft persistence unavailable".into());
+            }
+            let revision = record.revision;
+            shared
+                .recovery
+                .model
+                .as_mut()
+                .ok_or("Fixture draft persistence unavailable")?
+                .checkpoint(record)?;
+            shared.recovery.high_water = revision;
+        }
+        worker.notify();
+        Ok(())
+    }
+    pub fn offer_recovery(&self, context: &RecoveryContext) -> Option<RecoveryToken> {
+        let shared = self.worker.as_ref()?.shared.lock().unwrap();
+        if shared.recovery.frozen || shared.recovery.failed {
+            return None;
+        }
+        shared.recovery.model.as_ref()?.offer_recovery(context)
+    }
+    pub fn recover(&mut self, token: &RecoveryToken, context: &RecoveryContext) -> Option<Record> {
+        let mut shared = self.worker.as_ref()?.shared.lock().unwrap();
+        if shared.recovery.frozen || shared.recovery.failed {
+            return None;
+        }
+        shared.recovery.model.as_mut()?.recover(token, context)
+    }
+    pub fn discard(&mut self, confirmed: &Record) -> bool {
+        self.clear_recovery(confirmed, false)
+    }
+    pub fn acknowledged(&mut self, exact: &Record) -> bool {
+        self.clear_recovery(exact, true)
+    }
+    fn clear_recovery(&mut self, record: &Record, saved: bool) -> bool {
+        let Some(worker) = &self.worker else {
+            return false;
+        };
+        let accepted = {
+            let mut shared = worker.shared.lock().unwrap();
+            if shared.recovery.frozen || shared.recovery.failed {
+                return false;
+            }
+            let Some(model) = shared.recovery.model.as_mut() else {
+                return false;
+            };
+            if model.status() == LocalStatus::Failed {
+                return false;
+            }
+            if saved {
+                model.acknowledge_saved(record)
+            } else {
+                model.discard(record)
+            }
+        };
+        if accepted {
+            worker.notify();
+        }
+        accepted
+    }
+    fn session_available(&self) -> bool {
+        self.worker
+            .as_ref()
+            .is_some_and(|w| w.shared.lock().unwrap().error.is_none())
+    }
+    /// Metadata failures must not destroy the draft worker or its pending bytes.
+    fn disable_session(&mut self) {
+        if self.recovery_enabled {
+            if let Some(worker) = &self.worker {
+                let mut shared = worker.shared.lock().unwrap();
+                shared.latest = None;
+                if shared.error.is_none() {
+                    shared.error = Some("Fixture metadata unavailable".into());
+                }
+            }
+        } else {
+            self.worker = None;
         }
     }
     /// None is a strict zero-session-I/O path, including no environment/path probes.
@@ -128,7 +388,11 @@ impl SessionUi {
                 // Home is the safe active route; relative MRU order of restored notes is retained.
                 tabs.open_home();
                 self.last = tabs.entries().to_vec();
-                self.worker = Some(Writer::new(store));
+                self.worker = Some(Writer::new(
+                    store,
+                    self.recovery_enabled,
+                    self.known_vaults.clone(),
+                ));
                 Some(tabs)
             }
             Err(error) => {
@@ -169,7 +433,7 @@ impl SessionUi {
         scope: &str,
     ) {
         self.poll_warning();
-        if self.worker.is_none() {
+        if !self.session_available() {
             return;
         }
         if scope.len() > 1024
@@ -178,7 +442,7 @@ impl SessionUi {
         {
             self.warning =
                 Some("Tab persistence disabled: unknown or invalid working scope.".into());
-            self.worker = None;
+            self.disable_session();
             return;
         }
         let history = history.snapshot();
@@ -194,7 +458,7 @@ impl SessionUi {
         {
             self.warning =
                 Some("Tab persistence disabled: metadata exceeds bounded snapshot limits.".into());
-            self.worker = None;
+            self.disable_session();
             return;
         }
         let Some(worker) = self.worker.as_mut() else {
@@ -214,7 +478,7 @@ impl SessionUi {
         self.last = tabs.entries().to_vec();
     }
     pub fn positions_enabled(&self) -> bool {
-        self.safe_home && self.worker.is_some()
+        self.safe_home && self.session_available()
     }
     pub fn reading_position(&self, key: &tabs::TabKey) -> Option<&session_store::ReadingPosition> {
         self.positions.iter().find(|p| &p.key() == key)
@@ -236,10 +500,13 @@ impl SessionUi {
             || !tabs.entries().iter().any(|tab| tab.key == position.key())
         {
             self.warning = Some("Tab persistence disabled: invalid reading position".into());
-            self.worker = None;
+            self.disable_session();
             return Err(self.warning.clone().unwrap());
         }
         self.sync_with_scope(tabs, history, scope);
+        if !self.session_available() {
+            return Err("Fixture position persistence unavailable".into());
+        }
         let Some(worker) = self.worker.as_mut() else {
             return Err("Fixture position persistence unavailable".into());
         };
@@ -266,7 +533,7 @@ impl SessionUi {
             .and_then(|worker| worker.shared.lock().unwrap().error.clone());
         if let Some(error) = error {
             self.warning = Some(format!("Tab persistence disabled: {error}"));
-            self.worker = None;
+            self.disable_session();
         }
     }
     #[cfg(test)]
@@ -286,7 +553,10 @@ impl SessionUi {
         known.sort();
         known.dedup();
         if known != self.known_vaults {
-            self.worker = None;
+            if let Some(worker) = &self.worker {
+                worker.shared.lock().unwrap().recovery.frozen = true;
+            }
+            self.disable_session();
             self.known_vaults = known;
             self.warning = Some("Tab persistence disabled: vault registry changed; restart with matching fixture configuration.".into());
         }
@@ -650,5 +920,162 @@ mod tests {
         );
         assert!(normal.positions.is_empty());
         assert!(normal.worker.is_none());
+    }
+    fn wait_recovery(ui: &SessionUi, expected: RecoveryStatus) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while ui.recovery_status() != expected {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "recovery worker did not reach expected state"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+    }
+    fn draft(ui: &SessionUi, revision: u64) -> Record {
+        Record {
+            schema: 1,
+            binding: ui.recovery_binding().unwrap(),
+            scope: "work".into(),
+            vault: "work".into(),
+            note_id: 7,
+            kind: "note".into(),
+            base_etag: "base".into(),
+            body: "日本語 e\u{301}\n".into(),
+            revision,
+            title: Some("fixture".into()),
+        }
+    }
+    #[test]
+    fn enabled_worker_checkpoints_coalesces_restarts_without_install_or_write() {
+        let f = Fixture::new();
+        let path = f.0.join("cache/draft-recovery.json");
+        let mut ui = f.ui();
+        ui.enable_recovery();
+        let tabs = ui.restore(registry()).unwrap();
+        assert_eq!(tabs.active().unwrap().key, tabs::TabKey::Home);
+        wait_recovery(&ui, RecoveryStatus::Ready(LocalStatus::Empty));
+        assert!(!path.exists());
+        let mut latest = draft(&ui, 1);
+        for revision in 1..=30 {
+            latest.revision = revision;
+            latest.body = format!("日本語 e\u{301}\n{revision}");
+            ui.checkpoint(latest.clone()).unwrap();
+        }
+        wait_recovery(&ui, RecoveryStatus::Ready(LocalStatus::SavedLocally));
+        assert_eq!(ui.next_revision().unwrap(), 31);
+        let before = std::fs::read(&path).unwrap();
+        assert!(Record::decode(&before, &latest.binding, &registry().unwrap()).unwrap() == latest);
+        assert!(!f.0.join("cache/track-native-tabs-v1.json").exists());
+        drop(ui);
+        let mut restarted = f.ui();
+        restarted.enable_recovery();
+        let tabs = restarted.restore(registry()).unwrap();
+        wait_recovery(&restarted, RecoveryStatus::Ready(LocalStatus::Available));
+        assert_eq!(tabs.active().unwrap().key, tabs::TabKey::Home);
+        assert!(restarted.recovery_record().unwrap() == latest);
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        let mut newer = latest.clone();
+        newer.revision += 1;
+        assert!(restarted.checkpoint(newer).is_err());
+        let context = RecoveryContext {
+            binding: latest.binding.clone(),
+            scope: latest.scope.clone(),
+            vault: latest.vault.clone(),
+            note_id: latest.note_id,
+            kind: latest.kind.clone(),
+            etag: latest.base_etag.clone(),
+            request: 1,
+            launch: 2,
+            storage: 3,
+            editing_ready: true,
+            storage_ready: true,
+            draft_busy: false,
+        };
+        let offer = restarted.offer_recovery(&context).unwrap();
+        assert!(restarted.recover(&offer, &context).unwrap() == latest);
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert!(restarted.acknowledged(&latest));
+        wait_recovery(&restarted, RecoveryStatus::Ready(LocalStatus::Empty));
+        assert!(!path.exists());
+        assert_eq!(restarted.next_revision().unwrap(), 31);
+    }
+    #[test]
+    fn metadata_failure_keeps_recovery_worker_but_registry_change_freezes_it() {
+        let f = Fixture::new();
+        let mut ui = f.ui();
+        ui.enable_recovery();
+        let mut tabs = ui.restore(registry()).unwrap();
+        wait_recovery(&ui, RecoveryStatus::Ready(LocalStatus::Empty));
+        tabs.open_graph();
+        ui.sync(&tabs, &navigation::History::default());
+        ui.flush();
+        std::fs::write(
+            f.0.join("cache/track-native-tabs-v1.json"),
+            b"foreign metadata",
+        )
+        .unwrap();
+        tabs.open_home();
+        ui.sync(&tabs, &navigation::History::default());
+        ui.flush();
+        ui.poll_warning();
+        assert!(ui.warning.is_some());
+        assert!(ui.worker.is_some());
+        let first = draft(&ui, 1);
+        ui.checkpoint(first.clone()).unwrap();
+        wait_recovery(&ui, RecoveryStatus::Ready(LocalStatus::SavedLocally));
+        assert!(ui.recovery_record().unwrap() == first);
+        let before = std::fs::read(f.0.join("cache/draft-recovery.json")).unwrap();
+        ui.registry_changed(vec!["".into()]);
+        assert_eq!(ui.recovery_status(), RecoveryStatus::Failed);
+        let mut next = first;
+        next.revision = 2;
+        assert!(ui.checkpoint(next).is_err());
+        assert_eq!(
+            std::fs::read(f.0.join("cache/draft-recovery.json")).unwrap(),
+            before
+        );
+    }
+    #[test]
+    fn recovery_cas_failure_retains_latest_and_never_retries() {
+        let f = Fixture::new();
+        let mut ui = f.ui();
+        ui.enable_recovery();
+        ui.restore(registry()).unwrap();
+        wait_recovery(&ui, RecoveryStatus::Ready(LocalStatus::Empty));
+        let mut record = draft(&ui, 1);
+        ui.checkpoint(record.clone()).unwrap();
+        wait_recovery(&ui, RecoveryStatus::Ready(LocalStatus::SavedLocally));
+        let path = f.0.join("cache/draft-recovery.json");
+        std::fs::write(&path, b"foreign artifact").unwrap();
+        record.revision = 2;
+        ui.checkpoint(record.clone()).unwrap();
+        wait_recovery(&ui, RecoveryStatus::Failed);
+        assert!(ui.recovery_record().unwrap() == record);
+        record.revision = 3;
+        ui.checkpoint(record.clone()).unwrap();
+        assert_eq!(ui.recovery_status(), RecoveryStatus::Failed);
+        drop(ui); // drains wake, but must not retry an uncertain operation
+        assert_eq!(std::fs::read(&path).unwrap(), b"foreign artifact");
+        let mut restart = f.ui();
+        restart.enable_recovery();
+        restart.restore(registry()).unwrap();
+        wait_recovery(&restart, RecoveryStatus::Failed);
+        assert!(restart.recovery_record().is_none());
+    }
+    #[test]
+    fn disabled_worker_never_inspects_recovery_artifact() {
+        let f = Fixture::new();
+        let path = f.0.join("cache/draft-recovery.json");
+        std::os::unix::fs::symlink(f.0.join("config"), &path).unwrap();
+        let mut ui = f.ui();
+        let mut tabs = ui.restore(registry()).unwrap();
+        tabs.open_graph();
+        ui.sync(&tabs, &navigation::History::default());
+        ui.flush();
+        assert_eq!(ui.recovery_status(), RecoveryStatus::Disabled);
+        assert!(ui.recovery_binding().is_none());
+        assert!(ui.recovery_record().is_none());
+        assert!(path.symlink_metadata().unwrap().file_type().is_symlink());
+        assert_eq!(std::fs::read(f.0.join("config")).unwrap(), b"{}\n");
     }
 }

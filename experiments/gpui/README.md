@@ -203,8 +203,8 @@ The rail provides Preview/Edit/Split and explicit Save. One active draft is
 supported. Navigation and exit share Save/Discard/Cancel guards; saving locks
 input and retains the original source revision. Ambiguous failures are not
 retried automatically. Source comparison requires an exact body match before
-explicit reconciliation. Drafts are memory-only: crashes or forced termination
-can lose edits. Draft-preview links are inactive. Native IME, Dock Quit and
+explicit reconciliation. Drafts are memory-only unless the separate developer recovery opt-in described
+below is enabled. Crashes can still lose checkpoints marked Pending. Draft-preview links are inactive. Native IME, Dock Quit and
 complete pending/failure-path UI testing remain required before release. `NATIVE-QA.md` records the exercised dirty-close and lost-save-ack
 subset. Use `qa/SAVE-FAULTS.md` only with a fresh disposable fixture to reproduce
 held or dropped acknowledgements; it never enables ordinary editing.
@@ -221,24 +221,43 @@ one explicit pin](GRAPH-PREVIEW-FOUNDATION.md) are implemented with synthetic
 lifecycle/transport tests; GUI behavior and broader parity remain unverified.
 See [GRAPH.md](GRAPH.md#full-vault-graph-prerequisite-2026-11-14).
 
-### Draft recovery storage foundation (not enabled)
+### Disposable fixture draft recovery (developer opt-in)
 
-A protected recovery storage/model layer is available internally for disposable
-fixtures. It is not connected to startup, editor input, Save, Discard or Quit,
-and no recovery CLI option is enabled. Running editor drafts remain memory-only.
-Filesystem/model tests do not mean the application can recover after a crash.
+Add `--developer-draft-recovery` only when both `--developer-edit-fixture` and
+`--developer-session-fixture` authorize the same disposable fixture, with the
+existing explicit protected temporary config/cache and owned-server settings.
+The boolean accepts no path. Never mark a personal vault as a fixture. Ordinary
+launches and launches without this additional opt-in perform no recovery-file I/O.
 
-The internal store uses the existing session owner/lock and a separate cache
-artifact, with bounded reads, private regular-file checks, atomic replacement
-and synchronization. It refuses changed identities or contents. These checks
-are not a sandbox against a same-user process racing filesystem mutations,
-and tests do not establish power-loss durability.
+One draft is checkpointed asynchronously to `draft-recovery.json` in the protected
+cache, separately from tabs/history. **Pending** is not durable. **Saved locally**
+means that exact draft revision completed its local checkpoint, not that the note
+was saved. A crash can lose newer pending text. Checkpoints share the session
+storage owner and lock; errors retain the draft and do not retry blindly.
+There is no in-session retry after a storage failure; retain the current text
+and inspect the fixture/cache before restarting.
 
-The intended integration must serialize checkpoints and acknowledged clears with
-the existing storage owner, report exact durable revisions, and finish or refuse
-orderly close asynchronously. Source conflicts and unknown save outcomes must
-retain recovery, not silently rebase it. These lifecycle requirements remain open;
-normal editing stays disabled.
+On restart, **Unsaved fixture draft available** does not fetch or open a note.
+Explicitly open the same fixture note and obtain a fresh source, then use
+**Recover draft (no save)** in diagnostics. Recovery installs a dirty draft only
+when the source identity and base revision still match. Changed, missing or
+unavailable sources retain the record without silently rebasing it. An unresolved
+record blocks starting a different draft. **Discard saved fixture draft…** asks
+for confirmation identifying the note; it does not delete the note or session.
+
+Existing Save/Discard/Cancel prompts remain. Successful Save or explicit Discard
+orders an exact recovery clear before a pending transition. A failed or uncertain
+save retains recovery. If the local barrier fails or exceeds five seconds, the
+transition is suppressed; Cancel keeps the editor. Timing out does not cancel an
+in-flight filesystem operation or start a second writer. Closing alone does not
+clear recovery. Ordinary editing remains disabled.
+
+The store accepts one UTF-8 draft up to 2 MiB, with a 3 MiB artifact cap and bounded
+metadata. Invalid, foreign or concurrently changed files are preserved, not reset.
+Private regular-file checks and atomic synchronized replacement are not a sandbox
+against a same-user process racing filesystem changes, and power-loss durability
+is not established. Native Dock Quit, IME, pending-save and accessibility QA remain
+required; headless tests are not evidence that those interactions are safe.
 
 ### Disposable fixture tab/history/scope snapshots (developer opt-in)
 

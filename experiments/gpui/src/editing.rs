@@ -63,6 +63,7 @@ pub struct EditSession {
     launch_generation: u64,
     storage_generation: u64,
     baseline: String,
+    recovered: bool,
     etag: String,
     draft: String,
     state: DraftState,
@@ -86,6 +87,7 @@ impl EditSession {
             launch_generation,
             storage_generation: storage.generation,
             baseline: body.clone(),
+            recovered: false,
             draft: body,
             etag: source.note.etag.clone(),
             state: DraftState::Clean,
@@ -96,6 +98,21 @@ impl EditSession {
             pending_leave: false,
             comparison: None,
         })
+    }
+    /// Explicit fresh-source recovery never silently rebases a stored draft.
+    pub fn install_recovered(&mut self, body: String, base_etag: &str) -> Result<(), String> {
+        if self.dirty()
+            || self.is_saving()
+            || self.composing
+            || self.retired
+            || self.etag != base_etag
+        {
+            return Err("Fresh source no longer matches the retained draft.".into());
+        }
+        self.replace_text(body)?;
+        self.recovered = true;
+        self.state = DraftState::Dirty;
+        Ok(())
     }
     pub fn key(&self) -> &NoteKey {
         &self.key
@@ -131,7 +148,7 @@ impl EditSession {
         &self.state
     }
     pub fn dirty(&self) -> bool {
-        self.draft != self.baseline
+        self.recovered || self.draft != self.baseline
     }
     /// Plain text callers have no active IME; UI integration should use
     /// replace_text_with_composition and signal unmark with set_composing(false).
@@ -248,6 +265,7 @@ impl EditSession {
             {
                 // Acknowledgment binds the exact submitted buffer to the new etag.
                 // GET has a different, trailing-LF-free representation.
+                self.recovered = false;
                 self.baseline = save.request.body;
                 self.draft = self.baseline.clone();
                 self.etag = ack.etag;
@@ -305,6 +323,7 @@ impl EditSession {
                 Ok(LeaveAction::Stay)
             }
             LeaveChoice::Discard => {
+                self.recovered = false;
                 self.retired = true;
                 self.draft = self.baseline.clone();
                 self.state = DraftState::Clean;
@@ -418,6 +437,7 @@ impl EditSession {
         }
         // Never replace authored text with GET's lossy representation, even after
         // explicit acceptance. Future edits compare against this exact local baseline.
+        self.recovered = false;
         self.baseline = self.draft.clone();
         self.etag = comparison.etag.clone();
         self.state = DraftState::Clean;
@@ -513,6 +533,27 @@ mod tests {
             etag: "new".into(),
             saved: true,
         }
+    }
+    #[test]
+    fn explicit_recovery_retains_base_and_is_dirty_even_when_text_matches() {
+        let mut edit = draft();
+        let body = edit.baseline().to_owned();
+        assert!(edit.install_recovered(body.clone(), "changed").is_err());
+        assert!(!edit.dirty());
+        let base = edit.etag().to_owned();
+        edit.install_recovered(body.clone(), &base).unwrap();
+        assert!(edit.dirty());
+        assert_eq!(edit.leave_prompt(), LeavePrompt::AskSaveDiscardCancel);
+        assert_eq!(edit.etag(), base);
+        assert!(edit.install_recovered("other".into(), &base).is_err());
+        let save = edit.prepare_save(1, &storage()).unwrap().unwrap();
+        assert_eq!(save.request.body, body);
+        assert_eq!(save.request.etag, base);
+        assert_eq!(
+            edit.finish_save(save.attempt, 1, 2, Ok(ack())),
+            SaveOutcome::Saved { leave: false }
+        );
+        assert!(!edit.dirty());
     }
     #[test]
     fn clean_and_reverted_drafts_never_request_save() {

@@ -1,5 +1,7 @@
 //! Developer-only disposable-fixture editing. One active draft, no autosave/retry.
 //! All transitions pass the same gate before any note/tab/reader state changes.
+#[path = "workspace_recovery.rs"]
+mod recovery;
 use super::*;
 use editing::{EditSession, LeaveAction, LeaveChoice, LeavePrompt, SaveOutcome};
 use gpui::{Div, Entity, Subscription};
@@ -122,6 +124,7 @@ struct ActiveDraft {
     _subscription: Subscription,
     source_path: PathBuf,
     title: String,
+    recovery: Option<draft_recovery::Record>,
 }
 pub struct EditingUi {
     fixture_root: Option<PathBuf>,
@@ -134,6 +137,11 @@ pub struct EditingUi {
     inspection_ticket: u64,
     exit_requested: bool,
     message: String,
+    recovery_clearing: bool,
+    recovery_started: Option<std::time::Instant>,
+    recovery_wait: Option<Transition>,
+    recovery_discard: Option<draft_recovery::Record>,
+    recovery_seen: Option<workspace_session::RecoveryStatus>,
 }
 impl EditingUi {
     pub fn new(fixture_root: Option<PathBuf>) -> Self {
@@ -148,6 +156,11 @@ impl EditingUi {
             inspection_ticket: 0,
             exit_requested: false,
             message: String::new(),
+            recovery_clearing: false,
+            recovery_started: None,
+            recovery_wait: None,
+            recovery_discard: None,
+            recovery_seen: None,
         }
     }
     fn shutdown_failed(&mut self, message: String) {
@@ -242,6 +255,13 @@ fn fixture_note(root: &Path, path: &Path) -> bool {
 impl Workspace {
     /// true means caller must stop before changing any navigation state.
     pub(crate) fn guard_transition(&mut self, intent: Transition, cx: &mut Context<Self>) -> bool {
+        if self.editing_ui.recovery_clearing {
+            self.editing_ui.message =
+                "Local draft removal is pending or failed. Stay here; no safe close is authorized."
+                    .into();
+            cx.notify();
+            return true;
+        }
         if self.editing_ui.bypass {
             self.cancel_transient_preview();
             return false;
@@ -260,13 +280,17 @@ impl Workspace {
             cx.notify();
             return true;
         }
+        self.checkpoint_editor_recovery(cx);
         match transition_decision(
             false,
             false,
-            self.editing_ui
-                .active
-                .as_ref()
-                .map(|a| a.session.leave_prompt()),
+            self.editing_ui.active.as_ref().map(|a| {
+                if a.recovery.is_some() && a.session.leave_prompt() == LeavePrompt::Leave {
+                    LeavePrompt::AskSaveDiscardCancel
+                } else {
+                    a.session.leave_prompt()
+                }
+            }),
         ) {
             GateDecision::Proceed => {
                 self.cancel_transient_preview();
@@ -348,6 +372,7 @@ impl Workspace {
         cx.notify();
     }
     pub(crate) fn editor_environment_changed(&mut self, message: &str) {
+        self.editing_ui.recovery_wait = None;
         if self.editing_ui.active.is_some() {
             self.editing_ui.pending.cancel();
             self.editing_ui.message = format!(
@@ -378,6 +403,13 @@ impl Workspace {
             .current_note
             .clone()
             .ok_or("Read a note before editing.")?;
+        if self.session_ui.recovery_enabled()
+            && (note.note.file_kind != "note"
+                || note.note.vault.is_empty()
+                || note.body.len() > draft_recovery::BODY_LIMIT)
+        {
+            return Err("Fixture recovery requires a canonical existing note and source within the 2 MiB draft limit.".into());
+        }
         if !fixture_note(
             self.editing_ui.fixture_root.as_ref().unwrap(),
             Path::new(&note.note.path),
@@ -401,6 +433,19 @@ impl Workspace {
             return;
         }
         if self.editing_ui.active.is_none() && mode != EditorMode::Preview {
+            if self.session_ui.recovery_enabled()
+                && (!self.session_ui.recovery_ready()
+                    || self.session_ui.recovery_record().is_some()
+                    || self.session_ui.recovery_status()
+                        != workspace_session::RecoveryStatus::Ready(
+                            draft_recovery::LocalStatus::Empty,
+                        ))
+            {
+                self.editing_ui.message = "Resolve the retained fixture draft in diagnostics before starting another editor. Persistence must be ready.".into();
+                self.shell.diagnostics = true;
+                cx.notify();
+                return;
+            }
             let result = self.editing_source().and_then(|(launch, storage, source)| {
                 EditSession::from_note(launch, &storage, &source).map(|session| (session, source))
             });
@@ -429,6 +474,7 @@ impl Workspace {
                             this.editing_ui.message = message;
                         }
                     }
+                    this.checkpoint_editor_recovery(cx);
                     cx.notify();
                 },
             );
@@ -444,14 +490,22 @@ impl Workspace {
                 _subscription: subscription,
                 source_path: source.note.note.path.into(),
                 title: source.note.note.title,
+                recovery: None,
             });
-            self.editing_ui.message = "Developer fixture only. One draft; memory-only recovery. Native dirty/quit GUI QA is still pending.".into();
+            self.editing_ui.message = if self.session_ui.recovery_enabled() {
+                "Developer fixture only. Local checkpoints are separate from engine Save; Pending changes can be lost on crash. Native GUI QA remains pending.".into()
+            } else {
+                "Developer fixture only. One draft; memory-only recovery. Native dirty/quit GUI QA is still pending.".into()
+            };
         }
         self.editing_ui.mode = mode;
         self.editing_ui.mode_menu = false;
         cx.notify();
     }
     pub(crate) fn editor_save(&mut self, leaving: bool, cx: &mut Context<Self>) {
+        if self.editing_ui.recovery_clearing {
+            return;
+        }
         if self
             .editing_ui
             .active
@@ -466,6 +520,19 @@ impl Workspace {
         }
         if let Err(message) = self.sync_editor(cx) {
             self.editing_ui.message = message;
+            cx.notify();
+            return;
+        }
+        self.checkpoint_editor_recovery(cx);
+        if self.session_ui.recovery_enabled()
+            && self.editing_ui.active.as_ref().is_some_and(|a| {
+                a.session.dirty()
+                    && !a.recovery.as_ref().is_some_and(|r| {
+                        r.body == a.session.draft() && r.base_etag == a.session.etag()
+                    })
+            })
+        {
+            self.editing_ui.message = "Latest text is outside local recovery bounds or could not be captured; draft retained, no save or transition sent.".into();
             cx.notify();
             return;
         }
@@ -524,6 +591,11 @@ impl Workspace {
                 let _ = active
                     .input
                     .update(cx, |editor, cx| editor.set_read_only(false, cx));
+                if active.recovery.is_some() {
+                    self.editing_ui.message = "No engine write was needed, but a local draft is retained. Explicitly Discard it or Cancel; no automatic removal.".into();
+                    cx.notify();
+                    return;
+                }
                 if leaving {
                     if let Some(intent) = self.editing_ui.pending.take() {
                         self.execute_transition(intent, cx);
@@ -547,6 +619,7 @@ impl Workspace {
         self.editing_ui.inspecting = false;
         self.editing_ui.message =
             "Saving explicit fixture draft… Editing is locked; no duplicate save is sent.".into();
+        let recovery_ack = active.recovery.clone();
         let attempt = prepared.attempt;
         if leaving {
             self.editing_ui.pending.bind_save(attempt);
@@ -627,9 +700,10 @@ impl Workspace {
                         this.editing_ui.message =
                             "Fixture save acknowledged. Authored text and undo history retained."
                                 .into();
-                        if let Some(intent) =
-                            this.editing_ui.pending.finish_save(attempt, &outcome, true)
-                        {
+                        let intent = this.editing_ui.pending.finish_save(attempt, &outcome, true);
+                        if let Some(record) = recovery_ack.as_ref() {
+                            this.finish_recovery_save(record, intent, cx);
+                        } else if let Some(intent) = intent {
                             this.execute_transition(intent, cx);
                         }
                     }
@@ -652,6 +726,17 @@ impl Workspace {
         cx.notify();
     }
     pub(crate) fn editor_leave_choice(&mut self, choice: LeaveChoice, cx: &mut Context<Self>) {
+        if self.editing_ui.recovery_clearing {
+            if choice == LeaveChoice::Cancel {
+                self.editing_ui.recovery_wait = None;
+                self.editing_ui.pending.cancel();
+                cx.notify();
+            }
+            return;
+        }
+        if choice == LeaveChoice::Discard && self.discard_editor_recovery(cx) {
+            return;
+        }
         if choice == LeaveChoice::Save {
             self.editor_save(true, cx);
             return;
@@ -902,6 +987,9 @@ impl Workspace {
         menu
     }
     pub(crate) fn editor_fixture_notice(&self) -> &'static str {
+        if self.session_ui.recovery_enabled() {
+            return self.recovery_notice();
+        }
         match self.editing_ui.active.as_ref().map(|a| a.session.state()) {
             Some(editing::DraftState::Uncertain(_)) => {
                 "Fixture only · save outcome unknown; draft kept. See diagnostics."
@@ -951,7 +1039,7 @@ impl Workspace {
                     );
             }
         }
-        panel
+        self.render_recovery_diagnostics(panel, cx)
     }
     pub(crate) fn render_editor(&self, dark: bool) -> Div {
         let Some(active) = &self.editing_ui.active else {

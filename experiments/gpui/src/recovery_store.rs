@@ -1,4 +1,4 @@
-//! Internal foundation only: no runtime caller. Access is serialized by a mutable
+//! Explicit disposable-fixture checkpoints. Access is serialized by a mutable
 //! SessionStore borrow and its existing exclusive cache lock. No independent writer.
 #![allow(dead_code)]
 use super::*;
@@ -129,6 +129,18 @@ impl SessionStore {
         checkpoint.high_water = record.revision;
         checkpoint.record = Some(record);
         Ok(())
+    }
+    /// Called only for an ordered model Clear. A canceled not-yet-written draft
+    /// still checks protected storage and exact absence without an unlink.
+    pub fn clear_recovery_if_present(
+        &mut self,
+        checkpoint: &mut RecoveryCheckpoint,
+    ) -> Result<(), String> {
+        if let Some(exact) = checkpoint.record().cloned() {
+            self.clear_recovery(checkpoint, &exact)
+        } else {
+            self.check_recovery(checkpoint)
+        }
     }
     /// Exact model-acknowledged clear or explicit confirmed discard only. The
     /// revision/source token excludes a newer checkpoint; queued jobs must also

@@ -62,6 +62,7 @@ impl Workspace {
                     .await;
                 if this
                     .update(cx, |this, cx| {
+                        this.poll_editor_recovery(cx);
                         let warning = this.session_ui.warning.clone();
                         this.session_ui.poll_warning();
                         if warning != this.session_ui.warning {

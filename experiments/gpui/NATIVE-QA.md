@@ -709,3 +709,21 @@ preview during interaction and verify stale page actions do nothing. Confirm
 gallery/calendar and malformed/over-limit payloads retain source plus a notice.
 Check narrow layout, horizontal board scrolling, keyboard focus, IME, VoiceOver
 and light/dark contrast. No native evidence is claimed for this slice.
+
+### Fixture draft recovery integration (pending native QA)
+
+Use a fresh disposable fixture with edit/session authorization and the additional
+`--developer-draft-recovery` opt-in. Type Japanese and combining text, observe
+Pending versus Saved locally, then reopen using the same fixture binding. No note
+should open or save automatically. Open its source and explicitly Recover draft;
+verify it is dirty, unchanged and not saved. Externally change/delete the source
+and confirm recovery is retained without rebasing. Exercise explicit saved-draft
+discard confirmation and Cancel.
+
+Delay/fail local checkpoints and clear acknowledgements during Save/Discard plus
+navigation, Window Close, Cmd-Q and Dock Quit. A timeout must suppress the pending
+transition without claiming filesystem cancellation. Cancel must retain the
+editor; late callbacks cannot navigate or quit after cancellation. Verify unknown
+engine saves retain recovery and ordinary launches never touch recovery files.
+Test IME, VoiceOver, narrow layout and multi-tab focus. These native scenarios
+remain unverified; headless tests do not satisfy them.

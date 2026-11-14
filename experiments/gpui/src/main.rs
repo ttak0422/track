@@ -6,7 +6,6 @@ mod backend;
 mod build_info;
 mod code_copy;
 mod code_highlight;
-#[allow(dead_code)] // Staged recovery foundation: not wired into runtime editing.
 mod draft_recovery;
 mod editing;
 mod editor_input;
@@ -388,6 +387,28 @@ impl log::Log for StderrLog {
 }
 static LOGGER: StderrLog = StderrLog;
 
+/// Inputs are the canonical roots returned by the existing fixture validator.
+/// This gate does not probe storage, especially when recovery is not requested.
+fn validate_recovery_binding(
+    enabled: bool,
+    owned_server: bool,
+    edit_root: Option<&std::path::Path>,
+    session_root: Option<&std::path::Path>,
+) -> Result<(), &'static str> {
+    if !enabled {
+        return Ok(());
+    }
+    if !owned_server {
+        return Err("Developer draft recovery requires an owned --server-port.");
+    }
+    match (edit_root, session_root) {
+        (Some(edit), Some(session)) if edit == session => Ok(()),
+        _ => Err(
+            "Developer draft recovery requires both verified --developer-edit-fixture and --developer-session-fixture bindings to the same disposable fixture.",
+        ),
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = log::set_logger(&LOGGER);
     log::set_max_level(log::LevelFilter::Warn);
@@ -398,15 +419,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     if args.first().is_some_and(|a| a == "--help") {
         println!(
-            "track-gpui-poc --version\ntrack-gpui-poc [notes.json]\ntrack-gpui-poc --vault /absolute/vault --track-bin /absolute/track [--config /absolute/config] [--cache /absolute/cache] [--server-port 19000] [--developer-edit-fixture /temporary/disposable/vault] [--developer-session-fixture /canonical/temporary/disposable/vault]\nTab persistence is a separate opt-in: cache/track-native-tabs-v1.json, metadata only, safe Home on restart.\nDeveloper editing requires a disposable marker and isolated temporary config/cache; not release-ready.\nNo arguments: synthetic fixture. Vault mode is read-only; CLI may refresh derived caches."
+            "track-gpui-poc --version\ntrack-gpui-poc [notes.json]\ntrack-gpui-poc --vault /absolute/vault --track-bin /absolute/track [--config /absolute/config] [--cache /absolute/cache] [--server-port 19000] [--developer-edit-fixture /temporary/disposable/vault] [--developer-session-fixture /canonical/temporary/disposable/vault] [--developer-draft-recovery]\nFixture-only draft recovery requires both fixture options bound to the same root and isolated config/cache.\nTab persistence is a separate opt-in: cache/track-native-tabs-v1.json, metadata only, safe Home on restart.\nDeveloper editing requires a disposable marker and isolated temporary config/cache; not release-ready.\nNo arguments: synthetic fixture. Vault mode is read-only; CLI may refresh derived caches."
         );
         return Ok(());
     }
     let mut live_config = None;
     let mut developer_fixture = None;
     let mut session_options = None;
+    let mut developer_draft_recovery = false;
     let (snapshot, source, backend) = if args.first().is_some_and(|a| a.starts_with("--")) {
         let mut server_port = None;
+        let mut verified_session_fixture = None;
         let mut session_fixture: Option<std::path::PathBuf> = None;
         let mut fixture_option: Option<std::path::PathBuf> = None;
         let mut vault = None;
@@ -415,6 +438,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut cache = None;
         let mut iter = args.iter();
         while let Some(flag) = iter.next() {
+            if flag == "--developer-draft-recovery" {
+                developer_draft_recovery = true;
+                continue;
+            }
             let value = iter.next().ok_or("missing option value")?;
             match flag.as_str() {
                 "--developer-session-fixture" => session_fixture = Some(value.into()),
@@ -442,18 +469,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if server_port.is_none() {
                 return Err("Developer tab persistence requires an owned --server-port.".into());
             }
-            workspace_edit::validate_fixture(
+            verified_session_fixture = Some(workspace_edit::validate_fixture(
                 &root,
                 vault.as_deref().ok_or("--vault is required")?,
                 config.as_deref(),
                 cache.as_deref(),
-            )?;
+            )?);
             session_options = Some(workspace_session::SessionOptions {
                 fixture: root,
                 config: config.clone().ok_or("--config is required")?,
                 cache: cache.clone().ok_or("--cache is required")?,
             });
         }
+        validate_recovery_binding(
+            developer_draft_recovery,
+            server_port.is_some(),
+            developer_fixture.as_deref(),
+            verified_session_fixture.as_deref(),
+        )?;
         if let Some(port) = server_port {
             let mut config_live = live::LaunchConfig::new(
                 executable.clone().ok_or("--track-bin is required")?,
@@ -596,12 +629,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 });
                 let workspace = cx.new(|cx| {
                     let backend_is_fixture = backend.is_none();
+                    let mut session_ui = workspace_session::SessionUi::new(session_options);
+                    if developer_draft_recovery {
+                        session_ui.enable_recovery();
+                    }
                     let mut workspace = Workspace {
                         shell: shell::ShellState::default(),
                         editing_ui: workspace_edit::EditingUi::new(developer_fixture),
                         tabs: tabs::Tabs::default(),
                         history: navigation::History::default(),
-                        session_ui: workspace_session::SessionUi::new(session_options),
+                        session_ui,
                         event_awareness: Default::default(),
                         reader_images: Default::default(),
                         selected: (!snapshot.notes.is_empty()).then_some(0),
@@ -697,6 +734,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn recovery_requires_both_verified_fixture_bindings_and_owned_server() {
+        let root = std::path::Path::new("/verified/fixture");
+        let other = std::path::Path::new("/verified/other");
+        assert!(validate_recovery_binding(true, true, Some(root), Some(root)).is_ok());
+        for (edit, session) in [
+            (None, None),
+            (Some(root), None),
+            (None, Some(root)),
+            (Some(root), Some(other)),
+        ] {
+            assert!(validate_recovery_binding(true, true, edit, session).is_err());
+        }
+        assert!(validate_recovery_binding(true, false, Some(root), Some(root)).is_err());
+        assert!(validate_recovery_binding(false, false, None, None).is_ok());
+    }
+
     #[test]
     fn requested_live_mode_never_falls_back_to_cli_before_or_after_startup_failure() {
         assert!(live_mode_waiting(true, false));

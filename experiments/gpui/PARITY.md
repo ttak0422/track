@@ -71,18 +71,18 @@ remain open; the original missing glyphs were a disabled font backend, not an OS
 
 A guarded disposable-fixture editor now connects the raw-body/etag transport to
 Preview/Edit/Split and unified navigation/exit prompts. Ordinary use remains
-read-only. It supports one in-memory draft, not durable recovery or full editor
+read-only. It supports one draft, with separately gated fixture checkpoints, not full editor
 parity. Independent source review and unit tests cover stale callbacks, save
 locking, and transition guards. Disposable native checks cover app-menu quit,
 Cancel, explicit Save, stale-source refusal, dirty Window Close/repeated Cmd-Q and Discard, with child-port cleanup.
 Dock Quit, active IME and pending/uncertain native-event checks remain open.
 See `NATIVE-QA.md` for evidence and the README for the fixture-only opt-in.
 
-The draft-recovery storage/model foundation is not wired into the running
-application. Its disposable filesystem tests are prerequisites, not evidence of
-editor or Quit durability. Startup/read, edit/checkpoint, acknowledged-save clear,
-explicit recovery/discard and final-close ordering still need integration and
-native validation.
+Fixture-only recovery is separately opt-in. It connects protected checkpoints,
+explicit same-source recovery and ordered save/discard clears to the existing
+editor gates. Ordinary editing remains disabled. Filesystem/model and headless
+integration tests do not establish native Dock Quit, IME, pending-save or
+power-loss durability; these remain separate validation gates.
 
 ## Reuse the engine boundary
 
