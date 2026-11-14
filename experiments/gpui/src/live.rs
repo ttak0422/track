@@ -606,7 +606,7 @@ fn date_wire_shape(date: &str) -> bool {
 }
 
 // Calendar validation without timezone conversion or duration-based day arithmetic.
-fn calendar_date_valid(date: &str) -> bool {
+pub(crate) fn calendar_date_valid(date: &str) -> bool {
     if !date_wire_shape(date) {
         return false;
     }
@@ -793,6 +793,40 @@ impl ReadClient {
             return Err(HandoffError::Stale);
         }
         Ok(snapshot)
+    }
+}
+impl ReadClient {
+    /// Read-only owned-origin editor state. Never retain untrusted response/error bodies.
+    pub(crate) fn follow(&self) -> Result<crate::editor_follow::FollowResponse, Error> {
+        if !self.is_alive() {
+            return Err(Error::Stale);
+        }
+        let mut response = self
+            .http
+            .get(format!("{}/api/follow", self.origin))
+            .header("Cache-Control", "no-cache, no-store")
+            .timeout(Duration::from_secs(3))
+            .send()
+            .map_err(|_| Error::Transport("Follow request unavailable".into()))?;
+        if !self.is_alive() {
+            return Err(Error::Stale);
+        }
+        if response.status().as_u16() != 200 {
+            return Err(Error::Http {
+                status: response.status().as_u16(),
+                body: String::new(),
+            });
+        }
+        let mut bytes = Vec::new();
+        (&mut response)
+            .take(crate::editor_follow::WIRE_LIMIT as u64 + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|_| Error::Transport("Follow response unavailable".into()))?;
+        if !self.is_alive() {
+            return Err(Error::Stale);
+        }
+        crate::editor_follow::FollowResponse::decode(&bytes)
+            .map_err(|reason| Error::Shape(reason.into()))
     }
 }
 impl ReadClient {
@@ -2886,6 +2920,35 @@ mod tests {
                 .validate()
                 .is_err()
         );
+    }
+    #[test]
+    fn follow_is_get_only_bounded_and_sanitizes_error_bodies() {
+        let (client, worker) = mock(200, r#"{"active":false}"#);
+        assert_eq!(
+            client.follow().unwrap(),
+            crate::editor_follow::FollowResponse::Inactive
+        );
+        assert!(
+            worker
+                .join()
+                .unwrap()
+                .starts_with("GET /api/follow HTTP/1.1\r\n")
+        );
+        for (status, body) in [
+            (200, "x".repeat(crate::editor_follow::WIRE_LIMIT + 1)),
+            (302, "/private/never-report".into()),
+            (500, "/private/never-report".into()),
+        ] {
+            let (client, worker) = mock(status, body);
+            let err = client.follow().unwrap_err();
+            assert!(!format!("{err}").contains("private"));
+            assert!(
+                worker
+                    .join()
+                    .unwrap()
+                    .starts_with("GET /api/follow HTTP/1.1\r\n")
+            );
+        }
     }
     fn mock(status: u16, body: impl Into<String>) -> (ReadClient, thread::JoinHandle<String>) {
         let body = body.into();

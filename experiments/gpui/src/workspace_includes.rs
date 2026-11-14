@@ -223,6 +223,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.stop_editor_follow();
         if self.includes_identity().as_ref() != Some(identity)
             || !self.find_available()
             || !self.pin_keyboard_available(cx)

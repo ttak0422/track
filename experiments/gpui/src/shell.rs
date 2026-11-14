@@ -1201,6 +1201,22 @@ impl Workspace {
             .find(|v| v.name == name)
             .map(|v| v.name.clone())
     }
+    pub(crate) fn follow_registry(&self) -> Option<(String, Vec<String>)> {
+        if self.shell.vault_loading
+            || self.shell.vault_error.is_some()
+            || self.shell.vault_generation
+                != self.live.as_ref().map(|s| s.client().launch_generation)
+        {
+            return None;
+        }
+        let discovery = self.shell.vault_discovery.as_ref()?;
+        let mut names: Vec<_> = discovery.available.iter().map(|v| v.name.clone()).collect();
+        if !names.contains(&discovery.launch_name) {
+            return None;
+        }
+        names.sort();
+        Some((discovery.launch_name.clone(), names))
+    }
     pub(crate) fn gallery_scope_verified(&self, scope: &str) -> bool {
         self.gallery_scope(scope).is_some()
     }
@@ -2937,6 +2953,7 @@ impl Render for Workspace {
         div()
             .id("workspace-shell")
             .child(self.handoff_entry(cx))
+            .child(self.render_follow_controls(cx))
             .on_action(
                 cx.listener(|this, _: &search_input::FindNext, _, cx| this.move_find(true, cx)),
             )

@@ -171,6 +171,14 @@ impl EditingUi {
     pub fn active(&self) -> bool {
         self.active.is_some()
     }
+    pub(crate) fn follow_safe(&self) -> bool {
+        self.active.is_none()
+            && !self.pending.is_some()
+            && !self.exit_requested
+            && !self.recovery_clearing
+            && !self.inspecting
+            && !self.mode_menu
+    }
     pub fn has_pending(&self) -> bool {
         self.pending.is_some()
     }
@@ -255,6 +263,9 @@ fn fixture_note(root: &Path, path: &Path) -> bool {
 impl Workspace {
     /// true means caller must stop before changing any navigation state.
     pub(crate) fn guard_transition(&mut self, intent: Transition, cx: &mut Context<Self>) -> bool {
+        if !self.follow.routing {
+            self.stop_editor_follow();
+        }
         if self.editing_ui.recovery_clearing {
             self.editing_ui.message =
                 "Local draft removal is pending or failed. Stay here; no safe close is authorized."
@@ -372,6 +383,7 @@ impl Workspace {
         cx.notify();
     }
     pub(crate) fn editor_environment_changed(&mut self, message: &str) {
+        self.pause_editor_follow("Session or storage changed; enable again.");
         self.editing_ui.recovery_wait = None;
         if self.editing_ui.active.is_some() {
             self.editing_ui.pending.cancel();
@@ -429,6 +441,7 @@ impl Workspace {
         ))
     }
     pub(crate) fn set_editor_mode(&mut self, mode: EditorMode, cx: &mut Context<Self>) {
+        self.stop_editor_follow();
         if self.editing_ui.pending.is_some() {
             return;
         }
@@ -1824,5 +1837,29 @@ mod pending_transition_tests {
         );
         pending.capture(Transition::InternalLink(link.clone()));
         assert_eq!(pending.take(), Some(Transition::InternalLink(link))); // discard does not adopt
+    }
+}
+
+#[cfg(test)]
+mod follow_gate_tests {
+    use super::*;
+    #[test]
+    fn follow_cannot_enter_pending_quit_recovery_inspection_or_mode_menu() {
+        let mut ui = EditingUi::new(None);
+        assert!(ui.follow_safe());
+        ui.pending.capture(Transition::Home);
+        assert!(!ui.follow_safe());
+        ui.pending.cancel();
+        ui.exit_requested = true;
+        assert!(!ui.follow_safe());
+        ui.exit_requested = false;
+        ui.recovery_clearing = true;
+        assert!(!ui.follow_safe());
+        ui.recovery_clearing = false;
+        ui.inspecting = true;
+        assert!(!ui.follow_safe());
+        ui.inspecting = false;
+        ui.mode_menu = true;
+        assert!(!ui.follow_safe());
     }
 }

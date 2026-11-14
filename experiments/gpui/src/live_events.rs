@@ -17,6 +17,8 @@ const RETRY: Duration = Duration::from_secs(2);
 pub struct Snapshot {
     pub change: u64,
     pub data: u64,
+    /// Bounded invalidation only; event payloads are never navigation authority.
+    pub follow: u64,
     pub gaps: u64,
     pub connected: bool,
 }
@@ -25,7 +27,8 @@ impl Snapshot {
         match event {
             "change" => self.change = self.change.saturating_add(1),
             "data" => self.data = self.data.saturating_add(1),
-            _ => {} // In particular, follow never navigates.
+            "follow" => self.follow = self.follow.saturating_add(1),
+            _ => {} // No event directly navigates.
         }
     }
     fn gap(&mut self) {
@@ -280,7 +283,7 @@ mod tests {
                 for chunk in text.as_bytes().chunks(size) {
                     parser.feed(chunk, |event| snapshot.event(event)).unwrap();
                 }
-                assert_eq!((snapshot.change, snapshot.data), (1, 1));
+                assert_eq!((snapshot.change, snapshot.data, snapshot.follow), (1, 1, 1));
             }
         }
     }
@@ -428,7 +431,7 @@ mod tests {
         let observer = Observer::start(&origin, Arc::new(AtomicBool::new(true)));
         wait(|| observer.snapshot().data == 1);
         let snapshot = observer.snapshot();
-        assert_eq!((snapshot.change, snapshot.data), (1, 1));
+        assert_eq!((snapshot.change, snapshot.data, snapshot.follow), (1, 1, 1));
         assert!(snapshot.connected && snapshot.gaps >= 1);
         observer.cancel();
         wait(|| observer.is_done());

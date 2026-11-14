@@ -8,6 +8,7 @@ mod code_copy;
 mod code_highlight;
 mod draft_recovery;
 mod editing;
+mod editor_follow;
 mod editor_input;
 mod event_awareness;
 mod external_links;
@@ -35,6 +36,7 @@ mod tabs;
 mod workspace_activity;
 mod workspace_edit;
 mod workspace_find;
+mod workspace_follow;
 mod workspace_graph;
 mod workspace_handoff;
 mod workspace_hierarchy;
@@ -87,6 +89,7 @@ struct Workspace {
     history: navigation::History,
     session_ui: workspace_session::SessionUi,
     event_awareness: event_awareness::State,
+    follow: workspace_follow::FollowUi,
     reader_images: workspace_images::State,
     snapshot: Snapshot,
     selected: Option<usize>,
@@ -640,6 +643,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         history: navigation::History::default(),
                         session_ui,
                         event_awareness: Default::default(),
+                        follow: Default::default(),
                         reader_images: Default::default(),
                         selected: (!snapshot.notes.is_empty()).then_some(0),
                         snapshot,

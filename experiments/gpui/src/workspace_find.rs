@@ -196,6 +196,7 @@ impl Workspace {
         }
     }
     pub(crate) fn open_find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.stop_editor_follow();
         if !self.find_available() {
             return;
         }

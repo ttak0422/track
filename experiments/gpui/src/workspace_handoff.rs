@@ -162,6 +162,7 @@ impl Workspace {
         }
     }
     fn paste_handoff(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.stop_editor_follow();
         // Check before touching clipboard or taking over the host surface.
         if !self.handoff_gate() || self.shell.handoff.in_flight.is_some() {
             return;
@@ -192,6 +193,7 @@ impl Workspace {
         cx.notify();
     }
     fn open_handoff(&mut self, cx: &mut Context<Self>) {
+        self.stop_editor_follow();
         if !self.handoff_gate() || self.shell.handoff.in_flight.is_some() {
             return;
         }

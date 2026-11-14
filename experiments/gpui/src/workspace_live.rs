@@ -63,6 +63,7 @@ impl Workspace {
                 if this
                     .update(cx, |this, cx| {
                         this.poll_editor_recovery(cx);
+                        this.poll_editor_follow(cx);
                         let warning = this.session_ui.warning.clone();
                         this.session_ui.poll_warning();
                         if warning != this.session_ui.warning {
@@ -578,6 +579,26 @@ impl Workspace {
                 ) {
                     return;
                 }
+                if this.following_read(request) {
+                    if storage.as_ref().ok().map(|s| s.generation)
+                        != this.accepted_storage_generation
+                    {
+                        this.pause_editor_follow("Storage changed during note read; enable again.");
+                        cx.notify();
+                        return;
+                    }
+                    match &result {
+                        Ok(response)
+                            if this.accept_follow_read(request, &response.note.note, cx) => {}
+                        _ => {
+                            this.pause_editor_follow(
+                                "Saved note unavailable or mismatched; enable again.",
+                            );
+                            cx.notify();
+                            return;
+                        }
+                    }
+                }
                 if let Ok(state) = &storage {
                     this.observe_storage(state, cx);
                 }
@@ -593,7 +614,10 @@ impl Workspace {
                             file_kind: note.file_kind.clone(),
                         });
                         this.live_notes.push(note);
+                        this.follow.routing = this.following_read(request);
                         this.select(this.live_notes.len() - 1, cx);
+                        this.follow.routing = false;
+                        this.transfer_follow_read(request);
                         this.advance_fragment_request(request, this.request, &fragment_destination);
                     }
                     Err(error) => this.read_error = Some(error.to_string()),
@@ -644,6 +668,26 @@ impl Workspace {
                 ) {
                     return;
                 }
+                if this.following_read(request) {
+                    if storage.as_ref().ok().map(|s| s.generation)
+                        != this.accepted_storage_generation
+                    {
+                        this.pause_editor_follow("Storage changed during note read; enable again.");
+                        cx.notify();
+                        return;
+                    }
+                    match &result {
+                        Ok(response)
+                            if this.accept_follow_read(request, &response.note.note, cx) => {}
+                        _ => {
+                            this.pause_editor_follow(
+                                "Saved note unavailable or mismatched; enable again.",
+                            );
+                            cx.notify();
+                            return;
+                        }
+                    }
+                }
                 if let Ok(state) = &storage {
                     this.observe_storage(state, cx);
                 }
@@ -673,7 +717,10 @@ impl Workspace {
                         this.current_note = Some(response.note.clone());
                         this.current_note_request = Some(accepted_request.clone());
                         this.accept_fragment_destination(request, cx);
+                        this.follow.routing = this.following_read(request);
                         this.load_live_graph(cx);
+                        this.follow.routing = false;
+                        this.finish_follow_read(request);
                         this.current_related = response.related_and_diagnostics.clone();
                         this.status = format!(
                             "Read only: {}; diagnostics: {:?}; server failure: {failure:?}",

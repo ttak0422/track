@@ -746,3 +746,15 @@ editor; late callbacks cannot navigate or quit after cancellation. Verify unknow
 engine saves retain recovery and ordinary launches never touch recovery files.
 Test IME, VoiceOver, narrow layout and multi-tab focus. These native scenarios
 remain unverified; headless tests do not satisfy them.
+
+### Explicit editor follow (pending native QA)
+
+Use an owned disposable fixture session and a synthetic editor publisher. Verify
+Follow editor is initially off, enable navigates only to registered saved notes,
+and same IDs in different scopes are not confused. Burst updates must coalesce,
+not replay every intermediate note. Stop, manual navigation, Find, rendered
+preview, handoff, editing and closing must take precedence without save prompts.
+Exercise a delayed request, storage restart, registry change, stream gap and
+10-second publisher expiry. Paths must never open and viewport must not pretend
+to follow proportionally. Confirm no automatic resume or persisted preference.
+Native keyboard, IME and lifecycle checks remain unverified.

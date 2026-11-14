@@ -102,6 +102,7 @@ mod tests {
     use super::*;
     fn snapshot(change: u64, data: u64, gaps: u64, connected: bool) -> Snapshot {
         Snapshot {
+            follow: 0,
             change,
             data,
             gaps,
@@ -147,5 +148,23 @@ mod tests {
         assert!(state.observe(None));
         assert!(state.notice().is_none());
         assert!(!state.dismiss(ticket));
+    }
+}
+
+#[cfg(test)]
+mod follow_is_not_change_tests {
+    use super::*;
+    #[test]
+    fn follow_invalidations_never_create_change_notices() {
+        let mut state = State::default();
+        state.observe(Some((
+            1,
+            Snapshot {
+                follow: 100,
+                connected: true,
+                ..Default::default()
+            },
+        )));
+        assert!(state.notice().is_none());
     }
 }
