@@ -1199,6 +1199,7 @@ impl Workspace {
                 self.selected = None;
                 self.content.clear();
                 self.current_note = None;
+                self.current_note_request = None;
                 self.current_related.clear();
                 if self.live.is_some() {
                     self.open_live_key(live::NoteKey { vault, note_id }, cx);
@@ -1284,6 +1285,7 @@ impl Workspace {
         self.selected = None;
         self.content.clear();
         self.current_note = None;
+        self.current_note_request = None;
         self.current_related.clear();
         self.show_graph = false;
     }
@@ -1523,6 +1525,7 @@ impl Render for Workspace {
             self.live.is_some(),
             &reader_key,
             self.current_note.as_ref(),
+            self.current_note_request.as_ref(),
             note.as_ref()
                 .map(|note| note.tags.as_slice())
                 .unwrap_or_default(),

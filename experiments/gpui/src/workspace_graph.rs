@@ -38,6 +38,7 @@ impl Workspace {
         self.read_error = None;
         self.partial_read = false;
         self.current_note = None;
+        self.current_note_request = None;
         self.content.clear();
         self.current_related.clear();
         self.shell.find.open = false;

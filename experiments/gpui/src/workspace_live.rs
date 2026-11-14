@@ -104,6 +104,7 @@ impl Workspace {
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             self.content.clear();
             self.current_note = None;
+            self.current_note_request = None;
             self.current_related.clear();
             self.search_results.clear();
             self.show_graph = false;
@@ -501,6 +502,7 @@ impl Workspace {
         self.selected = None;
         self.content.clear();
         self.current_note = None;
+        self.current_note_request = None;
         self.current_related.clear();
         self.show_graph = false;
         self.read_error = None;
@@ -572,6 +574,7 @@ impl Workspace {
             return;
         };
         let key = note.key();
+        let accepted_request = key.clone();
         let request = self.request;
         self.status = "Reading raw body (read-only)…".into();
         let expected_epoch = self.accepted_storage_generation;
@@ -608,6 +611,7 @@ impl Workspace {
                         this.partial_read =
                             response.note.read_only || partial(&response.related_and_diagnostics);
                         this.current_note = Some(response.note.clone());
+                        this.current_note_request = Some(accepted_request.clone());
                         this.accept_fragment_destination(request, cx);
                         this.load_live_graph(cx);
                         this.current_related = response.related_and_diagnostics.clone();

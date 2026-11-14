@@ -17,8 +17,8 @@ mod input_trace;
 mod live;
 mod markdown;
 mod native_window;
-mod note_metadata;
 mod navigation;
+mod note_metadata;
 mod reader_find;
 mod search_input;
 mod session_store;
@@ -79,6 +79,7 @@ struct Workspace {
     backend: Option<Backend>,
     content: Vec<markdown::Block>,
     current_note: Option<live::NoteBody>,
+    current_note_request: Option<live::NoteKey>,
     read_error: Option<String>,
     partial_read: bool,
     current_related: std::collections::BTreeMap<String, serde_json::Value>,
@@ -264,6 +265,7 @@ impl Workspace {
         self.request += 1;
         self.content.clear();
         self.current_note = None;
+        self.current_note_request = None;
         self.current_related.clear();
         if self.live.is_some() {
             self.select_live(index, cx);
@@ -574,6 +576,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         backend,
                         content: Vec::new(),
                         current_note: None,
+                        current_note_request: None,
                         read_error: None,
                         partial_read: false,
                         current_related: Default::default(),

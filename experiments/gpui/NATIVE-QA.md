@@ -343,7 +343,8 @@ this does not close menu/About/clipboard or native parity gates.
 
 Headless coverage verifies accepted-source tags over stale list hints, empty flags,
 both known flags, literal unknown flags, source clearing and vault-qualified identity
-changes. External-reference labels preserve their distinct vault targets.
+changes, including an accepted launch-vault alias returning a named vault.
+External-reference labels preserve their distinct vault targets.
 No native GUI was launched for this slice. Before claiming read-only metadata parity, check:
 
 - Current-note tags and both flag labels appear legibly in light/dark and narrow views.

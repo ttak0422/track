@@ -1,5 +1,8 @@
 //! Read-only labels projected from accepted source, never from a live list hint.
-use crate::{live::NoteBody, tabs::TabKey};
+use crate::{
+    live::{NoteBody, NoteKey},
+    tabs::TabKey,
+};
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Metadata {
@@ -12,6 +15,7 @@ impl Metadata {
         live: bool,
         active: &TabKey,
         body: Option<&NoteBody>,
+        accepted_request: Option<&NoteKey>,
         snapshot_tags: &[String],
     ) -> Self {
         if !live {
@@ -21,8 +25,14 @@ impl Metadata {
             };
         }
         let Some(body) = body.filter(|body| {
-            matches!(active, TabKey::Note { vault, note_id }
-            if vault == &body.note.vault && *note_id == body.note.note_id)
+            accepted_request.is_some_and(|request| {
+                matches!(active, TabKey::Note { vault, note_id }
+                    if vault == &request.vault && *note_id == request.note_id)
+                    && request.note_id == body.note.note_id
+                    // Only a source accepted for the launch-vault alias may carry
+                    // a canonical named vault. Never treat every empty route as a match.
+                    && (request.vault.is_empty() || request.vault == body.note.vault)
+            })
         }) else {
             return Self::default();
         };
@@ -76,13 +86,25 @@ mod tests {
     fn accepted_source_wins_over_snapshot_even_when_empty() {
         let mut body = body();
         let stale = vec!["stale".into()];
-        let metadata = Metadata::current(true, &key("work", 42), Some(&body), &stale);
+        let metadata = Metadata::current(
+            true,
+            &key("work", 42),
+            Some(&body),
+            Some(&body.note.key()),
+            &stale,
+        );
         assert_eq!(metadata.tags, ["fresh"]);
         assert_eq!(metadata.flags, "[DEPRECATED] [CONFIDENTIAL]");
         body.note.tags.clear();
         body.note.flags.clear();
         assert_eq!(
-            Metadata::current(true, &key("work", 42), Some(&body), &stale),
+            Metadata::current(
+                true,
+                &key("work", 42),
+                Some(&body),
+                Some(&body.note.key()),
+                &stale
+            ),
             Metadata::default()
         );
     }
@@ -96,19 +118,63 @@ mod tests {
             TabKey::Graph,
         ] {
             assert_eq!(
-                Metadata::current(true, &active, Some(&body), &["stale".into()]),
+                Metadata::current(
+                    true,
+                    &active,
+                    Some(&body),
+                    Some(&body.note.key()),
+                    &["stale".into()]
+                ),
                 Metadata::default()
             );
         }
         assert_eq!(
-            Metadata::current(true, &key("work", 42), None, &["stale".into()]),
+            Metadata::current(true, &key("work", 42), None, None, &["stale".into()]),
             Metadata::default()
         );
         assert_eq!(
-            Metadata::current(false, &key("work", 42), None, &["fixture".into()]).tags,
+            Metadata::current(false, &key("work", 42), None, None, &["fixture".into()]).tags,
             ["fixture"]
         );
     }
+    #[test]
+    fn launch_alias_requires_the_request_that_accepted_this_body() {
+        let body = body();
+        let launch = NoteKey {
+            vault: String::new(),
+            note_id: 42,
+        };
+        let route = key("", 42);
+        let metadata = Metadata::current(true, &route, Some(&body), Some(&launch), &[]);
+        assert_eq!(metadata.tags, ["fresh"]);
+        assert_eq!(metadata.flags, "[DEPRECATED] [CONFIDENTIAL]");
+        assert_eq!(
+            Metadata::current(true, &key("other", 42), Some(&body), Some(&launch), &[]),
+            Metadata::default()
+        );
+        // A named-vault source cannot be reused under the launch alias or another vault.
+        assert_eq!(
+            Metadata::current(true, &route, Some(&body), Some(&body.note.key()), &[]),
+            Metadata::default()
+        );
+        let wrong = NoteKey {
+            vault: "other".into(),
+            note_id: 42,
+        };
+        assert_eq!(
+            Metadata::current(true, &key("other", 42), Some(&body), Some(&wrong), &[]),
+            Metadata::default()
+        );
+        assert_eq!(
+            Metadata::current(true, &route, Some(&body), None, &[]),
+            Metadata::default()
+        );
+        assert_eq!(
+            Metadata::current(true, &route, None, Some(&launch), &[]),
+            Metadata::default()
+        );
+    }
+
     #[test]
     fn relations_label_all_string_flags_without_interpreting_them() {
         for value in [json!({}), json!({"flags":null}), json!({"flags":[]})] {
