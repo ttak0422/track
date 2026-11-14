@@ -7,10 +7,12 @@ pub struct PreviewUi {
     pub model: Previews,
     clock: Instant,
     activation: Option<gpui::Subscription>,
+    selector_scroll: gpui::ScrollHandle,
     wake: Option<gpui::Task<()>>,
     deadline: Option<u64>,
     generation: u64,
     message: String,
+    focus: std::collections::BTreeMap<(u64, &'static str), gpui::FocusHandle>,
     parsed: std::collections::BTreeMap<u64, Vec<markdown::Block>>,
 }
 impl Default for PreviewUi {
@@ -19,11 +21,13 @@ impl Default for PreviewUi {
             model: Previews::default(),
             clock: Instant::now(),
             activation: None,
+            selector_scroll: gpui::ScrollHandle::new(),
             wake: None,
             deadline: None,
             generation: 0,
             message: String::new(),
             parsed: Default::default(),
+            focus: Default::default(),
         }
     }
 }
@@ -41,6 +45,8 @@ impl PreviewUi {
             .map(|p| p.read.token)
             .collect();
         self.parsed.retain(|token, _| live.contains(token));
+        self.focus
+            .retain(|(token, _), _| self.model.pinned.iter().any(|p| p.read.token == *token));
     }
     pub fn cancel_wake(&mut self) {
         self.prune_content();
@@ -49,7 +55,235 @@ impl PreviewUi {
         self.generation += 1;
     }
 }
+#[derive(Default)]
+struct PinKeyboardContext {
+    gesture: bool,
+    editing: bool,
+    pending: bool,
+    find: bool,
+    search: bool,
+    menu: bool,
+    closing: bool,
+    composing: bool,
+}
+impl PinKeyboardContext {
+    fn allowed(&self) -> bool {
+        !(self.gesture
+            || self.editing
+            || self.pending
+            || self.find
+            || self.search
+            || self.menu
+            || self.closing
+            || self.composing)
+    }
+}
+fn pin_entry_focus_allowed(has_focus: bool, reader_focused: bool) -> bool {
+    !has_focus || reader_focused
+}
 impl Workspace {
+    fn pin_keyboard_available(&self, cx: &App) -> bool {
+        PinKeyboardContext {
+            gesture: self.previews.model.geometry_active(),
+            editing: self.editing_ui.active(),
+            pending: self.editing_ui.has_pending(),
+            find: self.shell.find.open,
+            search: self.shell.search_open,
+            menu: self.shell.vault_menu || self.shell.tab_menu || self.shell.diagnostics,
+            closing: self.quit_session.is_closing(),
+            composing: self.search.read(cx).is_composing(),
+        }
+        .allowed()
+    }
+    /// Scoped pane entry only. Reader Tab keeps its existing document-tab behavior.
+    pub(crate) fn preview_entry_keyboard(
+        &mut self,
+        event: &gpui::KeyDownEvent,
+        window: &mut gpui::Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let m = event.keystroke.modifiers;
+        if event.keystroke.key != "f6"
+            || event.is_held
+            || m.platform
+            || m.control
+            || m.alt
+            || !self.pin_keyboard_available(cx)
+            || !pin_entry_focus_allowed(
+                window.focused(cx).is_some(),
+                self.shell
+                    .reader_focus
+                    .as_ref()
+                    .is_some_and(|f| f.is_focused(window)),
+            )
+        {
+            return false;
+        }
+        let pin = if m.shift {
+            self.previews.model.pinned.last()
+        } else {
+            self.previews.model.pinned.first()
+        };
+        let Some(identity) = pin.map(|p| p.read.clone()) else {
+            return false;
+        };
+        let Some(focus) = self.previews.focus.get(&(identity.token, "title")).cloned() else {
+            return false;
+        };
+        self.previews.model.raise_identity(&identity);
+        self.previews.selector_scroll.scroll_to_item(if m.shift {
+            self.previews.model.pinned.len()
+        } else {
+            1
+        });
+        window.focus(&focus);
+        cx.notify();
+        true
+    }
+    fn exit_pin_focus(&self, window: &mut gpui::Window) {
+        if !self.shell.home && !self.full_graph_active() && !self.editing_ui.active() {
+            if let Some(focus) = &self.shell.reader_focus {
+                window.focus(focus);
+                return;
+            }
+        }
+        window.blur();
+    }
+    fn pin_control_key(
+        &mut self,
+        identity: &Read,
+        control: &'static str,
+        focus: &gpui::FocusHandle,
+        rect: CardRect,
+        event: &gpui::KeyDownEvent,
+        window: &mut gpui::Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !focus.is_focused(window)
+            || !self.pin_keyboard_available(cx)
+            || !self
+                .previews
+                .model
+                .pinned
+                .iter()
+                .any(|p| &p.read == identity)
+        {
+            return;
+        }
+        let m = event.keystroke.modifiers;
+        let Some(key) = graph_preview::pin_key(
+            &event.keystroke.key,
+            m.shift,
+            m.platform,
+            m.control,
+            m.alt,
+            event.is_held,
+        ) else {
+            return;
+        };
+        match key {
+            graph_preview::PinKey::Adjust { dx, dy, resize } if control == "title" => {
+                self.previews.model.keyboard_adjust(
+                    identity,
+                    rect,
+                    (
+                        f32::from(window.viewport_size().width),
+                        f32::from(window.viewport_size().height),
+                    ),
+                    dx,
+                    dy,
+                    resize,
+                );
+            }
+            graph_preview::PinKey::Adjust { .. } => return,
+            graph_preview::PinKey::Activate => {
+                self.activate_pin_control(identity, control, window, cx);
+            }
+            graph_preview::PinKey::Exit => {
+                self.previews.model.end_geometry_for(identity);
+                self.exit_pin_focus(window);
+            }
+            graph_preview::PinKey::Traverse { backward } => {
+                let order: Vec<_> = self
+                    .previews
+                    .model
+                    .pinned
+                    .iter()
+                    .flat_map(|p| ["title", "unpin", "open", "close"].map(|c| (p.read.token, c)))
+                    .collect();
+                if let Some(index) = order
+                    .iter()
+                    .position(|key| *key == (identity.token, control))
+                {
+                    let Some(next) = graph_preview::next_pin_control(index, order.len(), backward)
+                    else {
+                        return;
+                    };
+                    if let Some(focus) = self.previews.focus.get(&order[next]) {
+                        self.previews.selector_scroll.scroll_to_item(next / 4 + 1);
+                        window.focus(focus);
+                    }
+                }
+            }
+        }
+        cx.stop_propagation();
+        cx.notify();
+    }
+    fn activate_pin_control(
+        &mut self,
+        identity: &Read,
+        control: &'static str,
+        window: &mut gpui::Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self
+            .previews
+            .model
+            .pinned
+            .iter()
+            .any(|p| &p.read == identity)
+        {
+            return;
+        }
+        match control {
+            "title" => {
+                self.previews.model.raise_identity(identity);
+            }
+            "open" => self.open_live_key(
+                live::NoteKey {
+                    vault: identity.target.vault.clone(),
+                    note_id: identity.target.note_id,
+                },
+                cx,
+            ),
+            "unpin" | "close" => {
+                if control == "unpin" {
+                    self.previews
+                        .model
+                        .unpin_identity(identity, self.previews.now());
+                } else {
+                    self.previews.model.close_identity(identity);
+                }
+                self.previews.message.clear();
+                self.schedule_preview(cx);
+                // Only an explicit action moves focus; never hover or pin creation.
+                if let Some(next) = self.previews.model.pinned.first() {
+                    let next = next.read.clone();
+                    if let Some(focus) = self.previews.focus.get(&(next.token, "title")) {
+                        self.previews.selector_scroll.scroll_to_item(1);
+                        window.focus(focus);
+                        self.previews.model.raise_identity(&next);
+                    } else {
+                        self.exit_pin_focus(window);
+                    }
+                } else {
+                    self.exit_pin_focus(window);
+                }
+            }
+            _ => {}
+        }
+        cx.notify();
+    }
     fn observe_preview_activation(&mut self, window: &mut gpui::Window, cx: &mut Context<Self>) {
         if self.previews.activation.is_none() {
             self.previews.activation =
@@ -190,11 +424,20 @@ impl Workspace {
             .any(|preview| &preview.read == read)
     }
     pub(crate) fn render_graph_previews(
-        &self,
+        &mut self,
         dark: bool,
         viewport: gpui::Size<gpui::Pixels>,
         cx: &mut Context<Self>,
     ) -> Vec<gpui::AnyElement> {
+        self.previews.prune_content();
+        for preview in &self.previews.model.pinned {
+            for control in ["title", "unpin", "open", "close"] {
+                self.previews
+                    .focus
+                    .entry((preview.read.token, control))
+                    .or_insert_with(|| cx.focus_handle().tab_stop(true));
+            }
+        }
         let viewport_size = (f32::from(viewport.width), f32::from(viewport.height));
         let paper = if dark { 0x222629 } else { 0xffffff };
         let ink = if dark { 0xe9e9e4 } else { 0x1a1a18 };
@@ -311,6 +554,7 @@ impl Workspace {
                     .top(px(56.))
                     .max_h(px((f32::from(viewport.height) - 68.).clamp(1., 96.)))
                     .overflow_y_scroll()
+                    .track_scroll(&self.previews.selector_scroll)
                     .max_w(px((f32::from(viewport.width) - 24.).max(1.)))
                     .flex()
                     .flex_wrap()
@@ -323,56 +567,31 @@ impl Workspace {
                     .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_mouse_move(|_, _, cx| cx.stop_propagation())
                     .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+                    .child(div().w_full().text_xs().child("F6: pins · Tab: controls · arrows: move · Shift+arrows: resize · Esc: exit"))
                     .children(self.previews.model.pinned.iter().map(|preview| {
-                        let raise = preview.read.clone();
-                        let close = raise.clone();
-                        let title = match &preview.state {
-                            State::Ready(content) => content.title.clone(),
-                            _ => format!("Note {}", raise.target.note_id),
-                        };
-                        let scope_label = format!(
-                            "{} · ID {}",
-                            if raise.target.vault.is_empty() {
-                                "launch vault"
-                            } else {
-                                &raise.target.vault
-                            },
-                            raise.target.note_id
-                        );
-                        div()
-                            .p_1()
-                            .text_xs()
-                            .child(
-                                div()
-                                    .id(("pin-selector-title", raise.token as usize))
-                                    .w(px(140.))
-                                    .cursor_pointer()
-                                    .child(div().truncate().child(title))
-                                    .child(div().truncate().child(scope_label))
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.previews.model.raise_identity(&raise);
+                        let identity = preview.read.clone();
+                        let title = match &preview.state { State::Ready(content) => content.title.clone(), _ => format!("Note {}",identity.target.note_id) };
+                        let (x,y,width,height) = cascade_bounds(preview.anchor,viewport_size,preview.placement_slot.map(|s|s+1).unwrap_or(0),true);
+                        let rect = preview.rect.unwrap_or(CardRect { x,y,width,height });
+                        div().p_1().text_xs().w(px(210.)).flex().flex_wrap().gap_1()
+                            .children([("title",title),("unpin","Unpin".into()),("open","Open as page".into()),("close","Close".into())].into_iter().map(|(control,label)| {
+                                let focus = self.previews.focus[&(identity.token,control)].clone();
+                                let key_focus = focus.clone(); let click_focus = focus.clone();
+                                let key_identity = identity.clone(); let click_identity = identity.clone();
+                                // Design: text control; focus uses the existing strong hairline.
+                                div().id((gpui::SharedString::from(format!("pin-key-{control}")),identity.token as usize))
+                                    .track_focus(&focus).tab_index(0).border_1().border_color(rgb(paper))
+                                    .focus(|style| style.border_color(rgb(line)))
+                                    .cursor_pointer().child(div().truncate().child(label))
+                                    .when(control == "title", |el| el.w_full().child(div().truncate().child(format!("{} · ID {}",if identity.target.vault.is_empty() { "launch vault" } else { &identity.target.vault },identity.target.note_id))))
+                                    .on_key_down(cx.listener(move |this,event: &gpui::KeyDownEvent,window,cx| this.pin_control_key(&key_identity,control,&key_focus,rect,event,window,cx)))
+                                    .on_click(cx.listener(move |this,_,window,cx| {
+                                        if !this.pin_keyboard_available(cx) || !this.previews.model.pinned.iter().any(|p| p.read == click_identity) { return; }
+                                        window.focus(&click_focus);
+                                        this.activate_pin_control(&click_identity,control,window,cx);
                                         cx.stop_propagation();
-                                        cx.notify();
-                                    })),
-                            )
-                            .child(
-                                div().flex().flex_wrap().gap_2().child(
-                                    div()
-                                        .id(("pin-selector-close", close.token as usize))
-                                        .cursor_pointer()
-                                        .child("Close")
-                                        .on_click(cx.listener(move |this, _, _, cx| {
-                                            cx.stop_propagation();
-                                            if !this.previews.model.close_identity(&close) {
-                                                return;
-                                            }
-                                            this.previews.message.clear();
-                                            this.schedule_preview(cx);
-                                            cx.stop_propagation();
-                                            cx.notify();
-                                        })),
-                                ),
-                            )
+                                    }))
+                            }))
                     }))
                     .into_any_element(),
             );
@@ -510,6 +729,49 @@ mod tests {
     use super::*;
     fn response() -> live::NoteResponse {
         serde_json::from_value(serde_json::json!({"note":{"note_id":7,"vault":"fixture","title":"Fixture","path":"fixture.md","file_kind":"note","body":"# Authored heading","etag":"x","read_only":true}})).unwrap()
+    }
+    #[test]
+    fn pin_keyboard_scope_never_enters_text_or_blocked_contexts() {
+        assert!(PinKeyboardContext::default().allowed());
+        for blocked in [
+            PinKeyboardContext {
+                gesture: true,
+                ..Default::default()
+            },
+            PinKeyboardContext {
+                editing: true,
+                ..Default::default()
+            },
+            PinKeyboardContext {
+                pending: true,
+                ..Default::default()
+            },
+            PinKeyboardContext {
+                find: true,
+                ..Default::default()
+            },
+            PinKeyboardContext {
+                search: true,
+                ..Default::default()
+            },
+            PinKeyboardContext {
+                menu: true,
+                ..Default::default()
+            },
+            PinKeyboardContext {
+                closing: true,
+                ..Default::default()
+            },
+            PinKeyboardContext {
+                composing: true,
+                ..Default::default()
+            },
+        ] {
+            assert!(!blocked.allowed());
+        }
+        assert!(pin_entry_focus_allowed(false, false));
+        assert!(pin_entry_focus_allowed(true, true));
+        assert!(!pin_entry_focus_allowed(true, false));
     }
     #[test]
     fn intent_dispatches_one_scoped_read_with_fake_transport() {

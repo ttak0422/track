@@ -449,3 +449,23 @@ startup is pending and confirm the newer route/history survives. Repeat with dir
 Save/Discard/Cancel and pending/uncertain writes. Verify ordinary launches create
 no session files. Queued metadata is not guaranteed flushed on abrupt quit; this
 is neither durable draft recovery nor ordinary-profile persistence.
+
+## Pinned selector keyboard controls: native validation pending
+
+Use disposable fixtures with one through four pins. Check the selector hint is
+readable at minimum window size, F6/Shift-F6 enters first/last pin only from the
+reader or unfocused workspace, and focused controls scroll into view. This is an
+experimental native shortcut, not existing Track keyboard compatibility; verify
+macOS function-key settings and conflicts before treating it as a stable binding.
+Reader Tab must still change document tabs. Pin Tab/Shift-Tab must cycle only live
+pin controls, with a visible focus border. Title arrows move 8 pixels and Shift
+resizes, clamped within the viewport. Enter/Space activates only the focused
+control; Escape exits without closing a note. Unpin/Close must retain sensible
+focus without hover or newly created pins stealing it.
+
+Test stale controls after scope/storage invalidation and pin replacement. Editing,
+IME composition, Find/search, menus, pending dialogs and pointer dragging must not
+accept pin keys. Open as page must retain dirty-navigation guards. Verify key
+repeat, modifier combinations, tiny windows and simultaneous pointer input.
+Transient previews remain pointer-only; native focus, VoiceOver and full keyboard
+parity are not established by the headless key/model tests.

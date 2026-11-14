@@ -246,3 +246,13 @@ note fetch. Newer accepted navigation rejects both restored tabs and history.
 History-only cursor changes persist even when tabs are unchanged. Ordinary mode
 performs no session-file I/O. Native restart/Back/Forward and quit durability are
 not established by the model/temporary-directory tests.
+
+### Experimental pinned-preview keyboard controls
+
+The pin selector has scoped keyboard entry and explicit title/Unpin/Open/Close
+controls. F6/Shift-F6 is a native prototype convenience, not an established Track
+shortcut or a claim of keyboard parity. The visible selector hint documents entry,
+Tab traversal, arrow movement and Shift-arrow resizing. Reader Tab navigation is
+unchanged; editing, IME composition, dialogs, search, menus and pointer geometry
+block these actions. Captured read identity protects stale controls. Model tests
+do not validate native focus delivery, macOS function-key handling or accessibility.

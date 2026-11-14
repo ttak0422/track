@@ -25,6 +25,56 @@ pub struct Read {
     pub target: Target,
     pub token: u64,
 }
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PinKey {
+    Adjust { dx: f32, dy: f32, resize: bool },
+    Activate,
+    Exit,
+    Traverse { backward: bool },
+}
+pub fn next_pin_control(index: usize, count: usize, backward: bool) -> Option<usize> {
+    if count == 0 || index >= count {
+        return None;
+    }
+    Some(if backward {
+        if index == 0 { count - 1 } else { index - 1 }
+    } else {
+        (index + 1) % count
+    })
+}
+pub fn pin_key(
+    key: &str,
+    shift: bool,
+    command: bool,
+    control: bool,
+    alt: bool,
+    held: bool,
+) -> Option<PinKey> {
+    if command || control || alt {
+        return None;
+    }
+    let delta = match key {
+        "left" => Some((-8., 0.)),
+        "right" => Some((8., 0.)),
+        "up" => Some((0., -8.)),
+        "down" => Some((0., 8.)),
+        _ => None,
+    };
+    if let Some((dx, dy)) = delta {
+        return Some(PinKey::Adjust {
+            dx,
+            dy,
+            resize: shift,
+        });
+    }
+    match key {
+        "enter" | "space" if !shift && !held => Some(PinKey::Activate),
+        "escape" if !shift && !held => Some(PinKey::Exit),
+        "tab" if !held => Some(PinKey::Traverse { backward: shift }),
+        _ => None,
+    }
+}
+
 /// Session-only pinned card rectangle in workspace-local pixels.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CardRect {
@@ -117,6 +167,29 @@ pub struct Previews {
     gesture: Option<CardGesture>,
 }
 impl Previews {
+    pub fn keyboard_adjust(
+        &mut self,
+        identity: &Read,
+        fallback: CardRect,
+        viewport: (f32, f32),
+        dx: f32,
+        dy: f32,
+        resize: bool,
+    ) -> bool {
+        if self.geometry_active() {
+            return false;
+        }
+        let Some(preview) = self.pinned.iter().find(|p| &p.read == identity) else {
+            return false;
+        };
+        let rect = preview.rect.unwrap_or(fallback);
+        if !self.begin_geometry(identity, (0., 0.), rect, resize, viewport) {
+            return false;
+        }
+        let changed = self.update_geometry(identity, (dx, dy), viewport, true);
+        self.end_geometry_for(identity);
+        changed
+    }
     pub fn geometry_identity(&self) -> Option<&Read> {
         self.gesture.as_ref().map(|g| &g.identity)
     }
@@ -808,6 +881,74 @@ mod geometry_tests {
             width: 380.,
             height: 250.,
         }
+    }
+    #[test]
+    fn keyboard_adjustments_are_bounded_identity_scoped_and_leave_no_capture() {
+        let mut p = model();
+        let read = pin(&mut p, 1);
+        assert!(p.keyboard_adjust(&read, rect(), (680., 480.), 8., 0., false));
+        assert_eq!(p.pinned[0].rect.unwrap().x, 28.);
+        assert!(!p.geometry_active());
+        assert!(p.keyboard_adjust(&read, rect(), (680., 480.), 8., 0., true));
+        assert_eq!(p.pinned[0].rect.unwrap().width, 388.);
+        assert!(!p.geometry_active());
+        p.begin_geometry(&read, (0., 0.), rect(), false, (680., 480.));
+        let saved = p.pinned[0].rect;
+        assert!(!p.keyboard_adjust(&read, rect(), (680., 480.), 8., 0., false));
+        assert_eq!(p.pinned[0].rect, saved);
+        p.close_identity(&read);
+        let replacement = pin(&mut p, 1);
+        assert_ne!(read, replacement); // Same note, new captured read identity.
+        assert!(!p.keyboard_adjust(&read, rect(), (680., 480.), 8., 0., false));
+        assert_eq!(p.pinned[0].read, replacement);
+        assert!(p.pinned[0].rect.is_none());
+    }
+    #[test]
+    fn local_keys_preserve_text_modifier_chords_and_repeat_safety() {
+        assert_eq!(
+            pin_key("left", false, false, false, false, true),
+            Some(PinKey::Adjust {
+                dx: -8.,
+                dy: 0.,
+                resize: false
+            })
+        );
+        assert_eq!(
+            pin_key("down", true, false, false, false, false),
+            Some(PinKey::Adjust {
+                dx: 0.,
+                dy: 8.,
+                resize: true
+            })
+        );
+        assert_eq!(
+            pin_key("enter", false, false, false, false, false),
+            Some(PinKey::Activate)
+        );
+        assert_eq!(
+            pin_key("escape", false, false, false, false, false),
+            Some(PinKey::Exit)
+        );
+        assert_eq!(
+            pin_key("tab", true, false, false, false, false),
+            Some(PinKey::Traverse { backward: true })
+        );
+        for key in ["enter", "space", "escape"] {
+            assert_eq!(pin_key(key, false, false, false, false, true), None);
+        }
+        for key in ["a", "日本語", "f6", "delete", "backspace"] {
+            assert_eq!(pin_key(key, false, false, false, false, false), None);
+        }
+        for key in ["left", "enter", "escape", "tab"] {
+            assert_eq!(pin_key(key, false, true, false, false, false), None);
+            assert_eq!(pin_key(key, false, false, true, false, false), None);
+            assert_eq!(pin_key(key, false, false, false, true, false), None);
+        }
+        assert_eq!(next_pin_control(0, 0, false), None);
+        assert_eq!(next_pin_control(4, 4, false), None);
+        assert_eq!(next_pin_control(0, 8, true), Some(7));
+        assert_eq!(next_pin_control(7, 8, false), Some(0));
+        assert_eq!(next_pin_control(3, 8, false), Some(4));
     }
     #[test]
     fn move_resize_clamp_keep_headers_and_actions_reachable() {
