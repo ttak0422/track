@@ -79,8 +79,17 @@ wrapper spawning descendants that inherit pipes.
 
 The body supports native headings, paragraphs, lists, quotes and code blocks. Links
 remain inert text; HTML, images and other unsupported blocks remain literal.
-Inline emphasis, code styling and simple native tables are supported. Syntax
-coloring and block virtualization are not implemented. This is not the fully rendered Track document. Export
+Inline emphasis, code styling and simple native tables are supported. Ordinary
+fences have bounded lexical coloring for JS aliases (js/javascript/jsx/ts/typescript/tsx),
+Lua and JSON. This is lexical help, not complete language parsing: regex literals,
+template interpolation, JSX and Lua long strings/comments are not modeled. Unknown
+or absent languages, language labels above 128 bytes, bodies above 64 KiB, or more
+than 8192 token runs stay plain
+and lossless. Immutable token ranges are cached on parsed blocks at ingestion/change
+and shared by title projections; theme/Find/pointer rendering never reclassifies.
+Copy and Find use the unchanged parsed body, and rich fence formats remain inert.
+Native contrast, overflow, selection and accessibility still need GUI QA. Block
+virtualization is not implemented. This is not the fully rendered Track document. Export
 normalizes links and other constructs: it must **never** be used as editable source.
 Editing will use the existing raw-body/etag HTTP contract instead. Search, live
 updates, and full Markdown rendering are still tracked as incomplete in `PARITY.md`.

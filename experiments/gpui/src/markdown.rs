@@ -29,6 +29,8 @@ pub struct Block {
     pub table: Option<Table>,
     /// First fenced info token; never mixed into body/Find byte ranges.
     pub language: Option<String>,
+    /// Ingestion-time lexical ranges, shared across display projections.
+    pub syntax: Rc<[crate::code_highlight::Token]>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -623,6 +625,7 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
                     spans: vec![],
                     links: vec![],
                     language: None,
+                    syntax: Rc::from([]),
                     table: None,
                 });
                 return;
@@ -650,6 +653,7 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
                 spans: vec![],
                 links: vec![],
                 language: None,
+                syntax: Rc::from([]),
                 table: Some(Table {
                     alignments: alignments.clone(),
                     rows,
@@ -717,6 +721,7 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
                         links: vec![],
                         table: None,
                         language: None,
+                        syntax: Rc::from([]),
                     },
                 );
             }
@@ -748,7 +753,9 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
         }
         _ => None,
     };
+    let syntax = crate::code_highlight::classify(&content.text, language.as_deref());
     out.push(Block {
+        syntax,
         language,
         kind,
         text: content.text,
@@ -769,6 +776,7 @@ fn flush_run(run: &mut Cell, indent: usize, quoted: bool, out: &mut Vec<Block>) 
             spans: std::mem::take(&mut run.spans),
             links: std::mem::take(&mut run.links),
             language: None,
+            syntax: Rc::from([]),
             table: None,
             indent,
             quoted,
@@ -803,6 +811,7 @@ fn fallback(text: &str, out: &mut Vec<Block>) {
             spans: vec![],
             links: vec![],
             language: None,
+            syntax: Rc::from([]),
             table: None,
             indent: 0,
             quoted: false,
@@ -1053,7 +1062,16 @@ fn render_elements(
             }
             let offset = text.len() - block.text.len();
             let visible_spans = resolved_spans(&block.spans, &block.links, callbacks);
-            let row = row.child(link_text(
+            let presentation = if block.kind == BlockKind::Code {
+                let runs = code_runs(block, offset, dark);
+                let hits: Vec<_> = highlights
+                    .get(&Target::Block(index))
+                    .into_iter()
+                    .flatten()
+                    .map(|(r, active)| (r.start + offset..r.end + offset, *active))
+                    .collect();
+                StyledText::new(text.clone()).with_runs(highlight_runs(runs, &hits, dark))
+            } else {
                 styled_text_find(
                     text,
                     &visible_spans,
@@ -1066,7 +1084,10 @@ fn render_elements(
                         .map(Vec::as_slice)
                         .unwrap_or_default(),
                     dark,
-                ),
+                )
+            };
+            let row = row.child(link_text(
+                presentation,
                 &block.links,
                 offset,
                 callbacks,
@@ -1239,6 +1260,73 @@ fn styled_runs(
             mono,
             bold,
         ));
+    }
+    runs
+}
+
+/// Theme mapping consumes cached ranges; classification never occurs in rendering.
+fn code_runs(block: &Block, offset: usize, dark: bool) -> Vec<TextRun> {
+    use crate::code_highlight::Role;
+    let theme = ReaderTheme::new(dark);
+    if block.syntax.is_empty() {
+        return vec![text_run(
+            offset + block.text.len(),
+            InlineStyle::default(),
+            theme,
+            true,
+            false,
+        )];
+    }
+    let mut runs = Vec::new();
+    if offset > 0 {
+        runs.push(text_run(offset, InlineStyle::default(), theme, true, false));
+    }
+    for token in block.syntax.iter() {
+        let mut run = text_run(
+            token.range.len(),
+            InlineStyle {
+                emphasis: token.role == Role::Comment,
+                strong: token.role == Role::Keyword,
+                ..InlineStyle::default()
+            },
+            theme,
+            true,
+            false,
+        );
+        let color = match token.role {
+            Role::Plain | Role::Keyword => theme.ink,
+            Role::Comment => theme.muted,
+            Role::String => {
+                if dark {
+                    0xa9d89e
+                } else {
+                    0x28652e
+                }
+            }
+            Role::Number => {
+                if dark {
+                    0xe8b587
+                } else {
+                    0x985116
+                }
+            }
+            Role::Function => {
+                if dark {
+                    0xbcb8f0
+                } else {
+                    0x6543a0
+                }
+            }
+            Role::Property => {
+                if dark {
+                    0x8dcbdc
+                } else {
+                    0x17667d
+                }
+            }
+        };
+        run.color = rgb(color).into();
+        runs.push(run);
     }
     runs
 }
@@ -1425,6 +1513,102 @@ fn render_table(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cached_code_styles_preserve_find_copy_caption_and_literal_boundary() {
+        let source = "```language-TS caption\nconst value = compute(42); \"日本語🦀\"; // 42 [[id:123]] https://example.com <img>\n```";
+        let blocks = parse(source);
+        let block = &blocks[0];
+        assert_eq!(block.language.as_deref(), Some("language-TS"));
+        assert!(block.links.is_empty());
+        assert!(block.spans.is_empty());
+        let projected = with_resolved_titles(
+            &blocks,
+            &std::collections::HashMap::from([("id:123".into(), "changed".into())]),
+        );
+        assert_eq!(blocks, projected);
+        assert!(Rc::ptr_eq(&block.syntax, &projected[0].syntax));
+        let found = crate::reader_find::search(&blocks, "42");
+        assert_eq!(found.hits.len(), 2);
+        let hits: Vec<_> = found
+            .hits
+            .iter()
+            .enumerate()
+            .map(|(i, hit)| {
+                assert_eq!(hit.target, Target::Block(0));
+                assert_eq!(&block.text[hit.range.clone()], "42");
+                (hit.range.clone(), i == 0)
+            })
+            .collect();
+        for dark in [false, true] {
+            let runs = code_runs(block, 0, dark);
+            let decorated = highlight_runs(runs.clone(), &hits, dark);
+            assert_eq!(
+                decorated.iter().map(|r| r.len).sum::<usize>(),
+                block.text.len()
+            );
+            let mut position = 0;
+            for run in &decorated {
+                let original = runs
+                    .iter()
+                    .scan(0, |end, r| {
+                        let start = *end;
+                        *end += r.len;
+                        Some((start..*end, r))
+                    })
+                    .find(|(range, _)| range.contains(&position))
+                    .unwrap()
+                    .1;
+                assert_eq!(run.font, original.font);
+                assert_eq!(run.color, original.color);
+                assert_eq!(
+                    run.background_color.is_some(),
+                    hits.iter().any(|(r, _)| r.contains(&position))
+                );
+                position += run.len;
+                assert!(block.text.is_char_boundary(position));
+            }
+            assert!(Rc::ptr_eq(&block.syntax, &projected[0].syntax));
+        }
+        assert_ne!(
+            code_runs(block, 0, false)[0].color,
+            code_runs(block, 0, true)[0].color
+        );
+        let document = Some(crate::code_copy::Document {
+            tab: None,
+            request: 1,
+            etag: None,
+            storage: None,
+            launch: None,
+        });
+        let mut copy = crate::code_copy::State::default();
+        copy.sync(document.clone(), &blocks);
+        assert_eq!(
+            copy.body(copy.epoch, 0, &document, &blocks).as_deref(),
+            Some(block.text.as_str())
+        );
+        let changed_body = parse(&source.replace("const", "hello"));
+        assert_ne!(block.syntax, changed_body[0].syntax);
+        let changed_language = parse(&source.replace("language-TS", "unknown"));
+        assert!(changed_language[0].syntax.is_empty());
+        assert_eq!(block.text, changed_language[0].text);
+        let normalized_language = parse(&source.replace("language-TS", "typescript"));
+        assert_eq!(block.syntax, normalized_language[0].syntax);
+    }
+
+    #[test]
+    fn huge_code_falls_back_without_changing_body_find_or_copy() {
+        let body = format!(
+            "{}日本語🦀\n",
+            "x".repeat(crate::code_highlight::MAX_BODY_BYTES)
+        );
+        let blocks = parse(&format!("```js\n{body}```"));
+        assert_eq!(blocks[0].text, body);
+        assert!(blocks[0].syntax.is_empty());
+        assert_eq!(code_runs(&blocks[0], 0, true).len(), 1);
+        let hits = crate::reader_find::search(&blocks, "日本語🦀");
+        assert_eq!(&body[hits.hits[0].range.clone()], "日本語🦀");
+    }
+
     #[test]
     fn empty_tasks_and_nested_children_do_not_lose_or_share_state() {
         // The parser requires whitespace after a marker: EOF alone stays literal.

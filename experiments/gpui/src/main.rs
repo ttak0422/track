@@ -4,6 +4,7 @@ use gpui::{
 };
 mod backend;
 mod code_copy;
+mod code_highlight;
 mod editing;
 mod editor_input;
 mod external_links;
