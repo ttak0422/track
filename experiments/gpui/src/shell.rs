@@ -12,6 +12,7 @@ fn tab_activation_needed(
 }
 
 pub struct ShellState {
+    pub(crate) find: workspace_find::FindState,
     pub(crate) activity: Option<workspace_activity::ActivityState>,
     pub home: bool,
     pub search_open: bool,
@@ -20,7 +21,7 @@ pub struct ShellState {
     pub dark: Option<bool>,
     pub diagnostics: bool,
     pub tab_menu: bool,
-    vault_menu: bool,
+    pub(crate) vault_menu: bool,
     working_scope: String,
     vault_generation: Option<u64>,
     vault_discovery: Option<VaultDiscovery>,
@@ -29,7 +30,7 @@ pub struct ShellState {
     links: Option<LinkResolutionCache>,
     navigation_notice: Option<String>,
     pending_fragment: Option<PendingFragment>,
-    reader_focus: Option<gpui::FocusHandle>,
+    pub(crate) reader_focus: Option<gpui::FocusHandle>,
     reader_scrolls: std::collections::HashMap<tabs::TabKey, gpui::ScrollHandle>,
     tab_cycle: Vec<tabs::TabKey>,
     tab_cycle_index: usize,
@@ -40,6 +41,7 @@ pub struct ShellState {
 impl Default for ShellState {
     fn default() -> Self {
         Self {
+            find: Default::default(),
             activity: None,
             home: true,
             search_open: false,
@@ -1184,6 +1186,7 @@ impl Render for Workspace {
             .entry(reader_key.clone())
             .or_default()
             .clone();
+        self.sync_find(reader_key.clone(), &reader_scroll, dark, window, cx);
         let content_ready = self.current_note.is_some() || !self.content.is_empty();
         let headings = markdown::outline(&self.content);
         let outline_signature = format!("{headings:?}");
@@ -1438,6 +1441,22 @@ impl Render for Workspace {
                     },
                 )),
             )
+            .when(self.find_available(), |rail| {
+                rail.child(
+                    div()
+                        .id("reader-find-open")
+                        .w(px(32.))
+                        .h(px(28.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .text_size(px(10.))
+                        .text_color(rgb(p.muted))
+                        .cursor_pointer()
+                        .child("Find")
+                        .on_click(cx.listener(|this, _, window, cx| this.open_find(window, cx))),
+                )
+            })
             .child(
                 rail_button("reload", "reload", p, false)
                     .on_click(cx.listener(|this, _, _, cx| this.load_notes(cx))),
@@ -1711,11 +1730,19 @@ impl Render for Workspace {
                                     .mb(px(6.))
                                     .child(title),
                             )
-                            .child(markdown::render_with_links(
+                            .child(markdown::render_with_links_and_find(
                                 &self.content,
                                 dark,
                                 Some(&heading_anchors),
                                 &link_callbacks,
+                                self.shell
+                                    .find
+                                    .highlighted
+                                    .then(|| markdown::FindPresentation {
+                                        matches: &self.shell.find.matches,
+                                        active: self.shell.find.active,
+                                        anchors: self.shell.find.anchors.as_ref().unwrap(),
+                                    }),
                             ))
                             .on_mouse_down(
                                 gpui::MouseButton::Left,
@@ -1856,6 +1883,19 @@ impl Render for Workspace {
         div()
             .id("workspace-shell")
             .on_action(
+                cx.listener(|this, _: &search_input::FindNext, _, cx| this.move_find(true, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &search_input::FindPrevious, _, cx| {
+                    this.move_find(false, cx)
+                }),
+            )
+            .on_action(
+                cx.listener(|this, _: &search_input::CloseFind, window, cx| {
+                    this.close_find(window, cx)
+                }),
+            )
+            .on_action(
                 cx.listener(|this, _: &search_input::PreviousResult, _, cx| {
                     this.step_search_result(false, cx)
                 }),
@@ -1878,6 +1918,10 @@ impl Render for Workspace {
                 cx.listener(|this, _, _, _| this.shell.tab_cycle.clear()),
             )
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
+                if this.find_keyboard(event, window, cx) {
+                    cx.stop_propagation();
+                    return;
+                }
                 if event.keystroke.key == "escape" {
                     if this.shell.vault_menu {
                         this.shell.vault_menu = false;
@@ -2055,6 +2099,9 @@ impl Render for Workspace {
                 root.child(self.render_editor(dark))
             })
             .child(rail)
+            .when(self.shell.find.open, |root| {
+                root.child(self.find_overlay(dark, window.viewport_size().width, cx))
+            })
             .when(self.shell.vault_menu, |root| {
                 root.child(
                     div()

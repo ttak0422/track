@@ -88,3 +88,20 @@ This validates one native fragment path, not encoded anchors or dirty transition
 Window → Close Window on a clean note exited the fixture and released its ports.
 A later dirty-window-close preparation was interrupted before editing; that case
 remains unverified.
+
+## Reader Find: pending native acceptance
+
+Use only the disposable fixture; these are planned checks, not observed results.
+
+- Cmd-F opens an independent floating query field without moving the tab strip.
+  Repeated Cmd-F selects its query; workspace search retains its own query.
+- Mixed-case text, Japanese, literal punctuation and table text highlight without
+  losing link styling. Enter/Shift-Enter wrap; Done/Escape clear highlights and
+  restore reader focus without changing note content.
+- Keep committed results during IME preedit, then update on ordinary or unmark-only
+  commit. Cmd-G/Shift-Cmd-G must not navigate a workspace search result.
+- Change tabs, refresh the source and close/reopen Find; stale highlights or deferred
+  scroll requests must not affect the new document. Dirty fixture editing must stay
+  untouched and Find must be unavailable while that editor is active.
+- Test light/dark, narrow windows, multiple hits in a tall paragraph, and table
+  cells. Block/cell anchoring does not establish exact matched-range scrolling.

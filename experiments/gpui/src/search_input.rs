@@ -28,14 +28,48 @@ actions!(
         PreviousResult,
         NextResult,
         OpenResult,
-        DismissSearch
+        DismissSearch,
+        FindNext,
+        FindPrevious,
+        CloseFind
     ]
 );
 
 #[derive(Clone, Debug)]
 pub struct SearchChanged(pub String);
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InputPurpose {
+    WorkspaceSearch,
+    ReaderFind,
+}
+impl InputPurpose {
+    fn context(self, composing: bool) -> &'static str {
+        match (self, composing) {
+            (Self::WorkspaceSearch, false) => "TrackSearch",
+            (Self::WorkspaceSearch, true) => "TrackSearch composing",
+            (Self::ReaderFind, false) => "TrackReaderFind",
+            (Self::ReaderFind, true) => "TrackReaderFind composing",
+        }
+    }
+    fn placeholder(self) -> &'static str {
+        match self {
+            Self::WorkspaceSearch => "Search notes…",
+            Self::ReaderFind => "Find in page",
+        }
+    }
+}
+
+fn emits_unmark(purpose: InputPurpose, was_marked: bool) -> bool {
+    purpose == InputPurpose::ReaderFind && was_marked
+}
+
+fn emits_change(purpose: InputPurpose, marked: bool) -> bool {
+    purpose == InputPurpose::WorkspaceSearch || !marked
+}
+
 pub struct SearchInput {
+    purpose: InputPurpose,
     dark: bool,
     selected_result: Option<usize>,
     focus: FocusHandle,
@@ -102,38 +136,65 @@ fn single_line(text: &str) -> String {
         .collect()
 }
 
-fn search_context(composing: bool) -> &'static str {
-    if composing {
-        "TrackSearch composing"
-    } else {
-        "TrackSearch"
-    }
-}
-
 fn search_bindings() -> Vec<KeyBinding> {
     vec![
+        KeyBinding::new("enter", FindNext, Some("TrackReaderFind && !composing")),
+        KeyBinding::new(
+            "shift-enter",
+            FindPrevious,
+            Some("TrackReaderFind && !composing"),
+        ),
+        KeyBinding::new("escape", CloseFind, Some("TrackReaderFind && !composing")),
         KeyBinding::new("up", PreviousResult, Some("TrackSearch && !composing")),
         KeyBinding::new("down", NextResult, Some("TrackSearch && !composing")),
         KeyBinding::new("enter", OpenResult, Some("TrackSearch && !composing")),
         KeyBinding::new("escape", DismissSearch, Some("TrackSearch && !composing")),
-        KeyBinding::new("backspace", Backspace, Some("TrackSearch")),
-        KeyBinding::new("delete", Delete, Some("TrackSearch")),
-        KeyBinding::new("left", Left, Some("TrackSearch")),
-        KeyBinding::new("right", Right, Some("TrackSearch")),
-        KeyBinding::new("shift-left", ExtendLeft, Some("TrackSearch")),
-        KeyBinding::new("shift-right", ExtendRight, Some("TrackSearch")),
-        KeyBinding::new("home", Home, Some("TrackSearch")),
-        KeyBinding::new("end", End, Some("TrackSearch")),
-        KeyBinding::new("cmd-left", Home, Some("TrackSearch")),
-        KeyBinding::new("cmd-right", End, Some("TrackSearch")),
-        KeyBinding::new("shift-home", ExtendHome, Some("TrackSearch")),
-        KeyBinding::new("shift-end", ExtendEnd, Some("TrackSearch")),
-        KeyBinding::new("cmd-shift-left", ExtendHome, Some("TrackSearch")),
-        KeyBinding::new("cmd-shift-right", ExtendEnd, Some("TrackSearch")),
-        KeyBinding::new("cmd-a", SelectAll, Some("TrackSearch")),
-        KeyBinding::new("cmd-c", Copy, Some("TrackSearch")),
-        KeyBinding::new("cmd-x", Cut, Some("TrackSearch")),
-        KeyBinding::new("cmd-v", Paste, Some("TrackSearch")),
+        KeyBinding::new(
+            "backspace",
+            Backspace,
+            Some("TrackSearch || TrackReaderFind"),
+        ),
+        KeyBinding::new("delete", Delete, Some("TrackSearch || TrackReaderFind")),
+        KeyBinding::new("left", Left, Some("TrackSearch || TrackReaderFind")),
+        KeyBinding::new("right", Right, Some("TrackSearch || TrackReaderFind")),
+        KeyBinding::new(
+            "shift-left",
+            ExtendLeft,
+            Some("TrackSearch || TrackReaderFind"),
+        ),
+        KeyBinding::new(
+            "shift-right",
+            ExtendRight,
+            Some("TrackSearch || TrackReaderFind"),
+        ),
+        KeyBinding::new("home", Home, Some("TrackSearch || TrackReaderFind")),
+        KeyBinding::new("end", End, Some("TrackSearch || TrackReaderFind")),
+        KeyBinding::new("cmd-left", Home, Some("TrackSearch || TrackReaderFind")),
+        KeyBinding::new("cmd-right", End, Some("TrackSearch || TrackReaderFind")),
+        KeyBinding::new(
+            "shift-home",
+            ExtendHome,
+            Some("TrackSearch || TrackReaderFind"),
+        ),
+        KeyBinding::new(
+            "shift-end",
+            ExtendEnd,
+            Some("TrackSearch || TrackReaderFind"),
+        ),
+        KeyBinding::new(
+            "cmd-shift-left",
+            ExtendHome,
+            Some("TrackSearch || TrackReaderFind"),
+        ),
+        KeyBinding::new(
+            "cmd-shift-right",
+            ExtendEnd,
+            Some("TrackSearch || TrackReaderFind"),
+        ),
+        KeyBinding::new("cmd-a", SelectAll, Some("TrackSearch || TrackReaderFind")),
+        KeyBinding::new("cmd-c", Copy, Some("TrackSearch || TrackReaderFind")),
+        KeyBinding::new("cmd-x", Cut, Some("TrackSearch || TrackReaderFind")),
+        KeyBinding::new("cmd-v", Paste, Some("TrackSearch || TrackReaderFind")),
     ]
 }
 
@@ -186,13 +247,22 @@ impl SearchInput {
         self.marked = None;
         cx.notify();
     }
+    pub fn select_all(&mut self, cx: &mut Context<Self>) {
+        self.anchor = 0;
+        self.caret = self.text.len();
+        cx.notify();
+    }
     pub fn set_dark(&mut self, dark: bool) {
         self.dark = dark;
     }
     pub fn new(cx: &mut Context<Self>) -> Self {
+        Self::with_purpose(InputPurpose::WorkspaceSearch, cx)
+    }
+    pub fn with_purpose(purpose: InputPurpose, cx: &mut Context<Self>) -> Self {
         // Scoped bindings do not interfere with workspace navigation.
         cx.bind_keys(search_bindings());
         Self {
+            purpose,
             dark: false,
             selected_result: None,
             focus: cx.focus_handle(),
@@ -241,7 +311,9 @@ impl SearchInput {
         self.anchor = range.start + selection.start;
         self.caret = range.start + selection.end;
         self.selected_result = None;
-        cx.emit(SearchChanged(self.text.clone()));
+        if emits_change(self.purpose, marked) {
+            cx.emit(SearchChanged(self.text.clone()));
+        }
         cx.notify();
     }
     fn hit(&self, point: Point<Pixels>) -> usize {
@@ -287,7 +359,10 @@ impl EntityInputHandler for SearchInput {
         self.marked.clone().map(|r| self.utf16_range(r))
     }
     fn unmark_text(&mut self, _: &mut Window, cx: &mut Context<Self>) {
-        self.marked = None;
+        let was_marked = self.marked.take().is_some();
+        if emits_unmark(self.purpose, was_marked) {
+            cx.emit(SearchChanged(self.text.clone()));
+        }
         cx.notify();
     }
     fn replace_text_in_range(
@@ -357,7 +432,7 @@ impl Render for SearchInput {
             }))
             .text_color(rgb(if dark { 0xe9e9e4 } else { 0x1a1a18 }))
             .text_size(px(16.))
-            .key_context(search_context(self.is_composing()))
+            .key_context(self.purpose.context(self.is_composing()))
             .track_focus(&self.focus)
             .cursor(CursorStyle::IBeam)
             .overflow_hidden()
@@ -443,7 +518,7 @@ impl Render for SearchInput {
                         input.update(cx, |s, cx| {
                             let style = window.text_style();
                             let display: SharedString = if s.text.is_empty() {
-                                "Search notes…".into()
+                                s.purpose.placeholder().into()
                             } else {
                                 s.text.clone().into()
                             };
@@ -532,9 +607,59 @@ impl Render for SearchInput {
 mod tests {
     use super::*;
     #[test]
+    fn find_only_emits_committed_changes() {
+        assert!(emits_unmark(InputPurpose::ReaderFind, true));
+        assert!(!emits_unmark(InputPurpose::ReaderFind, false));
+        assert!(!emits_unmark(InputPurpose::WorkspaceSearch, true));
+        assert!(!emits_change(InputPurpose::ReaderFind, true));
+        assert!(emits_change(InputPurpose::ReaderFind, false));
+        assert!(emits_change(InputPurpose::WorkspaceSearch, true));
+        assert!(emits_change(InputPurpose::WorkspaceSearch, false));
+    }
+    #[test]
+    fn reader_find_keys_are_independent_and_composition_safe() {
+        let keymap = gpui::Keymap::new(search_bindings());
+        let find = [gpui::KeyContext::parse(InputPurpose::ReaderFind.context(false)).unwrap()];
+        for (key, action) in [
+            ("enter", Box::new(FindNext) as Box<dyn gpui::Action>),
+            ("shift-enter", Box::new(FindPrevious)),
+            ("escape", Box::new(CloseFind)),
+            ("cmd-a", Box::new(SelectAll)),
+            ("backspace", Box::new(Backspace)),
+        ] {
+            let (matches, pending) =
+                keymap.bindings_for_input(&[gpui::Keystroke::parse(key).unwrap()], &find);
+            assert!(!pending);
+            assert_eq!(matches.len(), 1, "{key}");
+            assert!(matches[0].action().partial_eq(action.as_ref()), "{key}");
+        }
+        for purpose in [InputPurpose::WorkspaceSearch, InputPurpose::ReaderFind] {
+            let contexts = [gpui::KeyContext::parse(purpose.context(true)).unwrap()];
+            for key in ["enter", "shift-enter", "escape"] {
+                assert!(
+                    keymap
+                        .bindings_for_input(&[gpui::Keystroke::parse(key).unwrap()], &contexts)
+                        .0
+                        .is_empty()
+                );
+            }
+        }
+        for key in ["up", "down"] {
+            assert!(
+                keymap
+                    .bindings_for_input(&[gpui::Keystroke::parse(key).unwrap()], &find)
+                    .0
+                    .is_empty()
+            );
+        }
+        assert_eq!(InputPurpose::WorkspaceSearch.placeholder(), "Search notes…");
+        assert_eq!(InputPurpose::ReaderFind.placeholder(), "Find in page");
+    }
+    #[test]
     fn composition_does_not_bind_result_navigation_or_dismissal() {
         let keymap = gpui::Keymap::new(search_bindings());
-        let contexts = [gpui::KeyContext::parse(search_context(true)).unwrap()];
+        let contexts =
+            [gpui::KeyContext::parse(InputPurpose::WorkspaceSearch.context(true)).unwrap()];
         for key in ["up", "down", "enter", "escape"] {
             assert!(
                 keymap

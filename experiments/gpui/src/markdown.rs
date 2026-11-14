@@ -1,4 +1,5 @@
 //! Native, read-only CommonMark subset. Unsupported content stays inert and visible.
+use crate::reader_find::{Matches, Target};
 use gpui::{
     AnyElement, App, Div, FontStyle, FontWeight, InteractiveText, ScrollAnchor, ScrollHandle,
     SharedString, StyledText, TextRun, UnderlineStyle, Window, div, font, prelude::*, px, rgb,
@@ -369,6 +370,47 @@ impl HeadingAnchors {
     }
 }
 
+/// Retained block/cell anchors; this does not provide exact text-range scrolling.
+pub struct FindAnchors {
+    targets: std::collections::HashMap<Target, ScrollAnchor>,
+}
+impl FindAnchors {
+    pub fn new(blocks: &[Block], handle: &ScrollHandle) -> Self {
+        let mut targets = std::collections::HashMap::new();
+        for (block, value) in blocks.iter().enumerate() {
+            if let Some(table) = &value.table {
+                for (row, cells) in table.rows.iter().enumerate() {
+                    for column in 0..cells.len() {
+                        targets.insert(
+                            Target::Cell { block, row, column },
+                            ScrollAnchor::for_handle(handle.clone()),
+                        );
+                    }
+                }
+            } else {
+                targets.insert(
+                    Target::Block(block),
+                    ScrollAnchor::for_handle(handle.clone()),
+                );
+            }
+        }
+        Self { targets }
+    }
+    pub fn scroll_to(&self, target: &Target, window: &mut Window, cx: &mut App) -> bool {
+        let Some(anchor) = self.targets.get(target) else {
+            return false;
+        };
+        anchor.scroll_to(window, cx);
+        true
+    }
+}
+#[derive(Clone, Copy)]
+pub struct FindPresentation<'a> {
+    pub matches: &'a Matches,
+    pub active: Option<usize>,
+    pub anchors: &'a FindAnchors,
+}
+
 struct Node<'a> {
     event: Event<'a>,
     range: Range<usize>,
@@ -667,13 +709,13 @@ pub fn render(blocks: &[Block]) -> Div {
 /// Uses the system sans fallback; exact IBM Plex Sans JP typography is not claimed.
 /// No HTML execution, network fetching, or link navigation is performed.
 pub fn render_themed(blocks: &[Block], dark: bool) -> Div {
-    render_reader(blocks, dark, None, None)
+    render_reader(blocks, dark, None, None, None)
 }
 
 /// Anchor-aware variant that preserves nested article layout. The outer reader
 /// must track the same handle used to construct `anchors`.
 pub fn render_themed_with_anchors(blocks: &[Block], dark: bool, anchors: &HeadingAnchors) -> Div {
-    render_reader(blocks, dark, Some(anchors), None)
+    render_reader(blocks, dark, Some(anchors), None, None)
 }
 
 pub fn render_with_links(
@@ -682,7 +724,17 @@ pub fn render_with_links(
     anchors: Option<&HeadingAnchors>,
     callbacks: &LinkCallbacks,
 ) -> Div {
-    render_reader(blocks, dark, anchors, Some(callbacks))
+    render_reader(blocks, dark, anchors, Some(callbacks), None)
+}
+
+pub fn render_with_links_and_find(
+    blocks: &[Block],
+    dark: bool,
+    anchors: Option<&HeadingAnchors>,
+    callbacks: &LinkCallbacks,
+    find: Option<FindPresentation<'_>>,
+) -> Div {
+    render_reader(blocks, dark, anchors, Some(callbacks), find)
 }
 
 fn render_reader(
@@ -690,6 +742,7 @@ fn render_reader(
     dark: bool,
     anchors: Option<&HeadingAnchors>,
     callbacks: Option<&LinkCallbacks>,
+    find: Option<FindPresentation<'_>>,
 ) -> Div {
     let theme = ReaderTheme::new(dark);
     div()
@@ -701,14 +754,14 @@ fn render_reader(
         .line_height(px(29.6))
         .font_family(".SystemUIFont")
         .text_color(rgb(theme.ink))
-        .children(render_elements(blocks, dark, anchors, callbacks))
+        .children(render_elements(blocks, dark, anchors, callbacks, find))
 }
 
 /// Direct block children for a shell-owned tracked scroller. Keep each element
 /// as one direct child; wrapping the returned vector defeats child-index anchors.
 /// Each row carries the same body metrics as render_themed.
 pub fn render_block_elements_themed(blocks: &[Block], dark: bool) -> Vec<AnyElement> {
-    render_elements(blocks, dark, None, None)
+    render_elements(blocks, dark, None, None, None)
 }
 
 fn render_elements(
@@ -716,9 +769,11 @@ fn render_elements(
     dark: bool,
     anchors: Option<&HeadingAnchors>,
     callbacks: Option<&LinkCallbacks>,
+    find: Option<FindPresentation<'_>>,
 ) -> Vec<AnyElement> {
     let theme = ReaderTheme::new(dark);
     let entries = outline(blocks);
+    let highlights = find_highlights(find);
     blocks
         .iter()
         .enumerate()
@@ -737,7 +792,15 @@ fn render_elements(
             if let Some(table) = &block.table {
                 return row
                     .mt(px(13.))
-                    .child(render_table(table, theme, callbacks, index))
+                    .child(render_table(
+                        table,
+                        theme,
+                        callbacks,
+                        index,
+                        find,
+                        &highlights,
+                        dark,
+                    ))
                     .into_any_element();
             }
             let text = block.marker.as_ref().map_or_else(
@@ -785,25 +848,48 @@ fn render_elements(
             let offset = text.len() - block.text.len();
             let visible_spans = resolved_spans(&block.spans, &block.links, callbacks);
             let row = row.child(link_text(
-                styled_text(text, &visible_spans, offset, theme, mono, bold),
+                styled_text_find(
+                    text,
+                    &visible_spans,
+                    offset,
+                    theme,
+                    mono,
+                    bold,
+                    highlights
+                        .get(&Target::Block(index))
+                        .map(Vec::as_slice)
+                        .unwrap_or_default(),
+                    dark,
+                ),
                 &block.links,
                 offset,
                 callbacks,
                 format!("md-block-{index}"),
             ));
-            if let Some(entry) = entries.iter().find(|entry| entry.block_index == index) {
-                row.id(SharedString::from(format!(
-                    "markdown-heading:{}",
-                    entry.anchor
-                )))
-                .anchor_scroll(
-                    anchors
-                        .and_then(|anchors| anchors.targets.get(&entry.anchor))
-                        .cloned(),
-                )
-                .into_any_element()
+            let element =
+                if let Some(entry) = entries.iter().find(|entry| entry.block_index == index) {
+                    row.id(SharedString::from(format!(
+                        "markdown-heading:{}",
+                        entry.anchor
+                    )))
+                    .anchor_scroll(
+                        anchors
+                            .and_then(|anchors| anchors.targets.get(&entry.anchor))
+                            .cloned(),
+                    )
+                    .into_any_element()
+                } else {
+                    row.into_any_element()
+                };
+            if let Some(anchor) = find.and_then(|f| f.anchors.targets.get(&Target::Block(index))) {
+                div()
+                    .id(SharedString::from(format!("find-block-{index}")))
+                    .w_full()
+                    .anchor_scroll(Some(anchor.clone()))
+                    .child(element)
+                    .into_any_element()
             } else {
-                row.into_any_element()
+                element
             }
         })
         .collect()
@@ -861,14 +947,14 @@ fn link_text(
         .into_any_element()
 }
 
-fn styled_text(
+fn styled_runs(
     text: String,
     spans: &[Span],
     offset: usize,
     theme: ReaderTheme,
     mono: bool,
     bold: bool,
-) -> StyledText {
+) -> Vec<TextRun> {
     let mut runs = Vec::new();
     let mut cursor = 0;
     for span in spans {
@@ -895,7 +981,82 @@ fn styled_text(
             bold,
         ));
     }
-    StyledText::new(text).with_runs(runs)
+    runs
+}
+
+type FindHighlights = std::collections::HashMap<Target, Vec<(Range<usize>, bool)>>;
+fn find_highlights(find: Option<FindPresentation<'_>>) -> FindHighlights {
+    let mut grouped = FindHighlights::new();
+    if let Some(find) = find {
+        for (index, hit) in find.matches.hits.iter().enumerate() {
+            grouped
+                .entry(hit.target.clone())
+                .or_default()
+                .push((hit.range.clone(), find.active == Some(index)));
+        }
+    }
+    grouped
+}
+
+fn styled_text_find(
+    text: String,
+    spans: &[Span],
+    offset: usize,
+    theme: ReaderTheme,
+    mono: bool,
+    bold: bool,
+    highlights: &[(Range<usize>, bool)],
+    dark: bool,
+) -> StyledText {
+    let runs = styled_runs(text.clone(), spans, offset, theme, mono, bold);
+    let highlights: Vec<_> = highlights
+        .iter()
+        .map(|(r, active)| ((r.start + offset)..(r.end + offset), *active))
+        .filter(|(range, _)| range.start < range.end && text.get(range.clone()).is_some())
+        .collect();
+    StyledText::new(text).with_runs(highlight_runs(runs, &highlights, dark))
+}
+
+/// Split only at validated original-text boundaries; all original styles survive.
+fn highlight_runs(
+    runs: Vec<TextRun>,
+    highlights: &[(Range<usize>, bool)],
+    dark: bool,
+) -> Vec<TextRun> {
+    let mut output = Vec::new();
+    let mut position = 0;
+    let mut hit = 0;
+    for run in runs {
+        let end = position + run.len;
+        while position < end {
+            while hit < highlights.len() && highlights[hit].0.end <= position {
+                hit += 1;
+            }
+            let current = highlights.get(hit);
+            let colored = current.filter(|(range, _)| range.start <= position);
+            let next = match current {
+                Some((range, _)) if range.start > position => end.min(range.start),
+                Some((range, _)) => end.min(range.end),
+                None => end,
+            };
+            let mut piece = run.clone();
+            piece.len = next - position;
+            if let Some((_, active)) = colored {
+                piece.background_color = Some(
+                    rgb(match (dark, *active) {
+                        (true, true) => 0x93432f,
+                        (true, false) => 0x51432c,
+                        (false, true) => 0xf0b09a,
+                        (false, false) => 0xf7e4a2,
+                    })
+                    .into(),
+                );
+            }
+            output.push(piece);
+            position = next;
+        }
+    }
+    output
 }
 
 fn text_run(len: usize, style: InlineStyle, theme: ReaderTheme, mono: bool, bold: bool) -> TextRun {
@@ -934,6 +1095,9 @@ fn render_table(
     theme: ReaderTheme,
     callbacks: Option<&LinkCallbacks>,
     block_index: usize,
+    find: Option<FindPresentation<'_>>,
+    highlights: &FindHighlights,
+    dark: bool,
 ) -> Div {
     div()
         .w_full()
@@ -963,20 +1127,34 @@ fn render_table(
                     _ => view,
                 };
                 let visible_spans = resolved_spans(&cell.spans, &cell.links, callbacks);
-                view.child(link_text(
-                    styled_text(
+                let target = Target::Cell {
+                    block: block_index,
+                    row: index,
+                    column,
+                };
+                let view = view.child(link_text(
+                    styled_text_find(
                         cell.text.clone(),
                         &visible_spans,
                         0,
                         theme,
                         false,
                         index == 0,
+                        highlights
+                            .get(&target)
+                            .map(Vec::as_slice)
+                            .unwrap_or_default(),
+                        dark,
                     ),
                     &cell.links,
                     0,
                     callbacks,
                     format!("md-table-{block_index}-{index}-{column}"),
-                ))
+                ));
+                view.id(SharedString::from(format!(
+                    "find-cell-{block_index}-{index}-{column}"
+                )))
+                .anchor_scroll(find.and_then(|f| f.anchors.targets.get(&target)).cloned())
             }))
         }))
 }
@@ -984,6 +1162,75 @@ fn render_table(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn find_splits_runs_without_changing_style_or_link_offsets() {
+        let theme = ReaderTheme::new(false);
+        let style = InlineStyle {
+            strong: true,
+            emphasis: true,
+            code: true,
+            link: true,
+            ..Default::default()
+        };
+        let original = text_run(9, style, theme, true, false);
+        let runs = highlight_runs(
+            vec![original.clone()],
+            &[(2..5, false), (6..9, true)],
+            false,
+        );
+        assert_eq!(
+            runs.iter().map(|r| r.len).collect::<Vec<_>>(),
+            vec![2, 3, 1, 3]
+        );
+        for run in &runs {
+            let mut plain = run.clone();
+            plain.len = original.len;
+            plain.background_color = None;
+            assert_eq!(plain, original);
+        }
+        assert_ne!(runs[1].background_color, runs[3].background_color);
+        let blocks = parse("- **日本** [link](note) tail");
+        let before = blocks[0].links.clone();
+        let hits = crate::reader_find::search(&blocks, "日本 link");
+        assert_eq!(hits.hits.len(), 1);
+        assert_eq!(blocks[0].links, before);
+        // List marker lies outside hit byte ranges and receives no highlight.
+        let offset = blocks[0].marker.as_ref().unwrap().len() + 1;
+        let text = format!("{} {}", blocks[0].marker.as_ref().unwrap(), blocks[0].text);
+        let base = styled_runs(text, &blocks[0].spans, offset, theme, false, false);
+        let range = hits.hits[0].range.clone();
+        let runs = highlight_runs(
+            base,
+            &[((range.start + offset)..(range.end + offset), true)],
+            false,
+        );
+        assert!(runs[0].background_color.is_none());
+        assert_eq!(runs[0].len, offset);
+    }
+    #[test]
+    fn dense_find_sweep_is_bounded_by_runs_and_hits() {
+        let count = crate::reader_find::MAX_MATCHES;
+        let highlights = (0..count)
+            .map(|i| ((i * 2)..(i * 2 + 1), i == count - 1))
+            .collect::<Vec<_>>();
+        let original = text_run(
+            count * 2,
+            InlineStyle::default(),
+            ReaderTheme::new(true),
+            false,
+            false,
+        );
+        let output = highlight_runs(vec![original], &highlights, true);
+        assert_eq!(output.len(), count * 2);
+        assert_eq!(output.iter().map(|r| r.len).sum::<usize>(), count * 2);
+        assert_eq!(
+            output
+                .iter()
+                .filter(|r| r.background_color.is_some())
+                .count(),
+            count
+        );
+    }
     #[test]
     fn unverified_encoded_and_explicit_web_ids_are_rejected_not_guessed() {
         let blocks = parse("# Hello World\n\n# h-title\n\n# 20target\n\n# Title\n\n# Title");

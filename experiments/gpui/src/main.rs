@@ -11,11 +11,13 @@ mod input_trace;
 mod live;
 mod markdown;
 mod native_window;
+mod reader_find;
 mod search_input;
 mod shell;
 mod tabs;
 mod workspace_activity;
 mod workspace_edit;
+mod workspace_find;
 mod workspace_live;
 use backend::{Backend, Note, Snapshot};
 actions!(

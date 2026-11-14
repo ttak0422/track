@@ -127,6 +127,22 @@ and accessibility remain unverified. Search supports Up/Down,
 Enter (selected or first result), and Escape with focus restoration. These bindings
 are disabled during composition; full native IME validation remains pending.
 
+## Reader Find subset
+
+Reader Find searches rendered note body and table text locally, independently of
+workspace search. Use the reader rail’s Find action, or Cmd-F while the reader
+or Find field has focus, to open its floating field. Enter/Shift-Enter and
+Cmd-G/Shift-Cmd-G move between matches. Done/Escape clear highlights while retaining
+the query. It is unavailable in the developer editor and never saves or changes a
+note. Matching is literal, case-insensitive, non-overlapping and whitespace-flexible;
+highlights use original UTF-8 ranges and retain inline styles and link behavior.
+
+This is not full desktop Find parity: title/notices and embedded content are not
+searched, and navigation reveals the containing block/cell rather than the exact
+matched line. Queries and match counts are bounded with visible limit states.
+Native keyboard/IME, focus, selection and light/dark visual validation remain
+pending; see the acceptance checklist in `NATIVE-QA.md`.
+
 ## Pinned native termination hook
 
 `prepare.sh` uses the repository's locked nixpkgs to fetch the official GPUI crate
