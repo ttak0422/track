@@ -2519,6 +2519,40 @@ impl Render for Workspace {
                         .child(warning),
                 )
             })
+            .when_some(self.event_awareness.notice(), |root, notice| {
+                root.child(
+                    div()
+                        .id("live-change-notice")
+                        .pl(px(64.))
+                        .py_1()
+                        .flex()
+                        .flex_wrap()
+                        .gap_3()
+                        .text_size(px(11.))
+                        .text_color(rgb(p.mark))
+                        .child(notice.message)
+                        .child(
+                            div()
+                                .id("live-change-reload")
+                                .cursor_pointer()
+                                .child("Reload")
+                                .on_click(cx.listener(|this, _, _, cx| this.load_notes(cx))),
+                        )
+                        .when_some(notice.dismiss, |row, ticket| {
+                            row.child(
+                                div()
+                                    .id("live-change-dismiss")
+                                    .cursor_pointer()
+                                    .child("Dismiss notice")
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        if this.event_awareness.dismiss(ticket) {
+                                            cx.notify();
+                                        }
+                                    })),
+                            )
+                        }),
+                )
+            })
             .when_some(self.shell.navigation_notice.clone(), |root, notice| {
                 root.child(
                     div()

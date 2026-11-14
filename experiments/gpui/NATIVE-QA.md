@@ -498,3 +498,20 @@ reinterpret it as the launch vault. Legacy snapshots should start at launch scop
 without a startup rewrite. Ordinary mode must still create no session files.
 These checks remain unperformed; model tests do not prove native restoration,
 selector labeling, dirty-dialog handling or shutdown durability.
+
+## Owned event-stream notices: native validation pending
+
+Use synthetic fixture notes/data and only the server owned by that fixture app.
+Change a fixture note and a data file externally; check their notices without
+body replacement or automatic navigation. Dismiss a painted notice while a
+second event arrives; the second change must remain visible. Break/restart the
+fixture stream and check disconnection and post-reconnect gap notices. No notice
+may claim all served vaults or pinned previews are synchronized.
+
+From a dirty fixture draft, use notice Reload and exercise Cancel, pending Save
+and failed Save. Check the draft and route remain protected. Dismiss must only
+acknowledge a notice, not save, reload or remove a current disconnected warning.
+Check narrow widths, themes, keyboard/AX discoverability and IME focus. Close the
+app during header wait, active streaming and reconnect delay; inspect owned-child
+cleanup without touching an existing vault or unrelated listening process.
+These GUI checks remain unperformed; loopback tests are transport evidence only.

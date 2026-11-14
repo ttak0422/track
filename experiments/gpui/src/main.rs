@@ -8,6 +8,7 @@ mod code_copy;
 mod code_highlight;
 mod editing;
 mod editor_input;
+mod event_awareness;
 mod external_links;
 mod external_refs;
 mod graph;
@@ -15,6 +16,7 @@ mod graph_preview;
 mod graph_view;
 mod input_trace;
 mod live;
+mod live_events;
 mod markdown;
 mod native_window;
 mod navigation;
@@ -73,6 +75,7 @@ struct Workspace {
     tabs: tabs::Tabs,
     history: navigation::History,
     session_ui: workspace_session::SessionUi,
+    event_awareness: event_awareness::State,
     snapshot: Snapshot,
     selected: Option<usize>,
     rendered_rows: usize,
@@ -579,6 +582,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         tabs: tabs::Tabs::default(),
                         history: navigation::History::default(),
                         session_ui: workspace_session::SessionUi::new(session_options),
+                        event_awareness: Default::default(),
                         selected: (!snapshot.notes.is_empty()).then_some(0),
                         snapshot,
                         rendered_rows: 0,

@@ -928,6 +928,7 @@ impl Drop for OwnedServer {
 #[derive(Clone)]
 pub struct Session {
     client: ReadClient,
+    events: Arc<crate::live_events::Observer>,
     pub initial_vaults: Value,
     pub initial_storage: Option<Storage>,
     pub storage_error: Option<String>,
@@ -948,6 +949,10 @@ impl Session {
         let status = Arc::new(Mutex::new(None));
         let shutdown_done = Arc::new(AtomicBool::new(false));
         let session = Self {
+            events: Arc::new(crate::live_events::Observer::start(
+                &server.client.origin,
+                server.client.alive.clone(),
+            )),
             client: server.client(),
             initial_vaults: server.initial_vaults.clone(),
             initial_storage: server.initial_storage.clone(),
@@ -978,11 +983,15 @@ impl Session {
     pub fn client(&self) -> ReadClient {
         self.client.clone()
     }
+    pub fn events(&self) -> crate::live_events::Snapshot {
+        self.events.snapshot()
+    }
     pub fn failure(&self) -> Option<String> {
         self.status.lock().unwrap().clone()
     }
     /// Background-only barrier for retries. Never start a replacement if this fails.
     pub fn shutdown(&self) -> Result<(), Error> {
+        self.events.cancel();
         self.client.alive.store(false, Ordering::Release);
         let _ = self._lifetime.send(());
         let deadline = Instant::now() + Duration::from_secs(4);

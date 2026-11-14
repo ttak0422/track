@@ -120,8 +120,10 @@ parent loss relies on Go's existing parent watchdog and is not yet validated her
 
 HTTP mode reads source Markdown (not portable export) and provides native search
 across all served vaults. Search preserves vault-scoped note identities and ignores
-outdated navigation/storage-generation responses. Production editing and SSE refresh are not
-implemented; use Reload vault for manual refresh. Local graphs use the selected HTTP note’s own vault scope. Japanese IME uses the native input protocol but real composition is
+outdated navigation/storage-generation responses. Production editing and automatic
+SSE refresh are not implemented; use Reload vault for manual refresh. Owned HTTP
+sessions observe note/data change notifications and stream interruptions; this is
+change awareness, not a claim that every displayed view is current. Local graphs use the selected HTTP note’s own vault scope. Japanese IME uses the native input protocol but real composition is
 unverified; cursor movement is Unicode-scalar, not grapheme-cluster aware.
 
 ## UI compatibility
@@ -334,3 +336,27 @@ Headless tests cover source preference, empty values, clearing/identity changes,
 and relation labels. Native layout, long labels, accessibility and decorative
 stamp parity remain unverified. Read-only metadata parity remains partial: existing hierarchy and
 backlinks plus these labels do not establish full navigation or UX parity.
+
+## Read-only live change awareness
+
+Owned HTTP sessions subscribe to `/api/events` on their own loopback origin.
+`change` and `data` notifications produce a notice with **Reload**; `follow` does
+not navigate the workspace. A disconnected stream stays visibly warned after an
+observed gap. Reconnection does not erase the gap because the server does not
+replay missed events. **Dismiss notice** acknowledges only the observed counters;
+a newer notification remains visible. Dismiss does not refresh or certify content.
+
+Reload uses the existing dirty-navigation gate; Cancel, a pending Save or failed
+Save never authorizes replacement. Neither incoming events nor reconnects replace
+a body, navigate, save, or discard a draft. Reload does not automatically dismiss
+a notice, and pinned previews are not globally refreshed. The server primarily
+watches the launch vault; other served vaults refresh on reads. Absence of a
+notice is not proof of freshness.
+
+The observer uses bounded SSE frames, a bounded reconnect delay and cancelable
+async transport, with one worker for an owned session. It accepts only the owned
+loopback endpoint, refuses redirects/proxies and never stores event payloads.
+Header/connection and heartbeat inactivity deadlines do not impose a recurring
+whole-stream lifetime timeout. CLI/snapshot modes do not create an observer.
+Headless loopback/model tests are separate from native notification/Reload/IME
+validation; full live refresh and external-editor follow remain unimplemented.

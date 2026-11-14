@@ -67,6 +67,13 @@ impl Workspace {
                         if warning != this.session_ui.warning {
                             cx.notify();
                         }
+                        let events = this
+                            .live
+                            .as_ref()
+                            .map(|session| (session.client().launch_generation, session.events()));
+                        if this.event_awareness.observe(events) {
+                            cx.notify();
+                        }
                         let failure = this.quit_session.failure();
                         if failure != previous {
                             previous = failure.clone();
