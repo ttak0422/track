@@ -605,6 +605,23 @@ impl Workspace {
                             note.body = baseline.clone();
                             note.etag = active.session.etag().into();
                         }
+                        let reader_key = tabs::TabKey::Note {
+                            vault: key.vault.clone(),
+                            note_id: key.note_id,
+                        };
+                        if this.tabs.active().is_some_and(|tab| tab.key == reader_key) {
+                            if let Some(session) = this.live.as_ref() {
+                                this.shell.accept_reader_content(
+                                    reader_key,
+                                    &baseline,
+                                    Some((
+                                        session.client().launch_generation,
+                                        this.accepted_storage_generation,
+                                        active.session.etag().into(),
+                                    )),
+                                );
+                            }
+                        }
                         this.content = markdown::parse(&baseline);
                         this.editing_ui.message =
                             "Fixture save acknowledged. Authored text and undo history retained."
@@ -772,6 +789,24 @@ impl Workspace {
                 {
                     note.body = text.clone();
                     note.etag = active.session.etag().into();
+                }
+                let key = active.session.key();
+                let reader_key = tabs::TabKey::Note {
+                    vault: key.vault.clone(),
+                    note_id: key.note_id,
+                };
+                if self.tabs.active().is_some_and(|tab| tab.key == reader_key) {
+                    if let Some(session) = self.live.as_ref() {
+                        self.shell.accept_reader_content(
+                            reader_key,
+                            &text,
+                            Some((
+                                session.client().launch_generation,
+                                self.accepted_storage_generation,
+                                active.session.etag().into(),
+                            )),
+                        );
+                    }
                 }
                 self.content = markdown::parse(&text);
                 match active.input.update(cx, |editor, cx| editor.mark_saved(&text, cx)) {

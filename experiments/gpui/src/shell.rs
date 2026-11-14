@@ -11,6 +11,27 @@ fn tab_activation_needed(
         && (load_current_after_close || !tabs.active().is_some_and(|active| &active.key == key))
 }
 
+/// Session-local display identity, not a security hash or a persisted checkpoint.
+#[derive(Debug, PartialEq, Eq)]
+struct ReaderContentIdentity {
+    source_hash: u64,
+    source_len: usize,
+    live: Option<(u64, Option<u64>, String)>,
+}
+
+impl ReaderContentIdentity {
+    fn new(source: &str, live: Option<(u64, Option<u64>, String)>) -> Self {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        source.hash(&mut hasher);
+        Self {
+            source_hash: hasher.finish(),
+            source_len: source.len(),
+            live,
+        }
+    }
+}
+
 pub struct ShellState {
     code_copy: code_copy::State,
     code_anchors: Option<std::rc::Rc<markdown::FindAnchors>>,
@@ -37,6 +58,7 @@ pub struct ShellState {
     pending_fragment: Option<PendingFragment>,
     pub(crate) reader_focus: Option<gpui::FocusHandle>,
     reader_scrolls: std::collections::HashMap<tabs::TabKey, gpui::ScrollHandle>,
+    reader_content: std::collections::HashMap<tabs::TabKey, ReaderContentIdentity>,
     tab_cycle: Vec<tabs::TabKey>,
     tab_cycle_index: usize,
     heading_anchors:
@@ -44,6 +66,25 @@ pub struct ShellState {
 }
 
 impl ShellState {
+    /// Called only after a source revision passed its acceptance guards. A new
+    /// request alone is not a new document. Keep the handle so cached anchors still
+    /// address it; explicit Find/fragment jumps run after this baseline reset.
+    pub(crate) fn accept_reader_content(
+        &mut self,
+        key: tabs::TabKey,
+        source: &str,
+        live: Option<(u64, Option<u64>, String)>,
+    ) {
+        let identity = ReaderContentIdentity::new(source, live);
+        if self.reader_content.get(&key) != Some(&identity) {
+            self.reader_scrolls
+                .entry(key.clone())
+                .or_default()
+                .set_offset(point(px(0.), px(0.)));
+            self.reader_content.insert(key, identity);
+        }
+    }
+
     fn set_working_scope(&mut self, scope: String, launch: Option<u64>) {
         self.working_scope = scope;
         self.scope_revision = self.scope_revision.wrapping_add(1);
@@ -85,6 +126,7 @@ impl Default for ShellState {
             pending_fragment: None,
             reader_focus: None,
             reader_scrolls: Default::default(),
+            reader_content: Default::default(),
             tab_cycle: Vec::new(),
             tab_cycle_index: 0,
             heading_anchors: Default::default(),
@@ -1252,6 +1294,7 @@ impl Workspace {
         }
         self.shell.tab_cycle.clear();
         self.shell.reader_scrolls.remove(key);
+        self.shell.reader_content.remove(key);
         self.shell.heading_anchors.remove(key);
         if !self.tabs.close(key) {
             return;
@@ -2859,6 +2902,68 @@ mod reader_navigation_tests {
         assert_eq!(cycle_index(0, 3, true), 2);
         assert_eq!(cycle_index(0, 0, true), 0);
     }
+    #[test]
+    fn accepted_reader_content_preserves_revisits_but_resets_changed_identity() {
+        let mut shell = ShellState::default();
+        let key = tabs::TabKey::Note {
+            vault: "work".into(),
+            note_id: 42,
+        };
+        let live = Some((1, Some(7), "etag".into()));
+        shell.accept_reader_content(key.clone(), "日本語 body", live.clone());
+        let handle = shell.reader_scrolls[&key].clone();
+        handle.set_offset(point(px(0.), px(-200.)));
+        // Request IDs are intentionally absent: identical reload/tab/history reads
+        // retain positions. Loading/error paths do not call this method at all.
+        shell.accept_reader_content(key.clone(), "日本語 body", live.clone());
+        assert_eq!(handle.offset().y, px(-200.));
+        for (body, revision) in [
+            ("changed body", live.clone()),
+            ("changed body", Some((1, Some(7), "new-etag".into()))),
+            ("changed body", Some((1, Some(8), "new-etag".into()))),
+            ("changed body", Some((2, Some(8), "new-etag".into()))),
+            ("changed body", None),
+        ] {
+            shell.accept_reader_content(key.clone(), body, revision);
+            // Previously cloned anchor handle observes the reset too.
+            assert_eq!(handle.offset().y, px(0.));
+            handle.set_offset(point(px(0.), px(-50.)));
+        }
+        shell.accept_reader_content(key.clone(), "changed body", None);
+        assert_eq!(handle.offset().y, px(-50.));
+        shell.accept_reader_content(key.clone(), "portable changed", None);
+        assert_eq!(handle.offset().y, px(0.));
+        // An explicit fragment/Find scroll applied after acceptance wins, including
+        // subsequent notifications for exactly the same content.
+        handle.set_offset(point(px(0.), px(-75.)));
+        shell.accept_reader_content(key.clone(), "portable changed", None);
+        assert_eq!(handle.offset().y, px(-75.));
+    }
+
+    #[test]
+    fn reader_identity_is_vault_scoped_and_close_reopen_has_no_old_offset() {
+        let mut shell = ShellState::default();
+        let a = tabs::TabKey::Note {
+            vault: "a".into(),
+            note_id: 42,
+        };
+        let b = tabs::TabKey::Note {
+            vault: "b".into(),
+            note_id: 42,
+        };
+        for key in [&a, &b] {
+            shell.accept_reader_content(key.clone(), "same", None);
+            shell.reader_scrolls[key].set_offset(point(px(0.), px(-90.)));
+        }
+        shell.accept_reader_content(a.clone(), "new", None);
+        assert_eq!(shell.reader_scrolls[&a].offset().y, px(0.));
+        assert_eq!(shell.reader_scrolls[&b].offset().y, px(-90.));
+        shell.reader_scrolls.remove(&b);
+        shell.reader_content.remove(&b);
+        shell.accept_reader_content(b.clone(), "same", None);
+        assert_eq!(shell.reader_scrolls[&b].offset().y, px(0.));
+    }
+
     #[test]
     fn reader_offsets_are_isolated_by_vault_and_survive_unbound_loading() {
         let mut shell = ShellState::default();

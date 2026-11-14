@@ -301,3 +301,12 @@ Whole-word keywords are context-free; comments require a word boundary, quoted
 text remains opaque, and heredoc content falls back to plain text. Zsh is not
 implicitly treated as Bash. Copy, Find and token-cache bounds are unchanged.
 Native contrast, selection, wrapping and accessibility remain unverified.
+
+### Session-local reader position identity
+
+Per-note scroll offsets survive tab/history navigation only while the accepted
+content and source identity remain unchanged. A changed body, owned-server launch
+or storage identity resets the retained offset instead of applying an old reading
+position to new content. Loading placeholders do not overwrite the last accepted
+identity. Explicit Find and heading navigation still control their own jumps.
+This is not persisted reading position, seen/read tracking or native scroll QA.

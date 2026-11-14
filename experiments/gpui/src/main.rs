@@ -295,6 +295,13 @@ impl Workspace {
                 match result {
                     Ok(response) => {
                         this.read_error = None;
+                        let key = tabs::TabKey::Note {
+                            vault: String::new(),
+                            note_id: id,
+                        };
+                        if this.tabs.active().is_some_and(|tab| tab.key == key) {
+                            this.shell.accept_reader_content(key, &response.value, None);
+                        }
                         this.content = markdown::parse(&response.value);
                         this.status = response.warnings;
                     }

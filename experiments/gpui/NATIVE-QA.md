@@ -525,3 +525,13 @@ contrast, wrapping and narrow-window overflow. Heredocs, substitutions and
 context-sensitive shell syntax are not a supported grammar; verify that the UI
 never suggests code execution or modifies the source. No native acceptance is
 claimed by the tokenizer tests.
+
+### Reader position identity (pending native QA)
+
+In disposable fixtures, scroll two same-ID notes from different vaults to distinct
+positions and revisit via tabs and history. Confirm unchanged content retains its
+position. Then change the source, reload, and restart the owned server: confirm
+stale offsets are discarded. Also exercise a slow loading placeholder, a failed
+read, a fragment link and Find to ensure position bookkeeping never overrides an
+explicit jump. Check geometry clamping after resize. No on-disk reading position
+or seen/read milestone should be written.

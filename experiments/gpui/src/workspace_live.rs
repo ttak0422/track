@@ -649,6 +649,23 @@ impl Workspace {
                 match result {
                     Ok(response) => {
                         this.read_error = None;
+                        let key = tabs::TabKey::Note {
+                            vault: accepted_request.vault.clone(),
+                            note_id: accepted_request.note_id,
+                        };
+                        if this.tabs.active().is_some_and(|tab| tab.key == key) {
+                            if let Some(session) = this.live.as_ref() {
+                                this.shell.accept_reader_content(
+                                    key,
+                                    &response.note.body,
+                                    Some((
+                                        session.client().launch_generation,
+                                        this.accepted_storage_generation,
+                                        response.note.etag.clone(),
+                                    )),
+                                );
+                            }
+                        }
                         this.content = markdown::parse(&response.note.body);
                         this.partial_read =
                             response.note.read_only || partial(&response.related_and_diagnostics);

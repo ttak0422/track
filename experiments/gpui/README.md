@@ -365,3 +365,11 @@ Header/connection and heartbeat inactivity deadlines do not impose a recurring
 whole-stream lifetime timeout. CLI/snapshot modes do not create an observer.
 Headless loopback/model tests are separate from native notification/Reload/IME
 validation; full live refresh and external-editor follow remain unimplemented.
+
+### Session-local reader positions
+
+Reader offsets are kept per vault-qualified note during tab/history navigation.
+Changed accepted content or owned-source identity resets the old position; a
+loading placeholder alone does not. Find and explicit fragment jumps retain
+their own behavior. This does not save positions to disk or mark notes seen/read.
+Native scroll behavior after source changes, resize and reload remains unverified.
