@@ -252,6 +252,79 @@ pub struct DatedTasksResponse {
     pub diagnostics: Fields,
 }
 
+/// Per-note source task lines, including undated items. No mutable task API is exposed.
+#[derive(Clone, Debug, Deserialize)]
+pub struct NoteTask {
+    pub line: u64,
+    pub state: String,
+    pub done: bool,
+    #[serde(default)]
+    pub priority: String,
+    #[serde(default)]
+    pub scheduled: String,
+    #[serde(default)]
+    pub due: String,
+    #[serde(default)]
+    pub completed: String,
+    pub text: String,
+}
+#[derive(Deserialize)]
+struct NoteTaskSet {
+    items: Vec<NoteTask>,
+}
+/// Local source replacement has no refreshed engine task projection. Keep an explicit
+/// unavailable marker: removing the field would incorrectly mean zero tasks.
+pub fn invalidate_note_tasks(fields: &mut Fields) {
+    fields.insert("tasks".into(), Value::Null);
+}
+
+/// Validate task metadata attached to the accepted note body; absent means no tasks.
+pub fn note_tasks(value: Option<&Value>) -> Result<Vec<NoteTask>, Error> {
+    let Some(value) = value else {
+        return Ok(Vec::new());
+    };
+    if value.is_null() {
+        return Err(Error::Shape(
+            "Task metadata unavailable; reload the note.".into(),
+        ));
+    }
+    if value
+        .get("items")
+        .and_then(Value::as_array)
+        .is_none_or(|items| items.len() > 4096)
+    {
+        return Err(Error::Shape("invalid or excessive note tasks".into()));
+    }
+    let set: NoteTaskSet =
+        serde_json::from_value(value.clone()).map_err(|e| Error::Shape(e.to_string()))?;
+    let items = set.items;
+    if items.len() > 4096 {
+        return Err(Error::Shape("too many note tasks".into()));
+    }
+    let mut previous = 0;
+    for item in &items {
+        let done = match item.state.as_str() {
+            "TODO" | "DOING" | "WAITING" => false,
+            "DONE" | "CANCELLED" => true,
+            _ => return Err(Error::Shape("unknown task state".into())),
+        };
+        if item.line <= previous
+            || item.line > i64::MAX as u64
+            || item.done != done
+            || item.text.len() > 64 * 1024
+            || (!item.priority.is_empty()
+                && !(item.priority.len() == 1 && item.priority.as_bytes()[0].is_ascii_uppercase()))
+            || [&item.scheduled, &item.due, &item.completed]
+                .iter()
+                .any(|d| !d.is_empty() && !date_wire_shape(d))
+        {
+            return Err(Error::Shape("invalid note task line or metadata".into()));
+        }
+        previous = item.line;
+    }
+    Ok(items)
+}
+
 /// Validated preorder forest, preserving the engine's sibling order.
 #[derive(Clone, Debug)]
 pub struct HierarchyRow {

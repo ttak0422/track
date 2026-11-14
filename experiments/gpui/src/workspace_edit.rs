@@ -603,6 +603,7 @@ impl Workspace {
                             this.current_note.as_mut().filter(|n| n.note.key() == key)
                         {
                             note.body = baseline.clone();
+                            live::invalidate_note_tasks(&mut note.note.additional);
                             note.etag = active.session.etag().into();
                         }
                         let reader_key = tabs::TabKey::Note {
@@ -788,6 +789,7 @@ impl Workspace {
                     .filter(|n| &n.note.key() == active.session.key())
                 {
                     note.body = text.clone();
+                    live::invalidate_note_tasks(&mut note.note.additional);
                     note.etag = active.session.etag().into();
                 }
                 let key = active.session.key();

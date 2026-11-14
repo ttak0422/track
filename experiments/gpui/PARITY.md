@@ -359,3 +359,11 @@ preserved; isolated/cyclic structures are not reconstructed. Bounds and
 partial/error notices prevent an unavailable tree being treated as an empty
 vault. No hierarchy mutation or drag reordering is implemented. Native
 keyboard/layout/scroll/accessibility parity remains unverified.
+
+### Current-note task inspection
+
+The live reader displays a bounded, paged projection of task data from its accepted
+note response, including undated and completed tasks in source order. No extra
+request, parser reimplementation or task mutation is introduced. Source-qualified
+controls reset across note revisions. This is not taskboard editing, line jumps
+or native task interaction/accessibility validation.

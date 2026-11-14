@@ -624,3 +624,14 @@ is pending. Close before a response, then reopen and retry. Verify no stale
 branch/note opens, no isolated/cyclic structure is inferred and no writes occur.
 Check narrow/light/dark layouts, long titles, bounded scrolling, keyboard and
 VoiceOver. Network/model tests are not native interaction evidence.
+
+### Current-note task inspector (pending native QA)
+
+Use disposable notes with all task states, dates/priorities, undated tasks,
+Unicode/long text and more than 100 rows. Open/close/page, Reload changed content,
+switch same-ID notes across vaults and enter fixture editing while a stale
+control is retained. Verify source order, dates and source-line labels, no stale
+rows or extra requests, and no writes/state changes. After fixture Save or
+accepted comparison, old embedded tasks must be unavailable until Reload.
+Exercise narrow/light/dark
+layout, scrolling, keyboard and VoiceOver. This does not validate task editing.

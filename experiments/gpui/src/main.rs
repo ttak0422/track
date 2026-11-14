@@ -34,6 +34,7 @@ mod workspace_graph;
 mod workspace_hierarchy;
 mod workspace_images;
 mod workspace_live;
+mod workspace_note_tasks;
 mod workspace_preview;
 mod workspace_session;
 use backend::{Backend, Note, Snapshot};

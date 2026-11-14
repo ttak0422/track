@@ -37,6 +37,7 @@ pub struct ShellState {
     code_anchors: Option<std::rc::Rc<markdown::FindAnchors>>,
     code_focus: std::collections::BTreeMap<usize, gpui::FocusHandle>,
     pub(crate) find: workspace_find::FindState,
+    pub(crate) note_tasks: Option<workspace_note_tasks::NoteTasksState>,
     pub(crate) hierarchy: Option<workspace_hierarchy::HierarchyState>,
     pub(crate) activity: Option<workspace_activity::ActivityState>,
     pub home: bool,
@@ -107,6 +108,7 @@ impl Default for ShellState {
             code_focus: Default::default(),
             find: Default::default(),
             hierarchy: None,
+            note_tasks: None,
             activity: None,
             home: true,
             search_open: false,
@@ -168,12 +170,12 @@ fn fragment_accepts(
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct LinkSource {
-    note: live::NoteKey,
-    etag: String,
-    storage_generation: u64,
-    launch_generation: u64,
-    request: u64,
+pub(crate) struct LinkSource {
+    pub(crate) note: live::NoteKey,
+    pub(crate) etag: String,
+    pub(crate) storage_generation: u64,
+    pub(crate) launch_generation: u64,
+    pub(crate) request: u64,
 }
 fn footnote_jump_allowed(
     source: &LinkSource,
@@ -737,7 +739,7 @@ impl Workspace {
             .and_then(|cache| cache.displayed_for(self.current_link_source().as_ref()))
             .unwrap_or_else(|| std::rc::Rc::new(self.content.clone()))
     }
-    fn current_link_source(&self) -> Option<LinkSource> {
+    pub(crate) fn current_link_source(&self) -> Option<LinkSource> {
         let note = self.current_note.as_ref()?;
         Some(LinkSource {
             note: note.note.key(),
@@ -1658,6 +1660,7 @@ impl Render for Workspace {
             .active()
             .map(|tab| tab.key.clone())
             .unwrap_or(tabs::TabKey::Home);
+        let task_inspector = self.note_tasks_inspector(cx);
         let note_labels = crate::note_metadata::Metadata::current(
             self.live.is_some(),
             &reader_key,
@@ -2252,6 +2255,7 @@ impl Render for Workspace {
                                 })),
                         )
                     })
+                    .child(task_inspector)
                     .when_some(note_labels.milestone, |reader, label| {
                         reader.child(
                             div()
