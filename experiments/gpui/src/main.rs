@@ -3,6 +3,7 @@ use gpui::{
     WindowOptions, actions, div, prelude::*, px, rgb, size, uniform_list,
 };
 mod backend;
+mod build_info;
 mod code_copy;
 mod code_highlight;
 mod editing;
@@ -363,9 +364,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = log::set_logger(&LOGGER);
     log::set_max_level(log::LevelFilter::Warn);
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.as_slice() == ["--version"] {
+        println!("{}", build_info::display());
+        return Ok(());
+    }
     if args.first().is_some_and(|a| a == "--help") {
         println!(
-            "track-gpui-poc [notes.json]\ntrack-gpui-poc --vault /absolute/vault --track-bin /absolute/track [--config /absolute/config] [--cache /absolute/cache] [--server-port 19000] [--developer-edit-fixture /temporary/disposable/vault] [--developer-session-fixture /canonical/temporary/disposable/vault]\nTab persistence is a separate opt-in: cache/track-native-tabs-v1.json, metadata only, safe Home on restart.\nDeveloper editing requires a disposable marker and isolated temporary config/cache; not release-ready.\nNo arguments: synthetic fixture. Vault mode is read-only; CLI may refresh derived caches."
+            "track-gpui-poc --version\ntrack-gpui-poc [notes.json]\ntrack-gpui-poc --vault /absolute/vault --track-bin /absolute/track [--config /absolute/config] [--cache /absolute/cache] [--server-port 19000] [--developer-edit-fixture /temporary/disposable/vault] [--developer-session-fixture /canonical/temporary/disposable/vault]\nTab persistence is a separate opt-in: cache/track-native-tabs-v1.json, metadata only, safe Home on restart.\nDeveloper editing requires a disposable marker and isolated temporary config/cache; not release-ready.\nNo arguments: synthetic fixture. Vault mode is read-only; CLI may refresh derived caches."
         );
         return Ok(());
     }

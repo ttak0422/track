@@ -288,3 +288,18 @@ History is in-memory only, with no heading positions or unsupported route kinds.
 Model and disposable-fixture tests do not establish native shortcut/IME delivery;
 GUI validation remains deferred until explicitly authorized. Mouse side-button
 behavior is unchanged.
+
+### Identify a running build
+
+The diagnostics drawer shows the package version, full source commit, tracked-source
+state and target captured at compile time. The same information is available without
+opening a window, vault or server:
+
+```sh
+./experiments/gpui/target/debug/track-gpui-poc --version
+```
+
+`modified` means tracked repository files differed from the commit during compilation.
+Untracked files are not covered; this is diagnostic provenance, not a reproducible-build
+attestation. `unknown` means Git metadata was unavailable, not that the build is current.
+Changes to the checkout after compilation do not change the executable's identity.

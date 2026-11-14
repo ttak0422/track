@@ -2602,6 +2602,7 @@ impl Render for Workspace {
                                 .map(|cache| cache.warnings.join("\n"))
                                 .unwrap_or_default()
                         ))
+                        .child(crate::build_info::display())
                         .child(self.render_edit_diagnostics(cx)),
                 )
             })

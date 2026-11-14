@@ -326,3 +326,15 @@ after Cancel or newer navigation. Confirm a reload retains the selected route,
 Graph uses the current working vault, empty Home does not become the configured
 Home note, and mouse side-button tab cycling is unchanged. Ordinary editing must
 remain disabled; dirty-flow checks use only isolated disposable fixtures.
+
+### Build identity (headless validation)
+
+The executable now exposes compile-time package version, full commit, tracked-source
+state and target through `--version` and the existing diagnostics drawer. The command
+returned before GUI/source/server startup. The repository at `91133ad` with the build
+identity changes reported that full revision and `modified`, as expected. The Git fixture
+script `qa/test-build-identity.py` checks archive/unknown, clean, modified, untracked-file
+exclusion and linked-worktree metadata. Repeating the Cargo build without changes did
+not recompile the application. Rust tests: 296 passed, 6 ignored. Help site generation
+and prerender succeeded. Native diagnostics layout/readability is still unverified;
+this does not close menu/About/clipboard or native parity gates.
