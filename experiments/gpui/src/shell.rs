@@ -2437,6 +2437,10 @@ impl Render for Workspace {
                 cx.listener(|this, _, _, _| this.shell.tab_cycle.clear()),
             )
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
+                if this.graph_entry_keyboard(event, window, cx) {
+                    cx.stop_propagation();
+                    return;
+                }
                 if this.preview_entry_keyboard(event, window, cx) {
                     cx.stop_propagation();
                     return;

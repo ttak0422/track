@@ -1,5 +1,15 @@
 //! Full-vault view, separate from the note-local aside. No writes or note visits.
 use super::*;
+fn graph_entry_allowed(
+    key: &str,
+    held: bool,
+    modified: bool,
+    available: bool,
+    has_focus: bool,
+    reader_focused: bool,
+) -> bool {
+    key == "f7" && !held && !modified && available && (!has_focus || reader_focused)
+}
 #[derive(Default)]
 pub struct FullGraph {
     pub(crate) scope: Option<String>,
@@ -130,7 +140,45 @@ impl Workspace {
             self.open_live_key(live::NoteKey { vault, note_id: id }, cx);
         }
     }
+    pub(crate) fn graph_entry_keyboard(
+        &mut self,
+        event: &gpui::KeyDownEvent,
+        window: &mut gpui::Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let m = event.keystroke.modifiers;
+        if !graph_entry_allowed(
+            &event.keystroke.key,
+            event.is_held,
+            m.platform || m.control || m.alt || m.shift,
+            self.full_graph_active()
+                && self.pin_keyboard_available(cx)
+                && self.quit_session.failure().is_none(),
+            window.focused(cx).is_some(),
+            self.shell
+                .reader_focus
+                .as_ref()
+                .is_some_and(|focus| focus.is_focused(window)),
+        ) {
+            return false;
+        }
+        self.graph_view
+            .update(cx, |view, cx| view.focus_canvas(window, cx));
+        true
+    }
+
     pub(crate) fn render_full_graph(&self, cx: &mut Context<Self>) -> gpui::Div {
+        let workspace = cx.entity().downgrade();
+        self.graph_view.update(cx, |view, _| {
+            view.set_keyboard_guard(std::rc::Rc::new(move |cx| {
+                workspace.upgrade().is_some_and(|entity| {
+                    let workspace = entity.read(cx);
+                    workspace.full_graph_active()
+                        && workspace.pin_keyboard_available(cx)
+                        && workspace.quit_session.failure().is_none()
+                })
+            }))
+        });
         div()
             .flex()
             .flex_col()
@@ -307,5 +355,22 @@ mod lifetime_tests {
             3,
             Some(4)
         ));
+    }
+}
+
+#[cfg(test)]
+mod keyboard_entry_tests {
+    use super::*;
+    #[test]
+    fn graph_keyboard_entry_requires_clear_context_and_does_not_steal_control_focus() {
+        assert!(graph_entry_allowed("f7", false, false, true, false, false));
+        assert!(graph_entry_allowed("f7", false, false, true, true, true));
+        assert!(!graph_entry_allowed("f6", false, false, true, false, false));
+        assert!(!graph_entry_allowed("f7", true, false, true, false, false));
+        assert!(!graph_entry_allowed("f7", false, true, true, false, false));
+        assert!(!graph_entry_allowed(
+            "f7", false, false, false, false, false
+        ));
+        assert!(!graph_entry_allowed("f7", false, false, true, true, false));
     }
 }

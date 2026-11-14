@@ -110,6 +110,13 @@ Shift while scrolling to zoom around the pointer. Click a node to select it, dra
 to move it, and double-click to navigate. Hover/selection
 shows metadata. Leaving the canvas ends dragging.
 
+The Full graph canvas also accepts focused keyboard selection: arrows choose the
+nearest node in that direction, Home/End choose the first/last note ID, Enter opens
+the selected note and Escape clears selection/temporary preview. Selection stops
+unfinished background settling before revealing the node. Click the canvas or
+press F7 from reader/no focus first; Escape/Tab leaves canvas focus. These are local unmodified keys, not global shortcuts; native
+focus, IME and accessibility validation remains pending.
+
 Placement starts circular, then settles a bounded deterministic force snapshot on
 a background worker (up to 1,000 nodes). Larger graphs keep circular placement.
 This is not existing force-layout parity: neighbors do not follow drags elastically.

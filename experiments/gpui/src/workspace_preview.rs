@@ -82,7 +82,7 @@ fn pin_entry_focus_allowed(has_focus: bool, reader_focused: bool) -> bool {
     !has_focus || reader_focused
 }
 impl Workspace {
-    fn pin_keyboard_available(&self, cx: &App) -> bool {
+    pub(crate) fn pin_keyboard_available(&self, cx: &App) -> bool {
         PinKeyboardContext {
             gesture: self.previews.model.geometry_active(),
             editing: self.editing_ui.active(),

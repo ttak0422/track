@@ -567,3 +567,13 @@ not appear. Test unavailable/oversize/corrupt assets and explicit Reload retry.
 Confirm inline/table/code, external/data/file URLs and SVG remain literal without
 network fetch. Inspect memory/GPU lifecycle, color/orientation and accessibility
 separately; headless decode tests do not establish native visual correctness.
+
+### Full graph keyboard selection (pending native QA)
+
+Use an isolated graph with disconnected nodes and similar titles. F7/click into
+the canvas, then exercise arrows, Home/End, Enter, Escape and Tab. Verify deterministic
+selection, camera reveal, note identity and the dirty-navigation guard. Check
+modified keys, repeated Enter, pointer drag, temporary/pinned previews, menus,
+search, dialogs and IME composition never cause accidental navigation. Switch
+graph scope/reload while settling and ensure cleared/stale nodes cannot open.
+Validate Tab exit, focus indication, narrow layouts and VoiceOver independently.

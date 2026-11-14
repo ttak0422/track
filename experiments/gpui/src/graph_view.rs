@@ -23,7 +23,90 @@ pub enum PreviewIntent {
 }
 impl gpui::EventEmitter<PreviewIntent> for GraphView {}
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GraphKey {
+    Left,
+    Right,
+    Up,
+    Down,
+    First,
+    Last,
+    Open,
+    Exit,
+}
+fn graph_key(key: &str, modified: bool, held: bool) -> Option<GraphKey> {
+    if modified {
+        return None;
+    }
+    match key {
+        "left" => Some(GraphKey::Left),
+        "right" => Some(GraphKey::Right),
+        "up" => Some(GraphKey::Up),
+        "down" => Some(GraphKey::Down),
+        "home" => Some(GraphKey::First),
+        "end" => Some(GraphKey::Last),
+        "enter" if !held => Some(GraphKey::Open),
+        "escape" => Some(GraphKey::Exit),
+        "tab" if !held => Some(GraphKey::Exit),
+        _ => None,
+    }
+}
+
+/// Closest node in the requested open half-plane, ID tie-break; no wrap.
+/// Home/End use numeric identity order, independent of layout/vector ordering.
+fn keyboard_target(
+    nodes: &[LayoutNode],
+    selected: Option<i64>,
+    center: i64,
+    key: GraphKey,
+) -> Option<i64> {
+    let valid = |node: &&LayoutNode| {
+        node.node.note_id > 0 && node.position.x.is_finite() && node.position.y.is_finite()
+    };
+    if key == GraphKey::First {
+        return nodes.iter().filter(valid).map(|n| n.node.note_id).min();
+    }
+    if key == GraphKey::Last {
+        return nodes.iter().filter(valid).map(|n| n.node.note_id).max();
+    }
+    if matches!(key, GraphKey::Open | GraphKey::Exit) {
+        return None;
+    }
+    let Some(current) = nodes
+        .iter()
+        .filter(valid)
+        .find(|n| Some(n.node.note_id) == selected)
+    else {
+        return nodes
+            .iter()
+            .filter(valid)
+            .find(|n| n.node.note_id == center)
+            .map(|n| n.node.note_id)
+            .or_else(|| nodes.iter().filter(valid).map(|n| n.node.note_id).min());
+    };
+    nodes
+        .iter()
+        .filter(valid)
+        .filter_map(|node| {
+            let dx = node.position.x - current.position.x;
+            let dy = node.position.y - current.position.y;
+            let direction = match key {
+                GraphKey::Left => dx < 0.,
+                GraphKey::Right => dx > 0.,
+                GraphKey::Up => dy < 0.,
+                GraphKey::Down => dy > 0.,
+                _ => false,
+            };
+            let distance = dx.hypot(dy);
+            (direction && distance.is_finite()).then_some((distance, node.node.note_id))
+        })
+        .min_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)))
+        .map(|(_, id)| id)
+}
+
 pub struct GraphView {
+    focus: Option<gpui::FocusHandle>,
+    keyboard_allowed: Option<std::rc::Rc<dyn Fn(&gpui::App) -> bool>>,
     graph: Graph,
     nodes: Vec<LayoutNode>,
     viewport: Viewport,
@@ -54,6 +137,8 @@ impl GraphView {
     pub fn new(graph: Graph) -> Self {
         let nodes = graph::circular_layout(&graph);
         Self {
+            focus: None,
+            keyboard_allowed: None,
             graph,
             nodes,
             viewport: Viewport::new(0., 0.),
@@ -82,8 +167,12 @@ impl GraphView {
         let compact = self.compact;
         let overview = self.overview;
         let titles = self.titles;
+        let focus = self.focus.clone();
+        let keyboard_allowed = self.keyboard_allowed.clone();
         // Dropping the old view cancels its worker, including on graph replacement.
         *self = Self::new(graph);
+        self.focus = focus;
+        self.keyboard_allowed = keyboard_allowed;
         self.dark = dark;
         self.compact = compact;
         self.overview = overview;
@@ -178,6 +267,97 @@ impl GraphView {
     pub fn selected(&self) -> Option<i64> {
         self.selected
     }
+    pub fn focus_canvas(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // The Workspace entry handler already checked its context; do not read
+        // it recursively while that entity is mutably updating.
+        if self.overview {
+            let focus = self.focus.get_or_insert_with(|| cx.focus_handle());
+            window.focus(focus);
+            cx.notify();
+        }
+    }
+
+    pub fn set_keyboard_guard(&mut self, guard: std::rc::Rc<dyn Fn(&gpui::App) -> bool>) {
+        self.keyboard_allowed = Some(guard);
+    }
+
+    fn select_from_keyboard(&mut self, id: i64) {
+        let Some(node) = self.nodes.iter().find(|n| n.node.note_id == id) else {
+            return;
+        };
+        self.selected = Some(id);
+        self.hovered = None;
+        self.click_start = None;
+        self.camera_intent.changed();
+        // Like direct node dragging, keyboard inspection freezes the pending
+        // layout so the just-revealed selection cannot jump away on completion.
+        self.layout_cancelled.store(true, Ordering::Relaxed);
+        self.layout_generation = self.layout_generation.wrapping_add(1);
+        self.layout_status = "keyboard inspection · layout snapshot held";
+        self.viewport.offset = Point {
+            x: -node.position.x * self.viewport.scale,
+            y: -node.position.y * self.viewport.scale,
+        };
+    }
+
+    fn keyboard(
+        &mut self,
+        event: &gpui::KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self
+            .keyboard_allowed
+            .as_ref()
+            .is_some_and(|guard| guard(cx))
+            || !self.overview
+            || !self
+                .focus
+                .as_ref()
+                .is_some_and(|focus| focus.is_focused(window))
+            || self.pan_from.is_some()
+            || self.node_drag.is_some()
+        {
+            return;
+        }
+        let m = event.keystroke.modifiers;
+        let Some(key) = graph_key(
+            &event.keystroke.key,
+            m.platform || m.control || m.alt || m.shift,
+            event.is_held,
+        ) else {
+            return;
+        };
+        match key {
+            GraphKey::Open => {
+                if let Some(id) = self
+                    .selected
+                    .filter(|id| self.nodes.iter().any(|n| n.node.note_id == *id))
+                {
+                    cx.emit(PreviewIntent::Cancel);
+                    cx.emit(OpenNote(id));
+                }
+            }
+            GraphKey::Exit => {
+                self.selected = None;
+                self.hovered = None;
+                self.click_start = None;
+                cx.emit(PreviewIntent::Cancel);
+                window.blur();
+            }
+            _ => {
+                if let Some(id) =
+                    keyboard_target(&self.nodes, self.selected, self.graph.center_id, key)
+                {
+                    self.select_from_keyboard(id);
+                    cx.emit(PreviewIntent::Cancel);
+                }
+            }
+        }
+        cx.stop_propagation();
+        cx.notify();
+    }
+
     fn local(&self, position: gpui::Point<Pixels>) -> Point {
         Point {
             x: f32::from(position.x) as f64 - self.origin.x,
@@ -186,7 +366,9 @@ impl GraphView {
     }
 }
 impl Render for GraphView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let focus = self.focus.get_or_insert_with(|| cx.focus_handle()).clone();
+        let keyboard_focused = self.overview && focus.is_focused(window);
         let (panel, ink, muted, line, outline, mark) = if self.dark {
             (0x191c1e, 0xe9e9e4, 0xa2a29b, 0x282c2f, 0x6e7478, 0xf4785e)
         } else {
@@ -242,13 +424,17 @@ impl Render for GraphView {
             .cloned();
         div()
             .id("native-graph")
+            .when(self.overview, |el| el.track_focus(&focus).tab_index(0)
+                .on_key_down(cx.listener(|this, event, window, cx| this.keyboard(event, window, cx))))
+            .border_1().border_color(rgb(if keyboard_focused { mark } else { panel }))
             .relative()
             .size_full()
             .overflow_hidden()
             .bg(rgb(panel))
             .on_mouse_down(
                 MouseButton::Left,
-                cx.listener(|this, event: &gpui::MouseDownEvent, _, cx| {
+                cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
+                    if this.overview { if let Some(focus) = &this.focus { window.focus(focus); } }
                     if this.overview { cx.emit(PreviewIntent::Cancel); }
                     this.click_start = None;
                     let p = this.local(event.position);
@@ -476,6 +662,7 @@ impl Render for GraphView {
                     .text_color(rgb(ink)).text_sm()
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .child(div().text_xs().text_color(rgb(muted)).child(self.layout_status))
+                    .when(self.overview, |el| el.child(div().text_xs().text_color(rgb(muted)).child("F7/click focuses · arrows select · Home/End first/last ID · Enter opens · Esc/Tab exits")))
                     .children(detail.map(|node| {
                         let id = node.note_id;
                         div().flex().flex_col().gap_1()
@@ -501,6 +688,113 @@ impl Render for GraphView {
 #[cfg(test)]
 mod cancellation_tests {
     use super::*;
+
+    fn keyboard_nodes() -> Vec<LayoutNode> {
+        [
+            (10, 0., 0.),
+            (30, 10., 0.),
+            (20, 0., 10.),
+            (40, -10., 0.),
+            (50, 0., -10.),
+        ]
+        .into_iter()
+        .map(|(id, x, y)| LayoutNode {
+            node: graph::GraphNode {
+                note_id: id,
+                ..Default::default()
+            },
+            position: Point { x, y },
+            degree: 0,
+        })
+        .collect()
+    }
+    #[test]
+    fn graph_keyboard_targets_are_spatial_deterministic_and_do_not_wrap() {
+        let nodes = keyboard_nodes();
+        assert_eq!(keyboard_target(&nodes, None, 10, GraphKey::Right), Some(10));
+        assert_eq!(
+            keyboard_target(&nodes, Some(999), 999, GraphKey::Right),
+            Some(10)
+        );
+        for (key, id) in [
+            (GraphKey::Right, 30),
+            (GraphKey::Down, 20),
+            (GraphKey::Left, 40),
+            (GraphKey::Up, 50),
+        ] {
+            assert_eq!(keyboard_target(&nodes, Some(10), 10, key), Some(id));
+        }
+        assert_eq!(keyboard_target(&nodes, Some(30), 10, GraphKey::Right), None);
+        assert_eq!(
+            keyboard_target(&nodes, Some(30), 10, GraphKey::First),
+            Some(10)
+        );
+        assert_eq!(
+            keyboard_target(&nodes, Some(30), 10, GraphKey::Last),
+            Some(50)
+        );
+        let mut tied = nodes.clone();
+        tied.push(LayoutNode {
+            node: graph::GraphNode {
+                note_id: 15,
+                ..Default::default()
+            },
+            position: Point { x: 10., y: 0. },
+            degree: 0,
+        });
+        tied.reverse();
+        assert_eq!(
+            keyboard_target(&tied, Some(10), 10, GraphKey::Right),
+            Some(15)
+        );
+        tied.push(LayoutNode {
+            node: graph::GraphNode {
+                note_id: 1,
+                ..Default::default()
+            },
+            position: Point { x: f64::NAN, y: 0. },
+            degree: 0,
+        });
+        assert_eq!(keyboard_target(&tied, None, 1, GraphKey::First), Some(10));
+        assert_eq!(keyboard_target(&[], None, 1, GraphKey::First), None);
+    }
+    #[test]
+    fn graph_keyboard_ignores_modified_text_and_repeated_open() {
+        for key in [
+            "left", "right", "up", "down", "home", "end", "enter", "escape", "tab",
+        ] {
+            assert_eq!(graph_key(key, true, false), None);
+        }
+        for key in ["a", "日本語", "f6", "f7"] {
+            assert_eq!(graph_key(key, false, false), None);
+        }
+        assert_eq!(graph_key("enter", false, true), None);
+        assert_eq!(graph_key("enter", false, false), Some(GraphKey::Open));
+        assert_eq!(graph_key("right", false, true), Some(GraphKey::Right));
+        assert_eq!(graph_key("tab", false, false), Some(GraphKey::Exit));
+    }
+    #[test]
+    fn graph_keyboard_reveal_cancels_layout_and_keeps_node_centered() {
+        let mut view = GraphView::new(Graph::default());
+        view.nodes = keyboard_nodes();
+        view.viewport = Viewport::new(600., 400.);
+        view.viewport.scale = 2.;
+        view.hovered = Some(40);
+        let revision = view.camera_intent.revision();
+        let generation = view.layout_generation;
+        view.select_from_keyboard(30);
+        assert_eq!(view.selected, Some(30));
+        assert_eq!(view.hovered, None);
+        assert!(view.layout_cancelled.load(Ordering::Relaxed));
+        assert_ne!(view.layout_generation, generation);
+        assert!(!view.camera_intent.permits_auto_fit(revision));
+        assert_eq!(
+            view.viewport.world_to_screen(Point { x: 10., y: 0. }),
+            Point { x: 300., y: 200. }
+        );
+        view.select_from_keyboard(999);
+        assert_eq!(view.selected, Some(30));
+    }
 
     #[test]
     fn replacement_and_drop_cancel_only_their_own_worker() {
