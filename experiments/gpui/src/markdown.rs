@@ -2,7 +2,8 @@
 use crate::reader_find::{Matches, Target};
 use gpui::{
     AnyElement, App, Div, FontStyle, FontWeight, InteractiveText, ScrollAnchor, ScrollHandle,
-    SharedString, StyledText, TextRun, UnderlineStyle, Window, div, font, prelude::*, px, rgb,
+    SharedString, StrikethroughStyle, StyledText, TextRun, UnderlineStyle, Window, div, font,
+    prelude::*, px, rgb,
 };
 use pulldown_cmark::{Alignment, Event, Options, Parser, Tag};
 use std::{ops::Range, rc::Rc};
@@ -34,6 +35,7 @@ pub struct Block {
 pub struct InlineStyle {
     pub emphasis: bool,
     pub strong: bool,
+    pub strike: bool,
     pub code: bool,
     pub link: bool,
     pub unresolved: bool,
@@ -559,6 +561,7 @@ fn inline(node: &Node<'_>, source: &str, out: &mut Cell, mut style: InlineStyle)
             match tag {
                 Tag::Emphasis => style.emphasis = true,
                 Tag::Strong => style.strong = true,
+                Tag::Strikethrough => style.strike = true,
                 _ => {}
             }
             for child in &node.children {
@@ -577,9 +580,24 @@ fn inline(node: &Node<'_>, source: &str, out: &mut Cell, mut style: InlineStyle)
             }
         }
         Event::Html(text) | Event::InlineHtml(text) => out.append(text, style),
+        Event::TaskListMarker(_) => {} // Displayed once as an inert list marker, not searchable text.
         Event::SoftBreak => out.append(" ", style),
         Event::HardBreak => out.append("\n", style),
         _ => out.append(&source[node.range.clone()], style),
+    }
+}
+
+// Only the item's first parsed inline position can provide its own task state.
+// Never inherit a nested child's state or reinterpret custom Track state tokens.
+fn task_state(item: &Node<'_>) -> Option<bool> {
+    let first = item.children.first()?;
+    match first.event {
+        Event::TaskListMarker(checked) => Some(checked),
+        Event::Start(Tag::Paragraph) => match first.children.first()?.event {
+            Event::TaskListMarker(checked) => Some(checked),
+            _ => None,
+        },
+        _ => None,
     }
 }
 
@@ -643,16 +661,25 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
             for (index, child) in node.children.iter().enumerate() {
                 let before = out.len();
                 blocks(child, source, indent + 1, quoted, out);
-                if let Some(first) = out.get_mut(before) {
-                    first.marker = Some(
-                        start.map_or_else(|| "•".into(), |n| format!("{}.", n + index as u64)),
-                    );
+                if let Some(first) = out
+                    .get_mut(before)
+                    .filter(|block| block.indent == indent + 1)
+                {
+                    // Static neutral glyphs, no checkbox role, focus, or mutation callback.
+                    first.marker = Some(match task_state(child) {
+                        Some(false) => "☐".into(),
+                        Some(true) => "☑".into(),
+                        None => {
+                            start.map_or_else(|| "•".into(), |n| format!("{}.", n + index as u64))
+                        }
+                    });
                 }
             }
             return;
         }
         Event::Start(Tag::Item) => {
             // Tight lists omit paragraph tags. Group inline runs into one paragraph.
+            let before = out.len();
             let mut run = Cell::default();
             for child in &node.children {
                 if matches!(
@@ -673,6 +700,26 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
                 }
             }
             flush_run(&mut run, indent, quoted, out);
+            // An empty task still needs its own indicator, including when its only
+            // content is a nested list. Do not put the parent's state on its child.
+            if task_state(node).is_some()
+                && out.get(before).is_none_or(|block| block.indent > indent)
+            {
+                out.insert(
+                    before,
+                    Block {
+                        kind: BlockKind::Paragraph,
+                        text: String::new(),
+                        indent,
+                        quoted,
+                        marker: None,
+                        spans: vec![],
+                        links: vec![],
+                        table: None,
+                        language: None,
+                    },
+                );
+            }
             return;
         }
         Event::Start(Tag::BlockQuote(_)) => {
@@ -730,10 +777,13 @@ fn flush_run(run: &mut Cell, indent: usize, quoted: bool, out: &mut Vec<Block>) 
     }
 }
 
-/// Parse CommonMark plus tables without I/O. Other extensions remain literal.
+/// Parse CommonMark plus tables, ordinary tasks and strike without I/O.
+/// Rich Track task notation remains literal; no task mutation is supported.
 /// Reference definitions omitted by the parser are retained as source fallback.
 pub fn parse(source: &str) -> Vec<Block> {
-    let tree = nodes(&mut Parser::new_ext(source, Options::ENABLE_TABLES).into_offset_iter());
+    let options =
+        Options::ENABLE_TABLES | Options::ENABLE_TASKLISTS | Options::ENABLE_STRIKETHROUGH;
+    let tree = nodes(&mut Parser::new_ext(source, options).into_offset_iter());
     let mut result = Vec::new();
     let mut end = 0;
     for node in &tree {
@@ -887,7 +937,10 @@ fn render_elements(
                 .text_color(rgb(theme.ink))
                 .pl(px((block.indent * 16) as f32));
             if block.quoted {
-                row = row.border_l_2().border_color(rgb(theme.strong_line)).pl_3();
+                row = row
+                    .border_l_2()
+                    .border_color(rgb(theme.strong_line))
+                    .pl(px(12. + (block.indent * 16) as f32));
             }
             if let Some(table) = &block.table {
                 return row
@@ -1255,7 +1308,10 @@ fn text_run(len: usize, style: InlineStyle, theme: ReaderTheme, mono: bool, bold
             color: Some(rgb(theme.strong_line).into()),
             wavy: false,
         }),
-        strikethrough: None,
+        strikethrough: style.strike.then(|| StrikethroughStyle {
+            thickness: px(1.),
+            color: None, // Inherit foreground, including unresolved links and code.
+        }),
     }
 }
 
@@ -1331,6 +1387,183 @@ fn render_table(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn empty_tasks_and_nested_children_do_not_lose_or_share_state() {
+        // The parser requires whitespace after a marker: EOF alone stays literal.
+        assert_eq!(parse("- [x]")[0].text, "[x]");
+        assert_eq!(parse("- [x] ")[0].marker.as_deref(), Some("☑"));
+        let empty = parse("- [ ]\n- [x]\n- [X]\n");
+        assert_eq!(empty.len(), 3);
+        assert!(empty.iter().all(|b| b.text.is_empty()), "{empty:?}");
+        assert_eq!(
+            empty
+                .iter()
+                .map(|b| b.marker.as_deref())
+                .collect::<Vec<_>>(),
+            vec![Some("☐"), Some("☑"), Some("☑")]
+        );
+        let nested = parse("- [ ]\n  - [x] child\n- parent\n  - [x] nested\n\n1. [x] one\n2. two");
+        assert_eq!(
+            nested
+                .iter()
+                .map(|b| (b.marker.as_deref(), b.text.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                (Some("☐"), ""),
+                (Some("☑"), "child"),
+                (Some("•"), "parent"),
+                (Some("☑"), "nested"),
+                (Some("☑"), "one"),
+                (Some("2."), "two")
+            ]
+        );
+        let only_child = parse("-\n  - [x] child");
+        assert_eq!(only_child[0].marker.as_deref(), Some("☑"));
+    }
+    #[test]
+    fn task_and_strike_keep_block_anchor_indexes_and_plain_text_boundaries() {
+        let styled = parse("- [x] ~~done~~\n\n# ~~Heading~~\n\n```txt\n[x] ~~literal~~\n```");
+        let plain = parse("- done\n\n# Heading\n\n```txt\n[x] ~~literal~~\n```");
+        assert_eq!(outline(&styled), outline(&plain));
+        assert_eq!(styled.len(), plain.len());
+        assert_eq!(styled[2].text, plain[2].text);
+        for source in ["[x] prose", "x [x] y", "- \\[x] escaped"] {
+            let blocks = parse(source);
+            assert!(blocks[0].text.contains("[x]"));
+            assert_ne!(blocks[0].marker.as_deref(), Some("☑"));
+        }
+        // pulldown-cmark's enabled strike extension also accepts single tilde.
+        // This observation is not a claim of complete reference dialect parity.
+        assert_eq!(parse("~single~")[0].text, "single");
+        assert!(parse("~single~")[0].spans[0].style.strike);
+    }
+    #[test]
+    fn task_markers_are_read_only_presentation_not_label_styles() {
+        let blocks = parse(
+            "- [ ] pending\n- [x] done\n- [X] upper\n- ordinary\n\n1. [ ] ordered\n2. normal",
+        );
+        assert_eq!(
+            blocks
+                .iter()
+                .map(|b| (b.marker.as_deref(), b.text.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                (Some("☐"), "pending"),
+                (Some("☑"), "done"),
+                (Some("☑"), "upper"),
+                (Some("•"), "ordinary"),
+                (Some("☐"), "ordered"),
+                (Some("2."), "normal")
+            ]
+        );
+        assert!(blocks.iter().all(|b| b.spans.is_empty()));
+        assert!(crate::reader_find::search(&blocks, "[x]").hits.is_empty());
+        assert!(crate::reader_find::search(&blocks, "☑").hits.is_empty());
+    }
+    #[test]
+    fn nested_quoted_and_loose_tasks_keep_independent_markers() {
+        let blocks = parse(
+            "- [x] parent\n  - [ ] child\n\n- [ ] loose\n\n  continuation\n\n> - [X] quoted\n\nafter",
+        );
+        assert_eq!(
+            blocks.iter().map(|b| b.text.as_str()).collect::<Vec<_>>(),
+            vec![
+                "parent",
+                "child",
+                "loose",
+                "continuation",
+                "quoted",
+                "after"
+            ]
+        );
+        assert_eq!(blocks[0].marker.as_deref(), Some("☑"));
+        assert_eq!(blocks[1].marker.as_deref(), Some("☐"));
+        assert_eq!(blocks[1].indent, 2);
+        assert_eq!(blocks[2].marker.as_deref(), Some("☐"));
+        assert!(blocks[3].marker.is_none());
+        assert!(blocks[4].quoted);
+        assert_eq!(blocks[4].marker.as_deref(), Some("☑"));
+    }
+    #[test]
+    fn strike_composes_with_links_titles_and_find_without_mutating_source() {
+        let source = "- [x] before ~~**日本語** *italic* [[id:123]] [[id:456]] [[id:789|alias]]~~ after [link](Note.md)";
+        let original = parse(source);
+        let titles = std::collections::HashMap::from([
+            ("id:123".into(), "長いタイトル 🦀".into()),
+            ("id:456".into(), "短".into()),
+            ("id:789".into(), "ignored".into()),
+        ]);
+        let displayed = with_resolved_titles(&original, &titles);
+        assert_eq!(original, parse(source));
+        let b = &displayed[0];
+        assert_eq!(
+            b.text,
+            "before 日本語 italic 長いタイトル 🦀 短 alias after link"
+        );
+        for (link, label) in b
+            .links
+            .iter()
+            .zip(["長いタイトル 🦀", "短", "alias", "link"])
+        {
+            assert_eq!(&b.text[link.range.clone()], label);
+            let style = b
+                .spans
+                .iter()
+                .find(|s| s.range == link.range)
+                .unwrap()
+                .style;
+            assert!(style.link);
+            assert_eq!(style.strike, label != "link");
+        }
+        assert!(b.spans.iter().any(|s| s.style.strong && s.style.strike));
+        assert!(b.spans.iter().any(|s| s.style.emphasis && s.style.strike));
+        let found = crate::reader_find::search(&displayed, "タイトル");
+        assert_eq!(found.hits.len(), 1);
+        assert_eq!(&b.text[found.hits[0].range.clone()], "タイトル");
+        let text = format!("{} {}", b.marker.as_ref().unwrap(), b.text);
+        let offset = text.len() - b.text.len();
+        let runs = styled_runs(
+            text.clone(),
+            &b.spans,
+            offset,
+            ReaderTheme::new(false),
+            false,
+            false,
+        );
+        let highlighted = highlight_runs(
+            runs,
+            &[(
+                offset + found.hits[0].range.start..offset + found.hits[0].range.end,
+                true,
+            )],
+            false,
+        );
+        assert_eq!(highlighted.iter().map(|r| r.len).sum::<usize>(), text.len());
+        assert!(highlighted.iter().any(|r| r.strikethrough.is_some()
+            && r.underline.is_some()
+            && r.background_color.is_some()));
+    }
+    #[test]
+    fn strike_in_headings_tables_and_literal_boundaries() {
+        let blocks = parse(
+            "# ~~heading~~\n\n| A |\n|---|\n| ~~日本語~~ |\n\n[ ] prose x [x] y `~~code~~ [x]` \\~\\~escaped\\~\\~ ~~unmatched\n\n```txt\n- [x] ~~literal~~\n```\n\n- [>] custom #tag 2026-11-14\n- [-] custom",
+        );
+        assert_eq!(blocks[0].text, "heading");
+        assert!(blocks[0].spans[0].style.strike);
+        let cell = &blocks[1].table.as_ref().unwrap().rows[1][0];
+        assert_eq!(cell.text, "日本語");
+        assert!(cell.spans[0].style.strike);
+        assert_eq!(
+            blocks[2].text,
+            "[ ] prose x [x] y ~~code~~ [x] ~~escaped~~ ~~unmatched"
+        );
+        assert!(blocks[2].spans.iter().all(|s| !s.style.strike));
+        assert_eq!(blocks[3].text, "- [x] ~~literal~~\n");
+        assert!(blocks[3].spans.is_empty());
+        assert_eq!(blocks[4].text, "[>] custom #tag 2026-11-14");
+        assert_eq!(blocks[5].text, "[-] custom");
+        assert_eq!(blocks[4].marker.as_deref(), Some("•"));
+    }
     /// Synthetic model-only cost, not GPUI layout/render/frame timing.
     /// Run explicitly with --ignored --nocapture projection_cost_synthetic.
     #[test]
