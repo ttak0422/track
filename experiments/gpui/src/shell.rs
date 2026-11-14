@@ -53,7 +53,47 @@ impl Workspace {
         }
     }
     pub(crate) fn cancel_position_resume(&mut self) {
+        self.cancel_follow_reveal();
         self.shell.positions.interaction = self.shell.positions.interaction.wrapping_add(1);
+    }
+    /// Transient host measurement only: no checkpoint feature or persistence is enabled.
+    pub(crate) fn follow_layout_source(&self, cx: &App) -> Option<(LinkSource, tabs::TabKey)> {
+        if !self.follow.controller.enabled()
+            || !self.follow_safe(cx)
+            || !self.find_available()
+            || self.shell.find.highlighted
+            || self.partial_read
+            || self.read_error.is_some()
+            || self.shell.pending_fragment.is_some()
+            || self.previews.model.transient.is_some()
+            || self.displayed_content().as_ref() != &self.content
+            || self.content.is_empty()
+            || self.content.len() > 4096
+        {
+            return None;
+        }
+        let source = self.current_link_source()?;
+        let storage = self.live.as_ref()?.initial_storage.as_ref()?;
+        if storage.phase != "ready" || storage.generation != source.storage_generation {
+            return None;
+        }
+        let route = self.current_note_request.as_ref()?;
+        let key = self.tabs.active()?.key.clone();
+        if source.etag.is_empty() || !position_route_matches(&source, route, &key) {
+            return None;
+        }
+        Some((source, key))
+    }
+    pub(crate) fn follow_layout_anchors(&self) -> Option<std::rc::Rc<markdown::PositionAnchors>> {
+        self.shell.positions.anchors.clone()
+    }
+    pub(crate) fn follow_layout_interaction(&self) -> u64 {
+        self.shell.positions.interaction
+    }
+    pub(crate) fn cancel_follow_layout(&self) {
+        if let Some(anchors) = &self.shell.positions.anchors {
+            anchors.cancel_after_layout();
+        }
     }
     fn position_source(&self) -> Result<(LinkSource, tabs::TabKey), &'static str> {
         if !self.session_ui.positions_enabled() {
@@ -148,6 +188,7 @@ impl Workspace {
     }
 
     fn request_position(&mut self, resume: bool, window: &mut Window, cx: &mut Context<Self>) {
+        self.cancel_follow_reveal();
         let Some(requested) = self
             .position_capture(window)
             .and_then(|capture| self.position_record(&capture))
@@ -2177,7 +2218,10 @@ impl Render for Workspace {
         let code_controls = self.code_controls(&reader_scroll, cx);
         let content_ready = self.current_note.is_some() || !self.content.is_empty();
         let displayed_content = self.displayed_content();
-        let position_source = self.position_source().ok();
+        let position_source = self
+            .position_source()
+            .ok()
+            .or_else(|| self.follow_layout_source(cx));
         if self.shell.positions.source != position_source {
             self.shell.positions.source = position_source.clone();
             self.shell.positions.anchors = position_source.as_ref().and_then(|_| {
@@ -2186,6 +2230,7 @@ impl Render for Workspace {
             });
         }
         let position_anchors = self.shell.positions.anchors.clone();
+        self.schedule_follow_reveal(window, cx);
         let position_controls = self.position_controls(window, cx);
         let mut headings = markdown::outline(&self.content);
         let outline_signature = format!(
@@ -2989,14 +3034,17 @@ impl Render for Workspace {
                 gpui::MouseButton::Left,
                 cx.listener(|this, _, _, _| {
                     this.shell.tab_cycle.clear();
+                    this.cancel_follow_reveal();
                     this.shell.positions.interaction =
                         this.shell.positions.interaction.wrapping_add(1);
                 }),
             )
             .on_scroll_wheel(cx.listener(|this, _, _, _| {
+                this.cancel_follow_reveal();
                 this.shell.positions.interaction = this.shell.positions.interaction.wrapping_add(1);
             }))
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
+                this.cancel_follow_reveal();
                 this.shell.positions.interaction = this.shell.positions.interaction.wrapping_add(1);
                 if this.graph_entry_keyboard(event, window, cx) {
                     cx.stop_propagation();

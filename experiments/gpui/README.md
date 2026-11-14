@@ -403,14 +403,14 @@ backlinks plus these labels do not establish full navigation or UX parity.
 ## Read-only live change awareness
 
 Owned HTTP sessions subscribe to `/api/events` on their own loopback origin.
-`change` and `data` notifications produce a notice with **Reload**; `follow` does
-not navigate the workspace. A disconnected stream stays visibly warned after an
+`change` and `data` notifications produce a notice with **Reload**. `follow`
+signals are ignored unless **Follow editor** is explicitly enabled (see below). A disconnected stream stays visibly warned after an
 observed gap. Reconnection does not erase the gap because the server does not
 replay missed events. **Dismiss notice** acknowledges only the observed counters;
 a newer notification remains visible. Dismiss does not refresh or certify content.
 
 Reload uses the existing dirty-navigation gate; Cancel, a pending Save or failed
-Save never authorizes replacement. Neither incoming events nor reconnects replace
+Save never authorizes replacement. Change/data events and reconnects never replace
 a body, navigate, save, or discard a draft. Reload does not automatically dismiss
 a notice, and pinned previews are not globally refreshed. The server primarily
 watches the launch vault; other served vaults refresh on reads. Absence of a
@@ -422,7 +422,8 @@ loopback endpoint, refuses redirects/proxies and never stores event payloads.
 Header/connection and heartbeat inactivity deadlines do not impose a recurring
 whole-stream lifetime timeout. CLI/snapshot modes do not create an observer.
 Headless loopback/model tests are separate from native notification/Reload/IME
-validation; full live refresh and external-editor follow remain unimplemented.
+validation; full automatic live refresh remains unimplemented. Explicit
+external-editor follow is described below.
 
 ### Session-local reader positions
 
@@ -691,13 +692,15 @@ and perform no session I/O. Nothing automatically saves on scroll, resumes at
 startup, fetches a note or changes seen/read milestones. Native interaction and
 layout validation remain pending.
 
-### External-editor follow (navigation only)
+### External-editor follow
 
 In an owned live session, explicitly enable **Follow editor** to follow the editor's
 saved/indexed note. It is off at launch and is not persisted. This is separate
 from one-time Markdown handoffs: it never opens publisher filesystem paths or
-reads unsaved buffers. This experimental slice follows note navigation only;
-proportional viewport scrolling remains unsupported.
+reads unsaved buffers. The raw reader can follow the editor viewport approximately
+by its source-line proportion, using current measured reader geometry. This is
+not exact source-line alignment or cursor highlighting. Missing or changed layout
+measurements leave scrolling unavailable rather than guessing an offset.
 
 Follow reads the owned server's current editor state on enable and subsequent
 follow signals. Signals are coalesced into bounded latest-state requests, not
@@ -705,8 +708,9 @@ replayed as navigation commands. Missing or expired publisher state leaves the
 current note unchanged and shows a waiting state. Unknown vaults, errors and
 connection gaps pause follow rather than guessing a target or retrying forever.
 
-Stop is immediate. Manual navigation, editing, pending actions and competing
-surfaces take precedence; follow cannot discard a draft or repeatedly open save
+Stop is immediate. Manual scrolling, resizing, navigation, editing, pending
+actions and competing surfaces take precedence; follow cannot discard a draft or
+repeatedly open save
 prompts. Resume requires explicit action after a pause. No publisher POST, note
 write, automatic body refresh or reading checkpoint is sent. Native editor/IME,
 keyboard and lifecycle acceptance remains pending; ordinary editing stays disabled.

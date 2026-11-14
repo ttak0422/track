@@ -755,6 +755,9 @@ and same IDs in different scopes are not confused. Burst updates must coalesce,
 not replay every intermediate note. Stop, manual navigation, Find, rendered
 preview, handoff, editing and closing must take precedence without save prompts.
 Exercise a delayed request, storage restart, registry change, stream gap and
-10-second publisher expiry. Paths must never open and viewport must not pretend
-to follow proportionally. Confirm no automatic resume or persisted preference.
+10-second publisher expiry. Paths must never open. With a long note, verify
+approximate top/middle/bottom viewport following, including wrapped text and
+non-scrollable content. Missing measurements must show unavailable, not jump.
+Queue a delayed reveal, then manually scroll, resize, Find, change notes or Stop:
+no later frame may move the reader. Confirm no automatic resume or persisted preference.
 Native keyboard, IME and lifecycle checks remain unverified.

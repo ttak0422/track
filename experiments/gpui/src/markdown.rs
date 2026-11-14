@@ -513,7 +513,7 @@ impl HeadingAnchors {
     }
 }
 
-/// Fixture-only semantic host-block measurements. Never constructed in normal mode.
+/// Transient semantic host-block measurements for guarded reader scroll actions.
 /// Bounds are transient native layout evidence, never serialized coordinates.
 pub struct PositionAnchors {
     handle: ScrollHandle,
@@ -538,6 +538,8 @@ struct PositionMeasurement {
     viewport: gpui::Size<gpui::Pixels>,
     scale: f32,
     offset: gpui::Point<gpui::Pixels>,
+    // Includes all reader content, including padding and non-host-block content.
+    max_offset: gpui::Size<gpui::Pixels>,
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct PositionCapture {
@@ -611,6 +613,26 @@ impl PositionLayout {
             geometry,
         })
     }
+}
+
+/// Editor line positions describe proportional progress, never byte offsets.
+pub fn follow_scroll_ratio(top_line: u64, line_count: u64) -> f64 {
+    let top = top_line.max(1);
+    let count = line_count.max(top);
+    if count <= 1 {
+        0.
+    } else {
+        (top - 1) as f64 / (count - 1) as f64
+    }
+}
+
+fn proportional_scroll_offset(ratio: f64, max_offset: Option<f32>) -> Option<f32> {
+    let max_offset = max_offset?;
+    if !ratio.is_finite() || !(0. ..=1.).contains(&ratio) || !max_offset.is_finite() {
+        return None;
+    }
+    // Native scrolling translates content upward, hence a negative y offset.
+    Some(-(f64::from(max_offset.max(0.)) * ratio) as f32)
 }
 
 fn first_visible_position(blocks: &[(f32, f32)], top: f32, height: f32) -> Option<usize> {
@@ -687,6 +709,7 @@ impl PositionAnchors {
                 viewport: window.viewport_size(),
                 scale: window.scale_factor(),
                 offset: handle.offset(),
+                max_offset: handle.max_offset(),
             };
             if state.refreshed.as_ref() != Some(&measured) {
                 state.refreshed = Some(measured.clone());
@@ -705,9 +728,22 @@ impl PositionAnchors {
         viewport: gpui::Size<gpui::Pixels>,
         scale: f32,
     ) -> Option<PositionCapture> {
-        self.layout
-            .borrow()
-            .capture(self.handle.bounds(), self.handle.offset(), viewport, scale)
+        let layout = self.layout.borrow();
+        let measured = layout.measured.as_ref()?;
+        let max_offset = self.handle.max_offset();
+        if measured.max_offset != max_offset
+            || ![
+                f32::from(max_offset.width),
+                f32::from(max_offset.height),
+                f32::from(measured.offset.x),
+                f32::from(measured.offset.y),
+            ]
+            .iter()
+            .all(|value| value.is_finite())
+        {
+            return None;
+        }
+        layout.capture(self.handle.bounds(), self.handle.offset(), viewport, scale)
     }
 
     pub fn matches_capture(
@@ -717,6 +753,33 @@ impl PositionAnchors {
         scale: f32,
     ) -> bool {
         self.capture(viewport, scale).as_ref() == Some(capture)
+    }
+    /// Apply approximate editor viewport progress using the full measured reader
+    /// scroll extent. The caller must additionally guard source/request identity
+    /// and invoke this only from its completed-layout callback.
+    pub fn apply_proportion(
+        &self,
+        ratio: f64,
+        capture: &PositionCapture,
+        viewport: gpui::Size<gpui::Pixels>,
+        scale: f32,
+    ) -> bool {
+        if !self.matches_capture(capture, viewport, scale) {
+            return false;
+        }
+        let layout = self.layout.borrow();
+        let Some(measured) = layout.measured.as_ref() else {
+            return false;
+        };
+        let Some(y) =
+            proportional_scroll_offset(ratio, Some(f32::from(measured.max_offset.height)))
+        else {
+            return false;
+        };
+        let mut offset = self.handle.offset();
+        offset.y = px(y);
+        self.handle.set_offset(offset);
+        true
     }
     /// Apply once inside the caller's guarded after-layout callback. ScrollAnchor's
     /// public scroll_to queues another unguarded frame, so use the same measured
@@ -3662,6 +3725,50 @@ mod footnote_navigation_tests {
 mod position_tests {
     use super::*;
     #[test]
+    fn editor_progress_normalizes_lines_without_source_mapping() {
+        assert_eq!(follow_scroll_ratio(1, 11), 0.);
+        assert_eq!(follow_scroll_ratio(11, 11), 1.);
+        assert_eq!(follow_scroll_ratio(6, 11), 0.5);
+        assert_eq!(follow_scroll_ratio(1, 1), 0.);
+        assert_eq!(follow_scroll_ratio(0, 0), 0.);
+        assert_eq!(follow_scroll_ratio(12, 3), 1.);
+        assert_eq!(follow_scroll_ratio(1_000_000_000, 1_000_000_000), 1.);
+    }
+    #[test]
+    fn editor_progress_uses_negative_full_scroll_extent_without_guessing() {
+        assert_eq!(proportional_scroll_offset(0., Some(600.)), Some(0.));
+        assert_eq!(proportional_scroll_offset(1., Some(600.)), Some(-600.));
+        assert_eq!(proportional_scroll_offset(0.5, Some(600.)), Some(-300.));
+        assert_eq!(proportional_scroll_offset(1., Some(0.)), Some(0.));
+        assert_eq!(proportional_scroll_offset(1., Some(-10.)), Some(0.));
+        assert_eq!(
+            proportional_scroll_offset(0.5, Some(10_000_000.)),
+            Some(-5_000_000.)
+        );
+        assert_eq!(
+            proportional_scroll_offset(1., Some(f32::MAX)),
+            Some(-f32::MAX)
+        );
+        assert_eq!(proportional_scroll_offset(0.5, None), None);
+        for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            assert_eq!(proportional_scroll_offset(0.5, Some(value)), None);
+        }
+        for ratio in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, -0.1, 1.1] {
+            assert_eq!(proportional_scroll_offset(ratio, Some(100.)), None);
+        }
+    }
+    #[test]
+    fn editor_progress_rejects_missing_layout() {
+        let handle = ScrollHandle::new();
+        let anchors = PositionAnchors::new(1, &handle).unwrap();
+        assert!(
+            anchors
+                .capture(gpui::size(px(800.), px(600.)), 1.)
+                .is_none()
+        );
+        assert!(!anchors.request_after_layout(|_, _, _| {}));
+    }
+    #[test]
     fn measured_semantic_blocks_not_lines_or_percentages() {
         assert_eq!(
             first_visible_position(&[(0., 20.), (25., 900.), (930., 20.)], 100., 300.),
@@ -3705,6 +3812,7 @@ mod position_tests {
                 viewport,
                 scale: 2.,
                 offset,
+                max_offset: gpui::size(px(0.), px(500.)),
             }),
             refreshed: None,
             pending: None,
@@ -3748,6 +3856,7 @@ mod position_tests {
             viewport: gpui::size(px(800.), px(600.)),
             scale: 1.,
             offset: gpui::point(px(0.), px(0.)),
+            max_offset: gpui::size(px(0.), px(500.)),
         };
         anchors.layout.borrow_mut().measured = Some(measurement.clone());
         assert!(anchors.request_after_layout(|_, _, _| {}));
@@ -3768,6 +3877,18 @@ mod position_tests {
             .y += px(30.);
         assert!(!anchors.layout.borrow_mut().consume_pending().unwrap().0);
         assert!(anchors.layout.borrow_mut().consume_pending().is_none());
+        // Even when visible block bounds stay unchanged, a full reader extent
+        // change (for example trailing content) invalidates the queued action.
+        assert!(anchors.request_after_layout(|_, _, _| {}));
+        anchors
+            .layout
+            .borrow_mut()
+            .measured
+            .as_mut()
+            .unwrap()
+            .max_offset
+            .height += px(20.);
+        assert!(!anchors.layout.borrow_mut().consume_pending().unwrap().0);
         assert!(anchors.request_after_layout(|_, _, _| {}));
         anchors.cancel_after_layout();
         assert!(anchors.layout.borrow_mut().consume_pending().is_none());

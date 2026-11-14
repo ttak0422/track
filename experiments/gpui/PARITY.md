@@ -52,7 +52,7 @@ of support. Use disposable fixture vaults, never a configured personal vault, fo
 | Full graph layout, previews and navigation parity | [ ] | [ ] | `GraphCanvas`, `GraphFullView`, `graphWheel` |
 | Themes, keyboard navigation, selection, clipboard and IME | [ ] | [ ] | `themeState`, `keybindings`, desktop reading shortcuts |
 | Explicit one-use external Markdown snapshot viewer | [x] | [ ] | Owned-origin consume, bounded inert snapshots; native clipboard/focus QA pending |
-| Explicit editor-follow note navigation | [x] | [ ] | Owned GET and event invalidation, verified scope, user-action precedence; proportional scrolling and native QA pending |
+| Explicit editor-follow note navigation and proportional scrolling | [x] | [ ] | Owned GET and event invalidation, verified scope, measured raw-reader geometry and user-action precedence; exact source alignment and native QA pending |
 | External Markdown handoff and editor-follow behavior | [ ] | [ ] | `MarkdownViewer`, `markdownHandoff`, `/api/follow` |
 | Read-only scoped Home activity heatmap | [x] | [ ] | `workspace_activity.rs`, `live.rs`; calendar/transport/identity tests; light/dark native rendering checked |
 | Read-only owned SSE change/gap notices | [x] | [ ] | `live_events.rs`, `event_awareness.rs`; bounded synthetic transport/model tests, native UI pending |
@@ -302,7 +302,8 @@ are not native restart, IME, dirty-dialog or quit-durability validation.
 ### Owned event-stream awareness
 
 The owned loopback observer reports change/data notifications and interruptions.
-It does not replay external-editor follow or refresh any body automatically.
+It does not replay event payloads or refresh any body automatically. Explicit
+editor follow uses separate bounded current-state reads.
 Notice dismissal acknowledges only captured launch-qualified counters; events
 arriving before the click but after paint remain unacknowledged. Gaps stay sticky
 across reconnect, and disconnection remains visible. Explicit Reload retains
