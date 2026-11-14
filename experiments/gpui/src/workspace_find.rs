@@ -59,8 +59,9 @@ impl Workspace {
             && (self.current_note.is_some() || !self.content.is_empty())
     }
     fn evaluate_find(&mut self, reset: bool, scroll: bool) {
+        let displayed = self.displayed_content();
         let state = &mut self.shell.find;
-        state.matches = reader_find::search(&self.content, &state.query);
+        state.matches = reader_find::search(&displayed, &state.query);
         state.active = if reset {
             (!state.matches.hits.is_empty()).then_some(0)
         } else {
@@ -123,12 +124,13 @@ impl Workspace {
             .is_composing();
         let identity = (key, self.request);
         let route_changed = self.shell.find.identity.as_ref() != Some(&identity);
-        let changed = route_changed || self.shell.find.blocks != self.content;
+        let displayed = self.displayed_content();
+        let changed = route_changed || self.shell.find.blocks != displayed;
         if changed {
             let state = &mut self.shell.find;
             state.identity = Some(identity);
-            state.blocks = self.content.clone();
-            state.anchors = Some(Rc::new(markdown::FindAnchors::new(&self.content, scroll)));
+            state.blocks = displayed.clone();
+            state.anchors = Some(Rc::new(markdown::FindAnchors::new(&displayed, scroll)));
             if state.highlighted && !composing {
                 self.evaluate_find(route_changed, false);
             } else {
@@ -159,7 +161,7 @@ impl Workspace {
                             document_matches(
                                 &identity,
                                 &this.shell.find.identity,
-                                this.content == this.shell.find.blocks,
+                                this.displayed_content() == this.shell.find.blocks,
                             ),
                             this.find_available(),
                             this.shell.find.highlighted,
@@ -342,6 +344,36 @@ impl Workspace {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn resolved_title_change_invalidates_old_find_document_and_byte_ranges() {
+        let raw = markdown::parse("[[id:123]] tail");
+        let titles = [("id:123".into(), "日本語の長いタイトル".into())]
+            .into_iter()
+            .collect();
+        let displayed = markdown::with_resolved_titles(&raw, &titles);
+        let identity = Some((
+            tabs::TabKey::Note {
+                vault: "main".into(),
+                note_id: 1,
+            },
+            7,
+        ));
+        assert!(!document_matches(&identity, &identity, raw == displayed));
+        assert!(!scroll_is_current(
+            1,
+            1,
+            7,
+            7,
+            document_matches(&identity, &identity, raw == displayed),
+            true,
+            true
+        ));
+        assert!(reader_find::search(&displayed, "id:123").hits.is_empty());
+        assert_eq!(reader_find::search(&displayed, "日本語").hits.len(), 1);
+        let old = reader_find::search(&raw, "tail");
+        let new = reader_find::search(&displayed, "tail");
+        assert_ne!(old, new);
+    }
     #[test]
     fn identical_body_does_not_cross_vault_tab_or_request() {
         let a = Some((

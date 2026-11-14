@@ -42,3 +42,28 @@ macOS native chrome now retains titled, resizable, closable and minimizable wind
 styles while hiding this window's standard controls through public AppKit APIs.
 Launch bounds are 1200×800 with a 680×480 minimum. The bridge and Window menu are
 compile-checked; runtime resize, fullscreen and titlebar behavior remain unverified.
+
+## Matched visual and rendering evaluation
+
+Use the same immutable public/synthetic vault snapshot and backend revision for
+current Web and native. Record frontend commits, binary hash, OS/hardware, logical
+content viewport, display scale, theme and text size. Compare content rectangles,
+not whole-window screenshots with different browser chrome. Keep production data
+and the user's existing windows out of the measurement session.
+
+For each viewport above, capture Home, paragraph/table/code/link reader, Find,
+search and a fixed graph snapshot in both implementations. Record missing
+features and layout/hit-target differences before comparing speed. Keep fixtures
+and graph positions identical; different force-layout convergence is not a
+renderer benchmark. Disabled diagrams or omitted content cannot count as faster
+rendering of the equivalent page.
+
+Measure cold startup separately from warm reading and graph pan/zoom. After a
+warm-up, repeat the same scripted interaction sequence at least five times,
+reporting median and tail frame/input-to-visible-update times with the capture
+method and raw samples. Separate CPU layout, scene preparation and actual frame
+presentation when the tooling exposes them; report unavailable metrics rather
+than substituting network completion or function-call timing. Alternate frontend
+order and record background-load/thermal caveats. Screenshot appearance and the
+existing CPU-only geometry benchmarks do not establish rendering performance.
+Matched captures and presentation measurements are still pending.

@@ -202,3 +202,11 @@ returned `no such process`, both owned listeners were absent, and no new launche
 entry appeared. This establishes clean single-command exit for this fixture run.
 It does not prove why earlier accessibility observations showed fresh Home, nor
 validate dirty, Dock, IME or proxy child-reap cases.
+
+A fresh clean proxy fixture repeated the nonactivating observation with no saves
+or fault arm. One Cmd-Q exited the native process, adapter and real Go child;
+all three recorded PIDs returned `no such process`, four recorded public/upstream
+listeners were absent, and no second launch was recorded. However, the adapter
+audit again contained only `started`, without `cleanup_enter` or `reaped`.
+This confirms process disappearance, not graceful adapter child reaping. The
+proxy lifecycle audit remains an open investigation independent of app lookup.

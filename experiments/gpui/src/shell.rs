@@ -119,6 +119,7 @@ struct LinkResolutionCache {
     deferred_targets: usize,
     canceled: std::sync::Arc<std::sync::atomic::AtomicBool>,
     resolved: std::collections::HashMap<String, live::NoteKey>,
+    titles: std::collections::HashMap<String, String>,
     warnings: Vec<String>,
 }
 impl Drop for LinkResolutionCache {
@@ -634,6 +635,17 @@ impl Workspace {
         }
         false
     }
+    pub(crate) fn displayed_content(&self) -> Vec<markdown::Block> {
+        match self
+            .shell
+            .links
+            .as_ref()
+            .filter(|cache| Some(&cache.source) == self.current_link_source().as_ref())
+        {
+            Some(cache) => markdown::with_resolved_titles(&self.content, &cache.titles),
+            None => self.content.clone(),
+        }
+    }
     fn current_link_source(&self) -> Option<LinkSource> {
         let note = self.current_note.as_ref()?;
         Some(LinkSource {
@@ -676,6 +688,7 @@ impl Workspace {
             deferred_targets,
             canceled: Default::default(),
             resolved: Default::default(),
+            titles: Default::default(),
             warnings,
         });
         if terms.is_empty() {
@@ -694,6 +707,7 @@ impl Workspace {
                 );
             }
             let mut resolved = std::collections::HashMap::new();
+            let mut titles = std::collections::HashMap::new();
             let mut warnings = Vec::new();
             for term in terms {
                 if canceled.load(std::sync::atomic::Ordering::Acquire) {
@@ -708,6 +722,7 @@ impl Workspace {
                         {
                             warnings.push(format!("Unverified internal target: {term}"));
                         } else if let Some(key) = response.key() {
+                            titles.insert(term.clone(), response.note.title);
                             resolved.insert(term, key);
                         }
                     }
@@ -723,7 +738,7 @@ impl Workspace {
                         .into(),
                 );
             }
-            Ok::<_, String>((resolved, warnings))
+            Ok::<_, String>((resolved, titles, warnings))
         });
         cx.spawn(async move |this, cx| {
             let result = job.await;
@@ -739,7 +754,8 @@ impl Workspace {
                 }
                 cache.pending = false;
                 match result {
-                    Ok((resolved, warnings)) => {
+                    Ok((resolved, titles, warnings)) => {
+                        cache.titles = titles;
                         cache.resolved = resolved;
                         cache.warnings.extend(warnings);
                     }
@@ -1364,7 +1380,8 @@ impl Render for Workspace {
         self.sync_find(reader_key.clone(), &reader_scroll, dark, window, cx);
         let code_controls = self.code_controls(&reader_scroll, cx);
         let content_ready = self.current_note.is_some() || !self.content.is_empty();
-        let headings = markdown::outline(&self.content);
+        let displayed_content = self.displayed_content();
+        let mut headings = markdown::outline(&self.content);
         let outline_signature = format!("{headings:?}");
         let anchor_entry = self
             .shell
@@ -1384,6 +1401,9 @@ impl Render for Workspace {
         }
         let heading_anchors = anchor_entry.1.clone();
         self.schedule_fragment_scroll(heading_anchors.clone(), reader_scroll.clone(), window, cx);
+        for entry in &mut headings {
+            entry.title = displayed_content[entry.block_index].text.clone();
+        }
         let minimum_heading_level = headings.iter().map(|entry| entry.level).min().unwrap_or(1);
         let tab_layout = self
             .tabs
@@ -1949,7 +1969,7 @@ impl Render for Workspace {
                                     .child(title),
                             )
                             .child(markdown::render_with_links_and_find(
-                                &self.content,
+                                &displayed_content,
                                 dark,
                                 Some(&heading_anchors),
                                 &link_callbacks,
@@ -2612,6 +2632,22 @@ mod internal_link_tests {
         assert_eq!(internal_terms(&blocks), vec!["One"]);
     }
     #[test]
+    fn title_projection_does_not_add_resolution_terms_or_change_fragments() {
+        let raw = markdown::parse("[[id:123]] [[id:123#Part]] [[id:123|Alias]] [[work:id:123]]");
+        let titles = [
+            ("id:123".into(), "[[injected:id:9]]".into()),
+            ("work:id:123".into(), "Other vault".into()),
+        ]
+        .into_iter()
+        .collect();
+        let displayed = markdown::with_resolved_titles(&raw, &titles);
+        assert_eq!(internal_terms(&raw), vec!["id:123", "work:id:123"]);
+        assert_eq!(internal_terms(&displayed), internal_terms(&raw));
+        for (before, after) in raw[0].links.iter().zip(&displayed[0].links) {
+            assert_eq!(before.target, after.target);
+        }
+    }
+    #[test]
     fn partial_and_cached_targets_are_unverified() {
         for value in [
             json!({"read_state":{"partial":true}}),
@@ -2646,6 +2682,15 @@ mod internal_link_tests {
         assert_ne!(source, other);
         other = source.clone();
         other.request = 4;
+        assert_ne!(source, other);
+        other = source.clone();
+        other.etag = "v2".into();
+        assert_ne!(source, other);
+        other = source.clone();
+        other.launch_generation = 2;
+        assert_ne!(source, other);
+        other = source.clone();
+        other.note.note_id = 43;
         assert_ne!(source, other);
     }
     #[test]

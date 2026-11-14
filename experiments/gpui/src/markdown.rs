@@ -71,6 +71,76 @@ pub struct Link {
     pub target: LinkTarget,
 }
 
+/// A display-only projection. Targets and the authored parser snapshot stay unchanged.
+/// Resolver output is inserted as plain text, never parsed or looked up again.
+pub fn with_resolved_titles(
+    blocks: &[Block],
+    titles: &std::collections::HashMap<String, String>,
+) -> Vec<Block> {
+    fn eligible(target: &LinkTarget) -> Option<&str> {
+        let LinkTarget::Wiki {
+            key,
+            authored_label: false,
+            ..
+        } = target
+        else {
+            return None;
+        };
+        let explicit = key.starts_with("id:")
+            || key.split_once(':').is_some_and(|(vault, rest)| {
+                !vault.is_empty()
+                    && vault
+                        .bytes()
+                        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+                    && rest.starts_with("id:")
+            });
+        explicit.then_some(key)
+    }
+    fn replace(
+        text: &mut String,
+        spans: &mut Vec<Span>,
+        links: &mut [Link],
+        titles: &std::collections::HashMap<String, String>,
+    ) {
+        // Reverse order keeps all still-to-be-replaced byte ranges valid.
+        for index in (0..links.len()).rev() {
+            let Some(title) = eligible(&links[index].target).and_then(|key| titles.get(key)) else {
+                continue;
+            };
+            let old = links[index].range.clone();
+            text.replace_range(old.clone(), title);
+            let shift = |offset: usize, end: bool| {
+                if offset <= old.start {
+                    offset
+                } else if offset >= old.end {
+                    old.start + title.len() + offset - old.end
+                } else if end {
+                    old.start + title.len()
+                } else {
+                    old.start
+                }
+            };
+            for span in spans.iter_mut() {
+                span.range = shift(span.range.start, false)..shift(span.range.end, true);
+            }
+            for link in links.iter_mut() {
+                link.range = shift(link.range.start, false)..shift(link.range.end, true);
+            }
+            spans.retain(|span| !span.range.is_empty());
+        }
+    }
+    let mut displayed = blocks.to_vec();
+    for block in &mut displayed {
+        replace(&mut block.text, &mut block.spans, &mut block.links, titles);
+        if let Some(table) = &mut block.table {
+            for cell in table.rows.iter_mut().flatten() {
+                replace(&mut cell.text, &mut cell.spans, &mut cell.links, titles);
+            }
+        }
+    }
+    displayed
+}
+
 /// Shell supplies only resolved internal links. Pending, missing and errors stay inert.
 #[derive(Clone)]
 pub struct LinkCallbacks {
@@ -356,12 +426,14 @@ pub fn scroll_to_heading(
 /// Retain this alongside the displayed document. Rebuild when its headings or
 /// reader ScrollHandle change; do not recreate on each render (anchors hold layout).
 pub struct HeadingAnchors {
+    entries: Vec<OutlineEntry>,
     targets: std::collections::HashMap<String, ScrollAnchor>,
 }
 
 impl HeadingAnchors {
     pub fn new(blocks: &[Block], handle: &ScrollHandle) -> Self {
         Self {
+            entries: outline(blocks),
             targets: outline(blocks)
                 .into_iter()
                 .map(|entry| (entry.anchor, ScrollAnchor::for_handle(handle.clone())))
@@ -798,7 +870,9 @@ fn render_elements(
     copy: Option<&CodeCallbacks>,
 ) -> Vec<AnyElement> {
     let theme = ReaderTheme::new(dark);
-    let entries = outline(blocks);
+    let entries = anchors
+        .map(|a| a.entries.clone())
+        .unwrap_or_else(|| outline(blocks));
     let highlights = find_highlights(find);
     blocks
         .iter()
@@ -1257,6 +1331,100 @@ fn render_table(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn resolved_titles_only_replace_unaliased_explicit_id_wikilinks() {
+        let cases = [
+            ("[[id:123]]", "Current title"),
+            ("[[work:id:123]]", "Current title"),
+            ("[[work:id:123#Heading]]", "Current title"),
+            ("[[id:123#^block]]", "Current title"),
+            ("[[id:123|Custom label]]", "Custom label"),
+            ("[[id:123|id:123]]", "id:123"),
+            ("[[id:123| ]]", "Current title"),
+            ("[[Some old title]]", "Some old title"),
+            ("[[123]]", "123"),
+            ("[id:123](id:123)", "id:123"),
+            ("[Custom](SomeNote.md)", "Custom"),
+            ("[[Work:id:123]]", "Work:id:123"),
+            ("[[ID:123]]", "ID:123"),
+        ];
+        for (source, expected) in cases {
+            let raw = parse(source);
+            let titles = raw[0]
+                .links
+                .iter()
+                .filter_map(|link| resolve_term(&link.target))
+                .map(|key| (key, "Current title".into()))
+                .collect();
+            let visible = with_resolved_titles(&raw, &titles);
+            assert_eq!(visible[0].text, expected, "{source}");
+            assert_eq!(visible[0].links[0].target, raw[0].links[0].target);
+            assert_eq!(with_resolved_titles(&raw, &Default::default()), raw);
+        }
+    }
+
+    #[test]
+    fn title_projection_remaps_unicode_styles_links_and_contexts_without_parsing_titles() {
+        let source = "# [[id:123]] heading\n\n- **[[work:id:123]]** tail [[id:123#Part]] *after*\n\n| Col | Other |\n| --- | --- |\n| [[id:123]] | [[work:id:123]] |\n\n`[[id:123]]`\n\n```text\n[[id:123]]\n```";
+        let raw = parse(source);
+        let snapshot = raw.clone();
+        let titles = [
+            ("id:123".into(), "短".into()),
+            ("work:id:123".into(), "長い **Title** [[Other]]".into()),
+        ]
+        .into_iter()
+        .collect();
+        let visible = with_resolved_titles(&raw, &titles);
+        assert_eq!(raw, snapshot);
+        assert_eq!(visible[0].text, "短 heading");
+        let list = visible
+            .iter()
+            .find(|block| block.text.contains("tail"))
+            .unwrap();
+        assert_eq!(list.text, "長い **Title** [[Other]] tail 短 after");
+        assert_eq!(list.links.len(), 2);
+        assert_eq!(
+            &list.text[list.links[0].range.clone()],
+            "長い **Title** [[Other]]"
+        );
+        assert_eq!(&list.text[list.links[1].range.clone()], "短");
+        assert!(list.spans.iter().any(|span| span.style.strong
+            && &list.text[span.range.clone()] == "長い **Title** [[Other]]"));
+        assert!(
+            list.spans
+                .iter()
+                .any(|span| span.style.emphasis && &list.text[span.range.clone()] == "after")
+        );
+        let table = visible
+            .iter()
+            .find_map(|block| block.table.as_ref())
+            .unwrap();
+        assert_eq!(table.rows[1][0].text, "短");
+        assert_eq!(table.rows[1][1].text, "長い **Title** [[Other]]");
+        assert_eq!(
+            visible.iter().find(|b| b.kind == BlockKind::Code),
+            raw.iter().find(|b| b.kind == BlockKind::Code)
+        );
+        assert!(visible.iter().any(|b| b.text == "[[id:123]]"));
+        assert_eq!(crate::reader_find::search(&visible, "短").hits.len(), 3);
+        assert!(crate::reader_find::search(&raw, "短").hits.is_empty());
+    }
+
+    #[test]
+    fn empty_resolved_title_is_not_replaced_by_an_invented_label() {
+        let raw = parse("before [[id:123]] after [[id:456]] end");
+        let titles = [
+            ("id:123".into(), String::new()),
+            ("id:456".into(), "終".into()),
+        ]
+        .into_iter()
+        .collect();
+        let visible = with_resolved_titles(&raw, &titles);
+        assert_eq!(visible[0].text, "before  after 終 end");
+        assert!(visible[0].links[0].range.is_empty());
+        assert_eq!(&visible[0].text[visible[0].links[1].range.clone()], "終");
+    }
+
     #[test]
     fn find_splits_runs_without_changing_style_or_link_offsets() {
         let theme = ReaderTheme::new(false);
