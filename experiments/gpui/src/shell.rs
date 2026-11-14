@@ -1180,6 +1180,30 @@ impl Workspace {
             }));
         view.child(controls).child(rows_view)
     }
+    pub(crate) fn gallery_scope(&self, scope: &str) -> Option<String> {
+        if self.shell.vault_generation
+            != self
+                .live
+                .as_ref()
+                .map(|session| session.client().launch_generation)
+        {
+            return None;
+        }
+        let discovery = self.shell.vault_discovery.as_ref()?;
+        let name = if scope.is_empty() {
+            &discovery.launch_name
+        } else {
+            scope
+        };
+        discovery
+            .available
+            .iter()
+            .find(|v| v.name == name)
+            .map(|v| v.name.clone())
+    }
+    pub(crate) fn gallery_scope_verified(&self, scope: &str) -> bool {
+        self.gallery_scope(scope).is_some()
+    }
     pub(crate) fn current_link_source(&self) -> Option<LinkSource> {
         if self.handoff_active() {
             return None;
@@ -1591,6 +1615,7 @@ impl Workspace {
                             known.push(String::new());
                         }
                         this.session_ui.registry_changed(known);
+                        this.invalidate_gallery();
                         this.shell.working_scope =
                             discovery.reconcile_scope(&this.shell.working_scope);
                         this.shell.vault_discovery = Some(discovery);

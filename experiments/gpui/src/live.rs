@@ -1204,6 +1204,25 @@ impl ReadClient {
         reference: &str,
         vault: &str,
     ) -> Result<crate::raster::Decoded, Error> {
+        self.raster_variant(reference, vault, false)
+    }
+
+    /// Same owned local transport as standalone images, with bounded retention.
+    /// Call only from the owned background worker.
+    pub fn raster_thumbnail(
+        &self,
+        reference: &str,
+        vault: &str,
+    ) -> Result<crate::raster::Decoded, Error> {
+        self.raster_variant(reference, vault, true)
+    }
+
+    fn raster_variant(
+        &self,
+        reference: &str,
+        vault: &str,
+        thumbnail: bool,
+    ) -> Result<crate::raster::Decoded, Error> {
         let name = crate::raster::asset_name(reference).map_err(Error::Config)?;
         if vault.len() > 1024 || vault.contains('\0') {
             return Err(Error::Config("image requires a bounded vault name".into()));
@@ -1224,7 +1243,11 @@ impl ReadClient {
         if !self.alive.load(Ordering::Acquire) {
             return Err(Error::Stale);
         }
-        let mut args = vault_query(vault);
+        let mut args = if thumbnail {
+            vec![("vault", vault.to_owned())]
+        } else {
+            vault_query(vault)
+        };
         args.push(("name", name.into()));
         let mut response = self
             .http
@@ -1263,7 +1286,12 @@ impl ReadClient {
                 body: String::from_utf8_lossy(&bytes[..bytes.len().min(1024)]).into_owned(),
             });
         }
-        let decoded = crate::raster::decode(&bytes, &mime).map_err(Error::Shape)?;
+        let decoded = if thumbnail {
+            crate::raster::decode_thumbnail(&bytes, &mime)
+        } else {
+            crate::raster::decode(&bytes, &mime)
+        }
+        .map_err(Error::Shape)?;
         if !self.alive.load(Ordering::Acquire) {
             return Err(Error::Stale);
         }
@@ -2994,7 +3022,14 @@ mod tests {
     #[test]
     fn raster_transport_scopes_bytes_and_never_follows_redirects() {
         use std::io::Write;
-        for status in [200, 302, 404] {
+        for (status, thumbnail) in [
+            (200, false),
+            (302, false),
+            (404, false),
+            (200, true),
+            (302, true),
+            (404, true),
+        ] {
             let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
             let origin = format!("http://{}", listener.local_addr().unwrap());
             let bytes = crate::raster::tests::png(1, 1);
@@ -3035,7 +3070,11 @@ mod tests {
                 Err(Error::Stale)
             ));
             client.alive.store(true, Ordering::Release);
-            let result = client.raster_asset("assets/図/a & b.png", "work & 日本語");
+            let result = if thumbnail {
+                client.raster_thumbnail("assets/図/a & b.png", "work & 日本語")
+            } else {
+                client.raster_asset("assets/図/a & b.png", "work & 日本語")
+            };
             if status == 200 {
                 assert_eq!(result.unwrap().width, 1);
             } else {

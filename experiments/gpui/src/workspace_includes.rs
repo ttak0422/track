@@ -1,4 +1,6 @@
-//! Explicit, inert engine-resolved snapshots bound to the accepted host source.
+#[path = "gallery_covers.rs"]
+mod gallery_covers;
+// Explicit, inert engine-resolved snapshots bound to the accepted host source.
 use super::*;
 use crate::shell::LinkSource;
 use gpui::Div;
@@ -35,6 +37,7 @@ pub(crate) struct IncludesState {
     preview_epoch: u64,
     query_pages: std::collections::BTreeMap<(usize, usize, Option<usize>), usize>,
     query_sources: std::collections::BTreeSet<(usize, usize)>,
+    gallery: gallery_covers::Gallery,
 }
 /// Preview controls must not use host-reader gates, which intentionally reject
 /// this surface. Capture only competing actions and composition here.
@@ -85,6 +88,7 @@ impl IncludesState {
             preview_epoch: 0,
             query_pages: Default::default(),
             query_sources: Default::default(),
+            gallery: Default::default(),
         }
     }
     fn query_page_action(
@@ -118,6 +122,9 @@ impl IncludesState {
             return false;
         };
         let (count, size) = match (view.layout, group) {
+            (crate::query_view::Layout::Gallery, None) => {
+                (view.total_rows(), crate::query_view::GALLERY_PAGE)
+            }
             (crate::query_view::Layout::List, None) => {
                 (view.total_rows(), crate::query_view::LIST_PAGE)
             }
@@ -231,6 +238,7 @@ impl Workspace {
             .clone();
         // Invalidate deferred host checkpoint/layout work; never capture preview geometry.
         self.suspend_host_reader_actions();
+        self.load_gallery(cx);
         window.focus(&focus);
         cx.notify();
     }
@@ -253,6 +261,7 @@ impl Workspace {
             return;
         };
         state.preview_open = false;
+        state.gallery.cancel();
         state.query_pages.clear();
         state.query_sources.clear();
         if let Some(focus) = &self.shell.reader_focus {
@@ -358,7 +367,7 @@ impl Workspace {
                 cx.stop_propagation();
             }))
             .child(div().flex().justify_between().child("Rendered content (read-only)").child(div().id("close-rendered-includes-preview").cursor_pointer().child("Close preview (Esc)").on_click(cx.listener(move |this, _, window, cx| this.close_includes_preview(&close_identity, serial, window, cx)))))
-            .child("Engine-resolved snapshots; completeness and currentness are not guaranteed. Partial inline preview: only isolated top-level includes are embedded. Links, images, tasks, recursive includes, Find and navigation are unavailable. Text selection and code copy are not supported here.")
+            .child("Engine-resolved snapshots; completeness and currentness are not guaranteed. Partial inline preview: only isolated top-level includes are embedded. Links, tasks, recursive includes, Find and navigation are unavailable. Gallery covers support bounded local PNG/JPEG only. Text selection and code copy are not supported here.")
             .child(div().id(gpui::SharedString::from(format!("rendered-includes-scroll-{serial}"))).track_scroll(&scroll).flex_1().min_h_0().overflow_y_scroll().child(body))
     }
     fn includes_identity(&self) -> Option<Identity> {
@@ -413,7 +422,9 @@ impl Workspace {
         let serial = SERIAL.fetch_add(1, Ordering::Relaxed);
         state.serial = serial;
         state.result = None;
+        state.gallery = Default::default();
         state.preview_open = false;
+        state.gallery.cancel();
         state.query_pages.clear();
         state.query_sources.clear();
         let Some(permit) = Permit::acquire() else {
@@ -516,6 +527,7 @@ impl Workspace {
                     state.open = !state.open;
                     state.serial = SERIAL.fetch_add(1, Ordering::Relaxed);
                     state.result = None;
+                    state.gallery.cancel();
                     if state.open {
                         this.includes_fetch(captured.clone(), cx);
                     }
@@ -665,6 +677,7 @@ mod tests {
         state.query_sources.clear();
         assert!(state.accepts(&id, 5));
         state.preview_open = false;
+        state.gallery.cancel();
         state.query_pages.clear();
         state.query_sources.clear();
         assert_eq!(source, original);
@@ -682,55 +695,65 @@ mod tests {
     fn query_pages_reject_stale_generation_and_preserve_reachable_bounds() {
         use serde_json::json;
         let id = identity();
-        for count in [0usize, 1, 100, 101, 4096] {
-            let rows = (0..count)
-                .map(|i| json!({"title":i.to_string(),"cells":[]}))
-                .collect::<Vec<_>>();
-            let body = format!(
-                "```track-view\n{}\n```",
-                json!({"layout":"list","columns":[],"groups":[{"rows":rows}]})
-            );
-            let response =
-                crate::included_notes::decode(json!({"markdown":body,"includes":[]}), "host")
-                    .unwrap();
-            let preview = markdown::included_preview(&response);
-            let queries = project_queries(&preview);
-            let mut state = IncludesState::new(id.clone());
-            state.open = true;
-            state.preview_open = true;
-            state.serial = 10;
-            state.preview_epoch = 20;
-            state.result = Some(Ok(Snapshot {
-                response,
-                preview,
-                queries,
-            }));
-            for page in 0..count.div_ceil(100).max(1) {
-                assert!(state.set_query_page(&id, 10, 20, (0, 0), None, page));
+        for (layout, page_size) in [("list", 100usize), ("gallery", 4usize)] {
+            for count in [0usize, 1, 4, 5, 100, 101, 4096] {
+                let rows = (0..count)
+                    .map(|i| json!({"title":i.to_string(),"cells":[]}))
+                    .collect::<Vec<_>>();
+                let body = format!(
+                    "```track-view\n{}\n```",
+                    json!({"layout":layout,"columns":[],"groups":[{"rows":rows}]})
+                );
+                let response =
+                    crate::included_notes::decode(json!({"markdown":body,"includes":[]}), "host")
+                        .unwrap();
+                let preview = markdown::included_preview(&response);
+                let queries = project_queries(&preview);
+                let mut state = IncludesState::new(id.clone());
+                state.open = true;
+                state.preview_open = true;
+                state.serial = 10;
+                state.preview_epoch = 20;
+                state.result = Some(Ok(Snapshot {
+                    response,
+                    preview,
+                    queries,
+                }));
+                for page in 0..count.div_ceil(page_size).max(1) {
+                    assert!(state.set_query_page(&id, 10, 20, (0, 0), None, page));
+                }
+                assert!(!state.set_query_page(
+                    &id,
+                    10,
+                    20,
+                    (0, 0),
+                    None,
+                    count.div_ceil(page_size).max(1)
+                ));
+                assert!(!state.set_query_page(&id, 10, 19, (0, 0), None, 0));
+                assert!(!state.set_query_page(&id, 9, 20, (0, 0), None, 0));
+                assert!(!state.set_query_page(&id, 10, 20, (0, 1), None, 0));
+                assert!(!state.set_query_page(&id, 10, 20, (0, 0), Some(0), 0));
+                for dimension in 0..7 {
+                    let mut changed = id.clone();
+                    match dimension {
+                        0 => changed.source.request += 1,
+                        1 => changed.source.launch_generation += 1,
+                        2 => changed.source.storage_generation += 1,
+                        3 => changed.source.etag.push('x'),
+                        4 => changed.source.note.note_id += 1,
+                        5 => changed.source.note.vault.push('x'),
+                        _ => changed.route.vault.clear(),
+                    };
+                    assert!(!state.set_query_page(&changed, 10, 20, (0, 0), None, 0));
+                }
+                state.preview_open = false;
+                state.gallery.cancel();
+                assert!(!state.set_query_page(&id, 10, 20, (0, 0), None, 0));
+                state.preview_open = true;
+                state.preview_epoch = 21;
+                assert!(!state.set_query_page(&id, 10, 20, (0, 0), None, 0));
             }
-            assert!(!state.set_query_page(&id, 10, 20, (0, 0), None, count.div_ceil(100).max(1)));
-            assert!(!state.set_query_page(&id, 10, 19, (0, 0), None, 0));
-            assert!(!state.set_query_page(&id, 9, 20, (0, 0), None, 0));
-            assert!(!state.set_query_page(&id, 10, 20, (0, 1), None, 0));
-            assert!(!state.set_query_page(&id, 10, 20, (0, 0), Some(0), 0));
-            for dimension in 0..7 {
-                let mut changed = id.clone();
-                match dimension {
-                    0 => changed.source.request += 1,
-                    1 => changed.source.launch_generation += 1,
-                    2 => changed.source.storage_generation += 1,
-                    3 => changed.source.etag.push('x'),
-                    4 => changed.source.note.note_id += 1,
-                    5 => changed.source.note.vault.push('x'),
-                    _ => changed.route.vault.clear(),
-                };
-                assert!(!state.set_query_page(&changed, 10, 20, (0, 0), None, 0));
-            }
-            state.preview_open = false;
-            assert!(!state.set_query_page(&id, 10, 20, (0, 0), None, 0));
-            state.preview_open = true;
-            state.preview_epoch = 21;
-            assert!(!state.set_query_page(&id, 10, 20, (0, 0), None, 0));
         }
     }
     #[test]
@@ -810,6 +833,7 @@ mod tests {
         assert!(state.query_source_action(ready(), &id, 10, 20, (0, 0)));
         assert!(state.query_sources.is_empty());
         state.preview_open = false;
+        state.gallery.cancel();
         assert!(!state.query_source_action(ready(), &id, 10, 20, (0, 0)));
         state.preview_open = true;
         state.preview_epoch += 1;
@@ -1002,6 +1026,7 @@ impl Workspace {
                 if !state.query_page_action(gate, &identity, serial, epoch, key, group, page) {
                     return;
                 }
+                this.load_gallery(cx);
                 cx.notify();
             }))
     }
@@ -1090,6 +1115,74 @@ impl Workspace {
                 visual = visual.child(marker.clone());
             }
             match view.layout {
+                Layout::Gallery => {
+                    visual = visual.child(self.query_pager(
+                        key,
+                        None,
+                        view.total_rows(),
+                        crate::query_view::GALLERY_PAGE,
+                        cx,
+                    ));
+                    if view.total_rows() == 0 {
+                        visual = visual.child("No gallery rows in this snapshot.");
+                    }
+                    let mut grid = div().flex().flex_wrap().gap_3().max_w(px(672.));
+                    for (group_index, row_index, row) in view.gallery_page(page) {
+                        let mut card = div()
+                            .id(gpui::SharedString::from(format!(
+                                "gallery-{}-{}-{item}-{block_index}-{group_index}-{row_index}",
+                                state.serial, state.preview_epoch
+                            )))
+                            .w(px(320.))
+                            .max_w_full()
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .border_1()
+                            .border_color(rgb(line))
+                            .p_2();
+                        let mut face = div()
+                            .w_full()
+                            .map(|mut face| {
+                                face.style().aspect_ratio = Some(16. / 9.);
+                                face
+                            })
+                            .overflow_hidden()
+                            .flex()
+                            .items_center()
+                            .justify_center();
+                        face = match state
+                            .gallery
+                            .face((item, block_index, group_index, row_index))
+                        {
+                            Ok(Some(image)) => face.child(
+                                gpui::img(image.image.clone())
+                                    .size_full()
+                                    .object_fit(gpui::ObjectFit::Cover),
+                            ),
+                            Err(reason) => face.child(reason.to_owned()),
+                            Ok(None) => face.child(
+                                row.icon
+                                    .as_deref()
+                                    .filter(|s| !s.is_empty())
+                                    .unwrap_or("No image")
+                                    .to_owned(),
+                            ),
+                        };
+                        card = card.child(face);
+                        let metadata = view.metadata(row);
+                        if view.show_title {
+                            card = card.child(row.title.clone());
+                        } else if metadata.is_empty() {
+                            card = card.child("Gallery card");
+                        }
+                        for value in metadata {
+                            card = card.child(value);
+                        }
+                        grid = grid.child(card);
+                    }
+                    visual = visual.child(grid);
+                }
                 Layout::List => {
                     visual =
                         visual.child(self.query_pager(key, None, view.total_rows(), LIST_PAGE, cx));
@@ -1429,7 +1522,7 @@ mod query_projection_tests {
                 .unwrap_err()
                 .contains("resource limit")
         );
-        let (_, queries) = project(&fence().replace("\"list\"", "\"gallery\""), json!([]));
+        let (_, queries) = project(&fence().replace("\"list\"", "\"unsupported\""), json!([]));
         assert!(queries[&(0, 0)].is_err());
     }
 }

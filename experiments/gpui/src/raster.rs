@@ -6,11 +6,21 @@ use std::{io::Cursor, sync::Arc};
 pub const MAX_ENCODED: usize = 4 * 1024 * 1024;
 pub const MAX_DIMENSION: u32 = 2048;
 pub const MAX_PIXELS: u64 = 4_000_000;
+pub const THUMBNAIL_WIDTH: u32 = 320;
+pub const THUMBNAIL_HEIGHT: u32 = 180;
+pub const MAX_THUMBNAIL_BYTES: usize = 320 * 180 * 4;
 
 pub struct Decoded {
     pub image: Arc<gpui::RenderImage>,
     pub width: u32,
     pub height: u32,
+}
+
+impl Decoded {
+    /// Retained single-frame BGRA payload, excluding small image bookkeeping.
+    pub fn byte_len(&self) -> usize {
+        self.width as usize * self.height as usize * 4
+    }
 }
 
 pub fn asset_name(reference: &str) -> Result<&str, String> {
@@ -45,6 +55,16 @@ fn reader(bytes: &[u8], format: ImageFormat) -> ImageReader<Cursor<&[u8]>> {
 }
 
 pub fn decode(bytes: &[u8], content_type: &str) -> Result<Decoded, String> {
+    decode_variant(bytes, content_type, false)
+}
+
+/// Decode and resize on the caller's owned worker, never the UI thread.
+/// Source dimensions and allocation limits are enforced before downsampling.
+pub fn decode_thumbnail(bytes: &[u8], content_type: &str) -> Result<Decoded, String> {
+    decode_variant(bytes, content_type, true)
+}
+
+fn decode_variant(bytes: &[u8], content_type: &str, thumbnail: bool) -> Result<Decoded, String> {
     if bytes.len() > MAX_ENCODED {
         return Err("Image exceeds the encoded byte limit.".into());
     }
@@ -77,6 +97,19 @@ pub fn decode(bytes: &[u8], content_type: &str) -> Result<Decoded, String> {
         .into_rgba8();
     if buffer.dimensions() != (width, height) {
         return Err("Image dimensions changed during decode.".into());
+    }
+    if thumbnail && (width > THUMBNAIL_WIDTH || height > THUMBNAIL_HEIGHT) {
+        // Consume the full buffer here: only the bounded downsample survives into
+        // RenderImage. Integer dimensions preserve aspect to pixel rounding.
+        let full = image::DynamicImage::ImageRgba8(buffer);
+        buffer = full
+            .thumbnail(THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT)
+            .into_rgba8();
+        drop(full);
+    }
+    let (width, height) = buffer.dimensions();
+    if thumbnail && buffer.len() > MAX_THUMBNAIL_BYTES {
+        return Err("Thumbnail exceeds the retained byte limit.".into());
     }
     for pixel in buffer.chunks_exact_mut(4) {
         pixel.swap(0, 2);
@@ -157,5 +190,62 @@ pub(crate) mod tests {
         assert!(decode(&vec![0; MAX_ENCODED + 1], "image/png").is_err());
         assert!(decode(&png(2049, 1), "image/png").is_err());
         assert!(decode(&png(2001, 2000), "image/png").is_err());
+    }
+    #[test]
+    fn thumbnails_bound_retained_pixels_for_png_and_jpeg() {
+        for (width, height, expected) in [
+            (640, 360, (320, 180)),
+            (1000, 1000, (180, 180)),
+            (100, 1000, (18, 180)),
+            (1000, 100, (320, 32)),
+            (1, 2048, (1, 180)),
+            (2, 1, (2, 1)),
+        ] {
+            let mut jpeg = Vec::new();
+            image::codecs::jpeg::JpegEncoder::new(&mut jpeg)
+                .encode(
+                    &vec![32; width as usize * height as usize * 3],
+                    width,
+                    height,
+                    image::ExtendedColorType::Rgb8,
+                )
+                .unwrap();
+            for (bytes, mime) in [(png(width, height), "image/png"), (jpeg, "image/jpeg")] {
+                let thumb = decode_thumbnail(&bytes, mime).unwrap();
+                assert_eq!((thumb.width, thumb.height), expected);
+                assert_eq!(thumb.byte_len(), thumb.image.as_bytes(0).unwrap().len());
+                assert!(thumb.byte_len() <= MAX_THUMBNAIL_BYTES);
+                assert!(thumb.image.as_bytes(1).is_none());
+            }
+        }
+        let bytes = png(640, 360);
+        let full = decode(&bytes, "image/png").unwrap();
+        assert_eq!((full.width, full.height), (640, 360));
+        assert_eq!(full.byte_len(), 640 * 360 * 4);
+        assert_eq!(32 * MAX_THUMBNAIL_BYTES, 7_372_800);
+        assert!(32 * MAX_THUMBNAIL_BYTES <= 8 * 1024 * 1024);
+    }
+
+    #[test]
+    fn thumbnail_downsampling_never_bypasses_source_limits() {
+        for (width, height) in [(2049, 1), (2001, 2000)] {
+            assert!(decode_thumbnail(&png(width, height), "image/png").is_err());
+            let mut jpeg = Vec::new();
+            image::codecs::jpeg::JpegEncoder::new(&mut jpeg)
+                .encode(
+                    &vec![32; width as usize * height as usize * 3],
+                    width,
+                    height,
+                    image::ExtendedColorType::Rgb8,
+                )
+                .unwrap();
+            assert!(decode_thumbnail(&jpeg, "image/jpeg").is_err());
+        }
+        let bytes = png(1, 1);
+        for mime in ["image/gif", "image/jpeg", "text/html", ""] {
+            assert!(decode_thumbnail(&bytes, mime).is_err());
+        }
+        assert!(decode_thumbnail(&bytes[..12], "image/png").is_err());
+        assert!(decode_thumbnail(&vec![0; MAX_ENCODED + 1], "image/png").is_err());
     }
 }

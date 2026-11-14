@@ -5,9 +5,9 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 static IMAGE_JOB: AtomicBool = AtomicBool::new(false);
-struct Permit;
+pub(crate) struct Permit;
 impl Permit {
-    fn acquire() -> Option<Self> {
+    pub(crate) fn acquire() -> Option<Self> {
         IMAGE_JOB
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .ok()

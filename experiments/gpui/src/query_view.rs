@@ -5,6 +5,7 @@ use std::collections::BTreeSet;
 pub const LIST_PAGE: usize = 100;
 pub const LANE_PAGE: usize = 4;
 pub const CARD_PAGE: usize = 50;
+pub const GALLERY_PAGE: usize = 4;
 const MAX_BYTES: usize = 256 * 1024;
 const MAX_COLUMNS: usize = 32;
 const MAX_GROUPS: usize = 128;
@@ -17,6 +18,7 @@ pub enum Layout {
     List,
     Board,
     Calendar,
+    Gallery,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -38,6 +40,8 @@ pub struct Group {
 pub struct Row {
     pub title: String,
     pub cells: Vec<String>,
+    pub cover: Option<String>,
+    pub icon: Option<String>,
 }
 
 /// Gregorian civil month; calendar projection never consults a clock or timezone.
@@ -115,6 +119,27 @@ fn first_weekday(month: CalendarMonth) -> usize {
 }
 
 impl View {
+    /// Flatten engine order while retaining structural row identities, never titles.
+    pub fn gallery_page(&self, requested: usize) -> Vec<(usize, usize, &Row)> {
+        if self.layout != Layout::Gallery {
+            return Vec::new();
+        }
+        let last_page = self.total_rows().saturating_sub(1) / GALLERY_PAGE;
+        self.groups
+            .iter()
+            .enumerate()
+            .flat_map(|(group_index, group)| {
+                group
+                    .rows
+                    .iter()
+                    .enumerate()
+                    .map(move |(row_index, row)| (group_index, row_index, row))
+            })
+            .skip(requested.min(last_page) * GALLERY_PAGE)
+            .take(GALLERY_PAGE)
+            .collect()
+    }
+
     /// Only supplied months exist. Even an empty supplied date group establishes its month.
     pub fn calendar_months(&self) -> Vec<CalendarMonth> {
         if self.layout != Layout::Calendar {
@@ -223,7 +248,7 @@ fn optional_string<'a>(
 }
 
 /// Validate the entire bounded document before cloning any typed UI data.
-/// Opaque navigation/asset fields are validated then discarded, never interpreted.
+/// Navigation targets are discarded; cover/icon strings are retained but never interpreted.
 pub fn decode(source: &str) -> Result<View, String> {
     if source.len() > MAX_BYTES {
         return Err("Query snapshot exceeds 256 KiB limit".into());
@@ -235,9 +260,11 @@ pub fn decode(source: &str) -> Result<View, String> {
         Some("list") => Layout::List,
         Some("board") => Layout::Board,
         Some("calendar") => Layout::Calendar,
+        Some("gallery") => Layout::Gallery,
         Some(_) => {
             return Err(
-                "Unsupported query layout (only list, board and calendar are supported)".into(),
+                "Unsupported query layout (only list, board, calendar and gallery are supported)"
+                    .into(),
             );
         }
         None => return Err("layout must be a string".into()),
@@ -315,6 +342,8 @@ pub fn decode(source: &str) -> Result<View, String> {
                     .iter()
                     .map(|row| Row {
                         title: row["title"].as_str().unwrap().to_owned(),
+                        cover: row.get("cover").map(|v| v.as_str().unwrap().to_owned()),
+                        icon: row.get("icon").map(|v| v.as_str().unwrap().to_owned()),
                         cells: row["cells"]
                             .as_array()
                             .unwrap()
@@ -341,14 +370,14 @@ mod tests {
     }
     #[test]
     fn empty_layouts_defaults_and_unknown_fields() {
-        for layout in ["list", "board", "calendar"] {
+        for layout in ["list", "board", "calendar", "gallery"] {
             let view = read(&json!({"layout":layout,"columns":[],"groups":[],"future":{"x":null}}))
                 .unwrap();
             assert!(view.show_title);
             assert_eq!(view.total_rows(), 0);
         }
         assert!(decode("not json").is_err());
-        for layout in ["gallery", "LIST", ""] {
+        for layout in ["unknown", "LIST", ""] {
             assert!(
                 read(&json!({"layout":layout,"columns":[],"groups":[]}))
                     .unwrap_err()
@@ -504,6 +533,112 @@ mod tests {
         // The row cap is aggregate, not merely a per-lane cap.
         assert!(read(&json!({"layout":"board","columns":[],"groups":vec![json!({"rows":vec![json!({"title":"","cells":[]});2049]});2]})).is_err());
     }
+    #[test]
+    fn gallery_optional_faces_and_literal_metadata_preserve_order() {
+        let view = read(&json!({"layout":"gallery","showTitle":false,"key":"status",
+        "columns":["title","status","Title","empty"],"groups":[
+            {"rows":[{"title":"same","cells":["same","doing","literal",""]}]},
+            {"rows":[]},
+            {"rows":[
+                {"title":"same","cells":["same","done","second",""],"cover":"","icon":""},
+                {"title":"<b>third</b>","cells":["third","last","",""],
+                 "cover":"https://invalid/cover","icon":"<svg>","target":"@opaque"}
+            ]}
+        ]}))
+        .unwrap();
+        assert!(!view.show_title);
+        let page = view.gallery_page(0);
+        assert_eq!(
+            page.iter().map(|(g, r, _)| (*g, *r)).collect::<Vec<_>>(),
+            [(0, 0), (2, 0), (2, 1)]
+        );
+        assert_eq!(
+            page.iter()
+                .map(|(_, _, r)| r.title.as_str())
+                .collect::<Vec<_>>(),
+            ["same", "same", "<b>third</b>"]
+        );
+        assert_eq!((&page[0].2.cover, &page[0].2.icon), (&None, &None));
+        assert_eq!(page[1].2.cover.as_deref(), Some(""));
+        assert_eq!(page[1].2.icon.as_deref(), Some(""));
+        assert_eq!(page[2].2.cover.as_deref(), Some("https://invalid/cover"));
+        assert_eq!(page[2].2.icon.as_deref(), Some("<svg>"));
+        assert_eq!(
+            view.metadata(page[0].2),
+            ["status: doing", "Title: literal"]
+        );
+        let hidden = read(
+            &json!({"layout":"gallery","showTitle":false,"columns":["title"],
+            "groups":[{"rows":[{"title":"still a card","cells":["still a card"]}]}]}),
+        )
+        .unwrap();
+        assert_eq!(hidden.gallery_page(0).len(), 1);
+        assert!(hidden.metadata(hidden.gallery_page(0)[0].2).is_empty());
+        assert!(read(&base()).unwrap().gallery_page(0).is_empty());
+    }
+
+    #[test]
+    fn gallery_four_card_pages_reach_every_row_and_clamp() {
+        for count in [0usize, 1, 4, 5, 4096] {
+            let view = read(&json!({"layout":"gallery","columns":[],
+                "groups":[{"rows":(0..count).map(|i|
+                    json!({"title":i.to_string(),"cells":[]})).collect::<Vec<_>>()}]}))
+            .unwrap();
+            let pages = count.div_ceil(GALLERY_PAGE);
+            let mut seen = Vec::new();
+            for index in 0..pages {
+                let page = view.gallery_page(index);
+                assert!(!page.is_empty() && page.len() <= GALLERY_PAGE);
+                for (group, row, value) in page {
+                    assert_eq!(group, 0);
+                    assert_eq!(value.title, row.to_string());
+                    seen.push(row);
+                }
+            }
+            assert_eq!(seen, (0..count).collect::<Vec<_>>());
+            assert_eq!(
+                view.gallery_page(usize::MAX),
+                view.gallery_page(pages.saturating_sub(1))
+            );
+        }
+    }
+
+    #[test]
+    fn gallery_validates_hidden_pages_and_all_existing_caps() {
+        let mut value = json!({"layout":"gallery","columns":[],
+            "groups":[{"rows":vec![json!({"title":"","cells":[]});5]}]});
+        for field in ["cover", "icon", "target", "title", "cells"] {
+            let mut malformed = value.clone();
+            malformed["groups"][0]["rows"][4][field] = Value::Null;
+            assert!(read(&malformed).is_err(), "{field}");
+        }
+        for field in ["cover", "icon"] {
+            for len in [MAX_LABEL_BYTES, MAX_LABEL_BYTES + 1] {
+                let mut bounded = value.clone();
+                bounded["groups"][0]["rows"][4][field] = json!("x".repeat(len));
+                assert_eq!(read(&bounded).is_ok(), len == MAX_LABEL_BYTES);
+            }
+        }
+        value["groups"][0]["rows"] = json!(vec![json!({"title":"","cells":[]}); MAX_ROWS + 1]);
+        assert!(read(&value).unwrap_err().contains("4096 rows"));
+        value["groups"] = json!(vec![json!({"rows":[]}); MAX_GROUPS + 1]);
+        assert!(read(&value).unwrap_err().contains("128 groups"));
+        value["groups"] = json!([]);
+        value["columns"] = json!(vec![""; MAX_COLUMNS + 1]);
+        assert!(read(&value).unwrap_err().contains("32 columns"));
+        value["columns"] = json!(["x"]);
+        value["groups"] = json!([{"rows":[{"title":"","cells":["x".repeat(MAX_CELL_BYTES + 1)]}]}]);
+        assert!(
+            read(&value)
+                .unwrap_err()
+                .contains("cell exceeds text limit")
+        );
+        let source = json!({"layout":"gallery","columns":[],"groups":[]}).to_string();
+        let padded = format!("{}{}", source, " ".repeat(MAX_BYTES - source.len()));
+        assert!(decode(&padded).is_ok());
+        assert!(decode(&(padded + " ")).unwrap_err().contains("256 KiB"));
+    }
+
     fn calendar(dates: &[&str]) -> View {
         read(
             &json!({"layout":"calendar","columns":[],"groups":dates.iter()

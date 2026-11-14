@@ -15,6 +15,7 @@ pub(crate) struct Include {
     pub bad_options: Vec<String>,
     pub error: Option<String>,
     pub vault: String,
+    pub explicit_origin: bool,
 }
 /// One accepted render response; never installed into the source reader.
 #[derive(Clone, Debug)]
@@ -129,6 +130,7 @@ pub(crate) fn decode(value: Value, host_vault: &str) -> Result<Response, Error> 
             bad_options,
             error,
             vault,
+            explicit_origin: v.get("vault").is_some(),
         });
     }
     Ok(Response {
@@ -156,6 +158,7 @@ mod tests {
             }
             let r = decode(response(e), "host").unwrap();
             assert_eq!(r[0].vault, origin.unwrap_or("host"));
+            assert_eq!(r[0].explicit_origin, origin.is_some());
             assert_eq!(r[0].excerpt, "日本語\r\n<img src=x>\n![[Other]]");
             assert_eq!(r[0].source_line, -1);
             assert_eq!(r[0].bad_options, ["bad=1"]);
