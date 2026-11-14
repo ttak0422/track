@@ -461,7 +461,10 @@ fn reference_row(
     id: (&'static str, usize),
     cx: &mut Context<Workspace>,
 ) -> Option<Stateful<Div>> {
-    let title = value.get("title")?.as_str()?.to_owned();
+    let title = crate::note_metadata::relation_title(
+        value.get("title")?.as_str()?,
+        &crate::note_metadata::relation_flags(value),
+    );
     let key = inherited_vault.and_then(|scope| reference_key(value, scope));
     Some(div().id(id).py_1().child(title).when_some(key, |row, key| {
         row.cursor_pointer()
@@ -1516,6 +1519,14 @@ impl Render for Workspace {
             .active()
             .map(|tab| tab.key.clone())
             .unwrap_or(tabs::TabKey::Home);
+        let note_labels = crate::note_metadata::Metadata::current(
+            self.live.is_some(),
+            &reader_key,
+            self.current_note.as_ref(),
+            note.as_ref()
+                .map(|note| note.tags.as_slice())
+                .unwrap_or_default(),
+        );
         let reader_scroll = self
             .shell
             .reader_scrolls
@@ -1866,9 +1877,9 @@ impl Render for Workspace {
                 .pr_6()
                 .text_size(px(14.))
                 .text_color(rgb(p.muted))
-                .when(note.as_ref().is_some_and(|n| !n.tags.is_empty()), |aside| {
+                .when(!note_labels.tags.is_empty(), |aside| {
                     aside.child(div().mb_8().child(label("TAGS", p)).children(
-                        note.as_ref().unwrap().tags.iter().map(|tag| {
+                        note_labels.tags.iter().map(|tag| {
                             div().mb_2().text_color(rgb(p.ink)).child(format!("#{tag}"))
                         }),
                     ))
@@ -1964,7 +1975,12 @@ impl Render for Workspace {
                                 .id(("external-reference", index))
                                 .py_1()
                                 .child(div().text_size(px(12.)).child(vault_label.to_owned()))
-                                .child(div().text_color(rgb(p.ink)).child(reference.title))
+                                .child(div().text_color(rgb(p.ink)).child(
+                                    crate::note_metadata::relation_title(
+                                        &reference.title,
+                                        &reference.flags,
+                                    ),
+                                ))
                                 .when_some(external_source.clone(), |row, source| {
                                     row.cursor_pointer().on_click(cx.listener(
                                         move |this, _, _, cx| {
@@ -2091,6 +2107,15 @@ impl Render for Workspace {
                                         div().flex().items_center().gap_1().child(row).child("›")
                                     })
                                 })),
+                        )
+                    })
+                    .when(!note_labels.flags.is_empty(), |reader| {
+                        reader.child(
+                            div()
+                                .mb_4()
+                                .text_size(px(13.))
+                                .text_color(rgb(p.muted))
+                                .child(note_labels.flags.clone()),
                         )
                     })
                     .when(!metadata.is_empty(), |reader| {

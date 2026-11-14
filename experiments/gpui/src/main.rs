@@ -17,6 +17,7 @@ mod input_trace;
 mod live;
 mod markdown;
 mod native_window;
+mod note_metadata;
 mod navigation;
 mod reader_find;
 mod search_input;

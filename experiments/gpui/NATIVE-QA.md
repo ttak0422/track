@@ -338,3 +338,21 @@ exclusion and linked-worktree metadata. Repeating the Cargo build without change
 not recompile the application. Rust tests: 296 passed, 6 ignored. Help site generation
 and prerender succeeded. Native diagnostics layout/readability is still unverified;
 this does not close menu/About/clipboard or native parity gates.
+
+## Read-only tags and flags: native checks pending
+
+Headless coverage verifies accepted-source tags over stale list hints, empty flags,
+both known flags, literal unknown flags, source clearing and vault-qualified identity
+changes. External-reference labels preserve their distinct vault targets.
+No native GUI was launched for this slice. Before claiming read-only metadata parity, check:
+
+- Current-note tags and both flag labels appear legibly in light/dark and narrow views.
+- Trail, children, backlinks and cross-vault rows retain readable flags and correct targets.
+- Switching notes (including equal IDs in different vaults), pending/failed first reads,
+  literal Home and Graph never retain previous-note tags or flags.
+- A deliberately retained body on server failure keeps its matching confidentiality
+  label and existing error notice; configured Home notes still show their metadata.
+- Relation clicks still pass the fixture dirty-navigation Save/Discard/Cancel guard.
+
+These are simple muted-ink labels, not decorative stamp or accessibility parity.
+`CONFIDENTIAL` is display-only, not authorization or access control.

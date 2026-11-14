@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 pub struct Reference {
     pub key: NoteKey,
     pub title: String,
+    pub flags: String,
 }
 
 #[derive(Default, Debug)]
@@ -58,6 +59,7 @@ fn parse_reference(entry: &Value) -> Option<Reference> {
             note_id: entry.get("note_id")?.as_i64().filter(|id| *id > 0)?,
         },
         title: entry.get("title")?.as_str()?.to_owned(),
+        flags: crate::note_metadata::relation_flags(entry),
     })
 }
 
@@ -107,6 +109,17 @@ mod tests {
         );
         assert_ne!(result.references[0].key, result.references[1].key);
         assert!(result.notices.is_empty());
+    }
+
+    #[test]
+    fn flags_are_labels_without_changing_cross_vault_targets() {
+        let result = project(json!({"external":[
+            {"vault":"work","note_id":42,"title":"A","flags":["DEPRECATED","CONFIDENTIAL"]},
+            {"vault":"other","note_id":42,"title":"A","flags":["future"]}
+        ]}));
+        assert_eq!(result.references[0].flags, "[DEPRECATED] [CONFIDENTIAL]");
+        assert_eq!(result.references[1].flags, "[future]");
+        assert_ne!(result.references[0].key, result.references[1].key);
     }
 
     #[test]

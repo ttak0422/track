@@ -303,3 +303,19 @@ opening a window, vault or server:
 Untracked files are not covered; this is diagnostic provenance, not a reproducible-build
 attestation. `unknown` means Git metadata was unavailable, not that the build is current.
 Changes to the checkout after compilation do not change the executable's identity.
+
+### Read-only note metadata slice
+
+Live tags now come from the accepted current note source, not the list snapshot.
+Current-note flags and hierarchy/backlink rows (including cross-vault references)
+show plain text labels such as `[DEPRECATED] [CONFIDENTIAL]`; empty flags add no
+label. Unknown string flags remain literal text. Tags and flags clear with the
+accepted source and require the active vault-qualified note identity; a retained
+body after server failure retains its matching labels and existing error warning.
+Snapshot/synthetic mode keeps its snapshot tags. `CONFIDENTIAL` is a display label,
+not access control. No extra requests or metadata writes are introduced.
+
+Headless tests cover source preference, empty values, clearing/identity changes,
+and relation labels. Native layout, long labels, accessibility and decorative
+stamp parity remain unverified. Read-only metadata parity remains partial: existing hierarchy and
+backlinks plus these labels do not establish full navigation or UX parity.
