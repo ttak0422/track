@@ -25,6 +25,8 @@ mod markdown_handoff;
 mod native_window;
 mod navigation;
 mod note_metadata;
+mod numeric_chart;
+mod numeric_chart_view;
 mod query_view;
 mod raster;
 mod reader_find;

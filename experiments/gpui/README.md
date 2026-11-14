@@ -623,9 +623,38 @@ Three lanes and 50 cards per lane are shown at a time; paging exposes the rest.
 An empty task set is explicit. Invalid or unavailable metadata is not treated as
 an empty set. Included excerpts cannot borrow the host's tasks: their fence stays
 visible with an unavailable notice. Nonempty fence content or extra options also
-retain source rather than silently losing content. Query layouts and task boards
+retain source rather than silently losing content. Query layouts, task boards and charts
 share the eight-visual-block preview limit. Native layout/input/accessibility
 validation and interactive task-board parity remain pending.
+
+### Static native charts in rendered previews
+
+A supported `echarts` JSON fence in **Rendered preview** draws a static categorical
+line chart or vertical grouped-bar chart. Category order, series colors and
+legend names are preserved. Missing (`null`) observations break lines or omit
+bars; they are never converted to zero. Bars use a zero baseline. Axis labels
+show the plotted numeric domain, which may differ from ECharts' tick styling.
+
+For example, place this fence in a fixture note and open Rendered preview:
+
+````markdown
+```echarts
+{"xAxis":{"type":"category","data":["A","B","C"]},"yAxis":{"type":"value"},"series":[{"name":"Score","type":"line","data":[1,null,3]}]}
+```
+````
+
+This is a deliberately limited native renderer, not an ECharts runtime. It does
+not execute JavaScript, load a browser, fetch chart assets or resolve ViewSpec
+and metrics data. Zoom, hover details, animation and chart actions are unavailable.
+Unsupported semantic options, mixed chart types, bars without category-edge
+gaps, invalid values or clipped explicit ranges retain the entire source with a
+reason instead of drawing a
+misleading partial chart. Source remains available for supported charts too.
+
+Charts share the preview's eight-visual-block limit with query layouts and task
+boards. Each chart is bounded to four series and 256 categories. Very narrow or
+unusable geometry shows an unavailable state rather than invalid drawing.
+Native appearance, high-DPI layout and accessibility acceptance remain pending.
 
 ### Query layouts in rendered previews
 

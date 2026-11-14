@@ -9,6 +9,7 @@ type Queries = BTreeMap<Key, Result<crate::query_view::View, String>>;
 #[derive(Default)]
 pub(super) struct Boards {
     pub blocks: BTreeMap<Key, Result<(), String>>,
+    pub charts: BTreeMap<Key, Result<std::sync::Arc<crate::numeric_chart::Chart>, String>>,
     tasks: Arc<Vec<live::NoteTask>>,
     lanes: [Vec<usize>; 5],
 }
@@ -41,7 +42,17 @@ pub(super) fn project(
             }
             let key = (item, block);
             let info = content.fence_info.as_deref();
-            if info == Some("track-view") {
+            if info == Some("echarts") {
+                let chart = if visuals >= 8 {
+                    Err("Combined visual resource limit (8 blocks); source retained.".into())
+                } else {
+                    crate::numeric_chart::decode(&content.text).map(std::sync::Arc::new)
+                };
+                if chart.is_ok() {
+                    visuals += 1;
+                }
+                boards.charts.insert(key, chart);
+            } else if info == Some("track-view") {
                 let view = if visuals >= 8 {
                     Err("Combined visual resource limit (8 blocks); source retained.".into())
                 } else {
@@ -371,5 +382,113 @@ mod tests {
         assert!(!s.query_page_action(ready(), &old, 10, 11, (0, 0), None, 0));
         s.preview_open = false;
         assert!(!s.query_page_action(ready(), &id, 10, 11, (0, 0), None, 0));
+    }
+}
+
+#[cfg(test)]
+mod chart_projection_tests {
+    use super::*;
+    use serde_json::json;
+    const OPTION: &str = r#"{"xAxis":{"type":"category","data":["A","B","C"]},"yAxis":{"type":"value"},"series":[{"type":"line","data":[0,null,4]}]}"#;
+    fn fence() -> String {
+        format!("```echarts\n{OPTION}\n```\n")
+    }
+    fn project_body(body: &str) -> (markdown::IncludePreview, Boards) {
+        let response =
+            crate::included_notes::decode(json!({"markdown":body,"includes":[]}), "host").unwrap();
+        let preview = markdown::included_preview(&response);
+        let (_, boards) = project(&preview, Ok(Arc::new(vec![])));
+        (preview.unwrap(), boards)
+    }
+    #[test]
+    fn charts_only_activate_exact_parsed_fences_and_keep_bytes() {
+        for body in [
+            format!("````text\n{}\n````", fence()),
+            format!("<pre>\n{}\n</pre>", fence()),
+            format!("`echarts {OPTION}`"),
+            fence().replace("```echarts", "```echarts extra"),
+            format!("\\`\\`\\`echarts\n{OPTION}"),
+        ] {
+            assert!(project_body(&body).1.charts.is_empty(), "{body}");
+        }
+        let (preview, boards) = project_body(&format!("# Before\n{}\n# After", fence()));
+        let (&(item, block), chart) = boards.charts.first_key_value().unwrap();
+        assert!(chart.is_ok());
+        let markdown::PreviewItem::Host(blocks) = &preview.items[item] else {
+            panic!()
+        };
+        assert_eq!(blocks[block].text, format!("{OPTION}\n"));
+        assert!(blocks[block + 1].text.contains("After"));
+    }
+    #[test]
+    fn chart_nested_origin_and_literal_labels_stay_in_preview() {
+        let quoted = fence()
+            .lines()
+            .map(|line| format!("> {line}\n"))
+            .collect::<String>();
+        let (preview, boards) = project_body(&quoted);
+        assert!(boards.charts[&(0, 0)].is_ok());
+        let markdown::PreviewItem::Host(blocks) = &preview.items[0] else {
+            panic!()
+        };
+        assert!(blocks[0].quoted);
+        let response = crate::included_notes::decode(json!({"markdown":"![[Target]]\n","includes":[{"line":0,"source_line":0,"caption":"Target","lines":[fence()],"note_id":42,"kind":"note","etag":"rev"}]}), "host").unwrap();
+        let preview = markdown::included_preview(&response);
+        let (_, boards) = project(&preview, Ok(Arc::new(vec![])));
+        assert_eq!(boards.charts.len(), 1);
+        assert!(matches!(
+            preview.unwrap().items[0],
+            markdown::PreviewItem::Include { index: 0, .. }
+        ));
+    }
+    #[test]
+    fn charts_share_ordered_budget_with_taskboards_and_queries() {
+        let mut body = "```taskboard\n```\n".repeat(2);
+        body.push_str("```track-view\n{\"layout\":\"list\",\"columns\":[],\"groups\":[]}\n```\n");
+        body.push_str(&fence().repeat(6));
+        let (_, boards) = project_body(&body);
+        assert_eq!(boards.blocks.values().filter(|v| v.is_ok()).count(), 2);
+        assert_eq!(boards.charts.values().filter(|v| v.is_ok()).count(), 5);
+        assert!(
+            boards
+                .charts
+                .last_key_value()
+                .unwrap()
+                .1
+                .as_ref()
+                .unwrap_err()
+                .contains("8 blocks")
+        );
+    }
+    #[test]
+    fn endpoint_bar_domain_falls_back_with_entire_source() {
+        let source = OPTION
+            .replace("\"type\":\"line\"", "\"type\":\"bar\"")
+            .replace(
+                "\"type\":\"category\"",
+                "\"type\":\"category\",\"boundaryGap\":false",
+            );
+        let (preview, boards) = project_body(&format!("```echarts\n{source}\n```\n"));
+        assert!(
+            boards.charts[&(0, 0)]
+                .as_ref()
+                .unwrap_err()
+                .contains("boundaryGap=true")
+        );
+        let markdown::PreviewItem::Host(blocks) = &preview.items[0] else {
+            panic!()
+        };
+        assert_eq!(blocks[0].text, format!("{source}\n"));
+    }
+    #[test]
+    fn invalid_whole_chart_is_retained_without_spending_budget() {
+        let body = format!(
+            "```echarts\n{{\"dataset\":{{}}}}\n```\n{}",
+            fence().repeat(8)
+        );
+        let (_, boards) = project_body(&body);
+        assert_eq!(boards.charts.len(), 9);
+        assert_eq!(boards.charts.values().filter(|v| v.is_ok()).count(), 8);
+        assert!(boards.charts.first_key_value().unwrap().1.is_err());
     }
 }

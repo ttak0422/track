@@ -40,6 +40,7 @@ of support. Use disposable fixture vaults, never a configured personal vault, fo
 | Diagram fences: Mermaid, D2, Graphviz, LikeC4, draw.io, Pele, mindmap | [ ] | [ ] | `components/markdown/*Diagram*` |
 | Engine-resolved query layout snapshot reading | [x] | [ ] | Bounded inert blocks in explicit rendered preview; other layouts/navigation/native QA pending |
 | Embedded host-note read-only task boards | [x] | [ ] | Exact accepted task metadata, bounded lanes/cards; included sources and mutation unavailable, native QA pending |
+| Static categorical line and grouped-bar chart subset | [x] | [ ] | Bounded native geometry in rendered previews; unsupported semantics retain source, native visual/AX QA pending |
 | Charts, ViewSpec, metrics, query views and task boards | [ ] | [ ] | `EChartsBlock`, `ViewSpecChart`, `MetricsDashboard`, `QueryView`, `TaskBoard` |
 | Images, PDF, audio/video, maps, Grafana, OGP and embedded apps | [ ] | [ ] | `PdfDeck`, `MediaFrame`, `Embed`, `MapFence`, `GrafanaFrame` |
 | Tasks, states, scheduled/due dates and calendar integration | [ ] | [ ] | `TasksView`, `TaskControls`, `calendarTasks` |

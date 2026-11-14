@@ -761,3 +761,14 @@ non-scrollable content. Missing measurements must show unavailable, not jump.
 Queue a delayed reveal, then manually scroll, resize, Find, change notes or Stop:
 no later frame may move the reader. Confirm no automatic resume or persisted preference.
 Native keyboard, IME and lifecycle checks remain unverified.
+
+### Static numeric charts (pending native QA)
+
+In an owned disposable fixture, open Rendered preview with line and grouped-bar
+fences containing positive, negative, zero and null values. Check axes, category
+order, legend colors, null gaps and zero baselines at narrow/wide widths and both
+themes/high-DPI settings. Unsupported options must retain the full source, not a
+partial chart. Verify retained source/Copy, included-origin placement, close/reopen
+and stale actions after note replacement. No zoom, hover-detail or click action
+should imply support. Keyboard, accessible labels and visual comparison with the
+existing client remain unverified; ordinary vault editing remains disabled.

@@ -1098,6 +1098,36 @@ impl Workspace {
         let mut ordinary_start = 0;
         for (block_index, block) in blocks.iter().enumerate() {
             let key = (item, block_index);
+            if let Some(chart) = snapshot.boards.charts.get(&key) {
+                if ordinary_start < block_index {
+                    body = body.child(markdown::render_themed(
+                        &blocks[ordinary_start..block_index],
+                        dark,
+                    ));
+                }
+                ordinary_start = block_index + 1;
+                let mut visual = div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .ml(px(block.indent as f32 * 16.));
+                if block.quoted {
+                    visual = visual.border_l_2().border_color(rgb(line)).pl_3();
+                }
+                if let Some(marker) = &block.marker {
+                    visual = visual.child(marker.clone());
+                }
+                visual = match chart {
+                    Ok(chart) => {
+                        visual.child(crate::numeric_chart_view::render(chart.clone(), dark))
+                    }
+                    Err(reason) => visual.child(format!("Native chart unavailable: {reason}")),
+                };
+                // Exact supplied JSON remains available through the existing inert code/Copy surface.
+                visual = visual.child(markdown::render_themed(std::slice::from_ref(block), dark));
+                body = body.child(visual);
+                continue;
+            }
             if snapshot.boards.blocks.contains_key(&key) {
                 if ordinary_start < block_index {
                     body = body.child(markdown::render_themed(
