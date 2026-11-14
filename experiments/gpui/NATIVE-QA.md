@@ -260,11 +260,10 @@ The explicit real-engine test passed: **1 passed**, with these separate outcomes
 
 Sandboxed attempts stopped before any PUT while waiting for writable storage.
 The synthetic-only diagnostic identified `read own start time: fork/exec /bin/ps:
-operation not permitted`. The identical reviewed test command succeeded with the
-supported execution approval, allowing the engine's own process verification;
-no readiness or production safety check was disabled. This does not establish a
-problem with the earlier public-help seed. The final test uses only fresh
-synthetic CLI notes, independently simplifying fixture isolation.
+operation not permitted`. The successful run allowed the engine's self-process
+verification; no readiness or production safety check was disabled. This does
+not establish a problem with the earlier public-help seed. The final test uses
+only fresh synthetic CLI notes, independently simplifying fixture isolation.
 
 This is headless engine-plus-draft-model evidence, not Dock Quit, modal focus,
 IME, clipboard or rendered dirty-state evidence. The conflict checks a competing
