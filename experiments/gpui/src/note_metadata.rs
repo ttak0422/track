@@ -8,6 +8,7 @@ use crate::{
 pub struct Metadata {
     pub tags: Vec<String>,
     pub flags: String,
+    pub milestone: Option<&'static str>,
 }
 
 impl Metadata {
@@ -39,7 +40,28 @@ impl Metadata {
         Self {
             tags: body.note.tags.clone(),
             flags: flag_labels(body.note.flags.iter().map(String::as_str)),
+            milestone: recorded_milestone(&body.note.additional),
         }
+    }
+}
+
+// These optional fields are evidence only: absence may mean a failed sidecar
+// read. Never infer unread/new, and never record a milestone from rendering.
+fn recorded_milestone(
+    fields: &std::collections::BTreeMap<String, serde_json::Value>,
+) -> Option<&'static str> {
+    let valid = |key| {
+        fields
+            .get(key)
+            .and_then(serde_json::Value::as_i64)
+            .is_some_and(|seconds| seconds > 0)
+    };
+    if valid("read_at") {
+        Some("Recorded read")
+    } else if valid("seen_at") {
+        Some("Recorded seen")
+    } else {
+        None
     }
 }
 
@@ -172,6 +194,76 @@ mod tests {
         assert_eq!(
             Metadata::current(true, &route, None, Some(&launch), &[]),
             Metadata::default()
+        );
+    }
+
+    #[test]
+    fn recorded_milestones_require_valid_positive_seconds_and_prefer_read() {
+        for invalid in [
+            json!(null),
+            json!(0),
+            json!(-1),
+            json!("123"),
+            json!(true),
+            json!([]),
+            json!({}),
+            json!(1.5),
+            json!(u64::MAX),
+        ] {
+            let fields =
+                serde_json::from_value(json!({"read_at":invalid,"seen_at":invalid})).unwrap();
+            assert_eq!(recorded_milestone(&fields), None);
+        }
+        for seconds in [1_i64, 1794653381, 253402300800, i64::MAX] {
+            let fields = serde_json::from_value(json!({"seen_at":seconds})).unwrap();
+            assert_eq!(recorded_milestone(&fields), Some("Recorded seen"));
+            let fields = serde_json::from_value(json!({"seen_at":seconds,"read_at":1})).unwrap();
+            assert_eq!(recorded_milestone(&fields), Some("Recorded read"));
+        }
+        let fields = serde_json::from_value(json!({"seen_at":1,"read_at":"bad"})).unwrap();
+        assert_eq!(recorded_milestone(&fields), Some("Recorded seen"));
+        assert_eq!(recorded_milestone(&Default::default()), None);
+    }
+    #[test]
+    fn recorded_milestones_follow_only_current_accepted_source() {
+        let mut body = body();
+        body.note
+            .additional
+            .insert("read_at".into(), json!(1794653381));
+        let request = body.note.key();
+        assert_eq!(
+            Metadata::current(true, &key("work", 42), Some(&body), Some(&request), &[]).milestone,
+            Some("Recorded read")
+        );
+        for active in [key("foreign", 42), key("work", 43), TabKey::Home] {
+            assert_eq!(
+                Metadata::current(true, &active, Some(&body), Some(&request), &[]).milestone,
+                None
+            );
+        }
+        assert_eq!(
+            Metadata::current(true, &key("work", 42), Some(&body), None, &[]).milestone,
+            None
+        );
+        assert_eq!(
+            Metadata::current(false, &key("work", 42), Some(&body), Some(&request), &[]).milestone,
+            None
+        );
+        body.note.additional.remove("read_at");
+        assert_eq!(
+            Metadata::current(true, &key("work", 42), Some(&body), Some(&request), &[]).milestone,
+            None
+        );
+        body.note
+            .additional
+            .insert("seen_at".into(), json!(1794653381));
+        assert_eq!(
+            Metadata::current(true, &key("work", 42), Some(&body), Some(&request), &[]).milestone,
+            Some("Recorded seen")
+        );
+        assert_eq!(
+            Metadata::current(true, &key("work", 42), None, Some(&request), &[]).milestone,
+            None
         );
     }
 

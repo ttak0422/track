@@ -2184,6 +2184,15 @@ impl Render for Workspace {
                                 })),
                         )
                     })
+                    .when_some(note_labels.milestone, |reader, label| {
+                        reader.child(
+                            div()
+                                .text_size(px(12.))
+                                .text_color(rgb(p.muted))
+                                .mb_2()
+                                .child(label),
+                        )
+                    })
                     .when(!note_labels.flags.is_empty(), |reader| {
                         reader.child(
                             div()

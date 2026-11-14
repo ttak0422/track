@@ -595,3 +595,11 @@ setext headings and fenced/indented code containing the same text. Verify divide
 spacing, quote borders/list indentation, light/dark contrast and narrow layouts.
 Find must skip only actual separators and retain surrounding/code matches. Check
 heading/Find jumps and screen-reader semantics; no native evidence is claimed.
+
+### Recorded milestone labels (pending native QA)
+
+Use disposable notes with positive seen/read milestones, missing fields and
+unavailable metadata. Verify Read precedence, no NEW/unread inference, and no
+label carried across same-ID notes in different vaults or loading placeholders.
+Reload changed metadata and verify the accepted source wins. Confirm narrow/light/
+dark rendering and accessibility, and that reading never sends a milestone POST.

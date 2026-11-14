@@ -452,3 +452,12 @@ with explicit error/truncation notices. Active notes, tasks and events show erro
 independently; Retry refreshes all three under the same scope/day identity and
 bounded request guard. Old responses cannot replace a newer selection. Native
 layout, keyboard and accessibility validation remains pending.
+
+### Recorded reading milestones
+
+The accepted live note may show **Recorded read** or **Recorded seen** from the
+engine's positive integer milestone fields. Read takes precedence. Missing, zero,
+negative or malformed values show no label because absence can also mean metadata
+was unavailable; no NEW/unread state is inferred. Snapshot/list hints are not used.
+This is display-only: no viewing timer, milestone POST, persistence or automatic
+refresh is added. Native layout/accessibility validation remains pending.
