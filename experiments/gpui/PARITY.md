@@ -200,3 +200,11 @@ pins; session or storage invalidation clears them. Headless tests cover multi-pi
 identity, capacity, cache pruning and clamped placement. Native pointer delivery,
 selector wrapping, z-order and dirty-dialog behavior remain unverified; drag,
 resize, keyboard/AX and rich-preview parity are not claimed.
+
+### Graph paint submission bounds
+
+Conservative viewport culling avoids building definitely invisible circle/edge
+paint primitives. Crossing edges and padded border strokes remain; labels, picking,
+camera and layout do not change. Pure geometry tests and CPU-only predicate counts
+are verified. Native visual comparison and frame/GPU performance remain pending;
+this does not complete full graph layout or navigation parity.

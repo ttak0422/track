@@ -380,3 +380,13 @@ No GUI was launched for this slice. Validate before claiming native parity:
   storage epoch changes and owned-server replacement clear every card and cache.
 
 This is a bounded comparison UI, not drag/resize or full window-manager parity.
+
+## Viewport paint culling: native comparison pending
+
+Pure tests retain tangent/padded circles, crossing edges with offscreen endpoints,
+zero-length segments and transformed camera coordinates; invalid geometry is rejected.
+Labels and picking remain on their existing paths. Automated suite: 312 passed,
+7 ignored. Optimized standalone geometry suite: 28 passed, 4 ignored; synthetic
+predicate measurements are recorded in GRAPH.md. Verify border antialiasing, compact
+node outlines, selection highlights and crossing edges under native pan/zoom before
+claiming visual parity. No native FPS or GPU improvement has been measured.

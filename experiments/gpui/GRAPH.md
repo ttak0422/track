@@ -256,3 +256,30 @@ events do not invalidate pending force placement or camera intent. A synthetic
 policy test covers unchanged hover, enter/leave, target changes and moved geometry.
 This does not measure actual frame savings: parent preview notifications may still
 render the workspace, and real pointer/preview behavior remains GUI-unverified.
+
+## Conservative paint culling
+
+The canvas now omits definitely offscreen node circles and edge path construction.
+Tests use viewport-local coordinates with fixed-screen radii and half-stroke plus
+one logical pixel of antialiasing allowance. Inclusive AABB comparisons preserve
+border tangencies and edges crossing the viewport with both endpoints outside.
+Corner misses may deliberately remain as false positives. Labels are unchanged:
+a node outside the view can still have visible rightward title text. Picking,
+layout, camera, highlight policy and the overview cap are unchanged.
+
+An optimized standalone `graph.rs` test harness (rustc 1.98.1, `-O`) ran the ignored
+`culling_benchmark` with 1,000 passes per case. The following are median CPU predicate
+times from three successive invocations on the development Mac, not paint timings:
+
+| Nodes + edges | Entire fixture visible | Fixture shifted outside |
+| --- | ---: | ---: |
+| 32 + 32 | 0.148 µs/pass | 0.103 µs/pass |
+| 1,000 + 1,000 | 3.776 µs/pass | 3.158 µs/pass |
+| 10,000 + 10,000 | 37.726 µs/pass | 31.511 µs/pass |
+
+The first camera retained every primitive; offset `(2000, 2000)` rejected every
+primitive in this synthetic grid. Geometry setup/transforms, path construction,
+label layout, GPU work, presentation and input latency are excluded. The pass is
+still O(V+E), and adds predicate overhead when everything is visible. These results
+establish bounded decision cost and avoided submissions, not a renderer speedup.
+Native visual comparison at borders and actual frame/CPU/GPU measurement remain open.
