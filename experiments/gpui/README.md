@@ -147,8 +147,9 @@ note. Matching is literal, case-insensitive, non-overlapping and whitespace-flex
 highlights use original UTF-8 ranges and retain inline styles and link behavior.
 
 This is not full desktop Find parity: title/notices and embedded content are not
-searched, and navigation reveals the containing block/cell rather than the exact
-matched line. Queries and match counts are bounded with visible limit states.
+searched. Navigation reveals the active match’s first shaped line, not an entire
+multiline range; horizontal reveal is not provided. Queries and match counts are
+bounded with visible limit states.
 Native keyboard/IME, focus, selection and light/dark visual validation remain
 pending; see the acceptance checklist in `NATIVE-QA.md`.
 

@@ -20,7 +20,7 @@ of support. Use disposable fixture vaults, never a configured personal vault, fo
 | In-memory vault-qualified tabs and close/overflow navigation | [x] | [ ] | `tabs.rs`, `shell.rs`; model tests, native QA pending |
 | Bounded in-memory Home/Graph/note Back/Forward | [x] | [ ] | `navigation.rs`, `shell.rs`; 100 routes, dirty-gated tickets and fixture lifecycle tests; native shortcuts/IME pending |
 | Persistent tabs, history and floating previews | [ ] | [ ] | `components/tabs`, `components/preview` |
-| Read-only rendered body/table Find | [x] | [ ] | `reader_find.rs`, `workspace_find.rs`; local matches/highlights and block/cell reveal; light/dark native subset checked, IME pending |
+| Read-only rendered body/table Find | [x] | [ ] | `reader_find.rs`, `workspace_find.rs`; local matches/highlights; shaped active-match line reveal added, native line-reveal/IME checks pending |
 | Reading positions, seen/read milestones and exact-range Find parity | [ ] | [ ] | `reading.ts`, `ReadingPositionBoundary`, `WebViewFindController` |
 | Create, edit, save, delete and metadata editing | [ ] | [ ] | `NoteEditor`, `NoteMetaDialog`, `NoteActionsMenu` |
 | Conflict detection, dirty-state protection and draft recovery | [ ] | [ ] | `NoteEditor.recovery`, `recovery.ts`, desktop termination tests |
@@ -226,3 +226,12 @@ clamped below the selector and inside the viewport. Raising/closing other pins
 and navigation retain geometry; unpin resets it and invalidation clears it.
 Mouse release, capture exit and window deactivation end gestures. Model tests
 cover bounds and lifecycle, not native pointer delivery or keyboard/AX parity.
+
+### Active Find match reveal
+
+Find now records the active match's first line from the same prepainted native
+text used for paragraphs, code and table cells. UTF-8 offsets include generated
+list prefixes, with per-render geometry invalidation and existing request/revision
+guards. One bounded retry covers unavailable geometry. This is vertical first-line
+reveal, not whole-range or horizontal scrolling. Model tests pass; actual shaping,
+resize-during-Find and native visibility checks remain pending.

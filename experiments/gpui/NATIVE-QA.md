@@ -128,7 +128,8 @@ Use only the disposable fixture; these are planned checks, not observed results.
   scroll requests must not affect the new document. Dirty fixture editing must stay
   untouched and Find must be unavailable while that editor is active.
 - Test light/dark, narrow windows, multiple hits in a tall paragraph, and table
-  cells. Block/cell anchoring does not establish exact matched-range scrolling.
+  cells. The new shaped first-match-line reveal requires the checks below; the
+  earlier block/cell anchoring did not establish this behavior.
 
 ## Home, Find and dirty window close, 2026-11-14
 
@@ -417,3 +418,18 @@ movement/end callbacks and released-button cleanup. Verify with fixture data:
   Test minimum window size, long title/vault labels and capacity messages.
 - Open a dirty-navigation dialog during a gesture and confirm its controls remain
   above the capture layer. Keyboard/AX equivalence remains unimplemented.
+
+## Shaped Find line reveal: native validation pending
+
+Headless suite: 321 passed, 7 ignored. Tests cover UTF-8/prefix validation, code
+and cell offsets, supplied measured-line scroll/clamp calculations and invalidated
+layout generations. Source review confirms text prepaint precedes measurement;
+these are not font shaping or actual GPUI visibility tests. With a disposable
+fixture, check late matches in long wrapped paragraphs/code/table cells, Japanese
+and emoji, list prefixes, and links. Verify Enter/Shift-Enter reveal the active
+match's first line without losing inline styling, link clicks or code Copy.
+
+Change query, source, tab and window dimensions around the deferred frame. Check
+that new content is not moved by an old request and that resize-during-Find stays
+usable. Multiline matches reveal only their first line; horizontal reveal remains
+out of scope. Ordinary note bodies and reading metadata are not written.
