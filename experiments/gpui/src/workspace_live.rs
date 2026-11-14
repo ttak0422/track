@@ -64,6 +64,8 @@ impl Workspace {
     }
 
     pub fn start_live(&mut self, config: live::LaunchConfig, cx: &mut Context<Self>) {
+        self.previews.model.invalidate_session();
+        self.previews.cancel_wake();
         self.status = "Starting owned loopback server…".into();
         if let Err(error) = self.quit_session.begin_start() {
             self.read_error = Some(error.to_string());
@@ -546,7 +548,7 @@ fn diagnostics(fields: &std::collections::BTreeMap<String, serde_json::Value>) -
         .collect()
 }
 
-fn partial(fields: &std::collections::BTreeMap<String, serde_json::Value>) -> bool {
+pub(super) fn partial(fields: &std::collections::BTreeMap<String, serde_json::Value>) -> bool {
     fields
         .get("read_state")
         .and_then(|v| v.get("partial"))

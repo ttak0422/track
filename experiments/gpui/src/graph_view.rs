@@ -11,6 +11,13 @@ use std::collections::BTreeMap;
 
 #[derive(Clone, Copy, Debug)]
 pub struct OpenNote(pub i64);
+#[derive(Clone, Copy, Debug)]
+pub enum PreviewIntent {
+    Hover(i64, (f32, f32)),
+    Leave,
+    Cancel,
+}
+impl gpui::EventEmitter<PreviewIntent> for GraphView {}
 
 pub struct GraphView {
     graph: Graph,
@@ -53,6 +60,9 @@ impl GraphView {
         }
     }
     pub fn set_graph(&mut self, graph: Graph, cx: &mut Context<Self>) {
+        if self.overview {
+            cx.emit(PreviewIntent::Cancel);
+        }
         let generation = self.layout_generation.wrapping_add(1);
         let dark = self.dark;
         let compact = self.compact;
@@ -108,6 +118,9 @@ impl GraphView {
         cx.notify();
     }
     pub fn reset_view(&mut self, cx: &mut Context<Self>) {
+        if self.overview {
+            cx.emit(PreviewIntent::Cancel);
+        }
         self.click_start = None;
         self.hovered = None;
         self.selected = None;
@@ -202,6 +215,7 @@ impl Render for GraphView {
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, event: &gpui::MouseDownEvent, _, cx| {
+                    if this.overview { cx.emit(PreviewIntent::Cancel); }
                     this.click_start = None;
                     let p = this.local(event.position);
                     if let Some(id) =
@@ -252,8 +266,13 @@ impl Render for GraphView {
                     this.node_drag = None;
                     this.pan_from = None;
                 }
-                this.hovered =
-                    graph::hit_test(&this.nodes, this.graph.center_id, &this.viewport, p);
+                this.hovered = graph::hit_test(&this.nodes, this.graph.center_id, &this.viewport, p);
+                if this.overview {
+                    if event.dragging() { cx.emit(PreviewIntent::Cancel); }
+                    else if let Some(id) = this.hovered {
+                        cx.emit(PreviewIntent::Hover(id, (f32::from(event.position.x), f32::from(event.position.y))));
+                    } else { cx.emit(PreviewIntent::Leave); }
+                }
                 cx.notify();
             }))
             .on_mouse_up(
@@ -273,6 +292,7 @@ impl Render for GraphView {
             )
             .on_hover(cx.listener(|this, inside, _, cx| {
                 if !inside {
+                    if this.overview { cx.emit(PreviewIntent::Leave); }
                     this.click_start = None;
                     this.hovered = None;
                     this.node_drag = None;
@@ -281,6 +301,7 @@ impl Render for GraphView {
                 }
             }))
             .on_scroll_wheel(cx.listener(|this, event: &gpui::ScrollWheelEvent, _, cx| {
+                if this.overview { cx.emit(PreviewIntent::Cancel); }
                 let delta = event.delta.pixel_delta(px(20.));
                 if event.modifiers.control || event.modifiers.shift {
                     this.viewport.zoom_at(

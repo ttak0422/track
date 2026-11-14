@@ -185,6 +185,7 @@ impl Workspace {
     /// true means caller must stop before changing any navigation state.
     pub(crate) fn guard_transition(&mut self, intent: Transition, cx: &mut Context<Self>) -> bool {
         if self.editing_ui.bypass {
+            self.cancel_transient_preview();
             return false;
         }
         if transition_decision(
@@ -210,6 +211,7 @@ impl Workspace {
                 .map(|a| a.session.leave_prompt()),
         ) {
             GateDecision::Proceed => {
+                self.cancel_transient_preview();
                 self.clear_editor();
                 false
             }

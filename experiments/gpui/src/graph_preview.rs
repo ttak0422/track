@@ -118,6 +118,9 @@ impl Previews {
         self.pending = Some((target, anchor, now.saturating_add(OPEN_DELAY_MS)));
     }
     pub fn leave_opener(&mut self, now: u64) {
+        if self.opener.is_none() && self.pending.is_none() {
+            return;
+        }
         self.opener = None;
         self.pending = None;
         if !self.transient.as_ref().is_some_and(|p| p.pointer_inside) {
@@ -212,6 +215,31 @@ impl Previews {
         };
         true
     }
+    /// Action identity is resolved at dispatch, not from a rendered slot label.
+    pub fn close_identity(&mut self, identity: &Read) -> bool {
+        if self.transient.as_ref().is_some_and(|p| &p.read == identity) {
+            self.close_transient();
+            return true;
+        }
+        if self.pinned.as_ref().is_some_and(|p| &p.read == identity) {
+            self.close_pinned();
+            return true;
+        }
+        false
+    }
+    pub fn pin_identity(&mut self, identity: &Read) -> PinResult {
+        if !self.transient.as_ref().is_some_and(|p| &p.read == identity) {
+            return PinResult::NothingToPin;
+        }
+        self.pin()
+    }
+    pub fn unpin_identity(&mut self, identity: &Read, now: u64) -> bool {
+        if !self.pinned.as_ref().is_some_and(|p| &p.read == identity) {
+            return false;
+        }
+        self.unpin(now);
+        true
+    }
     pub fn pin(&mut self) -> PinResult {
         if self.transient.is_none() {
             return PinResult::NothingToPin;
@@ -243,8 +271,14 @@ impl Previews {
         self.clear_transient();
     }
     pub fn close_pinned(&mut self) {
+        if self
+            .pinned
+            .as_ref()
+            .is_some_and(|p| self.opener.as_ref() == Some(&p.read.target))
+        {
+            self.opener = None;
+        }
         self.pinned = None;
-        self.opener = None;
     }
 }
 
@@ -431,6 +465,31 @@ mod tests {
         assert!(p.leave_preview(&a, 1300));
         p.advance(2000);
         assert!(p.transient.is_some());
+    }
+    #[test]
+    fn repeated_background_moves_do_not_postpone_close() {
+        let mut p = model();
+        open(&mut p, 1, 0);
+        p.leave_opener(300);
+        p.leave_opener(400);
+        p.leave_opener(519);
+        assert_eq!(p.next_deadline(), Some(520));
+        p.advance(520);
+        assert!(p.transient.is_none());
+    }
+    #[test]
+    fn stale_actions_follow_identity_never_rendered_slot() {
+        let mut p = model();
+        let a = open(&mut p, 1, 0);
+        assert_eq!(p.pin_identity(&a), PinResult::Pinned);
+        let b = open(&mut p, 2, 300);
+        assert_eq!(p.pin_identity(&a), PinResult::NothingToPin);
+        assert!(p.close_identity(&a));
+        assert_eq!(p.transient.as_ref().unwrap().read, b);
+        assert_eq!(p.pin_identity(&b), PinResult::Pinned);
+        assert!(!p.unpin_identity(&a, 700));
+        assert_eq!(p.pinned.as_ref().unwrap().read, b);
+        assert!(!p.close_identity(&a));
     }
     #[test]
     fn honest_empty_partial_and_error_states() {

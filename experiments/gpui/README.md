@@ -95,8 +95,8 @@ shows metadata. Leaving the canvas ends dragging.
 
 Placement starts circular, then settles a bounded deterministic force snapshot on
 a background worker (up to 1,000 nodes). Larger graphs keep circular placement.
-This is not existing force-layout parity: neighbors do not follow drags elastically. Full-graph preview pinning, persistent positions,
-and label toggles remain incomplete. No renderer performance advantage is claimed.
+This is not existing force-layout parity: neighbors do not follow drags elastically.
+Persistent positions remain incomplete. No renderer performance advantage is claimed.
 See [GRAPH.md](GRAPH.md) for research and validation limits.
 
 ## Owned HTTP server and search
@@ -187,5 +187,7 @@ notice rather than guessing a destination. A plain same-note fragment was
 exercised; cross-note and dirty-navigation paths remain unverified.
 
 The rail’s **Full graph** opens a scoped Graph tab using the owned server, with
-overview counts and title/reset controls. Preview/pinning and native GUI parity
-remain unverified or pending. See [GRAPH.md](GRAPH.md#full-vault-graph-prerequisite-2026-11-14).
+overview counts and title/reset controls. A [bounded read-only hover preview and
+one explicit pin](GRAPH-PREVIEW-FOUNDATION.md) are implemented with synthetic
+lifecycle/transport tests; GUI behavior and broader parity remain unverified.
+See [GRAPH.md](GRAPH.md#full-vault-graph-prerequisite-2026-11-14).

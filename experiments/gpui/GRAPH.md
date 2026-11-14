@@ -214,7 +214,7 @@ Node click opens the captured graph vault identity. Existing Save/Discard/Cancel
 navigation guards apply; request, scope, launch and storage checks reject stale
 completions. Graph is not recorded as a note visit.
 
-This is not full parity: hover previews/pinning remain pending, positions use the
+This is not full parity: bounded mouse-hover previews and one explicit pin are now integrated (see GRAPH-PREVIEW-FOUNDATION.md); positions use the
 existing bounded force snapshot/circular fallback rather than reference physics,
 number grouping currently uses commas rather than OS locale, and native GUI,
 high-DPI, gesture, accessibility and timing behavior are unverified. Automated

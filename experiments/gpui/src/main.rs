@@ -9,8 +9,6 @@ mod editor_input;
 mod external_links;
 mod external_refs;
 mod graph;
-// Lifecycle foundation only; full-graph UI integration is not yet available.
-#[cfg(test)]
 mod graph_preview;
 mod graph_view;
 mod input_trace;
@@ -26,6 +24,7 @@ mod workspace_edit;
 mod workspace_find;
 mod workspace_graph;
 mod workspace_live;
+mod workspace_preview;
 use backend::{Backend, Note, Snapshot};
 actions!(
     native_workspace,
@@ -82,6 +81,7 @@ struct Workspace {
     graph_view: gpui::Entity<graph_view::GraphView>,
     show_graph: bool,
     full_graph: workspace_graph::FullGraph,
+    previews: workspace_preview::PreviewUi,
     subscriptions: Vec<gpui::Subscription>,
     live: Option<live::Session>,
     live_requested: bool,
@@ -553,6 +553,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }),
                         show_graph: false,
                         full_graph: workspace_graph::FullGraph::default(),
+                        previews: workspace_preview::PreviewUi::default(),
                         subscriptions: Vec::new(),
                         live: None,
                         live_requested: live_config.is_some(),
@@ -586,6 +587,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     "Selected node is not in the current note list".into();
                                 cx.notify();
                             }
+                        },
+                    ));
+                    workspace.subscriptions.push(cx.subscribe(
+                        &workspace.graph_view,
+                        |this: &mut Workspace, _, event: &graph_view::PreviewIntent, cx| {
+                            this.graph_preview_intent(event, cx);
                         },
                     ));
                     workspace.subscriptions.push(cx.subscribe(

@@ -2,14 +2,16 @@
 use super::*;
 #[derive(Default)]
 pub struct FullGraph {
-    scope: Option<String>,
-    nodes: std::collections::BTreeSet<i64>,
+    pub(crate) scope: Option<String>,
+    pub(crate) nodes: std::collections::BTreeSet<i64>,
     caption: String,
     status: String,
     loading: bool,
 }
 impl Workspace {
     pub(crate) fn invalidate_full_graph(&mut self, cx: &mut Context<Self>) {
+        self.previews.model.invalidate_session();
+        self.previews.cancel_wake();
         self.full_graph = FullGraph {
             status: "Graph invalidated by storage/server change. Reload graph.".into(),
             ..Default::default()
@@ -89,6 +91,11 @@ impl Workspace {
                         let graph::Overview { graph, hidden } = graph::overview(&graph);
                         let count = graph.nodes.len();
                         this.full_graph.nodes = graph.nodes.iter().map(|n| n.note_id).collect();
+                        this.previews.model.set_scope(graph_preview::Scope {
+                            session: launch,
+                            graph: request,
+                            vault: scope.clone(),
+                        });
                         this.full_graph.scope = Some(scope);
                         this.full_graph.caption = caption(count, hidden);
                         this.full_graph.status = fields

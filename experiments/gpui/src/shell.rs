@@ -2395,6 +2395,7 @@ impl Render for Workspace {
                 root.child(self.render_editor(dark))
             })
             .child(rail)
+            .children(self.render_graph_previews(dark, window.viewport_size(), cx))
             .when(self.shell.find.open, |root| {
                 root.child(self.find_overlay(dark, window.viewport_size().width, cx))
             })
