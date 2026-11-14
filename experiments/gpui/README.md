@@ -81,7 +81,12 @@ The body supports native headings, paragraphs, lists, quotes and code blocks. Li
 remain inert text; HTML, images and other unsupported blocks remain literal.
 Inline emphasis, code styling and simple native tables are supported. Ordinary
 fences have bounded lexical coloring for JS aliases (js/javascript/jsx/ts/typescript/tsx),
-Lua, JSON and Python (python/py/python3). Python supports comment, keyword, numeric
+Lua, JSON, Python (python/py/python3) and shell (bash/sh/shell). Shell coloring
+provides whole-word reserved-keyword hints, boundary-aware comments and quoted
+strings/escapes. It does not parse substitutions or keyword positions; double-quoted
+interpolation stays opaque, and an unquoted `<<` sequence (including here-strings or shifts) leaves the remainder
+plain. Unquoted parameter/command substitution openers also leave the rest plain. Nested quotes inside double-quoted substitutions and ANSI-C strings may
+be colored incorrectly; CRLF handling is display-oriented, not shell validation. Zsh is not classified as this shell subset. Python supports comment, keyword, numeric
 and single/triple-quoted string hints; prefixes/interpolations are not parsed and
 contextual keywords stay plain. This is lexical help, not complete language parsing: regex literals,
 template interpolation, JSX and Lua long strings/comments are not modeled. Unknown

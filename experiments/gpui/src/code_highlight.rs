@@ -37,6 +37,9 @@ pub fn classify(body: &str, language: Option<&str>) -> Rc<[Token]> {
         return Rc::from([]);
     }
     let language = normalize(language.unwrap_or(""));
+    if matches!(language.as_str(), "bash" | "sh" | "shell") {
+        return shell_tokens(body);
+    }
     let js = matches!(
         language.as_str(),
         "js" | "javascript" | "jsx" | "ts" | "typescript" | "tsx"
@@ -255,6 +258,130 @@ pub fn classify(body: &str, language: Option<&str>) -> Rc<[Token]> {
     tokens.into()
 }
 
+/// Shell lexical hints, not an interpreter: keyword positions and expansions are
+/// not parsed. Unquoted <<, ${, $( and backticks leave the remaining source plain. Zsh is deliberately
+/// not an alias: interactive comments and its additional syntax differ.
+fn shell_tokens(body: &str) -> Rc<[Token]> {
+    let bytes = body.as_bytes();
+    let mut tokens: Vec<Token> = Vec::new();
+    let mut i = 0;
+    let mut boundary = true;
+    while i < bytes.len() {
+        let start = i;
+        let mut role = Role::Plain;
+        if bytes[i..].starts_with(b"<<")
+            || bytes[i..].starts_with(b"${")
+            || bytes[i..].starts_with(b"$(")
+            || bytes[i] == b'`'
+        {
+            // Do not mistake here-document or expansion contents for shell source.
+            i = bytes.len();
+        } else if boundary && bytes[i] == b'#' {
+            i += body[i..].find(['\r', '\n']).unwrap_or(bytes.len() - i);
+            role = Role::Comment;
+        } else if matches!(bytes[i], b'\'' | b'"') {
+            let quote = bytes[i];
+            i += 1;
+            while i < bytes.len() {
+                if bytes[i] == quote {
+                    i += 1;
+                    break;
+                }
+                // In single quotes even a backslash is literal. Double quotes
+                // only escape dollar, backtick, quote, backslash and newline.
+                if quote == b'"'
+                    && bytes[i] == b'\\'
+                    && i + 1 < bytes.len()
+                    && matches!(bytes[i + 1], b'$' | b'`' | b'"' | b'\\' | b'\n' | b'\r')
+                {
+                    i += 2;
+                    if bytes[i - 1] == b'\r' && bytes.get(i) == Some(&b'\n') {
+                        i += 1;
+                    }
+                } else {
+                    i += body[i..].chars().next().unwrap().len_utf8();
+                }
+            }
+            boundary = false;
+            role = Role::String;
+        } else if bytes[i] == b'\\' {
+            i += 1;
+            let continuation = matches!(bytes.get(i), Some(b'\n' | b'\r'));
+            if i < bytes.len() {
+                i += body[i..].chars().next().unwrap().len_utf8();
+                if bytes[i - 1] == b'\r' && bytes.get(i) == Some(&b'\n') {
+                    i += 1;
+                }
+            }
+            if !continuation {
+                boundary = false;
+            }
+        } else if shell_separator(bytes[i]) {
+            i += 1;
+            boundary = true;
+        } else {
+            i += body[i..].chars().next().unwrap().len_utf8();
+            while i < bytes.len()
+                && !shell_separator(bytes[i])
+                && !matches!(bytes[i], b'\'' | b'"' | b'\\' | b'`')
+                && !bytes[i..].starts_with(b"${")
+                && !bytes[i..].starts_with(b"$(")
+            {
+                i += body[i..].chars().next().unwrap().len_utf8();
+            }
+            // Only complete unquoted words receive keyword hints; concatenated
+            // quoted/escaped pieces remain ordinary words.
+            if boundary
+                && (i == bytes.len() || shell_separator(bytes[i]))
+                && matches!(
+                    &body[start..i],
+                    "if" | "then"
+                        | "else"
+                        | "elif"
+                        | "fi"
+                        | "for"
+                        | "while"
+                        | "until"
+                        | "do"
+                        | "done"
+                        | "case"
+                        | "esac"
+                        | "in"
+                        | "function"
+                        | "select"
+                        | "time"
+                        | "coproc"
+                        | "!"
+                        | "{"
+                        | "}"
+                )
+            {
+                role = Role::Keyword;
+            }
+            boundary = false;
+        }
+        if let Some(last) = tokens.last_mut().filter(|token| token.role == role) {
+            last.range.end = i;
+        } else {
+            if tokens.len() == MAX_TOKENS {
+                return Rc::from([]);
+            }
+            tokens.push(Token {
+                range: start..i,
+                role,
+            });
+        }
+    }
+    tokens.into()
+}
+
+fn shell_separator(byte: u8) -> bool {
+    matches!(
+        byte,
+        b' ' | b'\t' | b'\r' | b'\n' | b';' | b'|' | b'&' | b'(' | b')' | b'<' | b'>'
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -345,6 +472,54 @@ mod tests {
     }
 
     #[test]
+    fn shell_words_comments_quotes_and_escapes() {
+        for lang in ["bash", "sh", "shell", "language-BASH linenums"] {
+            let body = "if true; then echo foo#bar # 日本語\r\nfi";
+            assert_eq!(role(body, lang, "if"), Role::Keyword);
+            assert_eq!(role(body, lang, "then"), Role::Keyword);
+            assert_eq!(role(body, lang, "foo#bar"), Role::Plain);
+            assert_eq!(role(body, lang, "日本語"), Role::Comment);
+            assert_eq!(role(body, lang, "fi"), Role::Keyword);
+            assert_eq!(role("echo \\#literal", lang, "#literal"), Role::Plain);
+            assert_eq!(role("echo 'a'123#literal", lang, "#literal"), Role::Plain);
+            assert_eq!(role("echo foo\\\n#literal", lang, "#literal"), Role::Plain);
+            assert_eq!(role("echo \\\r\n#comment", lang, "#comment"), Role::Comment);
+            assert_eq!(
+                role("'literal\\' #comment", lang, "#comment"),
+                Role::Comment
+            );
+            assert_eq!(
+                role(r#""escaped\" #string" #comment"#, lang, "#string"),
+                Role::String
+            );
+            assert_eq!(
+                role(r#""escaped\" #string" #comment"#, lang, "#comment"),
+                Role::Comment
+            );
+            assert_eq!(role("if'x' then_suffix", lang, "if"), Role::Plain);
+        }
+    }
+
+    #[test]
+    fn shell_unsupported_constructs_are_plain_not_interpreted() {
+        for body in [
+            "cat <<EOF\nif # data\nEOF",
+            "cat <<<word # tail",
+            "echo $((1 << 2)) # tail",
+            "echo ${x#prefix} # tail",
+            "echo before$(echo x) # tail",
+            "echo `echo x` # tail",
+        ] {
+            assert_eq!(role(body, "bash", "#"), Role::Plain);
+        }
+        assert_eq!(
+            role(r#"echo "${value} $(command) # opaque""#, "bash", "#"),
+            Role::String
+        );
+        assert!(classify("if true; then x; fi", Some("zsh")).is_empty());
+    }
+
+    #[test]
     fn ranges_lossless_and_bounded() {
         for body in [
             "",
@@ -353,7 +528,9 @@ mod tests {
             "/* unterminated\n42",
             "-- 42\nlocal x=1\n",
         ] {
-            for lang in ["js", "lua", "json", "python", "py", "python3"] {
+            for lang in [
+                "js", "lua", "json", "python", "py", "python3", "bash", "sh", "shell",
+            ] {
                 let tokens = classify(body, Some(lang));
                 let mut end = 0;
                 for token in tokens.iter() {
@@ -370,6 +547,10 @@ mod tests {
                     body
                 );
             }
+        }
+        for lang in ["bash", "sh", "shell"] {
+            assert!(classify(&"x".repeat(MAX_BODY_BYTES + 1), Some(lang)).is_empty());
+            assert!(classify(&"if;".repeat(MAX_TOKENS), Some(lang)).is_empty());
         }
         for lang in [None, Some(""), Some("go"), Some("mermaid")] {
             assert!(classify("const x=1", lang).is_empty());

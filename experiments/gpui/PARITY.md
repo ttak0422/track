@@ -29,7 +29,7 @@ of support. Use disposable fixture vaults, never a configured personal vault, fo
 | Simple tables and inline emphasis/code/link styling | [x] | [ ] | `markdown.rs`; code/emphasis native smoke, tables tests |
 | Read-only plain task indicators and inline strike | [x] | [ ] | `markdown.rs`; parser/style/Find/link tests; native glyph/AX pending; rich task notation excluded |
 | Ordinary code-fence caption and explicit Copy | [x] | [ ] | `code_copy.rs`, `markdown.rs`; parsed-body/lifecycle tests, native clipboard and accessibility pending |
-| Bounded JS-family/Lua/JSON/Python fenced-code lexical styles | [x] | [ ] | `code_highlight.rs`, `markdown.rs`; bounded lossless ranges, Find/Copy and ingestion cache tests; native GUI unvalidated |
+| Bounded JS-family/Lua/JSON/Python/shell fenced-code lexical styles | [x] | [ ] | `code_highlight.rs`, `markdown.rs`; bounded lossless ranges, Find/Copy and ingestion cache tests; native GUI unvalidated |
 | Full code syntax highlighting and math | [ ] | [ ] | `MarkdownView`, `components/markdown` |
 | Verified internal wiki/Markdown links and outline jumps | [x] | [ ] | `markdown.rs`, `shell.rs`; scoped resolver and heading-fragment subset; same-note plain fragment native smoke; cross-note/dirty transitions pending |
 | Unaliased explicit-ID wiki link title display | [x] | [ ] | `markdown.rs`, `shell.rs`; bounded verified resolver titles, Unicode/Find/anchor tests; native interaction pending |
@@ -293,3 +293,11 @@ arriving before the click but after paint remain unacknowledged. Gaps stay stick
 across reconnect, and disconnection remains visible. Explicit Reload retains
 existing dirty-navigation guards. Native notice layout/input and interruption
 flows are unverified; this does not complete live synchronization or recovery.
+
+### Shell fence lexical hints
+
+Bash/sh/shell use bounded, source-preserving lexical hints, not a shell grammar.
+Whole-word keywords are context-free; comments require a word boundary, quoted
+text remains opaque, and heredoc content falls back to plain text. Zsh is not
+implicitly treated as Bash. Copy, Find and token-cache bounds are unchanged.
+Native contrast, selection, wrapping and accessibility remain unverified.

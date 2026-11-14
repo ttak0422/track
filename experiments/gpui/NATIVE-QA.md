@@ -515,3 +515,13 @@ Check narrow widths, themes, keyboard/AX discoverability and IME focus. Close th
 app during header wait, active streaming and reconnect delay; inspect owned-child
 cleanup without touching an existing vault or unrelated listening process.
 These GUI checks remain unperformed; loopback tests are transport evidence only.
+
+### Shell fence lexical hints (pending native QA)
+
+Use disposable notes containing `bash` and `sh` fences with comments, quoted
+Japanese text, escaped spaces and line continuations. Compare the exact source
+with Copy and Find, including CRLF and multiline strings. Check light/dark
+contrast, wrapping and narrow-window overflow. Heredocs, substitutions and
+context-sensitive shell syntax are not a supported grammar; verify that the UI
+never suggests code execution or modifies the source. No native acceptance is
+claimed by the tokenizer tests.

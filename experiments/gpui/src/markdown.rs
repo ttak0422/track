@@ -1737,6 +1737,50 @@ mod tests {
     }
 
     #[test]
+    fn shell_fences_keep_copy_find_and_cached_source_lossless() {
+        let body = "if true; then\n  echo '日本語🦀 [[id:123]]' # comment\nfi\n";
+        for language in ["bash", "sh", "shell"] {
+            let blocks = parse(&format!("```{language}\n{body}```"));
+            let block = &blocks[0];
+            assert_eq!(block.text, body);
+            assert!(block.links.is_empty());
+            assert!(
+                block
+                    .syntax
+                    .iter()
+                    .any(|token| token.role == crate::code_highlight::Role::Keyword)
+            );
+            let projected = with_resolved_titles(&blocks, &std::collections::HashMap::new());
+            assert!(Rc::ptr_eq(&block.syntax, &projected[0].syntax));
+            let found = crate::reader_find::search(&blocks, "日本語🦀");
+            assert_eq!(found.hits.len(), 1);
+            assert_eq!(&body[found.hits[0].range.clone()], "日本語🦀");
+            for dark in [false, true] {
+                assert_eq!(
+                    code_runs(block, 0, dark)
+                        .iter()
+                        .map(|run| run.len)
+                        .sum::<usize>(),
+                    body.len()
+                );
+            }
+            let document = Some(crate::code_copy::Document {
+                tab: None,
+                request: 1,
+                etag: None,
+                storage: None,
+                launch: None,
+            });
+            let mut copy = crate::code_copy::State::default();
+            copy.sync(document.clone(), &blocks);
+            assert_eq!(
+                copy.body(copy.epoch, 0, &document, &blocks).as_deref(),
+                Some(body)
+            );
+        }
+    }
+
+    #[test]
     fn cached_code_styles_preserve_find_copy_caption_and_literal_boundary() {
         let source = "```language-TS caption\nconst value = compute(42); \"日本語🦀\"; // 42 [[id:123]] https://example.com <img>\n```";
         let blocks = parse(source);
