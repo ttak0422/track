@@ -28,7 +28,14 @@ pub(crate) struct IncludesState {
     identity: Identity,
     open: bool,
     serial: u64,
-    result: Option<Result<Vec<crate::included_notes::Include>, String>>,
+    result: Option<Result<Snapshot, String>>,
+    preview_open: bool,
+    preview_focus: Option<gpui::FocusHandle>,
+    preview_scroll: gpui::ScrollHandle,
+}
+struct Snapshot {
+    response: crate::included_notes::Response,
+    preview: Result<markdown::IncludePreview, String>,
 }
 impl IncludesState {
     fn new(identity: Identity) -> Self {
@@ -37,6 +44,9 @@ impl IncludesState {
             open: false,
             serial: 0,
             result: None,
+            preview_open: false,
+            preview_focus: None,
+            preview_scroll: gpui::ScrollHandle::new(),
         }
     }
     fn accepts(&self, identity: &Identity, serial: u64) -> bool {
@@ -51,6 +61,168 @@ fn source_position(line: i64) -> String {
     }
 }
 impl Workspace {
+    /// The preview is a separate inert surface, never installed as host content.
+    pub(crate) fn includes_preview_active(&self) -> bool {
+        self.shell
+            .includes
+            .as_ref()
+            .is_some_and(|s| s.open && s.preview_open)
+    }
+    fn open_includes_preview(
+        &mut self,
+        identity: &Identity,
+        serial: u64,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.includes_identity().as_ref() != Some(identity)
+            || !self.find_available()
+            || !self.pin_keyboard_available(cx)
+        {
+            return;
+        }
+        let Some(state) = self
+            .shell
+            .includes
+            .as_mut()
+            .filter(|s| s.accepts(identity, serial) && matches!(s.result, Some(Ok(_))))
+        else {
+            return;
+        };
+        state.preview_open = true;
+        state.preview_scroll = gpui::ScrollHandle::new();
+        let focus = state
+            .preview_focus
+            .get_or_insert_with(|| cx.focus_handle())
+            .clone();
+        // Invalidate deferred host checkpoint/layout work; never capture preview geometry.
+        self.suspend_host_reader_actions();
+        window.focus(&focus);
+        cx.notify();
+    }
+    fn close_includes_preview(
+        &mut self,
+        identity: &Identity,
+        serial: u64,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.includes_identity().as_ref() != Some(identity) {
+            return;
+        }
+        let Some(state) = self
+            .shell
+            .includes
+            .as_mut()
+            .filter(|s| s.accepts(identity, serial) && s.preview_open)
+        else {
+            return;
+        };
+        state.preview_open = false;
+        if let Some(focus) = &self.shell.reader_focus {
+            window.focus(focus);
+        } else {
+            window.blur();
+        }
+        cx.notify();
+    }
+    pub(crate) fn rendered_includes_preview(
+        &mut self,
+        dark: bool,
+        colors: (u32, u32, u32),
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<Div> {
+        let state = self.shell.includes.as_ref().unwrap();
+        let identity = state.identity.clone();
+        let serial = state.serial;
+        let focus = state.preview_focus.as_ref().unwrap().clone();
+        let scroll = state.preview_scroll.clone();
+        let (paper, ink, line) = colors;
+        let close_identity = identity.clone();
+        let mut body = div().flex().flex_col().gap_3();
+        if let Some(Ok(snapshot)) = &state.result {
+            match &snapshot.preview {
+                Err(error) => body = body.child(format!("Rendered preview unavailable: {error}")),
+                Ok(preview) => {
+                    for notice in &preview.unsupported {
+                        body = body.child(notice.clone());
+                    }
+                    for (index, item) in preview.items.iter().enumerate() {
+                        let mut row = div().id(gpui::SharedString::from(format!(
+                            "include-preview-{serial}-{index}"
+                        )));
+                        row = match item {
+                            markdown::PreviewItem::Host(blocks) => {
+                                row.child(markdown::render_themed(blocks, dark))
+                            }
+                            markdown::PreviewItem::Include {
+                                index,
+                                directive,
+                                blocks,
+                            } => {
+                                let entry = &snapshot.response.entries[*index];
+                                let origin = if entry.vault.is_empty() {
+                                    "launch vault"
+                                } else {
+                                    &entry.vault
+                                };
+                                let target = entry
+                                    .note_id
+                                    .map(|id| {
+                                        format!(
+                                            "{} #{id}",
+                                            entry.kind.as_deref().unwrap_or("target")
+                                        )
+                                    })
+                                    .unwrap_or_else(|| "unknown target".into());
+                                row = row
+                                    .border_1()
+                                    .border_color(rgb(line))
+                                    .p_3()
+                                    .child(format!(
+                                        "{} · {}",
+                                        entry.caption,
+                                        entry.title.as_deref().unwrap_or("Untitled include")
+                                    ))
+                                    .child(format!(
+                                        "{origin} · {target} · source {}",
+                                        source_position(entry.source_line)
+                                    ));
+                                if let Some(etag) = &entry.etag {
+                                    row = row.child(format!("Snapshot revision: {etag}"));
+                                }
+                                for diagnostic in &entry.bad_options {
+                                    row = row.child(format!("Invalid option: {diagnostic}"));
+                                }
+                                if let Some(error) = entry.error.as_ref().filter(|e| !e.is_empty())
+                                {
+                                    row = row
+                                        .child(directive.clone())
+                                        .child(format!("Include error: {error}"));
+                                } else if entry.excerpt.is_empty() {
+                                    row = row.child("Successful empty excerpt.");
+                                } else {
+                                    row = row.child(markdown::render_themed(blocks, dark));
+                                }
+                                row
+                            }
+                        };
+                        body = body.child(row);
+                    }
+                }
+            }
+        }
+        div().id("rendered-includes-preview").size_full().flex().flex_col().p_4()
+            .bg(rgb(paper)).text_color(rgb(ink)).track_focus(&focus)
+            .on_key_down(cx.listener(move |this, event: &gpui::KeyDownEvent, window, cx| {
+                if event.keystroke.key == "escape" { this.close_includes_preview(&identity, serial, window, cx); }
+                // No host Find, navigation, checkpoint, task, link or copy shortcuts.
+                cx.stop_propagation();
+            }))
+            .child(div().flex().justify_between().child("Rendered preview (read-only)").child(div().id("close-rendered-includes-preview").cursor_pointer().child("Close preview (Esc)").on_click(cx.listener(move |this, _, window, cx| this.close_includes_preview(&close_identity, serial, window, cx)))))
+            .child("Engine-resolved snapshots; completeness and currentness are not guaranteed. Partial inline preview: only isolated top-level includes are embedded. Links, images, tasks, recursive includes, Find and navigation are unavailable. Text selection and code copy are not supported here.")
+            .child(div().id(gpui::SharedString::from(format!("rendered-includes-scroll-{serial}"))).track_scroll(&scroll).flex_1().min_h_0().overflow_y_scroll().child(body))
+    }
     fn includes_identity(&self) -> Option<Identity> {
         if self.full_graph_active()
             || self.shell.home
@@ -103,6 +275,7 @@ impl Workspace {
         let serial = SERIAL.fetch_add(1, Ordering::Relaxed);
         state.serial = serial;
         state.result = None;
+        state.preview_open = false;
         let Some(permit) = Permit::acquire() else {
             state.result = Some(Err(
                 "An earlier include request is still finishing. Refresh shortly.".into(),
@@ -123,11 +296,12 @@ impl Workspace {
             let response = client
                 .included_notes(&captured.source.note.vault, &body)
                 .map_err(|e| e.to_string())?;
+            let preview = markdown::included_preview(&response);
             let after = client.storage().map_err(|e| e.to_string())?;
             if after.phase != "ready" || after.generation != captured.source.storage_generation {
                 return Err("Storage changed. Reload the workspace.".into());
             }
-            Ok(response)
+            Ok(Snapshot { response, preview })
         });
         cx.spawn(async move |this, cx| {
             let result = job.await;
@@ -213,9 +387,20 @@ impl Workspace {
             return view.child("Loading included notes…");
         };
         let entries = match result {
-            Ok(entries) => entries,
+            Ok(snapshot) => &snapshot.response,
             Err(error) => return view.child(format!("Included notes unavailable: {error}")),
         };
+        let captured = identity.clone();
+        let serial = self.shell.includes.as_ref().unwrap().serial;
+        view = view.child(
+            div()
+                .id("includes-rendered-preview")
+                .cursor_pointer()
+                .child("Rendered preview (read-only)")
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.open_includes_preview(&captured, serial, window, cx);
+                })),
+        );
         if entries.is_empty() {
             return view.child("No included notes in this response.");
         }
@@ -223,7 +408,7 @@ impl Workspace {
             .id("includes-scroll")
             .max_h(px(320.))
             .overflow_y_scroll();
-        for entry in entries {
+        for entry in &entries.entries {
             let origin = if entry.vault.is_empty() {
                 "launch vault"
             } else {
@@ -308,6 +493,35 @@ mod tests {
             };
             assert!(!s.accepts(&changed, 11));
         }
+    }
+    #[test]
+    fn preview_snapshot_is_separate_and_close_does_not_replace_source() {
+        let id = identity();
+        let source = "raw host not returned markdown".to_string();
+        let original = source.clone();
+        let response = crate::included_notes::decode(serde_json::json!({
+            "markdown": "# Returned host\n\n![[Target]]\n",
+            "includes": [{"line": 2,"source_line": 0,"caption":"Target","lines":["# Target"],"note_id":2,"kind":"note","etag":"target"}]
+        }), "work").unwrap();
+        let preview = markdown::included_preview(&response);
+        assert!(preview.is_ok());
+        let mut state = IncludesState::new(id.clone());
+        state.open = true;
+        state.serial = 5;
+        state.result = Some(Ok(Snapshot { response, preview }));
+        state.preview_open = true;
+        assert!(state.accepts(&id, 5));
+        state.preview_open = false;
+        assert_eq!(source, original);
+        assert_eq!(state.identity, id);
+        assert!(state.result.is_some());
+        // Closing the inspector discards the response and makes old preview clicks invalid.
+        state.open = false;
+        state.result = None;
+        assert!(!state.accepts(&id, 5));
+        state.open = true;
+        state.serial = 6;
+        assert!(!state.accepts(&id, 5));
     }
     #[test]
     fn includes_source_position_never_overflows_or_offers_a_jump() {

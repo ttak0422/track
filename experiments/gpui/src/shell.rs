@@ -42,6 +42,16 @@ struct ReadingPositions {
 }
 
 impl Workspace {
+    pub(crate) fn suspend_host_reader_actions(&mut self) {
+        self.cancel_position_resume();
+        if let Some(anchors) = &self.shell.positions.anchors {
+            anchors.cancel_after_layout();
+        }
+        self.shell.pending_fragment = None;
+        if let Some(key) = self.tabs.active().map(|tab| tab.key.clone()) {
+            self.shell.detach_reader_scroll(&key);
+        }
+    }
     pub(crate) fn cancel_position_resume(&mut self) {
         self.shell.positions.interaction = self.shell.positions.interaction.wrapping_add(1);
     }
@@ -379,6 +389,24 @@ pub struct ShellState {
 }
 
 impl ShellState {
+    /// GPUI ScrollAnchor queues its own unguarded next-frame callback. Retire the
+    /// entire handle so callbacks already queued can only move an abandoned reader.
+    /// Preserve the offset in a fresh handle and rebind every host anchor namespace.
+    fn detach_reader_scroll(&mut self, key: &tabs::TabKey) {
+        let replacement = gpui::ScrollHandle::new();
+        if let Some(previous) = self.reader_scrolls.get(key) {
+            replacement.set_offset(previous.offset());
+        }
+        self.reader_scrolls.insert(key.clone(), replacement.clone());
+        self.heading_anchors.remove(key);
+        self.code_anchors = None;
+        if let Some(anchors) = self.positions.anchors.take() {
+            anchors.cancel_after_layout();
+        }
+        self.positions.source = None;
+        self.find.rebind_scroll(&replacement);
+    }
+
     /// Called only after a source revision passed its acceptance guards. A new
     /// request alone is not a new document. Keep the handle so cached anchors still
     /// address it; explicit Find/fragment jumps run after this baseline reset.
@@ -1274,7 +1302,7 @@ impl Workspace {
         source: &LinkSource,
         cx: &mut Context<Self>,
     ) {
-        if self.current_link_source().as_ref() != Some(source) {
+        if self.includes_preview_active() || self.current_link_source().as_ref() != Some(source) {
             return;
         }
         let key = if markdown::is_local_fragment(target) {
@@ -1901,6 +1929,9 @@ impl Render for Workspace {
         ));
         let p = Palette::new(dark);
         self.reset_stale_includes();
+        if self.includes_preview_active() {
+            return self.rendered_includes_preview(dark, (p.paper, p.ink, p.line), cx);
+        }
         self.sync_editor_theme(dark, cx);
         self.ensure_link_resolutions(cx);
         self.ensure_reader_images(cx);
@@ -3386,6 +3417,50 @@ mod reader_navigation_tests {
         assert_eq!(cycle_index(2, 3, false), 0);
         assert_eq!(cycle_index(0, 3, true), 2);
         assert_eq!(cycle_index(0, 0, true), 0);
+    }
+    #[test]
+    fn preview_detaches_queued_anchor_handle_preserving_host_offset() {
+        let mut shell = ShellState::default();
+        let key = tabs::TabKey::Note {
+            vault: "work".into(),
+            note_id: 42,
+        };
+        let other = tabs::TabKey::Note {
+            vault: "work".into(),
+            note_id: 43,
+        };
+        shell.accept_reader_content(key.clone(), "# Host", None);
+        shell.accept_reader_content(other.clone(), "Other", None);
+        let queued_handle = shell.reader_scrolls[&key].clone();
+        queued_handle.set_offset(point(px(0.), px(-200.)));
+        let blocks = markdown::parse("# Host");
+        shell.heading_anchors.insert(
+            key.clone(),
+            (
+                "outline".into(),
+                std::rc::Rc::new(markdown::HeadingAnchors::new(&blocks, &queued_handle)),
+            ),
+        );
+        shell.code_anchors = Some(std::rc::Rc::new(markdown::FindAnchors::new(
+            &blocks,
+            &queued_handle,
+        )));
+        shell.find.active = Some(2);
+        shell.find.highlighted = true;
+        shell.detach_reader_scroll(&key);
+        // Model the inner GPUI next-frame callback after the preview has opened.
+        queued_handle.set_offset(point(px(0.), px(-900.)));
+        assert_eq!(shell.reader_scrolls[&key].offset().y, px(-200.));
+        assert_eq!(shell.reader_scrolls[&other].offset().y, px(0.));
+        assert!(!shell.heading_anchors.contains_key(&key));
+        assert!(shell.code_anchors.is_none());
+        assert!(shell.positions.anchors.is_none());
+        assert!(shell.find.anchors.is_some());
+        assert_eq!(shell.find.active, Some(2));
+        assert!(shell.find.highlighted);
+        // Returning to the exact same accepted body retains the fresh handle offset.
+        shell.accept_reader_content(key.clone(), "# Host", None);
+        assert_eq!(shell.reader_scrolls[&key].offset().y, px(-200.));
     }
     #[test]
     fn accepted_reader_content_preserves_revisits_but_resets_changed_identity() {

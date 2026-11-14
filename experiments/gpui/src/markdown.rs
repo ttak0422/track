@@ -6,7 +6,7 @@ use gpui::{
     prelude::*, px, rgb,
 };
 use pulldown_cmark::{Alignment, Event, Options, Parser, Tag};
-use std::{cell::RefCell, ops::Range, rc::Rc};
+use std::{cell::RefCell, ops::Range, rc::Rc, sync::Arc};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BlockKind {
@@ -34,7 +34,7 @@ pub struct Block {
     /// First fenced info token; never mixed into body/Find byte ranges.
     pub language: Option<String>,
     /// Ingestion-time lexical ranges, shared across display projections.
-    pub syntax: Rc<[crate::code_highlight::Token]>,
+    pub syntax: Arc<[crate::code_highlight::Token]>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -1094,7 +1094,7 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
                     spans: vec![],
                     links: vec![],
                     language: None,
-                    syntax: Rc::from([]),
+                    syntax: Arc::from([]),
                     table: None,
                     image: None,
                 });
@@ -1123,7 +1123,7 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
                 spans: vec![],
                 links: vec![],
                 language: None,
-                syntax: Rc::from([]),
+                syntax: Arc::from([]),
                 image: None,
                 table: Some(Table {
                     alignments: alignments.clone(),
@@ -1195,7 +1195,7 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
                         table: None,
                         image: None,
                         language: None,
-                        syntax: Rc::from([]),
+                        syntax: Arc::from([]),
                     },
                 );
             }
@@ -1228,7 +1228,8 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
         }
         _ => None,
     };
-    let syntax = crate::code_highlight::classify(&content.text, language.as_deref());
+    let syntax =
+        Arc::from(crate::code_highlight::classify(&content.text, language.as_deref()).as_ref());
     let image = if kind == BlockKind::Paragraph && node.children.len() == 1 {
         match &node.children[0].event {
             Event::Start(Tag::Image { dest_url, .. }) => Some(dest_url.to_string()),
@@ -1260,7 +1261,7 @@ fn flush_run(run: &mut Cell, indent: usize, quoted: bool, out: &mut Vec<Block>) 
             spans: std::mem::take(&mut run.spans),
             links: std::mem::take(&mut run.links),
             language: None,
-            syntax: Rc::from([]),
+            syntax: Arc::from([]),
             table: None,
             image: None,
             indent,
@@ -1291,6 +1292,150 @@ pub fn parse(source: &str) -> Vec<Block> {
     result
 }
 
+/// A separate inert document, with no host anchors, link cache or Find identity.
+#[derive(Clone, Debug)]
+pub(crate) struct IncludePreview {
+    pub items: Vec<PreviewItem>,
+    pub unsupported: Vec<String>,
+}
+#[derive(Clone, Debug)]
+pub(crate) enum PreviewItem {
+    Host(Vec<Block>),
+    Include {
+        index: usize,
+        directive: String,
+        blocks: Vec<Block>,
+    },
+}
+const PREVIEW_BLOCK_LIMIT: usize = 4096;
+
+fn preview_tree(source: &str) -> Result<Vec<Node<'_>>, String> {
+    let options = Options::ENABLE_TABLES
+        | Options::ENABLE_TASKLISTS
+        | Options::ENABLE_STRIKETHROUGH
+        | Options::ENABLE_FOOTNOTES;
+    // Cap parser events and nesting before allocating the recursive native tree.
+    let mut events = Vec::new();
+    let mut depth = 0usize;
+    for (event, range) in Parser::new_ext(source, options).into_offset_iter() {
+        match event {
+            Event::Start(_) => depth += 1,
+            Event::End(_) => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+        if depth > 128 || events.len() >= 65536 {
+            return Err(
+                "Rendered preview exceeds parser limits (128 nesting levels, 65536 events).".into(),
+            );
+        }
+        events.push((event, range));
+    }
+    Ok(nodes(&mut events.into_iter()))
+}
+fn preview_blocks(source: &str) -> Result<Vec<Block>, String> {
+    let tree = preview_tree(source)?;
+    let mut result = Vec::new();
+    let mut end = 0;
+    for node in &tree {
+        fallback(&source[end..node.range.start], &mut result);
+        blocks(node, source, 0, false, &mut result);
+        if result.len() > PREVIEW_BLOCK_LIMIT {
+            return Err("Rendered preview exceeds 4096 blocks.".into());
+        }
+        end = node.range.end;
+    }
+    fallback(&source[end..], &mut result);
+    Ok(result)
+}
+
+/// Parse the *whole returned Markdown* once, preserving reference resolution and
+/// surrounding list/table/fence structure. Positions never refer to raw source.
+pub(crate) fn included_preview(
+    response: &crate::included_notes::Response,
+) -> Result<IncludePreview, String> {
+    let source = &response.markdown;
+    if source.len() > 16 * 1024 * 1024 || response.entries.len() > 32 {
+        return Err("Rendered preview exceeds response bounds.".into());
+    }
+    let mut total_text = 0usize;
+    let mut entries = std::collections::BTreeMap::new();
+    let mut starts = vec![0];
+    starts.extend(source.match_indices('\n').map(|(i, _)| i + 1));
+    for (index, entry) in response.entries.iter().enumerate() {
+        total_text = total_text
+            .checked_add(entry.excerpt.len())
+            .ok_or("Rendered preview text overflow.")?;
+        let line = usize::try_from(entry.line).map_err(|_| "Invalid rendered include line.")?;
+        if total_text > 256 * 1024 || line >= starts.len() || entries.insert(line, index).is_some()
+        {
+            return Err("Rendered preview has invalid lines or exceeds excerpt bounds.".into());
+        }
+    }
+    let tree = preview_tree(source)?;
+    let mut items = Vec::new();
+    let mut host = Vec::new();
+    let mut matched = std::collections::HashSet::new();
+    let mut count = 0usize;
+    let mut end = 0;
+    for node in &tree {
+        fallback(&source[end..node.range.start], &mut host);
+        let line = starts
+            .partition_point(|start| *start <= node.range.start)
+            .saturating_sub(1);
+        let candidate = entries.get(&line).copied().filter(|_| {
+            let raw_end = starts.get(line + 1).copied().unwrap_or(source.len());
+            let raw = source[starts[line]..raw_end].trim_end_matches(['\r', '\n']);
+            matches!(node.event, Event::Start(Tag::Paragraph))
+                && node.range.start == starts[line]
+                && source[node.range.clone()].trim_end_matches(['\r', '\n']) == raw
+                && raw.starts_with("![[")
+                && raw.ends_with("]]")
+                && raw.matches("![[").count() == 1
+                && raw.matches("]]").count() == 1
+        });
+        if let Some(index) = candidate {
+            count += host.len();
+            if !host.is_empty() {
+                items.push(PreviewItem::Host(std::mem::take(&mut host)));
+            }
+            let entry = &response.entries[index];
+            let excerpt = if entry.error.as_ref().is_some_and(|e| !e.is_empty()) {
+                Vec::new()
+            } else {
+                preview_blocks(&entry.excerpt)?
+            };
+            count += 1 + excerpt.len();
+            items.push(PreviewItem::Include {
+                index,
+                directive: source[node.range.clone()].to_owned(),
+                blocks: excerpt,
+            });
+            matched.insert(line);
+        } else {
+            blocks(node, source, 0, false, &mut host);
+        }
+        if count + host.len() > PREVIEW_BLOCK_LIMIT {
+            return Err("Rendered preview exceeds 4096 blocks.".into());
+        }
+        end = node.range.end;
+    }
+    fallback(&source[end..], &mut host);
+    let unsupported: Vec<String> = entries.iter().filter(|(line, _)| !matched.contains(line)).map(|(line, index)| {
+        let entry = &response.entries[*index];
+        let mut notice = format!("Include at returned host line {} has an unsupported location; original host content is retained.", line + 1);
+        if let Some(error) = entry.error.as_ref().filter(|e| !e.is_empty()) { notice.push_str(&format!("\nEngine error: {error}")); }
+        for option in &entry.bad_options { notice.push_str(&format!("\nBad option: {option}")); }
+        notice
+    }).collect();
+    if count + host.len() + unsupported.len() > PREVIEW_BLOCK_LIMIT {
+        return Err("Rendered preview exceeds 4096 blocks.".into());
+    }
+    if !host.is_empty() {
+        items.push(PreviewItem::Host(host));
+    }
+    Ok(IncludePreview { items, unsupported })
+}
+
 fn fallback(text: &str, out: &mut Vec<Block>) {
     if !text.trim().is_empty() {
         out.push(Block {
@@ -1299,7 +1444,7 @@ fn fallback(text: &str, out: &mut Vec<Block>) {
             spans: vec![],
             links: vec![],
             language: None,
-            syntax: Rc::from([]),
+            syntax: Arc::from([]),
             table: None,
             image: None,
             indent: 0,
@@ -2099,7 +2244,7 @@ mod tests {
                     .any(|token| token.role == crate::code_highlight::Role::Keyword)
             );
             let projected = with_resolved_titles(&blocks, &std::collections::HashMap::new());
-            assert!(Rc::ptr_eq(&block.syntax, &projected[0].syntax));
+            assert!(Arc::ptr_eq(&block.syntax, &projected[0].syntax));
             let found = crate::reader_find::search(&blocks, "日本語🦀");
             assert_eq!(found.hits.len(), 1);
             assert_eq!(&body[found.hits[0].range.clone()], "日本語🦀");
@@ -2143,7 +2288,7 @@ mod tests {
                     .any(|token| token.role == crate::code_highlight::Role::Keyword)
             );
             let projected = with_resolved_titles(&blocks, &std::collections::HashMap::new());
-            assert!(Rc::ptr_eq(&block.syntax, &projected[0].syntax));
+            assert!(Arc::ptr_eq(&block.syntax, &projected[0].syntax));
             let found = crate::reader_find::search(&blocks, "日本語🦀");
             assert_eq!(found.hits.len(), 1);
             assert_eq!(&body[found.hits[0].range.clone()], "日本語🦀");
@@ -2185,7 +2330,7 @@ mod tests {
             &std::collections::HashMap::from([("id:123".into(), "changed".into())]),
         );
         assert_eq!(blocks, projected);
-        assert!(Rc::ptr_eq(&block.syntax, &projected[0].syntax));
+        assert!(Arc::ptr_eq(&block.syntax, &projected[0].syntax));
         let found = crate::reader_find::search(&blocks, "42");
         assert_eq!(found.hits.len(), 2);
         let hits: Vec<_> = found
@@ -2226,7 +2371,7 @@ mod tests {
                 position += run.len;
                 assert!(block.text.is_char_boundary(position));
             }
-            assert!(Rc::ptr_eq(&block.syntax, &projected[0].syntax));
+            assert!(Arc::ptr_eq(&block.syntax, &projected[0].syntax));
         }
         assert_ne!(
             code_runs(block, 0, false)[0].color,
@@ -3643,5 +3788,196 @@ mod position_tests {
                 .capture(gpui::size(px(800.), px(600.)), 1.)
                 .is_none()
         );
+    }
+}
+
+#[cfg(test)]
+mod include_preview_tests {
+    use super::*;
+    use crate::included_notes;
+    use serde_json::json;
+    fn response(body: &str, lines: &[usize], excerpt: &str) -> included_notes::Response {
+        included_notes::decode(json!({"markdown":body,"includes":lines.iter().map(|line| json!({"line":line,"source_line":0,"note_id":42,"kind":"note","etag":"revision","caption":"Caption","lines":[excerpt]})).collect::<Vec<_>>()}), "host").unwrap()
+    }
+    fn text(preview: &IncludePreview) -> String {
+        preview
+            .items
+            .iter()
+            .flat_map(|item| match item {
+                PreviewItem::Host(b) => b,
+                PreviewItem::Include { blocks, .. } => blocks,
+            })
+            .map(|b| b.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+    #[test]
+    fn returned_markdown_positions_preserve_host_and_reference_context() {
+        let raw = "raw body with no include";
+        let response = response(
+            "Before [reference][r]\n\n![[Target]]\n\nAfter\n\n[r]: https://example.com",
+            &[2],
+            "## Included\n\nBody",
+        );
+        let preview = included_preview(&response).unwrap();
+        assert_eq!(raw, "raw body with no include");
+        assert!(text(&preview).contains("Before reference\nIncluded\nBody\nAfter"));
+        assert!(
+            matches!(&preview.items[1], PreviewItem::Include{index:0,directive,..} if directive == "![[Target]]\n")
+        );
+        let PreviewItem::Host(host) = &preview.items[0] else {
+            panic!()
+        };
+        assert!(
+            matches!(&host[0].links[0].target, LinkTarget::Markdown{destination} if destination == "https://example.com")
+        );
+        assert!(preview.unsupported.is_empty());
+    }
+    #[test]
+    fn unsupported_locations_keep_native_host_exactly() {
+        for (body, lines) in [
+            ("- ![[Target]]", vec![0]),
+            ("> ![[Target]]", vec![0]),
+            ("a | b\n-- | --\n![[Target]] | c", vec![2]),
+            ("Before\n![[Target]]\nAfter", vec![1]),
+            ("![[One]]\n![[Two]]", vec![0, 1]),
+            ("```\n![[Target]]\n```", vec![1]),
+            ("\\![[Target]]", vec![0]),
+            ("![[One]] ![[Two]]", vec![0]),
+            ("ordinary paragraph", vec![0]),
+        ] {
+            let preview = included_preview(&response(body, &lines, "Should not appear")).unwrap();
+            assert_eq!(preview.unsupported.len(), lines.len(), "{body}");
+            assert_eq!(preview.items.len(), 1, "{body}");
+            let PreviewItem::Host(host) = &preview.items[0] else {
+                panic!("{body}")
+            };
+            assert_eq!(*host, parse(body), "{body}");
+        }
+    }
+    #[test]
+    fn crlf_positions_are_exact_and_whitespace_is_conservative() {
+        let response = response("Before\r\n\r\n![[Target]]\r\n\r\nAfter", &[2], "excerpt");
+        let preview = included_preview(&response).unwrap();
+        assert!(preview.unsupported.is_empty());
+        assert!(
+            matches!(&preview.items[1], PreviewItem::Include{directive,..} if directive == "![[Target]]\r\n")
+        );
+        for body in [" ![[Target]]", "![[Target]]  ", "![[Target]] suffix"] {
+            let mut response = super::include_preview_tests::response(body, &[0], "excerpt");
+            response.entries[0].error = Some("opaque failure".into());
+            response.entries[0].bad_options = vec!["bad=1".into()];
+            let preview = included_preview(&response).unwrap();
+            assert_eq!(preview.unsupported.len(), 1, "{body}");
+            assert!(preview.unsupported[0].contains("opaque failure"));
+            assert!(preview.unsupported[0].contains("bad=1"));
+            let PreviewItem::Host(host) = &preview.items[0] else {
+                panic!()
+            };
+            assert_eq!(*host, parse(body));
+        }
+        // Mapping to a blank line cannot insert into a neighboring paragraph.
+        let preview = included_preview(&super::include_preview_tests::response(
+            "Before\n\nAfter",
+            &[1],
+            "excerpt",
+        ))
+        .unwrap();
+        assert_eq!(preview.unsupported.len(), 1);
+        assert_eq!(text(&preview), "Before\nAfter");
+    }
+    #[test]
+    fn namespaces_and_origins_remain_separate_and_nested_content_inert() {
+        let mut response = response(
+            "# Same\n\n![[First]]\n\n![[Second]]",
+            &[2, 4],
+            "# Same\n\n![[Nested]]\n\n[web](https://example.com)\n\n![asset](asset.png)\n\n- [ ] task\n\n<div>HTML</div>\n\n```rust\nexact();\n```\n",
+        );
+        response.entries[0].vault = "".into();
+        response.entries[1].vault = "foreign".into();
+        let preview = included_preview(&response).unwrap();
+        assert_eq!(response.entries[0].vault, "");
+        assert_eq!(response.entries[1].vault, "foreign");
+        let indices: Vec<_> = preview
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                PreviewItem::Include { index, blocks, .. } => {
+                    assert_eq!(
+                        blocks
+                            .iter()
+                            .find(|b| b.kind == BlockKind::Code)
+                            .unwrap()
+                            .text,
+                        "exact();\n"
+                    );
+                    assert!(blocks.iter().any(|b| b.text.contains("![[Nested]]")));
+                    Some(*index)
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(indices, [0, 1]);
+        // Independent block vectors contain duplicate headings, not a merged host namespace.
+        assert!(matches!(&preview.items[0],PreviewItem::Host(b) if b[0].text == "Same"));
+        fn send<T: Send>() {}
+        send::<IncludePreview>();
+    }
+    #[test]
+    fn errors_empty_excerpts_and_bad_options_are_not_dropped() {
+        let mut response = response("![[Missing]]\n\n![[Empty]]", &[0, 2], "");
+        response.entries[0].error = Some("missing section".into());
+        response.entries[0].bad_options = vec!["bad option".into()];
+        response.entries[0].note_id = None;
+        let preview = included_preview(&response).unwrap();
+        assert_eq!(preview.items.len(), 2);
+        for item in &preview.items {
+            let PreviewItem::Include {
+                blocks, directive, ..
+            } = item
+            else {
+                panic!()
+            };
+            assert!(blocks.is_empty());
+            assert!(!directive.is_empty());
+        }
+        assert_eq!(
+            response.entries[0].error.as_deref(),
+            Some("missing section")
+        );
+        assert_eq!(response.entries[0].bad_options, ["bad option"]);
+        assert!(response.entries[1].error.is_none());
+    }
+    #[test]
+    fn projection_limits_are_explicit_and_leave_response_unchanged() {
+        let body = (0..32)
+            .map(|i| format!("![[Target{i}]]\n\n"))
+            .collect::<String>();
+        let mut response = response(
+            &body,
+            &(0..32).map(|i| i * 2).collect::<Vec<_>>(),
+            "excerpt",
+        );
+        assert!(included_preview(&response).is_ok());
+        response.entries.push(response.entries[0].clone());
+        assert!(included_preview(&response).is_err());
+        response.entries.pop();
+        response.entries[1].line = response.entries[0].line;
+        assert!(included_preview(&response).is_err());
+        response.entries[1].line = u64::MAX;
+        assert!(included_preview(&response).is_err());
+        let mut response = super::include_preview_tests::response("![[Target]]", &[0], "");
+        response.entries[0].excerpt = "x".repeat(256 * 1024 + 1);
+        assert!(included_preview(&response).is_err());
+        let response =
+            super::include_preview_tests::response(&"paragraph\n\n".repeat(4097), &[], "");
+        assert!(included_preview(&response).is_err());
+        assert_eq!(response.markdown, "paragraph\n\n".repeat(4097));
+        let response = super::include_preview_tests::response(
+            "![[Target]]",
+            &[0],
+            &"paragraph\n\n".repeat(4096),
+        );
+        assert!(included_preview(&response).is_err());
     }
 }

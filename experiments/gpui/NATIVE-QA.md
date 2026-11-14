@@ -667,3 +667,16 @@ layout, scrolling, keyboard and VoiceOver. This does not validate task editing.
   jumps must be cancelled by manual scroll/Find/navigation and source replacement.
 - Check queued-write/error feedback, keyboard/AX and missing native measurement.
   Ordinary launches must have no checkpoint controls, geometry collection or I/O.
+
+### Rendered include preview (pending native QA)
+
+Use disposable fixtures containing supported standalone includes, adjacent
+include directives, selected sections, errors, empty excerpts and unsupported
+list/quote/table placements. Verify all surrounding content remains in order,
+unsupported locations retain their text and notices, and target origin labels
+are distinct across vaults. Switch source, Refresh or close during projection;
+old results must not reappear. Host Find/heading/checkpoint actions must not act
+on the preview or hidden reader, including already queued actions. Close should
+restore the original reader and offset without persisting projected positions.
+Check keyboard, narrow/light/dark layouts, scrolling and VoiceOver. No links,
+assets, tasks or nested includes should execute. No native evidence is claimed.

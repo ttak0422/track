@@ -712,7 +712,7 @@ impl ReadClient {
         &self,
         vault: &str,
         body: &str,
-    ) -> Result<Vec<crate::included_notes::Include>, Error> {
+    ) -> Result<crate::included_notes::Response, Error> {
         if !self.alive.load(Ordering::Acquire) {
             return Err(Error::Stale);
         }

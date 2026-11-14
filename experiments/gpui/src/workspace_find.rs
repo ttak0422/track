@@ -19,6 +19,12 @@ pub(crate) struct FindState {
     scroll_retries: u8,
 }
 impl FindState {
+    pub(crate) fn rebind_scroll(&mut self, scroll: &gpui::ScrollHandle) {
+        self.revision = self.revision.wrapping_add(1);
+        self.pending_scroll = false;
+        self.anchors = Some(Rc::new(markdown::FindAnchors::new(&self.blocks, scroll)));
+    }
+
     fn deactivate(&mut self) {
         self.open = false;
         self.highlighted = false;
@@ -53,7 +59,8 @@ fn scroll_is_current(
 }
 impl Workspace {
     pub(crate) fn find_available(&self) -> bool {
-        !self.full_graph_active()
+        !self.includes_preview_active()
+            && !self.full_graph_active()
             && !self.shell.home
             && !self.editing_ui.active()
             && !self.editing_ui.has_pending()

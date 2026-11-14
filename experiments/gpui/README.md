@@ -552,6 +552,20 @@ storage changes invalidate old results; loading, editing and closing gates remai
 in effect. The operation renders only, without saving a note or reading milestone.
 Native layout, keyboard and accessibility validation remains pending.
 
+After a successful snapshot, choose **Rendered preview** for a separate read-only
+view with supported includes displayed in place. Only a directive occupying its
+own top-level paragraph is embedded. Adjacent directive lines, lists, quotes,
+tables and other ambiguous placements remain visible with an unsupported-location
+notice rather than being inserted at guessed positions. The returned engine
+Markdown is used for placement, never line numbers applied to the raw source.
+
+Preview links, images, nested includes and task actions are inert. Host Find,
+heading jumps and reading checkpoints are unavailable in this mode; preview text
+must not become a saved host position. Close returns to the unchanged original
+reader. The preview is bounded and fails explicitly if its block/text limits are
+exceeded. This is not automatic transclusion or full navigation/selection parity;
+native scrolling, focus and accessibility still require fixture QA.
+
 ### Fixture-only reading checkpoints
 
 With disposable-fixture session persistence enabled, **Save reading position**

@@ -2,6 +2,7 @@
 use crate::live::Error;
 use serde_json::Value;
 
+#[derive(Clone, Debug)]
 pub(crate) struct Include {
     pub line: u64,
     pub source_line: i64,
@@ -15,6 +16,25 @@ pub(crate) struct Include {
     pub error: Option<String>,
     pub vault: String,
 }
+/// One accepted render response; never installed into the source reader.
+#[derive(Clone, Debug)]
+pub(crate) struct Response {
+    pub markdown: String,
+    pub entries: Vec<Include>,
+}
+impl std::ops::Deref for Response {
+    type Target = [Include];
+    fn deref(&self) -> &Self::Target {
+        &self.entries
+    }
+}
+impl<'a> IntoIterator for &'a Response {
+    type Item = &'a Include;
+    type IntoIter = std::slice::Iter<'a, Include>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.entries.iter()
+    }
+}
 fn invalid() -> Error {
     Error::Shape("Invalid included-note response or exceeded limits (32 entries, 256 KiB excerpts, 16 KiB metadata, 1 KiB origin/revision, 32 diagnostics).".into())
 }
@@ -26,7 +46,7 @@ fn optional(v: &Value, name: &str, limit: usize) -> Result<Option<String>, Error
         .map(|v| text(v, limit).map(str::to_owned))
         .transpose()
 }
-pub(crate) fn decode(value: Value, host_vault: &str) -> Result<Vec<Include>, Error> {
+pub(crate) fn decode(value: Value, host_vault: &str) -> Result<Response, Error> {
     let markdown = text(value.get("markdown").ok_or_else(invalid)?, 16 * 1024 * 1024)?;
     let extent = markdown.split('\n').count() as u64;
     let entries = value
@@ -111,7 +131,10 @@ pub(crate) fn decode(value: Value, host_vault: &str) -> Result<Vec<Include>, Err
             vault,
         });
     }
-    Ok(result)
+    Ok(Response {
+        markdown: markdown.to_owned(),
+        entries: result,
+    })
 }
 
 #[cfg(test)]
