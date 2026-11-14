@@ -469,7 +469,12 @@ that same label followed by their formatted content. Definitions stay at their
 source position, including unused definitions. Their paragraphs, lists, quotes
 and ordinary links remain readable and searchable.
 
-This is a display subset, not full web footnote parity: references are not
-renumbered or clickable, definitions are not collected at the end, and return
-links are not added. Unresolved references remain visible. No source is rewritten.
+In the current live reader, click a reference to jump to its unique definition.
+Undefined or duplicate labels stay inactive. The jump is local: it does not reload
+the note, open another tab or write anything. Changed source and blocked reader
+interactions cancel stale clicks.
+
+This is not full web footnote parity: references are not renumbered, definitions
+are not collected at the end, and return links are not added. Unresolved
+references remain visible. No source is rewritten.
 Native layout, selection and accessibility validation remains pending.

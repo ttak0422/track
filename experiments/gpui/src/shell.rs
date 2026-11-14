@@ -173,6 +173,20 @@ struct LinkSource {
     launch_generation: u64,
     request: u64,
 }
+fn footnote_jump_allowed(
+    source: &LinkSource,
+    current: Option<&LinkSource>,
+    displayed: &[markdown::Block],
+    current_displayed: &[markdown::Block],
+    link: &markdown::Link,
+    available: bool,
+) -> bool {
+    available
+        && current == Some(source)
+        && displayed == current_displayed
+        && markdown::footnote_link_valid(current_displayed, link)
+}
+
 struct LinkResolutionCache {
     source: LinkSource,
     pending: bool,
@@ -245,6 +259,7 @@ fn internal_terms(blocks: &[markdown::Block]) -> Vec<String> {
 }
 fn has_authored_fragment(target: &markdown::LinkTarget) -> bool {
     match target {
+        markdown::LinkTarget::Footnote { .. } => false,
         markdown::LinkTarget::Wiki { fragment, .. } => fragment
             .as_ref()
             .is_some_and(|fragment| !fragment.is_empty()),
@@ -1488,18 +1503,66 @@ impl Render for Workspace {
         let local_fragments_ready = link_source.is_some();
         let external_ready =
             local_fragments_ready && self.find_available() && self.read_error.is_none();
+        let footnote_labels = markdown::footnote_targets(&external_displayed);
         let weak = cx.entity().downgrade();
         let link_callbacks = markdown::LinkCallbacks {
             resolved: std::rc::Rc::new(move |target| {
-                (local_fragments_ready && markdown::is_local_fragment(target))
+                (external_ready
+                    && matches!(target, markdown::LinkTarget::Footnote { label } if footnote_labels.contains_key(label)))
+                    || (local_fragments_ready && markdown::is_local_fragment(target))
                     || (external_ready && external_links::destination(target).is_some())
                     || markdown::resolve_term(target)
                         .is_some_and(|term| resolved_terms.contains_key(&term))
             }),
-            activate: std::rc::Rc::new(move |link, _, cx| {
+            activate: std::rc::Rc::new(move |link, window, cx| {
                 if let Some(source) = &link_source {
                     let _ = weak.update(cx, |this, cx| {
-                        if external_links::destination(&link.target).is_some() {
+                        if matches!(link.target, markdown::LinkTarget::Footnote { .. }) {
+                            if !footnote_jump_allowed(
+                                source,
+                                this.current_link_source().as_ref(),
+                                &external_displayed,
+                                &this.displayed_content(),
+                                link,
+                                this.find_available()
+                                    && this.read_error.is_none()
+                                    && !this.quit_session.is_closing(),
+                            ) {
+                                return;
+                            }
+                            let source = source.clone();
+                            let displayed = external_displayed.clone();
+                            let link = link.clone();
+                            let weak = cx.entity().downgrade();
+                            window.on_next_frame(move |window, cx| {
+                                let _ =
+                                    weak.update(cx, |this, cx| {
+                                        if !footnote_jump_allowed(
+                                            &source,
+                                            this.current_link_source().as_ref(),
+                                            &displayed,
+                                            &this.displayed_content(),
+                                            &link,
+                                            this.find_available()
+                                                && this.read_error.is_none()
+                                                && !this.quit_session.is_closing(),
+                                        ) {
+                                            return;
+                                        }
+                                        let markdown::LinkTarget::Footnote { label } = &link.target
+                                        else {
+                                            return;
+                                        };
+                                        if let Some(anchors) = this.tabs.active().and_then(|tab| {
+                                            this.shell.heading_anchors.get(&tab.key)
+                                        }) {
+                                            anchors.1.scroll_to_footnote(label, window, cx);
+                                            cx.notify();
+                                        }
+                                    });
+                            });
+                            window.refresh();
+                        } else if external_links::destination(&link.target).is_some() {
                             // Browser dispatch is not a note transition: never save, discard,
                             // or mutate the editor, tab, selection, or draft here.
                             if !this.find_available() || this.read_error.is_some() {
@@ -1613,7 +1676,10 @@ impl Render for Workspace {
         let content_ready = self.current_note.is_some() || !self.content.is_empty();
         let displayed_content = self.displayed_content();
         let mut headings = markdown::outline(&self.content);
-        let outline_signature = format!("{headings:?}");
+        let outline_signature = format!(
+            "{headings:?}:{:?}",
+            markdown::footnote_targets(&self.content)
+        );
         let anchor_entry = self
             .shell
             .heading_anchors
@@ -3349,4 +3415,81 @@ pub(crate) fn session_registry(value: &serde_json::Value) -> Result<Vec<String>,
     names.sort();
     names.dedup();
     Ok(names)
+}
+
+#[cfg(test)]
+mod footnote_jump_tests {
+    use super::*;
+    #[test]
+    fn footnote_jump_rechecks_source_content_membership_and_interaction_gate() {
+        let source = LinkSource {
+            note: live::NoteKey {
+                vault: "work".into(),
+                note_id: 42,
+            },
+            etag: "a".into(),
+            storage_generation: 1,
+            launch_generation: 2,
+            request: 3,
+        };
+        let blocks = markdown::parse("Ref[^x].\n\n[^x]: body");
+        let link = &blocks[0].links[0];
+        assert!(footnote_jump_allowed(
+            &source,
+            Some(&source),
+            &blocks,
+            &blocks,
+            link,
+            true
+        ));
+        assert!(!footnote_jump_allowed(
+            &source,
+            Some(&source),
+            &blocks,
+            &blocks,
+            link,
+            false
+        ));
+        assert!(!footnote_jump_allowed(
+            &source, None, &blocks, &blocks, link, true
+        ));
+        for index in 0..6 {
+            let mut changed = source.clone();
+            match index {
+                0 => changed.note.vault = "other".into(),
+                1 => changed.note.note_id = 43,
+                2 => changed.etag = "b".into(),
+                3 => changed.storage_generation += 1,
+                4 => changed.launch_generation += 1,
+                _ => changed.request += 1,
+            };
+            assert!(!footnote_jump_allowed(
+                &source,
+                Some(&changed),
+                &blocks,
+                &blocks,
+                link,
+                true
+            ));
+        }
+        let changed = markdown::parse("Ref[^x].\n\n[^x]: changed");
+        assert!(!footnote_jump_allowed(
+            &source,
+            Some(&source),
+            &blocks,
+            &changed,
+            link,
+            true
+        ));
+        let mut forged = link.clone();
+        forged.range = 999..1000;
+        assert!(!footnote_jump_allowed(
+            &source,
+            Some(&source),
+            &blocks,
+            &blocks,
+            &forged,
+            true
+        ));
+    }
 }

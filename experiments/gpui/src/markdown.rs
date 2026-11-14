@@ -15,6 +15,7 @@ pub enum BlockKind {
     Code,
     Literal,
     Rule,
+    FootnoteDefinition(String),
     Table,
 }
 
@@ -62,6 +63,9 @@ pub struct Cell {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum LinkTarget {
+    Footnote {
+        label: String,
+    },
     Wiki {
         key: String,
         fragment: Option<String>,
@@ -167,6 +171,7 @@ pub struct CodeCallbacks {
 /// numeric IDs, registered vault prefixes or id-v1 configuration here.
 pub fn resolve_term(target: &LinkTarget) -> Option<String> {
     match target {
+        LinkTarget::Footnote { .. } => None,
         LinkTarget::Wiki { key, .. } => Some(key.clone()),
         LinkTarget::Markdown { destination } => {
             let raw = destination.split(['?', '#']).next()?.trim();
@@ -224,6 +229,7 @@ pub fn fragment_anchor(
     target: &LinkTarget,
 ) -> Result<Option<String>, FragmentError> {
     let fragment = match target {
+        LinkTarget::Footnote { .. } => return Err(FragmentError::UnsupportedDestination),
         LinkTarget::Wiki { fragment, .. } => fragment.as_deref(),
         LinkTarget::Markdown { destination } => {
             if resolve_term(target).is_none() && !is_local_fragment(target) {
@@ -430,22 +436,68 @@ pub fn scroll_to_heading(
     true
 }
 
+/// Only unambiguous parser definitions are navigation targets. Labels are not
+/// heading fragments or URLs, and rendered text is never reparsed for targets.
+pub fn footnote_targets(blocks: &[Block]) -> std::collections::BTreeMap<String, usize> {
+    let mut seen = std::collections::BTreeMap::new();
+    for (index, block) in blocks.iter().enumerate() {
+        if let BlockKind::FootnoteDefinition(label) = &block.kind {
+            seen.entry(label.clone())
+                .and_modify(|entry| *entry = None)
+                .or_insert(Some(index));
+        }
+    }
+    seen.into_iter()
+        .filter_map(|(label, index)| index.map(|index| (label, index)))
+        .collect()
+}
+
+pub fn footnote_link_valid(blocks: &[Block], link: &Link) -> bool {
+    let LinkTarget::Footnote { label } = &link.target else {
+        return false;
+    };
+    footnote_targets(blocks).contains_key(label)
+        && blocks.iter().any(|block| {
+            block.links.contains(link)
+                || block.table.as_ref().is_some_and(|table| {
+                    table
+                        .rows
+                        .iter()
+                        .flatten()
+                        .any(|cell| cell.links.contains(link))
+                })
+        })
+}
+
 /// Retain this alongside the displayed document. Rebuild when its headings or
 /// reader ScrollHandle change; do not recreate on each render (anchors hold layout).
 pub struct HeadingAnchors {
     entries: Vec<OutlineEntry>,
     targets: std::collections::HashMap<String, ScrollAnchor>,
+    footnotes: std::collections::BTreeMap<String, (usize, ScrollAnchor)>,
 }
 
 impl HeadingAnchors {
     pub fn new(blocks: &[Block], handle: &ScrollHandle) -> Self {
         Self {
             entries: outline(blocks),
+            footnotes: footnote_targets(blocks)
+                .into_iter()
+                .map(|(label, index)| (label, (index, ScrollAnchor::for_handle(handle.clone()))))
+                .collect(),
             targets: outline(blocks)
                 .into_iter()
                 .map(|entry| (entry.anchor, ScrollAnchor::for_handle(handle.clone())))
                 .collect(),
         }
+    }
+
+    pub fn scroll_to_footnote(&self, label: &str, window: &mut Window, cx: &mut App) -> bool {
+        let Some((_, target)) = self.footnotes.get(label) else {
+            return false;
+        };
+        target.scroll_to(window, cx);
+        true
     }
 
     /// Call after the document has laid out. Supports nested article/aside layout.
@@ -727,7 +779,17 @@ fn inline(node: &Node<'_>, source: &str, out: &mut Cell, mut style: InlineStyle)
                 inline(child, source, out, style);
             }
         }
-        Event::FootnoteReference(label) => out.append(&format!("[^{label}]"), style),
+        Event::FootnoteReference(label) => {
+            let start = out.text.len();
+            style.link = true;
+            out.append(&format!("[^{label}]"), style);
+            out.links.push(Link {
+                range: start..out.text.len(),
+                target: LinkTarget::Footnote {
+                    label: unicase::UniCase::new(label.as_ref()).to_folded_case(),
+                },
+            });
+        }
         Event::Code(text) => {
             style.code = true;
             out.append(text, style);
@@ -770,6 +832,9 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
             let mut label_text = Cell::default();
             label_text.append(&format!("[^{label}]:"), InlineStyle::default());
             flush_run(&mut label_text, indent, quoted, out);
+            out.last_mut().unwrap().kind = BlockKind::FootnoteDefinition(
+                unicase::UniCase::new(label.as_ref()).to_folded_case(),
+            );
             for child in &node.children {
                 blocks(child, source, indent + 1, quoted, out);
             }
@@ -972,7 +1037,7 @@ fn flush_run(run: &mut Cell, indent: usize, quoted: bool, out: &mut Vec<Block>) 
 }
 
 /// Parse CommonMark plus tables, ordinary tasks, strike and display-only footnotes.
-/// Footnotes stay labeled in source order without renumbering or navigation.
+/// Footnotes stay labeled in source order; unique definitions have local targets.
 /// Rich Track task notation remains literal; no task mutation is supported.
 /// Reference definitions omitted by the parser are retained as source fallback.
 pub fn parse(source: &str) -> Vec<Block> {
@@ -1340,6 +1405,15 @@ fn render_elements(
                             .cloned(),
                     )
                     .into_any_element()
+                } else if let Some((index, anchor)) = anchors.and_then(|anchors| {
+                    anchors
+                        .footnotes
+                        .values()
+                        .find(|(target, _)| *target == index)
+                }) {
+                    row.id(SharedString::from(format!("markdown-footnote-{index}")))
+                        .anchor_scroll(Some(anchor.clone()))
+                        .into_any_element()
                 } else {
                     row.into_any_element()
                 };
@@ -1382,7 +1456,8 @@ fn resolved_spans(spans: &[Span], links: &[Link], callbacks: Option<&LinkCallbac
                 let resolved = links.iter().any(|link| {
                     link.range.start <= span.range.start
                         && link.range.end >= span.range.end
-                        && (resolve_term(&link.target).is_some()
+                        && (matches!(link.target, LinkTarget::Footnote { .. })
+                            || resolve_term(&link.target).is_some()
                             || is_local_fragment(&link.target)
                             || crate::external_links::destination(&link.target).is_some())
                         && callbacks.is_some_and(|callbacks| (callbacks.resolved)(&link.target))
@@ -1426,7 +1501,8 @@ fn link_text(
     let active: Vec<_> = links
         .iter()
         .filter(|link| {
-            (resolve_term(&link.target).is_some()
+            (matches!(link.target, LinkTarget::Footnote { .. })
+                || resolve_term(&link.target).is_some()
                 || is_local_fragment(&link.target)
                 || crate::external_links::destination(&link.target).is_some())
                 && (callbacks.resolved)(&link.target)
@@ -3025,7 +3101,10 @@ mod footnote_display_tests {
         assert_eq!(parsed[2].indent, 1);
         assert!(parsed[2].spans.iter().any(|s| s.style.strong));
         assert_eq!(parsed[2].links.len(), 1);
-        assert!(parsed[0].links.is_empty());
+        assert!(matches!(
+            &parsed[0].links[0].target,
+            LinkTarget::Footnote { .. }
+        ));
         assert_eq!(
             crate::reader_find::search(&parsed, "Detail").hits[0].target,
             Target::Block(2)
@@ -3097,5 +3176,69 @@ mod footnote_display_tests {
                 .iter()
                 .any(|b| b.text == "quoted" && b.quoted && b.indent == 1)
         );
+    }
+}
+
+#[cfg(test)]
+mod footnote_navigation_tests {
+    use super::*;
+    #[test]
+    fn footnote_targets_are_parser_only_unique_and_follow_block_movement() {
+        let parsed = parse("Ref[^x] and [^x].\n\n[^x]: body");
+        let case = parse("Ref[^X].\n\n[^x]: case");
+        assert!(footnote_link_valid(&case, &case[0].links[0]));
+        for source in [
+            "Ref[^STRASSE].\n\n[^straße]: body",
+            "Ref[^x  y].\n\n[^x y]: body",
+        ] {
+            let normalized = parse(source);
+            assert!(footnote_link_valid(&normalized, &normalized[0].links[0]));
+        }
+        for source in [
+            "Ref[^X].\n\n[^x]: one\n\n[^X]: two",
+            "Ref[^straße].\n\n[^STRASSE]: one\n\n[^straße]: two",
+        ] {
+            assert!(footnote_targets(&parse(source)).is_empty());
+        }
+        let targets = footnote_targets(&parsed);
+        assert_eq!(targets.get("x"), Some(&1));
+        let link = &parsed[0].links[0];
+        assert!(footnote_link_valid(&parsed, link));
+        assert!(resolve_term(&link.target).is_none());
+        assert!(!is_local_fragment(&link.target));
+        assert!(crate::external_links::destination(&link.target).is_none());
+        let shifted = parse("intro\n\nRef[^x].\n\n[^x]: body");
+        assert_eq!(footnote_targets(&shifted).get("x"), Some(&2));
+        let duplicated = parse("Ref[^x].\n\n[^x]: one\n\n[^x]: two");
+        assert!(footnote_targets(&duplicated).is_empty());
+        assert!(!footnote_link_valid(&duplicated, &duplicated[0].links[0]));
+        assert!(footnote_targets(&parse("`[^x]: not definition`")).is_empty());
+        assert!(!footnote_link_valid(&parse("missing[^x]"), link));
+        let mut forged = link.clone();
+        forged.range = 999..1000;
+        assert!(!footnote_link_valid(&parsed, &forged));
+    }
+    #[test]
+    fn footnote_table_links_and_visible_styles_require_explicit_resolution() {
+        let parsed = parse("| Ref |\n| --- |\n| [^x] |\n\n[^x]: body");
+        let cell = &parsed[0].table.as_ref().unwrap().rows[1][0];
+        assert!(footnote_link_valid(&parsed, &cell.links[0]));
+        let callbacks = LinkCallbacks {
+            resolved: Rc::new(|t| matches!(t, LinkTarget::Footnote { .. })),
+            activate: Rc::new(|_, _, _| {}),
+        };
+        assert!(
+            resolved_spans(&cell.spans, &cell.links, Some(&callbacks))
+                .iter()
+                .any(|s| s.style.link)
+        );
+        assert!(
+            resolved_spans(&cell.spans, &cell.links, None)
+                .iter()
+                .all(|s| !s.style.link)
+        );
+        let anchors = HeadingAnchors::new(&parsed, &ScrollHandle::new());
+        assert!(anchors.targets.is_empty());
+        assert_eq!(anchors.footnotes["x"].0, 1);
     }
 }

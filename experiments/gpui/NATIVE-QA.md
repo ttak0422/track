@@ -609,5 +609,8 @@ dark rendering and accessibility, and that reading never sends a milestone POST.
 Use disposable notes with repeated/missing references, duplicate/unused
 definitions, Unicode labels, and nested lists/quotes/code/tables in definitions.
 Verify visible labels, source-position definitions, preserved ordinary links,
-Find results and subsequent outline jumps. Markers must not pretend to be
-clickable footnote jumps. Check light/dark/narrow layouts, selection and VoiceOver.
+Find results and subsequent outline jumps. Click references in paragraphs/tables
+and verify a unique definition is revealed without fetching or changing tabs.
+Missing/duplicate labels stay inactive. Change note/source, open an overlay or
+enter fixture editing between paint and gesture; stale jumps must not execute.
+Check light/dark/narrow layouts, selection and VoiceOver.

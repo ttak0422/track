@@ -346,6 +346,7 @@ Native rendering, color/orientation, reflow/scroll and accessibility remain open
 
 Parser-backed references and labeled definitions preserve readable nested content
 and Find ranges. Definitions remain in source order, not web-style reference
-numbering/end collection. Footnote jumps and return links remain unsupported;
+numbering/end collection. One-way current-reader jumps to unique definitions
+use dedicated parser targets and accepted-source guards. Return links remain unsupported;
 ordinary links inside definitions retain existing resolution rules. Native
 layout, selection and accessibility validation remains pending.
