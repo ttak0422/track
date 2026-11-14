@@ -1,5 +1,5 @@
 //! Window-local read-only Find. This subset searches rendered body/table text,
-//! and reveals a block/cell rather than an exact laid-out character rectangle.
+//! and reveals the active match's first laid-out line using native text geometry.
 use super::*;
 use gpui::{Div, Focusable};
 use std::rc::Rc;
@@ -16,6 +16,7 @@ pub(crate) struct FindState {
     pub anchors: Option<Rc<markdown::FindAnchors>>,
     revision: u64,
     pending_scroll: bool,
+    scroll_retries: u8,
 }
 impl FindState {
     fn deactivate(&mut self) {
@@ -76,6 +77,7 @@ impl Workspace {
         };
         state.revision = state.revision.wrapping_add(1);
         state.pending_scroll = scroll && state.active.is_some();
+        state.scroll_retries = 0;
     }
     pub(crate) fn sync_find(
         &mut self,
@@ -149,7 +151,7 @@ impl Workspace {
             let target = state
                 .active
                 .and_then(|i| state.matches.hits.get(i))
-                .map(|hit| hit.target.clone());
+                .cloned();
             if let (Some(target), Some(anchors)) = (target, state.anchors.clone()) {
                 let revision = state.revision;
                 let request = self.request;
@@ -170,7 +172,13 @@ impl Workspace {
                             this.find_available(),
                             this.shell.find.highlighted,
                         ) {
-                            anchors.scroll_to(&target, window, cx);
+                            if !anchors.scroll_to_hit(&target, window.viewport_size())
+                                && this.shell.find.scroll_retries == 0
+                            {
+                                // One bounded retry lets a new/resized reader finish prepaint.
+                                this.shell.find.scroll_retries = 1;
+                                this.shell.find.pending_scroll = true;
+                            }
                             cx.notify();
                         }
                     });

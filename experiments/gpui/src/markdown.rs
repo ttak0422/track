@@ -1,12 +1,12 @@
 //! Native, read-only CommonMark subset. Unsupported content stays inert and visible.
-use crate::reader_find::{Matches, Target};
+use crate::reader_find::{Hit, Matches, Target};
 use gpui::{
     AnyElement, App, Div, FontStyle, FontWeight, InteractiveText, ScrollAnchor, ScrollHandle,
     SharedString, StrikethroughStyle, StyledText, TextRun, UnderlineStyle, Window, div, font,
     prelude::*, px, rgb,
 };
 use pulldown_cmark::{Alignment, Event, Options, Parser, Tag};
-use std::{ops::Range, rc::Rc};
+use std::{cell::RefCell, ops::Range, rc::Rc};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BlockKind {
@@ -456,9 +456,84 @@ impl HeadingAnchors {
     }
 }
 
-/// Retained block/cell anchors; this does not provide exact text-range scrolling.
+/// Geometry from a completed native prepaint, in unscrolled window coordinates.
+#[derive(Clone, Copy)]
+struct FindLine {
+    top: f32,
+    height: f32,
+    reader_bounds: gpui::Bounds<gpui::Pixels>,
+    viewport: gpui::Size<gpui::Pixels>,
+}
+#[derive(Default)]
+struct FindLayout {
+    generation: u64,
+    hit: Option<Hit>,
+    line: Option<FindLine>,
+}
+impl FindLayout {
+    fn begin(&mut self, hit: Option<Hit>) -> u64 {
+        self.generation = self.generation.wrapping_add(1);
+        self.hit = hit;
+        self.line = None;
+        self.generation
+    }
+    fn publish(&mut self, generation: u64, line: FindLine) {
+        if self.generation == generation {
+            self.line = Some(line);
+        }
+    }
+}
+
+// Search offsets exclude generated list markers; both remain UTF-8 byte offsets.
+fn match_start(text: &str, range: &Range<usize>, prefix: usize) -> Option<usize> {
+    if range.is_empty() || !text.is_char_boundary(range.start) || !text.is_char_boundary(range.end)
+    {
+        return None;
+    }
+    range.start.checked_add(prefix)
+}
+
+// Coordinates are from actual text layout, not character/line-count estimates.
+fn reveal_line_offset(
+    current: f32,
+    view_top: f32,
+    view_height: f32,
+    line_top: f32,
+    line_height: f32,
+    max_scroll: f32,
+) -> Option<f32> {
+    if ![
+        current,
+        view_top,
+        view_height,
+        line_top,
+        line_height,
+        max_scroll,
+    ]
+    .iter()
+    .all(|v| v.is_finite())
+        || view_height <= 0.
+        || line_height <= 0.
+        || max_scroll < 0.
+    {
+        return None;
+    }
+    let top = line_top + current;
+    let bottom = top + line_height;
+    let next = if top < view_top || line_height > view_height {
+        view_top - line_top
+    } else if bottom > view_top + view_height {
+        view_top + view_height - line_top - line_height
+    } else {
+        current
+    };
+    Some(next.clamp(-max_scroll, 0.))
+}
+
 pub struct FindAnchors {
     targets: std::collections::HashMap<Target, ScrollAnchor>,
+    handle: ScrollHandle,
+    layout: Rc<RefCell<FindLayout>>,
 }
 impl FindAnchors {
     pub fn new(blocks: &[Block], handle: &ScrollHandle) -> Self {
@@ -480,7 +555,86 @@ impl FindAnchors {
                 );
             }
         }
-        Self { targets }
+        Self {
+            targets,
+            handle: handle.clone(),
+            layout: Rc::default(),
+        }
+    }
+    fn begin_layout(&self, hit: Option<Hit>) -> u64 {
+        self.layout.borrow_mut().begin(hit)
+    }
+    fn track_text(
+        &self,
+        row: Div,
+        text: &StyledText,
+        source: &str,
+        prefix: usize,
+        target: &Target,
+        generation: u64,
+    ) -> Div {
+        let state = self.layout.borrow();
+        let Some(hit) = state.hit.as_ref().filter(|hit| &hit.target == target) else {
+            return row;
+        };
+        let Some(index) = match_start(source, &hit.range, prefix) else {
+            return row;
+        };
+        drop(state);
+        let text = text.layout().clone();
+        let state = self.layout.clone();
+        let handle = self.handle.clone();
+        // Runs only after this row's StyledText/InteractiveText has prepainted.
+        row.on_children_prepainted(move |_, window, _| {
+            if state.borrow().generation != generation {
+                return;
+            }
+            if let Some(position) = text.position_for_index(index) {
+                let top = f32::from(position.y - handle.offset().y);
+                state.borrow_mut().publish(
+                    generation,
+                    FindLine {
+                        top,
+                        height: f32::from(text.line_height()),
+                        reader_bounds: handle.bounds(),
+                        viewport: window.viewport_size(),
+                    },
+                );
+            }
+        })
+    }
+    pub fn scroll_to_hit(&self, hit: &Hit, viewport: gpui::Size<gpui::Pixels>) -> bool {
+        let state = self.layout.borrow();
+        if state.hit.as_ref() != Some(hit) {
+            return false;
+        }
+        let Some(FindLine {
+            top,
+            height,
+            reader_bounds: bounds,
+            viewport: measured_viewport,
+        }) = state.line
+        else {
+            return false;
+        };
+        // Refuse a prior viewport's geometry rather than guessing after a resize.
+        if bounds != self.handle.bounds() || measured_viewport != viewport {
+            return false;
+        }
+        let mut offset = self.handle.offset();
+        let Some(y) = reveal_line_offset(
+            f32::from(offset.y),
+            f32::from(bounds.origin.y),
+            f32::from(bounds.size.height),
+            top,
+            height,
+            f32::from(self.handle.max_offset().height),
+        ) else {
+            return false;
+        };
+        offset.y = px(y);
+        self.handle.set_offset(offset);
+        true
     }
     pub fn scroll_to(&self, target: &Target, window: &mut Window, cx: &mut App) -> bool {
         let Some(anchor) = self.targets.get(target) else {
@@ -933,6 +1087,10 @@ fn render_elements(
         .map(|a| a.entries.clone())
         .unwrap_or_else(|| outline(blocks));
     let highlights = find_highlights(find);
+    let find_generation = find.map(|f| {
+        f.anchors
+            .begin_layout(f.active.and_then(|i| f.matches.hits.get(i)).cloned())
+    });
     blocks
         .iter()
         .enumerate()
@@ -962,6 +1120,7 @@ fn render_elements(
                         find,
                         &highlights,
                         dark,
+                        find_generation,
                     ))
                     .into_any_element();
             }
@@ -1085,6 +1244,18 @@ fn render_elements(
                         .unwrap_or_default(),
                     dark,
                 )
+            };
+            let row = if let (Some(find), Some(generation)) = (find, find_generation) {
+                find.anchors.track_text(
+                    row,
+                    &presentation,
+                    &block.text,
+                    offset,
+                    &Target::Block(index),
+                    generation,
+                )
+            } else {
+                row
             };
             let row = row.child(link_text(
                 presentation,
@@ -1448,6 +1619,7 @@ fn render_table(
     find: Option<FindPresentation<'_>>,
     highlights: &FindHighlights,
     dark: bool,
+    find_generation: Option<u64>,
 ) -> Div {
     div()
         .w_full()
@@ -1482,20 +1654,27 @@ fn render_table(
                     row: index,
                     column,
                 };
+                let presentation = styled_text_find(
+                    cell.text.clone(),
+                    &visible_spans,
+                    0,
+                    theme,
+                    false,
+                    index == 0,
+                    highlights
+                        .get(&target)
+                        .map(Vec::as_slice)
+                        .unwrap_or_default(),
+                    dark,
+                );
+                let view = if let (Some(find), Some(generation)) = (find, find_generation) {
+                    find.anchors
+                        .track_text(view, &presentation, &cell.text, 0, &target, generation)
+                } else {
+                    view
+                };
                 let view = view.child(link_text(
-                    styled_text_find(
-                        cell.text.clone(),
-                        &visible_spans,
-                        0,
-                        theme,
-                        false,
-                        index == 0,
-                        highlights
-                            .get(&target)
-                            .map(Vec::as_slice)
-                            .unwrap_or_default(),
-                        dark,
-                    ),
+                    presentation,
                     &cell.links,
                     0,
                     callbacks,
@@ -2481,5 +2660,93 @@ mod tests {
         assert!(parsed[2].quoted);
         assert_eq!(parsed[2].text, "quoted next");
         assert!(parse("").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod exact_find_geometry_tests {
+    use super::*;
+    #[test]
+    fn unicode_list_code_and_table_offsets_remain_original_utf8_bytes() {
+        let blocks = parse(
+            "- 日本語 🦀 target\n\n```rust\nlet 日本語 = \"🦀 target\";\n```\n\n| Header |\n| --- |\n| 日本語 🦀 target |\n",
+        );
+        let hits = crate::reader_find::search(&blocks, "🦀 target");
+        assert_eq!(hits.hits.len(), 3);
+        for hit in hits.hits {
+            let (text, prefix) = match hit.target {
+                Target::Block(i) => (
+                    &blocks[i].text,
+                    blocks[i].marker.as_ref().map_or(0, |m| m.len() + 1),
+                ),
+                Target::Cell { block, row, column } => (
+                    &blocks[block].table.as_ref().unwrap().rows[row][column].text,
+                    0,
+                ),
+            };
+            assert_eq!(&text[hit.range.clone()], "🦀 target");
+            assert_eq!(
+                match_start(text, &hit.range, prefix),
+                Some(text.find('🦀').unwrap() + prefix)
+            );
+        }
+        assert_eq!(match_start("🦀", &(1..4), 0), None);
+        assert_eq!(match_start("🦀", &(0..5), 0), None);
+        assert_eq!(match_start("🦀", &(0..0), 0), None);
+        assert_eq!(match_start("x🦀", &(1..5), usize::MAX), None);
+    }
+    #[test]
+    fn measured_wrapped_line_reveal_preserves_visible_position_and_clamps() {
+        // Sample measured pixel coordinates; no assumed character width or wrap count.
+        assert_eq!(
+            reveal_line_offset(-200., 100., 300., 1000., 23., 2000.),
+            Some(-623.)
+        );
+        assert_eq!(
+            reveal_line_offset(-700., 100., 300., 1000., 23., 2000.),
+            Some(-700.)
+        );
+        assert_eq!(
+            reveal_line_offset(-1000., 100., 300., 1000., 23., 2000.),
+            Some(-900.)
+        );
+        assert_eq!(
+            reveal_line_offset(0., 100., 300., 1000., 23., 500.),
+            Some(-500.)
+        );
+        assert_eq!(
+            reveal_line_offset(-700., 100., 10., 1000., 23., 2000.),
+            Some(-900.)
+        );
+        assert_eq!(reveal_line_offset(0., 0., 0., 100., 23., 100.), None);
+        assert_eq!(reveal_line_offset(0., 0., 100., f32::NAN, 23., 100.), None);
+    }
+    #[test]
+    fn new_render_invalidates_geometry_and_rejects_old_prepaint_and_hit() {
+        let anchors = FindAnchors::new(&parse("first second"), &ScrollHandle::new());
+        let first = Hit {
+            target: Target::Block(0),
+            range: 0..5,
+        };
+        let second = Hit {
+            target: Target::Block(0),
+            range: 6..12,
+        };
+        let first_generation = anchors.begin_layout(Some(first.clone()));
+        // No prepaint: no geometry method is called and no scroll can happen.
+        assert!(!anchors.scroll_to_hit(&first, gpui::Size::default()));
+        let second_generation = anchors.begin_layout(Some(second.clone()));
+        let line = FindLine {
+            top: 500.,
+            height: 23.,
+            reader_bounds: gpui::Bounds::default(),
+            viewport: gpui::Size::default(),
+        };
+        anchors.layout.borrow_mut().publish(first_generation, line);
+        assert!(anchors.layout.borrow().line.is_none());
+        anchors.layout.borrow_mut().publish(second_generation, line);
+        assert!(!anchors.scroll_to_hit(&first, gpui::Size::default()));
+        anchors.begin_layout(Some(second));
+        assert!(anchors.layout.borrow().line.is_none());
     }
 }
