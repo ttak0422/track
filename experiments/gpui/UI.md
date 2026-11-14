@@ -86,3 +86,7 @@ Clipboard transfer tests construct and inspect the actual GPUI ClipboardItem
 used by the production copy path, including Unicode/whitespace and stale-action
 rejection. They never access the system pasteboard. This validates the submitted
 value, not OS delivery, paste behavior, permissions or accessibility.
+
+The rail’s **Full graph** opens a scoped Graph tab using the owned server, with
+overview counts and title/reset controls. Preview/pinning and native GUI parity
+remain unverified or pending. See [GRAPH.md](GRAPH.md#full-vault-graph-prerequisite-2026-11-14).

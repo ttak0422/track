@@ -18,6 +18,7 @@ impl Workspace {
                                 this.editor_environment_changed("Owned server failed.");
                                 this.request += 1;
                                 this.graph_request += 1;
+                                this.invalidate_full_graph(cx);
                                 this.query_epoch
                                     .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                                 this.partial_read = true;
@@ -44,6 +45,7 @@ impl Workspace {
             self.editor_environment_changed("Storage generation changed.");
             self.request += 1;
             self.graph_request += 1;
+            self.invalidate_full_graph(cx);
             self.query_epoch
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             self.content.clear();

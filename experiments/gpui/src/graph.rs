@@ -231,40 +231,47 @@ pub struct Overview {
 pub fn overview(graph: &Graph) -> Overview {
     overview_with_cap(graph, 1000)
 }
-pub fn overview_with_cap(graph: &Graph, cap: usize) -> Overview {
-    let adjacency = adjacency(graph);
-    let mut ranked: Vec<_> = adjacency.iter().filter(|(_, v)| !v.is_empty()).collect();
-    ranked.sort_by(|(a, av), (b, bv)| bv.len().cmp(&av.len()).then(a.cmp(b)));
-    let retained: BTreeSet<_> = ranked.into_iter().take(cap).map(|(id, _)| *id).collect();
-    let edges: Vec<_> = graph
+/// Display-only whole-vault projection. The wire payload is not capped by this
+/// operation. Count hidden nodes against the original payload, including isolates.
+/// Duplicate IDs (if supplied) use the first node's metadata and draw only once.
+pub fn overview_with_cap(input: &Graph, cap: usize) -> Overview {
+    let mut graph = input.clone();
+    let total = graph.nodes.len();
+    let mut nodes = BTreeMap::new();
+    for node in graph.nodes.drain(..) {
+        nodes.entry(node.note_id).or_insert(node);
+    }
+    graph.edges.retain(|edge| {
+        edge.source_id != edge.target_id
+            && nodes.contains_key(&edge.source_id)
+            && nodes.contains_key(&edge.target_id)
+    });
+    let mut degree: BTreeMap<i64, usize> = BTreeMap::new();
+    for edge in &graph.edges {
+        *degree.entry(edge.source_id).or_default() += 1;
+        *degree.entry(edge.target_id).or_default() += 1;
+    }
+    let mut ranked: Vec<_> = degree.into_iter().collect();
+    ranked.sort_unstable_by(|(a_id, a_degree), (b_id, b_degree)| {
+        b_degree.cmp(a_degree).then_with(|| a_id.cmp(b_id))
+    });
+    let retained: BTreeSet<_> = ranked.iter().take(cap).map(|(id, _)| *id).collect();
+    graph
+        .edges
+        .retain(|edge| retained.contains(&edge.source_id) && retained.contains(&edge.target_id));
+    let linked: BTreeSet<_> = graph
         .edges
         .iter()
-        .filter(|e| {
-            e.source_id != e.target_id
-                && retained.contains(&e.source_id)
-                && retained.contains(&e.target_id)
-        })
-        .cloned()
+        .flat_map(|edge| [edge.source_id, edge.target_id])
         .collect();
-    let connected: BTreeSet<_> = edges
-        .iter()
-        .flat_map(|e| [e.source_id, e.target_id])
+    graph.nodes = nodes
+        .into_values()
+        .filter(|node| linked.contains(&node.note_id))
         .collect();
-    let nodes: Vec<_> = graph
-        .nodes
-        .iter()
-        .filter(|n| connected.contains(&n.note_id))
-        .cloned()
-        .collect();
-    Overview {
-        hidden: graph.nodes.len() - nodes.len(),
-        graph: Graph {
-            center_id: graph.center_id,
-            nodes,
-            edges,
-        },
-    }
+    let hidden = total - graph.nodes.len();
+    Overview { graph, hidden }
 }
+
 /// Synthetic metadata only. No vault or filesystem access.
 pub fn fixture(count: usize) -> Graph {
     Graph {
@@ -781,5 +788,107 @@ mod neighborhood_tests {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod overview_tests {
+    use super::*;
+
+    fn payload(count: i64, edges: &[(i64, i64)]) -> Graph {
+        Graph {
+            nodes: (1..=count)
+                .map(|note_id| GraphNode {
+                    note_id,
+                    title: format!("Note {note_id}"),
+                    ..Default::default()
+                })
+                .collect(),
+            edges: edges
+                .iter()
+                .map(|&(source_id, target_id)| GraphEdge {
+                    source_id,
+                    target_id,
+                })
+                .collect(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn overview_empty_isolated_invalid_and_self_links() {
+        let Overview {
+            graph: empty,
+            hidden,
+        } = overview(&Graph::default());
+        assert!(empty.nodes.is_empty());
+        assert_eq!(hidden, 0);
+        let Overview {
+            graph: isolated,
+            hidden,
+        } = overview(&payload(3, &[(1, 1), (1, 99), (99, 2)]));
+        assert!(isolated.nodes.is_empty());
+        assert!(isolated.edges.is_empty());
+        assert_eq!(hidden, 3);
+        let Overview { graph, hidden } = overview(&payload(4, &[(1, 2), (2, 1), (3, 3), (3, 99)]));
+        assert_eq!(
+            graph.nodes.iter().map(|n| n.note_id).collect::<Vec<_>>(),
+            [1, 2]
+        );
+        assert_eq!(graph.edges.len(), 2);
+        assert_eq!(hidden, 2);
+    }
+
+    #[test]
+    fn overview_cap_counts_both_directions_and_stable_numeric_ties() {
+        let edges: Vec<_> = (1..=1001)
+            .map(|id| if id % 2 == 0 { (id, 1002) } else { (1002, id) })
+            .collect();
+        let mut input = payload(1003, &edges);
+        input.nodes.reverse();
+        let Overview { graph, hidden } = overview(&input);
+        assert_eq!(graph.nodes.len(), 1000);
+        assert_eq!(graph.edges.len(), 999);
+        assert_eq!(hidden, 3);
+        let ids: BTreeSet<_> = graph.nodes.iter().map(|n| n.note_id).collect();
+        assert!(ids.contains(&1002));
+        assert!(ids.contains(&999));
+        assert!(!ids.contains(&1000));
+        assert!(!ids.contains(&1001));
+    }
+
+    #[test]
+    fn overview_removes_nodes_isolated_by_cut_without_backfilling() {
+        let mut edges: Vec<_> = (1..=998).map(|id| (id, id % 998 + 1)).collect();
+        edges.extend([(999, 1001), (1000, 1002)]);
+        let Overview { graph, hidden } = overview(&payload(1002, &edges));
+        assert_eq!(graph.nodes.len(), 998);
+        assert_eq!(graph.edges.len(), 998);
+        assert_eq!(hidden, 4);
+    }
+
+    #[test]
+    fn overview_ranks_incident_edges_not_distinct_neighbors() {
+        let input = payload(6, &[(1, 2), (2, 1), (1, 2), (2, 1), (3, 4), (3, 5), (3, 6)]);
+        let Overview { graph, hidden } = overview_with_cap(&input, 2);
+        assert_eq!(
+            graph.nodes.iter().map(|n| n.note_id).collect::<Vec<_>>(),
+            [1, 2]
+        );
+        assert_eq!(graph.edges.len(), 4);
+        assert_eq!(hidden, 4);
+    }
+
+    #[test]
+    fn overview_preserves_scoped_metadata_and_area() {
+        let mut input = payload(2, &[(1, 2)]);
+        input.nodes[0].vault = Some("work".into());
+        input.nodes[0].area_score = Some(1.5);
+        input.nodes[0].size = Some(2);
+        let Overview { graph, hidden } = overview(&input);
+        assert_eq!(hidden, 0);
+        assert_eq!(graph.nodes[0].vault.as_deref(), Some("work"));
+        assert_eq!(graph.nodes[0].area_score, Some(1.5));
+        assert_eq!(graph.nodes[0].size, Some(2));
     }
 }

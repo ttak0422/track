@@ -22,6 +22,9 @@ pub struct GraphView {
     pan_from: Option<Point>,
     node_drag: Option<(i64, Point)>,
     compact: bool,
+    overview: bool,
+    titles: bool,
+    click_start: Option<(i64, Point)>,
     dark: bool,
     layout_generation: u64,
     layout_status: &'static str,
@@ -41,6 +44,9 @@ impl GraphView {
             pan_from: None,
             node_drag: None,
             compact: false,
+            overview: false,
+            titles: true,
+            click_start: None,
             dark: false,
             layout_generation: 0,
             layout_status: "circular initial layout",
@@ -50,9 +56,13 @@ impl GraphView {
         let generation = self.layout_generation.wrapping_add(1);
         let dark = self.dark;
         let compact = self.compact;
+        let overview = self.overview;
+        let titles = self.titles;
         *self = Self::new(graph);
         self.dark = dark;
         self.compact = compact;
+        self.overview = overview;
+        self.titles = titles;
         self.layout_generation = generation;
         // Keep oversized local graphs intact; do not silently apply overview filtering.
         if self.nodes.len() > 1000 {
@@ -73,12 +83,46 @@ impl GraphView {
                     return;
                 }
                 this.nodes = nodes;
+                if this.overview {
+                    this.reset_view(cx);
+                }
                 this.layout_status = "force snapshot · drag has no elastic physics";
                 this.hovered = None;
                 cx.notify();
             });
         })
         .detach();
+        cx.notify();
+    }
+    pub fn set_overview(&mut self, overview: bool, cx: &mut Context<Self>) {
+        if self.overview != overview {
+            self.overview = overview;
+            cx.notify();
+        }
+    }
+    pub fn titles_visible(&self) -> bool {
+        self.titles
+    }
+    pub fn toggle_titles(&mut self, cx: &mut Context<Self>) {
+        self.titles = !self.titles;
+        cx.notify();
+    }
+    pub fn reset_view(&mut self, cx: &mut Context<Self>) {
+        self.click_start = None;
+        self.hovered = None;
+        self.selected = None;
+        self.pan_from = None;
+        self.node_drag = None;
+        self.viewport.offset = Point::default();
+        let extent = self.nodes.iter().fold((1_f64, 1_f64), |(x, y), n| {
+            (
+                x.max(n.position.x.abs() + 30.),
+                y.max(n.position.y.abs() + 30.),
+            )
+        });
+        self.viewport.scale = (self.viewport.width / (extent.0 * 2.))
+            .min(self.viewport.height / (extent.1 * 2.))
+            .clamp(0.015, 4.);
         cx.notify();
     }
     pub fn set_compact(&mut self, compact: bool, cx: &mut Context<Self>) {
@@ -111,11 +155,12 @@ impl Render for GraphView {
             (0xffffff, 0x1a1a18, 0x5e5d58, 0xe6e4de, 0x8e8c84, 0xc13a1e)
         };
         let compact = self.compact;
-        let labels: Vec<_> = if compact {
+        let labels: Vec<_> = if compact && (!self.overview || self.titles) {
             self.nodes
                 .iter()
                 .filter(|n| {
-                    n.node.note_id == self.graph.center_id
+                    self.overview
+                        || n.node.note_id == self.graph.center_id
                         || n.node.center
                         || Some(n.node.note_id) == self.hovered
                         || Some(n.node.note_id) == self.selected
@@ -157,14 +202,16 @@ impl Render for GraphView {
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, event: &gpui::MouseDownEvent, _, cx| {
+                    this.click_start = None;
                     let p = this.local(event.position);
                     if let Some(id) =
                         graph::hit_test(&this.nodes, this.graph.center_id, &this.viewport, p)
                     {
+                        this.click_start = Some((id, p));
                         this.selected = Some(id);
                         this.pan_from = None;
                         this.node_drag = Some((id, p));
-                        if event.click_count == 2 {
+                        if !this.overview && event.click_count == 2 {
                             this.node_drag = None;
                             cx.emit(OpenNote(id));
                         }
@@ -178,6 +225,7 @@ impl Render for GraphView {
             )
             .on_mouse_move(cx.listener(|this, event: &gpui::MouseMoveEvent, _, cx| {
                 let p = this.local(event.position);
+                if this.click_start.is_some_and(|(_,start)| (p.x-start.x).hypot(p.y-start.y)>4.) { this.click_start=None; }
                 if event.dragging() {
                     if let Some((id, previous)) = this.node_drag {
                         this.layout_generation = this.layout_generation.wrapping_add(1);
@@ -210,7 +258,8 @@ impl Render for GraphView {
             }))
             .on_mouse_up(
                 MouseButton::Left,
-                cx.listener(|this, _, _, _| {
+                cx.listener(|this, _, _, cx| {
+                    if this.overview { if let Some((id,_))=this.click_start.take() { cx.emit(OpenNote(id)); } }
                     this.pan_from = None;
                     this.node_drag = None;
                 }),
@@ -224,6 +273,7 @@ impl Render for GraphView {
             )
             .on_hover(cx.listener(|this, inside, _, cx| {
                 if !inside {
+                    this.click_start = None;
                     this.hovered = None;
                     this.node_drag = None;
                     this.pan_from = None;
@@ -334,7 +384,7 @@ impl Render for GraphView {
                     .on_mouse_down(MouseButton::Left, |_,_,cx|cx.stop_propagation())
                     .on_click(cx.listener(move |_,_,_,cx| { cx.emit(OpenNote(id)); cx.stop_propagation(); }))
             }))
-            .when(compact, |el| el.child(
+            .when(compact && !self.overview, |el| el.child(
                 div().id("graph-reset").absolute().right_1().top_1()
                     .text_xs().text_color(rgb(muted)).cursor_pointer().child("↺")
                     .on_mouse_down(MouseButton::Left, |_,_,cx|cx.stop_propagation())

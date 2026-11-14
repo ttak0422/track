@@ -1015,6 +1015,9 @@ impl Workspace {
             return;
         }
         self.shell.working_scope = scope;
+        if self.full_graph_active() {
+            self.open_full_graph(cx);
+        }
         self.shell.vault_menu = false;
         cx.notify();
     }
@@ -1090,6 +1093,7 @@ impl Workspace {
         self.shell.search_open = false;
         match key {
             tabs::TabKey::Home => self.open_home(cx),
+            tabs::TabKey::Graph => self.open_full_graph(cx),
             tabs::TabKey::Note { vault, note_id } => {
                 self.shell.home = false;
                 self.selected = None;
@@ -1383,9 +1387,11 @@ impl Render for Workspace {
             );
         }
         self.search.update(cx, |search, _| search.set_dark(dark));
+        let full_graph_active = self.full_graph_active();
         self.graph_view.update(cx, |graph, cx| {
             graph.set_dark(dark, cx);
             graph.set_compact(true, cx);
+            graph.set_overview(full_graph_active, cx);
         });
         let title = self
             .current_note
@@ -1670,6 +1676,14 @@ impl Render for Workspace {
                     },
                 )),
             )
+            .child(
+                div()
+                    .id("full-graph-open")
+                    .text_size(px(9.))
+                    .cursor_pointer()
+                    .child("Full graph")
+                    .on_click(cx.listener(|this, _, _, cx| this.open_full_graph(cx))),
+            )
             .when(self.find_available(), |rail| {
                 rail.child(
                     div()
@@ -1690,7 +1704,7 @@ impl Render for Workspace {
                 rail_button("reload", "reload", p, false)
                     .on_click(cx.listener(|this, _, _, cx| this.load_notes(cx))),
             )
-            .when(self.editing_ui.enabled(), |rail| {
+            .when(self.editing_ui.enabled() && !full_graph_active, |rail| {
                 rail.child(self.render_edit_controls(cx))
             })
             .child(div().w(px(24.)).h(px(1.)).my_1().bg(rgb(p.line)))
@@ -2361,16 +2375,22 @@ impl Render for Workspace {
                 )
             })
             .when(home, |root| root.child(home_view))
-            .when(!home && !self.editing_ui.active(), |root| {
-                root.child(
-                    div()
-                        .flex()
-                        .flex_1()
-                        .min_h_0()
-                        .child(reader)
-                        .when(wide, |row| row.child(aside.take().unwrap())),
-                )
+            .when(full_graph_active, |root| {
+                root.child(self.render_full_graph(cx))
             })
+            .when(
+                !home && !full_graph_active && !self.editing_ui.active(),
+                |root| {
+                    root.child(
+                        div()
+                            .flex()
+                            .flex_1()
+                            .min_h_0()
+                            .child(reader)
+                            .when(wide, |row| row.child(aside.take().unwrap())),
+                    )
+                },
+            )
             .when(self.editing_ui.active(), |root| {
                 root.child(self.render_editor(dark))
             })

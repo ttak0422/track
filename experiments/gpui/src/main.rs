@@ -9,6 +9,9 @@ mod editor_input;
 mod external_links;
 mod external_refs;
 mod graph;
+// Lifecycle foundation only; full-graph UI integration is not yet available.
+#[cfg(test)]
+mod graph_preview;
 mod graph_view;
 mod input_trace;
 mod live;
@@ -21,6 +24,7 @@ mod tabs;
 mod workspace_activity;
 mod workspace_edit;
 mod workspace_find;
+mod workspace_graph;
 mod workspace_live;
 use backend::{Backend, Note, Snapshot};
 actions!(
@@ -77,6 +81,7 @@ struct Workspace {
     graph_request: u64,
     graph_view: gpui::Entity<graph_view::GraphView>,
     show_graph: bool,
+    full_graph: workspace_graph::FullGraph,
     subscriptions: Vec<gpui::Subscription>,
     live: Option<live::Session>,
     live_requested: bool,
@@ -547,6 +552,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             })
                         }),
                         show_graph: false,
+                        full_graph: workspace_graph::FullGraph::default(),
                         subscriptions: Vec::new(),
                         live: None,
                         live_requested: live_config.is_some(),
@@ -560,6 +566,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     workspace.subscriptions.push(cx.subscribe(
                         &workspace.graph_view,
                         |this: &mut Workspace, _, event: &graph_view::OpenNote, cx| {
+                            if this.full_graph_active() {
+                                this.open_full_graph_node(event.0, cx);
+                                return;
+                            }
                             if this.live.is_some() {
                                 this.open_live_note(event.0, cx);
                                 return;

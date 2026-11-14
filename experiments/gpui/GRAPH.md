@@ -199,3 +199,23 @@ Run the retained comparison after dependency preparation:
 cargo test --locked --release --manifest-path experiments/gpui/Cargo.toml \
   neighborhood_benchmark -- --ignored --nocapture --test-threads=1
 ```
+
+## Full-vault Graph prerequisite (2026-11-14)
+
+The rail's **Full graph** opens one ordinary Graph tab, preserving note tabs.
+It uses the owned `--server-port` session and selected working-vault scope, via
+read-only `/api/graph`. CLI/snapshot modes explicitly report this requirement.
+The existing local aside remains separate. Connected-node degree selection draws
+at most 1,000 nodes, reports hidden notes including isolates, and does not cap
+server evaluation or response size. Empty linked graphs are explicit, as are fetch
+errors and partial-read diagnostics. Titles toggle independently of filtering;
+reset fits the current native positions without refetching or changing titles.
+Node click opens the captured graph vault identity. Existing Save/Discard/Cancel
+navigation guards apply; request, scope, launch and storage checks reject stale
+completions. Graph is not recorded as a note visit.
+
+This is not full parity: hover previews/pinning remain pending, positions use the
+existing bounded force snapshot/circular fallback rather than reference physics,
+number grouping currently uses commas rather than OS locale, and native GUI,
+high-DPI, gesture, accessibility and timing behavior are unverified. Automated
+synthetic model/wire tests do not establish visual or performance parity.

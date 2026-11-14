@@ -21,6 +21,7 @@ pub enum Transition {
     Home,
     Reload,
     Graph,
+    FullGraph,
     WorkingVault(String),
     Quit,
 }
@@ -268,6 +269,7 @@ impl Workspace {
             Transition::Home => self.open_home(cx),
             Transition::Reload => self.load_notes(cx),
             Transition::Graph => self.load_graph(cx),
+            Transition::FullGraph => self.open_full_graph(cx),
             Transition::WorkingVault(scope) => self.change_working_vault(scope, cx),
             Transition::Quit => {
                 self.editing_ui.exit_requested = true;
@@ -1114,6 +1116,7 @@ mod tests {
             Transition::Home,
             Transition::Reload,
             Transition::Graph,
+            Transition::FullGraph,
             Transition::Quit,
             Transition::Note(live::NoteKey {
                 vault: "a".into(),

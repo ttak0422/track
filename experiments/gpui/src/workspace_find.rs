@@ -52,7 +52,8 @@ fn scroll_is_current(
 }
 impl Workspace {
     pub(crate) fn find_available(&self) -> bool {
-        !self.shell.home
+        !self.full_graph_active()
+            && !self.shell.home
             && !self.editing_ui.active()
             && !self.editing_ui.has_pending()
             && !self.shell.search_open

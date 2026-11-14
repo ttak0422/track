@@ -185,3 +185,7 @@ notes, including same-note hashes. Missing headings go to the note top. Block
 anchors, encoded fragments and explicit `h-*` IDs remain unsupported and show a
 notice rather than guessing a destination. A plain same-note fragment was
 exercised; cross-note and dirty-navigation paths remain unverified.
+
+The rail’s **Full graph** opens a scoped Graph tab using the owned server, with
+overview counts and title/reset controls. Preview/pinning and native GUI parity
+remain unverified or pending. See [GRAPH.md](GRAPH.md#full-vault-graph-prerequisite-2026-11-14).

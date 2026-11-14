@@ -8,6 +8,7 @@ pub const OVERFLOW_WIDTH: u32 = 44;
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum TabKey {
     Home,
+    Graph,
     Note { vault: String, note_id: i64 },
 }
 
@@ -46,6 +47,10 @@ impl Tabs {
 
     pub fn get(&self, key: &TabKey) -> Option<&Tab> {
         self.entries.iter().find(|tab| &tab.key == key)
+    }
+
+    pub fn open_graph(&mut self) -> TabKey {
+        self.open(TabKey::Graph, "Graph".into())
     }
 
     pub fn open_home(&mut self) -> TabKey {
@@ -149,6 +154,17 @@ impl Tabs {
 mod tests {
     use super::*;
 
+    #[test]
+    fn graph_is_unique_and_closes_to_note_without_note_identity() {
+        let mut tabs = Tabs::default();
+        let note = tabs.open_note("a", 1, "A");
+        tabs.open_graph();
+        tabs.open_graph();
+        assert_eq!(tabs.entries().len(), 2);
+        assert_eq!(tabs.active().unwrap().key, TabKey::Graph);
+        tabs.close(&TabKey::Graph);
+        assert_eq!(tabs.active().unwrap().key, note);
+    }
     #[test]
     fn empty_model_has_no_active_or_overflow() {
         let tabs = Tabs::default();

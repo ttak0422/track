@@ -451,6 +451,26 @@ impl ReadClient {
         Ok(result)
     }
 
+    pub fn full_graph(&self, vault: &str) -> Result<(crate::graph::Graph, Fields), Error> {
+        let value: Value = self.get("/api/graph", &vault_query(vault))?;
+        if value
+            .get("vault")
+            .and_then(Value::as_str)
+            .is_some_and(|v| v != vault)
+        {
+            return Err(Error::Shape("graph vault identity mismatch".into()));
+        }
+        let response: crate::graph::GraphResponse =
+            serde_json::from_value(value.clone()).map_err(|e| Error::Shape(e.to_string()))?;
+        if response.graph.center_id != 0 {
+            return Err(Error::Shape("full graph center identity mismatch".into()));
+        }
+        let mut fields: Fields =
+            serde_json::from_value(value).map_err(|e| Error::Shape(e.to_string()))?;
+        fields.remove("graph");
+        Ok((response.graph, fields))
+    }
+
     pub fn local_graph(&self, key: &NoteKey) -> Result<(crate::graph::Graph, Fields), Error> {
         let mut args = vault_query(&key.vault);
         args.push(("id", key.note_id.to_string()));
@@ -1866,6 +1886,32 @@ mod tests {
             Some(libc::ECHILD)
         );
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn full_graph_scope_optional_metadata_partial_and_errors() {
+        for scope in ["", "work space"] {
+            let body = serde_json::json!({"vault":scope,"graph":{"center_id":0,"nodes":[{"note_id":-42,"title":"A"}],"edges":[]},"read_state":{"partial":true}}).to_string();
+            let (client, request) = mock(200, Box::leak(body.into_boxed_str()));
+            let (graph, fields) = client.full_graph(scope).unwrap();
+            assert_eq!(graph.nodes[0].note_id, -42);
+            assert_eq!(graph.nodes[0].area_score, None);
+            assert_eq!(fields["read_state"]["partial"], true);
+            let wire = request.join().unwrap();
+            if scope.is_empty() {
+                assert!(wire.contains("/api/graph HTTP"));
+            } else {
+                assert!(wire.contains("/api/graph?vault=work+space"));
+            }
+            assert!(!wire.contains("id="));
+        }
+        let (client, request) = mock(200, r#"{"graph":{"nodes":[],"edges":[]}}"#);
+        assert!(client.full_graph("").unwrap().0.nodes.is_empty());
+        request.join().unwrap();
+        let (client, request) = mock(409, r#"{"error":"invalid link format"}"#);
+        let error = client.full_graph("").unwrap_err().to_string();
+        assert!(error.contains("409") && error.contains("invalid link format"));
+        request.join().unwrap();
     }
 
     #[test]
