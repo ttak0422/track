@@ -81,7 +81,9 @@ The body supports native headings, paragraphs, lists, quotes and code blocks. Li
 remain inert text; HTML, images and other unsupported blocks remain literal.
 Inline emphasis, code styling and simple native tables are supported. Ordinary
 fences have bounded lexical coloring for JS aliases (js/javascript/jsx/ts/typescript/tsx),
-Lua and JSON. This is lexical help, not complete language parsing: regex literals,
+Lua, JSON and Python (python/py/python3). Python supports comment, keyword, numeric
+and single/triple-quoted string hints; prefixes/interpolations are not parsed and
+contextual keywords stay plain. This is lexical help, not complete language parsing: regex literals,
 template interpolation, JSX and Lua long strings/comments are not modeled. Unknown
 or absent languages, language labels above 128 bytes, bodies above 64 KiB, or more
 than 8192 token runs stay plain

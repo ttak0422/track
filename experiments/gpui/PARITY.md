@@ -29,7 +29,7 @@ of support. Use disposable fixture vaults, never a configured personal vault, fo
 | Simple tables and inline emphasis/code/link styling | [x] | [ ] | `markdown.rs`; code/emphasis native smoke, tables tests |
 | Read-only plain task indicators and inline strike | [x] | [ ] | `markdown.rs`; parser/style/Find/link tests; native glyph/AX pending; rich task notation excluded |
 | Ordinary code-fence caption and explicit Copy | [x] | [ ] | `code_copy.rs`, `markdown.rs`; parsed-body/lifecycle tests, native clipboard and accessibility pending |
-| Bounded JS-family/Lua/JSON fenced-code lexical styles | [x] | [ ] | `code_highlight.rs`, `markdown.rs`; bounded lossless ranges, Find/Copy and ingestion cache tests; native GUI unvalidated |
+| Bounded JS-family/Lua/JSON/Python fenced-code lexical styles | [x] | [ ] | `code_highlight.rs`, `markdown.rs`; bounded lossless ranges, Find/Copy and ingestion cache tests; native GUI unvalidated |
 | Full code syntax highlighting and math | [ ] | [ ] | `MarkdownView`, `components/markdown` |
 | Verified internal wiki/Markdown links and outline jumps | [x] | [ ] | `markdown.rs`, `shell.rs`; scoped resolver and heading-fragment subset; same-note plain fragment native smoke; cross-note/dirty transitions pending |
 | Unaliased explicit-ID wiki link title display | [x] | [ ] | `markdown.rs`, `shell.rs`; bounded verified resolver titles, Unicode/Find/anchor tests; native interaction pending |
@@ -264,3 +264,11 @@ is exactly the same compile-time version, full revision, tracked-source state an
 target as `--version`; it accepts no workspace state. No global shortcut or automatic
 clipboard update is added. Payload tests pass without accessing the pasteboard.
 Actual native clipboard delivery, accessibility and About-panel parity remain open.
+
+### Python fence lexical hints
+
+Python/py/python3 join the existing ingestion-time bounded code-token cache.
+Comments, hard keywords and single/triple-quoted strings are shielded, while
+prefixes, interpolations and soft/contextual keywords are not parsed. The source
+remains lossless; existing Find/Copy/cache/size limits apply. Headless tests do not
+establish native rendering, font contrast or accessibility parity.

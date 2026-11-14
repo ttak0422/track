@@ -43,7 +43,8 @@ pub fn classify(body: &str, language: Option<&str>) -> Rc<[Token]> {
     );
     let lua = language == "lua";
     let json = language == "json";
-    if !(js || lua || json) {
+    let python = matches!(language.as_str(), "python" | "py" | "python3");
+    if !(js || lua || json || python) {
         return Rc::from([]);
     }
     let bytes = body.as_bytes();
@@ -53,23 +54,39 @@ pub fn classify(body: &str, language: Option<&str>) -> Rc<[Token]> {
         let start = i;
         let tail = &body[i..];
         let role;
-        if (js && tail.starts_with("//")) || (lua && tail.starts_with("--")) {
-            i += tail.find('\n').unwrap_or(tail.len());
+        if (js && tail.starts_with("//"))
+            || (lua && tail.starts_with("--"))
+            || (python && tail.starts_with('#'))
+        {
+            i += if python {
+                tail.find(['\r', '\n'])
+            } else {
+                tail.find('\n')
+            }
+            .unwrap_or(tail.len());
             role = Role::Comment;
         } else if js && tail.starts_with("/*") {
             i += tail[2..].find("*/").map_or(tail.len(), |n| n + 4);
             role = Role::Comment;
         } else if bytes[i] == b'"' || (!json && (bytes[i] == b'\'' || (js && bytes[i] == b'`'))) {
             let quote = bytes[i];
-            i += 1;
+            let triple = python && bytes[i..].starts_with(&[quote, quote, quote]);
+            i += if triple { 3 } else { 1 };
             while i < bytes.len() {
                 if bytes[i] == b'\\' {
                     i += 1;
-                    if i < bytes.len() {
+                    if python && bytes[i..].starts_with(b"\r\n") {
+                        i += 2;
+                    } else if i < bytes.len() {
                         i += body[i..].chars().next().unwrap().len_utf8();
                     }
-                } else if bytes[i] == quote {
+                } else if triple && bytes[i..].starts_with(&[quote, quote, quote]) {
+                    i += 3;
+                    break;
+                } else if bytes[i] == quote && !triple {
                     i += 1;
+                    break;
+                } else if python && !triple && matches!(bytes[i], b'\n' | b'\r') {
                     break;
                 } else {
                     i += body[i..].chars().next().unwrap().len_utf8();
@@ -98,6 +115,45 @@ pub fn classify(body: &str, language: Option<&str>) -> Rc<[Token]> {
             let word = &body[start..i];
             let keyword = if json {
                 matches!(word, "true" | "false" | "null")
+            } else if python {
+                matches!(
+                    word,
+                    "False"
+                        | "None"
+                        | "True"
+                        | "and"
+                        | "as"
+                        | "assert"
+                        | "async"
+                        | "await"
+                        | "break"
+                        | "class"
+                        | "continue"
+                        | "def"
+                        | "del"
+                        | "elif"
+                        | "else"
+                        | "except"
+                        | "finally"
+                        | "for"
+                        | "from"
+                        | "global"
+                        | "if"
+                        | "import"
+                        | "in"
+                        | "is"
+                        | "lambda"
+                        | "nonlocal"
+                        | "not"
+                        | "or"
+                        | "pass"
+                        | "raise"
+                        | "return"
+                        | "try"
+                        | "while"
+                        | "with"
+                        | "yield"
+                )
             } else if lua {
                 matches!(
                     word,
@@ -239,6 +295,56 @@ mod tests {
         assert_eq!(role(json, "json", "🦀"), Role::String);
     }
     #[test]
+    fn python_aliases_comments_strings_and_keywords() {
+        for lang in ["python", "py", "python3", "language-Python linenums"] {
+            let body = "async def greet(name):\n  return True # False 42\n";
+            assert_eq!(role(body, lang, "async"), Role::Keyword);
+            assert_eq!(role(body, lang, "def"), Role::Keyword);
+            assert_eq!(role(body, lang, "greet"), Role::Function);
+            assert_eq!(role(body, lang, "True"), Role::Keyword);
+            assert_eq!(role(body, lang, "False"), Role::Comment);
+            assert_eq!(role(body, lang, "42"), Role::Comment);
+        }
+        // Expressions inside strings remain opaque; soft keywords stay plain.
+        let body = "f'hello {True}'\nmatch = None\ncase = 42\ntype = 1";
+        assert_eq!(role(body, "py", "True"), Role::String);
+        assert_eq!(role(body, "py", "match"), Role::Plain);
+        assert_eq!(role(body, "py", "case"), Role::Plain);
+        assert_eq!(role(body, "py", "type"), Role::Plain);
+        assert_eq!(role(body, "py", "None"), Role::Keyword);
+        assert_eq!(role(body, "py", "42"), Role::Number);
+    }
+
+    #[test]
+    fn python_triple_quotes_and_unterminated_lines() {
+        for quote in ["\"\"\"", "'''"] {
+            let body = format!("{quote}日本語\n# return 'single' \"double\"{quote}\nreturn 7");
+            assert_eq!(role(&body, "python", "#"), Role::String);
+            assert_eq!(role(&body, "python", "日本語"), Role::String);
+            let end = body.rfind("return").unwrap();
+            assert_eq!(
+                classify(&body, Some("python"))
+                    .iter()
+                    .find(|t| t.range.contains(&end))
+                    .unwrap()
+                    .role,
+                Role::Keyword
+            );
+        }
+        assert_eq!(role("'unfinished\nreturn 2", "py", "return"), Role::Keyword);
+        assert_eq!(
+            role("\"\"\"unfinished\nreturn 2", "py", "return"),
+            Role::String
+        );
+        assert_eq!(role("'escaped\\\nreturn 2'", "py", "return"), Role::String);
+        assert_eq!(
+            role("'escaped\\\r\nreturn 2'", "py", "return"),
+            Role::String
+        );
+        assert_eq!(role("# comment\rreturn 2", "py", "return"), Role::Keyword);
+    }
+
+    #[test]
     fn ranges_lossless_and_bounded() {
         for body in [
             "",
@@ -247,7 +353,7 @@ mod tests {
             "/* unterminated\n42",
             "-- 42\nlocal x=1\n",
         ] {
-            for lang in ["js", "lua", "json"] {
+            for lang in ["js", "lua", "json", "python", "py", "python3"] {
                 let tokens = classify(body, Some(lang));
                 let mut end = 0;
                 for token in tokens.iter() {
@@ -269,7 +375,9 @@ mod tests {
             assert!(classify("const x=1", lang).is_empty());
         }
         assert!(classify("const x=1", Some(&"j".repeat(MAX_LANGUAGE_BYTES + 1))).is_empty());
-        assert!(classify(&"x".repeat(MAX_BODY_BYTES + 1), Some("js")).is_empty());
-        assert!(classify(&"1;".repeat(MAX_TOKENS), Some("js")).is_empty());
+        for lang in ["js", "python", "py", "python3"] {
+            assert!(classify(&"x".repeat(MAX_BODY_BYTES + 1), Some(lang)).is_empty());
+            assert!(classify(&"1;".repeat(MAX_TOKENS), Some(lang)).is_empty());
+        }
     }
 }
