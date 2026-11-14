@@ -77,8 +77,10 @@ a 30-second deadline terminates only the owned CLI process. The adapter drains b
 output pipes concurrently. The specified executable should be Track itself, not a
 wrapper spawning descendants that inherit pipes.
 
-The body supports native headings, paragraphs, lists, quotes and code blocks. Links
-remain inert text; HTML and unsupported media remain literal. A bounded local
+The body supports native headings, paragraphs, lists, quotes, thematic separators
+and code blocks. Verified links use the guarded navigation described below; HTML
+and unsupported media remain literal. CommonMark thematic rules render as dividers,
+not searchable source punctuation; identical text inside code remains literal. A bounded local
 PNG/JPEG subset can be displayed in the owned live reader (see below).
 Inline emphasis, code styling and simple native tables are supported. Ordinary
 fences have bounded lexical coloring for JS aliases (js/javascript/jsx/ts/typescript/tsx),

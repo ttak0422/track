@@ -14,6 +14,7 @@ pub enum BlockKind {
     Paragraph,
     Code,
     Literal,
+    Rule,
     Table,
 }
 
@@ -846,14 +847,15 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
             for child in &node.children {
                 if matches!(
                     child.event,
-                    Event::Start(
-                        Tag::Paragraph
-                            | Tag::Heading { .. }
-                            | Tag::CodeBlock(_)
-                            | Tag::List(_)
-                            | Tag::BlockQuote(_)
-                            | Tag::Table(_)
-                    )
+                    Event::Rule
+                        | Event::Start(
+                            Tag::Paragraph
+                                | Tag::Heading { .. }
+                                | Tag::CodeBlock(_)
+                                | Tag::List(_)
+                                | Tag::BlockQuote(_)
+                                | Tag::Table(_)
+                        )
                 ) {
                     flush_run(&mut run, indent, quoted, out);
                     blocks(child, source, indent, quoted, out);
@@ -898,12 +900,13 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
         Event::Start(Tag::Heading { level, .. }) => BlockKind::Heading(*level as u8),
         Event::Start(Tag::Paragraph) => BlockKind::Paragraph,
         Event::Start(Tag::CodeBlock(_)) => BlockKind::Code,
+        Event::Rule => BlockKind::Rule,
         _ => BlockKind::Literal,
     };
     let mut content = Cell::default();
     if kind == BlockKind::Literal {
         content.text.push_str(&source[node.range.clone()]);
-    } else {
+    } else if kind != BlockKind::Rule {
         inline(node, source, &mut content, InlineStyle::default());
     }
     let language = match &node.event {
@@ -1127,6 +1130,20 @@ fn render_elements(
                     .border_l_2()
                     .border_color(rgb(theme.strong_line))
                     .pl(px(12. + (block.indent * 16) as f32));
+            }
+            if block.kind == BlockKind::Rule {
+                // Keep one layout element per parsed block, including empty-text
+                // separators, so later heading/Find geometry indices stay stable.
+                return row
+                    .max_w(px(640.))
+                    .mx_auto()
+                    .py(px(16.))
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .when_some(block.marker.clone(), |row, marker| row.child(marker))
+                    .child(div().flex_1().min_w_0().h(px(1.)).bg(rgb(theme.line)))
+                    .into_any_element();
             }
             if let Some(table) = &block.table {
                 return row
@@ -2906,5 +2923,69 @@ mod raster_reference_tests {
             .map(|n| format!("![x](assets/{n}.jpg)\n\n"))
             .collect::<String>();
         assert_eq!(standalone_images(&parse(&source)).len(), 4);
+    }
+}
+
+#[cfg(test)]
+mod thematic_rule_tests {
+    use super::*;
+
+    #[test]
+    fn thematic_rules_are_parser_blocks_with_no_invisible_find_text() {
+        for source in ["---", "***", "___", "* * *", "- - -"] {
+            let parsed = parse(source);
+            assert_eq!(parsed.len(), 1, "{source}");
+            assert_eq!(parsed[0].kind, BlockKind::Rule);
+            assert!(parsed[0].text.is_empty());
+            assert!(parsed[0].language.is_none());
+            assert!(parsed[0].links.is_empty());
+            assert!(crate::reader_find::search(&parsed, source).hits.is_empty());
+        }
+        let parsed = parse("Before\n\n---\n\n# After");
+        assert_eq!(parsed.len(), 3);
+        assert_eq!(outline(&parsed)[0].block_index, 2);
+        assert_eq!(
+            crate::reader_find::search(&parsed, "After").hits[0].target,
+            Target::Block(2)
+        );
+    }
+
+    #[test]
+    fn thematic_rules_preserve_quote_and_list_structure() {
+        let parsed = parse("> before\n>\n> ---\n>\n> after");
+        assert_eq!(parsed[1].kind, BlockKind::Rule);
+        assert!(parsed[1].quoted);
+        let parsed = parse("- before\n\n  ***\n\n  after");
+        assert_eq!(parsed.len(), 3);
+        assert_eq!(parsed[1].kind, BlockKind::Rule);
+        assert_eq!(parsed[1].indent, 1);
+        assert!(parsed[1].marker.is_none());
+        assert_eq!(parsed[2].text, "after");
+        assert_eq!(parsed[2].indent, 1);
+        let first = parse("- ***");
+        assert_eq!(first[0].kind, BlockKind::Rule);
+        assert_eq!(first[0].marker.as_deref(), Some("•"));
+        assert_eq!(first[0].indent, 1);
+    }
+
+    #[test]
+    fn thematic_rules_do_not_reinterpret_other_markdown_constructs() {
+        let heading = parse("Title\n---");
+        assert_eq!(heading[0].kind, BlockKind::Heading(2));
+        for source in [
+            "\\*\\*\\*",
+            "`---`",
+            "```text\n---\n```",
+            "    ---",
+            "<div>\n---\n</div>",
+            "| a |\n| --- |\n| b |",
+        ] {
+            let parsed = parse(source);
+            assert!(parsed.iter().all(|b| b.kind != BlockKind::Rule), "{source}");
+        }
+        let code = parse("```text\n---\n```");
+        assert_eq!(code[0].kind, BlockKind::Code);
+        assert_eq!(code[0].text, "---\n");
+        assert_eq!(crate::reader_find::search(&code, "---").hits.len(), 1);
     }
 }

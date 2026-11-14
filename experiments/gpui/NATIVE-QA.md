@@ -587,3 +587,11 @@ there are no timed events. Change scope/day or restart the server during delayed
 reads; old responses must not appear. Exercise independent event/agenda/task errors
 and Retry, long titles, over 100 matches, narrow layout and VoiceOver. No event
 or note writes and no external link opening should occur.
+
+### Thematic rules (pending native QA)
+
+Use a disposable note with `---`, `***`, spaced underscores, quoted/list rules,
+setext headings and fenced/indented code containing the same text. Verify divider
+spacing, quote borders/list indentation, light/dark contrast and narrow layouts.
+Find must skip only actual separators and retain surrounding/code matches. Check
+heading/Find jumps and screen-reader semantics; no native evidence is claimed.

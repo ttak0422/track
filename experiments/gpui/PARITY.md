@@ -25,7 +25,7 @@ of support. Use disposable fixture vaults, never a configured personal vault, fo
 | Create, edit, save, delete and metadata editing | [ ] | [ ] | `NoteEditor`, `NoteMetaDialog`, `NoteActionsMenu` |
 | Conflict detection, dirty-state protection and draft recovery | [ ] | [ ] | `NoteEditor.recovery`, `recovery.ts`, desktop termination tests |
 | Attachments and draw.io editing | [ ] | [ ] | `DrawioEditorDialog`, `NoteEditor.drawio`, `/api/asset` |
-| Basic Markdown blocks | [x] | [ ] | `src/markdown.rs`; public help headings/wrapping/scroll QA |
+| Basic Markdown blocks | [x] | [ ] | `src/markdown.rs`; headings/wrapping/scroll smoke, native thematic-rule contrast/spacing/AX pending |
 | Simple tables and inline emphasis/code/link styling | [x] | [ ] | `markdown.rs`; code/emphasis native smoke, tables tests |
 | Read-only plain task indicators and inline strike | [x] | [ ] | `markdown.rs`; parser/style/Find/link tests; native glyph/AX pending; rich task notation excluded |
 | Ordinary code-fence caption and explicit Copy | [x] | [ ] | `code_copy.rs`, `markdown.rs`; parsed-body/lifecycle tests, native clipboard and accessibility pending |
