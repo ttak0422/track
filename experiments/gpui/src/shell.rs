@@ -37,6 +37,7 @@ pub struct ShellState {
     code_anchors: Option<std::rc::Rc<markdown::FindAnchors>>,
     code_focus: std::collections::BTreeMap<usize, gpui::FocusHandle>,
     pub(crate) find: workspace_find::FindState,
+    pub(crate) hierarchy: Option<workspace_hierarchy::HierarchyState>,
     pub(crate) activity: Option<workspace_activity::ActivityState>,
     pub home: bool,
     pub search_open: bool,
@@ -105,6 +106,7 @@ impl Default for ShellState {
             code_anchors: None,
             code_focus: Default::default(),
             find: Default::default(),
+            hierarchy: None,
             activity: None,
             home: true,
             search_open: false,
@@ -2365,6 +2367,11 @@ impl Render for Workspace {
                     dark,
                     cx,
                 )
+            } else {
+                div()
+            })
+            .child(if home {
+                self.home_hierarchy(dark, cx)
             } else {
                 div()
             })

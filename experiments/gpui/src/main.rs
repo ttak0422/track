@@ -31,6 +31,7 @@ mod workspace_activity;
 mod workspace_edit;
 mod workspace_find;
 mod workspace_graph;
+mod workspace_hierarchy;
 mod workspace_images;
 mod workspace_live;
 mod workspace_preview;

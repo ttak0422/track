@@ -350,3 +350,12 @@ numbering/end collection. One-way current-reader jumps to unique definitions
 use dedicated parser targets and accepted-source guards. Return links remain unsupported;
 ordinary links inside definitions retain existing resolution rules. Native
 layout, selection and accessibility validation remains pending.
+
+### Read-only whole-vault hierarchy
+
+An explicit Home disclosure reads the engine's scoped hierarchy, with local
+branch expansion and guarded note navigation. Engine ordering and flags are
+preserved; isolated/cyclic structures are not reconstructed. Bounds and
+partial/error notices prevent an unavailable tree being treated as an empty
+vault. No hierarchy mutation or drag reordering is implemented. Native
+keyboard/layout/scroll/accessibility parity remains unverified.

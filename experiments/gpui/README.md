@@ -478,3 +478,22 @@ This is not full web footnote parity: references are not renumbered, definitions
 are not collected at the end, and return links are not added. Unresolved
 references remain visible. No source is rewritten.
 Native layout, selection and accessibility validation remains pending.
+
+### Read-only vault hierarchy
+
+On Home, open **Hierarchy** to load the working vault's existing parent/child tree.
+Expand or collapse branches and select a note title to open it through the normal
+guarded reader navigation. Refresh explicitly to request an updated tree.
+
+The engine determines membership and ordering. This is not an all-notes list:
+isolated notes and cyclic parent structures may be absent. An empty tree does
+not mean the vault is empty. Flags remain visible and incomplete/cached results
+are identified instead of being presented as complete.
+
+This browser only reads the hierarchy; it does not edit parent links or reorder
+notes. Scope, server, storage and newer requests invalidate stale results/actions.
+Responses are limited to 4096 nodes and 32 levels. Larger/deeper forests are
+rejected rather than silently cut. The visible tree is paged in groups of 200
+rows; paging and branch expansion do not issue network requests. Closing the
+section discards its loaded tree; reopening explicitly reloads it.
+Native layout, keyboard, scrolling and accessibility validation remains pending.

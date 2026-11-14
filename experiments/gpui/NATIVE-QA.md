@@ -614,3 +614,13 @@ and verify a unique definition is revealed without fetching or changing tabs.
 Missing/duplicate labels stay inactive. Change note/source, open an overlay or
 enter fixture editing between paint and gesture; stale jumps must not execute.
 Check light/dark/narrow layouts, selection and VoiceOver.
+
+### Whole-vault hierarchy (pending native QA)
+
+Use disposable nested/empty/partial forests with repeated titles and flags.
+Open, expand, collapse and refresh; selecting a title must use the normal
+guarded reader. Change scope/server/storage while a delayed response or click
+is pending. Close before a response, then reopen and retry. Verify no stale
+branch/note opens, no isolated/cyclic structure is inferred and no writes occur.
+Check narrow/light/dark layouts, long titles, bounded scrolling, keyboard and
+VoiceOver. Network/model tests are not native interaction evidence.

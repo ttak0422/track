@@ -252,6 +252,79 @@ pub struct DatedTasksResponse {
     pub diagnostics: Fields,
 }
 
+/// Validated preorder forest, preserving the engine's sibling order.
+#[derive(Clone, Debug)]
+pub struct HierarchyRow {
+    pub note_id: i64,
+    pub title: String,
+    pub flags: Vec<String>,
+    pub parent: Option<usize>,
+    pub depth: usize,
+    pub has_children: bool,
+}
+#[derive(Clone, Debug)]
+pub struct HierarchyResponse {
+    pub vault: String,
+    pub rows: Vec<HierarchyRow>,
+    pub source_vault: String,
+    pub launch_generation: u64,
+    pub diagnostics: Fields,
+}
+#[derive(Deserialize)]
+struct HierarchyWire {
+    vault: String,
+    hierarchy: Vec<HierarchyNode>,
+    #[serde(flatten)]
+    diagnostics: Fields,
+}
+#[derive(Deserialize)]
+struct HierarchyNode {
+    note_id: i64,
+    title: String,
+    file_kind: String,
+    #[serde(default)]
+    vault: String,
+    #[serde(default, deserialize_with = "nullable_vec")]
+    flags: Vec<String>,
+    #[serde(default, deserialize_with = "nullable_vec")]
+    children: Vec<HierarchyNode>,
+}
+fn flatten_hierarchy(nodes: Vec<HierarchyNode>, vault: &str) -> Result<Vec<HierarchyRow>, Error> {
+    let mut rows = Vec::new();
+    let mut ids = std::collections::HashSet::new();
+    let mut pending: Vec<_> = nodes.into_iter().rev().map(|n| (n, None, 0)).collect();
+    while let Some((node, parent, depth)) = pending.pop() {
+        if rows.len() >= 4096
+            || depth >= 32
+            || node.note_id <= 0
+            || !ids.insert(node.note_id)
+            || node.title.len() > 64 * 1024
+            || !matches!(node.file_kind.as_str(), "note" | "journal")
+            || (!node.vault.is_empty() && node.vault != vault)
+            || node.flags.len() > 128
+            || node.flags.iter().any(|f| f.len() > 1024)
+        {
+            return Err(Error::Shape("invalid hierarchy identity or metadata, duplicate node, or forest exceeds 4096 nodes / 32 levels".into()));
+        }
+        let index = rows.len();
+        rows.push(HierarchyRow {
+            note_id: node.note_id,
+            title: node.title,
+            flags: node.flags,
+            parent,
+            depth,
+            has_children: !node.children.is_empty(),
+        });
+        pending.extend(
+            node.children
+                .into_iter()
+                .rev()
+                .map(|n| (n, Some(index), depth + 1)),
+        );
+    }
+    Ok(rows)
+}
+
 /// Calendar records remain display-only. Timed timestamps are bounded opaque
 /// engine values: this client does not reinterpret them in a viewer time zone.
 #[derive(Clone, Debug, Deserialize)]
@@ -646,6 +719,33 @@ impl ReadClient {
         result.source_vault = vault.into();
         result.launch_generation = self.launch_generation;
         Ok(result)
+    }
+
+    /// Whole-vault up forest; the engine intentionally omits unplaced notes and cycles.
+    pub fn hierarchy(&self, vault: &str) -> Result<HierarchyResponse, Error> {
+        if vault.len() > 1024 || vault.contains('\0') {
+            return Err(Error::Config(
+                "hierarchy requires a bounded vault name".into(),
+            ));
+        }
+        let mut wire: HierarchyWire = self.get("/api/hierarchy", &vault_query(vault))?;
+        if wire.vault.len() > 1024
+            || wire.vault.contains('\0')
+            || (!vault.is_empty() && !wire.vault.is_empty() && wire.vault != vault)
+        {
+            return Err(Error::Shape("hierarchy vault mismatch".into()));
+        }
+        if wire.vault.is_empty() {
+            wire.vault = vault.into();
+        }
+        let rows = flatten_hierarchy(wire.hierarchy, &wire.vault)?;
+        Ok(HierarchyResponse {
+            vault: wire.vault,
+            rows,
+            source_vault: vault.into(),
+            launch_generation: self.launch_generation,
+            diagnostics: wire.diagnostics,
+        })
     }
 
     /// GET only; excludes deleted records and never creates journals/events.
@@ -2527,6 +2627,119 @@ mod tests {
         }
     }
 
+    fn hierarchy_node(id: i64, children: Vec<Value>) -> Value {
+        serde_json::json!({"note_id":id,"title":format!("Note {id}"),"file_kind":"note","flags":["CONFIDENTIAL"],"children":children})
+    }
+    #[test]
+    fn hierarchy_transport_preserves_order_scope_flags_and_partial_state() {
+        let body = serde_json::json!({"vault":"work & 日本語","hierarchy":[hierarchy_node(3,vec![hierarchy_node(9,vec![]),hierarchy_node(1,vec![])]),hierarchy_node(4,vec![])],"read_state":{"partial":true}});
+        let (client, worker) = mock(200, body.to_string());
+        let r = client.hierarchy("work & 日本語").unwrap();
+        assert_eq!(
+            r.rows.iter().map(|n| n.note_id).collect::<Vec<_>>(),
+            vec![3, 9, 1, 4]
+        );
+        assert_eq!(
+            r.rows.iter().map(|n| n.parent).collect::<Vec<_>>(),
+            vec![None, Some(0), Some(0), None]
+        );
+        assert_eq!(r.rows[1].depth, 1);
+        assert!(r.rows[0].has_children);
+        assert_eq!(r.rows[0].flags, vec!["CONFIDENTIAL"]);
+        assert_eq!(r.source_vault, "work & 日本語");
+        assert_eq!(r.launch_generation, client.launch_generation);
+        assert_eq!(r.diagnostics["read_state"]["partial"], true);
+        assert!(
+            worker
+                .join()
+                .unwrap()
+                .starts_with("GET /api/hierarchy?vault=work+%26+%E6%97%A5%E6%9C%AC%E8%AA%9E HTTP/")
+        );
+    }
+    #[test]
+    fn hierarchy_accepts_launch_alias_null_children_and_engine_empty_forest() {
+        for roots in [
+            vec![],
+            vec![
+                serde_json::json!({"note_id":1,"title":"root","file_kind":"note","flags":null,"children":null}),
+            ],
+        ] {
+            let (client, worker) = mock(
+                200,
+                serde_json::json!({"vault":"main","hierarchy":roots}).to_string(),
+            );
+            let r = client.hierarchy("").unwrap();
+            assert_eq!(r.vault, "main");
+            assert_eq!(r.source_vault, "");
+            assert!(
+                worker
+                    .join()
+                    .unwrap()
+                    .starts_with("GET /api/hierarchy HTTP/")
+            );
+        }
+    }
+    #[test]
+    fn hierarchy_rejects_repeated_identity_cycles_depth_and_node_limits() {
+        let mut chain = hierarchy_node(33, vec![]);
+        for id in (1..33).rev() {
+            chain = hierarchy_node(id, vec![chain]);
+        }
+        for roots in [
+            vec![hierarchy_node(1, vec![hierarchy_node(1, vec![])])],
+            vec![hierarchy_node(1, vec![]), hierarchy_node(1, vec![])],
+            vec![chain],
+            (1..=4097).map(|id| hierarchy_node(id, vec![])).collect(),
+        ] {
+            let (client, worker) = mock(
+                200,
+                serde_json::json!({"vault":"main","hierarchy":roots}).to_string(),
+            );
+            assert!(matches!(client.hierarchy("main"), Err(Error::Shape(_))));
+            worker.join().unwrap();
+        }
+        let mut chain = hierarchy_node(32, vec![]);
+        for id in (1..32).rev() {
+            chain = hierarchy_node(id, vec![chain]);
+        }
+        let wire: HierarchyNode = serde_json::from_value(chain).unwrap();
+        assert_eq!(flatten_hierarchy(vec![wire], "").unwrap().len(), 32);
+    }
+    #[test]
+    fn hierarchy_rejects_foreign_scope_bad_metadata_http_and_stale_session() {
+        for (field, value) in [
+            ("note_id", serde_json::json!(0)),
+            ("vault", serde_json::json!("foreign")),
+            ("file_kind", serde_json::json!("")),
+            ("file_kind", serde_json::json!("template")),
+            ("flags", serde_json::json!([true])),
+            ("title", serde_json::json!("x".repeat(65537))),
+        ] {
+            let mut n = hierarchy_node(1, vec![]);
+            n[field] = value;
+            let (client, worker) = mock(
+                200,
+                serde_json::json!({"vault":"work","hierarchy":[n]}).to_string(),
+            );
+            assert!(client.hierarchy("work").is_err(), "{field}");
+            worker.join().unwrap();
+        }
+        let (client, worker) = mock(200, r#"{"vault":"foreign","hierarchy":[]}"#);
+        assert!(matches!(client.hierarchy("work"), Err(Error::Shape(_))));
+        worker.join().unwrap();
+        let (client, worker) = mock(500, "{}");
+        assert!(matches!(
+            client.hierarchy("bad\0scope"),
+            Err(Error::Config(_))
+        ));
+        assert!(matches!(
+            client.hierarchy("work"),
+            Err(Error::Http { status: 500, .. })
+        ));
+        worker.join().unwrap();
+        client.alive.store(false, Ordering::Release);
+        assert!(matches!(client.hierarchy("work"), Err(Error::Stale)));
+    }
     fn calendar_event_fixture() -> Value {
         serde_json::json!({"version":1,"id":"20000000-0000-4000-8000-000000000001","revision":1,
             "title":"会議","all_day":true,"start":"2026-11-13","end":"2026-11-15",

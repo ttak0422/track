@@ -137,7 +137,7 @@ fn band(count: u64) -> usize {
         _ => 4,
     }
 }
-fn incomplete(fields: &std::collections::BTreeMap<String, serde_json::Value>) -> bool {
+pub(crate) fn incomplete(fields: &std::collections::BTreeMap<String, serde_json::Value>) -> bool {
     fn check(v: &serde_json::Value) -> bool {
         v.as_object().is_some_and(|o| {
             o.iter().any(|(k, v)| match k.as_str() {
