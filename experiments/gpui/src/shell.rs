@@ -119,8 +119,23 @@ struct LinkResolutionCache {
     deferred_targets: usize,
     canceled: std::sync::Arc<std::sync::atomic::AtomicBool>,
     resolved: std::collections::HashMap<String, live::NoteKey>,
-    titles: std::collections::HashMap<String, String>,
+    displayed: std::rc::Rc<Vec<markdown::Block>>,
     warnings: Vec<String>,
+}
+impl LinkResolutionCache {
+    fn displayed_for(
+        &self,
+        source: Option<&LinkSource>,
+    ) -> Option<std::rc::Rc<Vec<markdown::Block>>> {
+        (source == Some(&self.source)).then(|| self.displayed.clone())
+    }
+    fn update_display(
+        &mut self,
+        authored: &[markdown::Block],
+        titles: &std::collections::HashMap<String, String>,
+    ) {
+        self.displayed = std::rc::Rc::new(markdown::with_resolved_titles(authored, titles));
+    }
 }
 impl Drop for LinkResolutionCache {
     fn drop(&mut self) {
@@ -495,15 +510,15 @@ impl Workspace {
         })
     }
     fn copy_code(&mut self, epoch: u64, index: usize, cx: &mut Context<Self>) {
-        let Some(body) =
+        let Some(item) =
             self.shell
                 .code_copy
-                .body(epoch, index, &self.copy_document(), &self.content)
+                .clipboard_item(epoch, index, &self.copy_document(), &self.content)
         else {
             return;
         };
         // GPUI offers no failure result: this acknowledges submission only. Never read back.
-        cx.write_to_clipboard(gpui::ClipboardItem::new_string(body));
+        cx.write_to_clipboard(item);
         let serial = self.shell.code_copy.submitted(index);
         cx.notify();
         cx.spawn(async move |this, cx| {
@@ -635,16 +650,12 @@ impl Workspace {
         }
         false
     }
-    pub(crate) fn displayed_content(&self) -> Vec<markdown::Block> {
-        match self
-            .shell
+    pub(crate) fn displayed_content(&self) -> std::rc::Rc<Vec<markdown::Block>> {
+        self.shell
             .links
             .as_ref()
-            .filter(|cache| Some(&cache.source) == self.current_link_source().as_ref())
-        {
-            Some(cache) => markdown::with_resolved_titles(&self.content, &cache.titles),
-            None => self.content.clone(),
-        }
+            .and_then(|cache| cache.displayed_for(self.current_link_source().as_ref()))
+            .unwrap_or_else(|| std::rc::Rc::new(self.content.clone()))
     }
     fn current_link_source(&self) -> Option<LinkSource> {
         let note = self.current_note.as_ref()?;
@@ -688,7 +699,7 @@ impl Workspace {
             deferred_targets,
             canceled: Default::default(),
             resolved: Default::default(),
-            titles: Default::default(),
+            displayed: std::rc::Rc::new(self.content.clone()),
             warnings,
         });
         if terms.is_empty() {
@@ -755,7 +766,7 @@ impl Workspace {
                 cache.pending = false;
                 match result {
                     Ok((resolved, titles, warnings)) => {
-                        cache.titles = titles;
+                        cache.update_display(&this.content, &titles);
                         cache.resolved = resolved;
                         cache.warnings.extend(warnings);
                     }
@@ -2625,6 +2636,69 @@ mod vault_scope_tests {
 mod internal_link_tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn cached_title_snapshot_reuses_allocation_and_rejects_stale_sources() {
+        let source = LinkSource {
+            note: live::NoteKey {
+                vault: "a".into(),
+                note_id: 1,
+            },
+            etag: "v1".into(),
+            storage_generation: 2,
+            launch_generation: 3,
+            request: 4,
+        };
+        let raw = markdown::parse("[[id:123]] tail");
+        let mut cache = LinkResolutionCache {
+            source: source.clone(),
+            pending: true,
+            deferred_targets: 0,
+            canceled: Default::default(),
+            resolved: Default::default(),
+            displayed: std::rc::Rc::new(raw.clone()),
+            warnings: vec![],
+        };
+        let pending = cache.displayed_for(Some(&source)).unwrap();
+        assert_eq!(*pending, raw);
+        assert!(std::rc::Rc::ptr_eq(
+            &pending,
+            &cache.displayed_for(Some(&source)).unwrap()
+        ));
+        cache.update_display(
+            &raw,
+            &[("id:123".into(), "First title".into())]
+                .into_iter()
+                .collect(),
+        );
+        let first = cache.displayed_for(Some(&source)).unwrap();
+        assert!(!std::rc::Rc::ptr_eq(&pending, &first));
+        assert_eq!(first[0].text, "First title tail");
+        cache.update_display(
+            &raw,
+            &[("id:123".into(), "新しいタイトル".into())]
+                .into_iter()
+                .collect(),
+        );
+        let next = cache.displayed_for(Some(&source)).unwrap();
+        assert!(!std::rc::Rc::ptr_eq(&first, &next));
+        assert_eq!(next[0].text, "新しいタイトル tail");
+        assert_eq!(pending[0].text, "id:123 tail");
+        assert_eq!(first[0].text, "First title tail");
+        assert_eq!(next[0].links[0].target, raw[0].links[0].target);
+        assert!(cache.displayed_for(None).is_none());
+        for field in 0..6 {
+            let mut stale = source.clone();
+            match field {
+                0 => stale.note.vault = "b".into(),
+                1 => stale.note.note_id += 1,
+                2 => stale.etag = "v2".into(),
+                3 => stale.storage_generation += 1,
+                4 => stale.launch_generation += 1,
+                _ => stale.request += 1,
+            }
+            assert!(cache.displayed_for(Some(&stale)).is_none());
+        }
+    }
     #[test]
     fn terms_deduplicate_and_exclude_external_and_includes() {
         let blocks =

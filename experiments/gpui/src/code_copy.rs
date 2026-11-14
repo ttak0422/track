@@ -55,6 +55,17 @@ impl State {
         self.valid_block(epoch, index, current, blocks)
             .then(|| blocks[index].text.clone())
     }
+    /// Build the same transfer value used by the platform path without accessing a pasteboard.
+    pub fn clipboard_item(
+        &self,
+        epoch: u64,
+        index: usize,
+        current: &Option<Document>,
+        blocks: &[Block],
+    ) -> Option<gpui::ClipboardItem> {
+        self.body(epoch, index, current, blocks)
+            .map(gpui::ClipboardItem::new_string)
+    }
     /// Called only after the platform's write request has returned, not on hover/focus.
     pub fn submitted(&mut self, index: usize) -> u64 {
         self.serial = self.serial.wrapping_add(1);
@@ -151,6 +162,32 @@ mod tests {
         assert!(state.sync(doc.clone(), &changed));
         assert!(!state.valid_block(epoch, 2, &doc, &changed));
         assert!(state.valid_block(state.epoch, 2, &doc, &changed));
+    }
+    #[test]
+    fn clipboard_transfer_value_preserves_body_without_platform_access() {
+        let blocks = crate::markdown::parse("```lua\n\t日本語 🦀  \n```\n\n```\nno control\n```");
+        let doc = document();
+        let mut state = State::default();
+        state.sync(doc.clone(), &blocks);
+        let item = state.clipboard_item(state.epoch, 0, &doc, &blocks).unwrap();
+        assert_eq!(item.text().as_deref(), Some("\t日本語 🦀  \n"));
+        assert!(state.feedback.is_empty()); // Preparing a transfer is not a write acknowledgement.
+        assert!(
+            state
+                .clipboard_item(state.epoch, 1, &doc, &blocks)
+                .is_none()
+        );
+        assert!(
+            state
+                .clipboard_item(state.epoch.wrapping_sub(1), 0, &doc, &blocks)
+                .is_none()
+        );
+        state.sync(None, &[]);
+        assert!(
+            state
+                .clipboard_item(state.epoch, 0, &doc, &blocks)
+                .is_none()
+        );
     }
     #[test]
     fn feedback_is_per_block_renewable_and_reader_scoped() {

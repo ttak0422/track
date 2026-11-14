@@ -10,7 +10,7 @@ pub(crate) struct FindState {
     input: Option<gpui::Entity<search_input::SearchInput>>,
     query: String,
     identity: Option<(tabs::TabKey, u64)>,
-    blocks: Vec<markdown::Block>,
+    blocks: Rc<Vec<markdown::Block>>,
     pub matches: reader_find::Matches,
     pub active: Option<usize>,
     pub anchors: Option<Rc<markdown::FindAnchors>>,
@@ -24,6 +24,9 @@ impl FindState {
         self.pending_scroll = false;
         self.revision = self.revision.wrapping_add(1);
     }
+}
+fn same_display(left: &Rc<Vec<markdown::Block>>, right: &Rc<Vec<markdown::Block>>) -> bool {
+    Rc::ptr_eq(left, right) || left == right
 }
 fn document_matches(
     expected: &Option<(tabs::TabKey, u64)>,
@@ -125,7 +128,7 @@ impl Workspace {
         let identity = (key, self.request);
         let route_changed = self.shell.find.identity.as_ref() != Some(&identity);
         let displayed = self.displayed_content();
-        let changed = route_changed || self.shell.find.blocks != displayed;
+        let changed = route_changed || !same_display(&self.shell.find.blocks, &displayed);
         if changed {
             let state = &mut self.shell.find;
             state.identity = Some(identity);
@@ -161,7 +164,7 @@ impl Workspace {
                             document_matches(
                                 &identity,
                                 &this.shell.find.identity,
-                                this.displayed_content() == this.shell.find.blocks,
+                                same_display(&this.displayed_content(), &this.shell.find.blocks),
                             ),
                             this.find_available(),
                             this.shell.find.highlighted,
@@ -344,6 +347,28 @@ impl Workspace {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cached_display_keeps_find_current_until_title_snapshot_changes() {
+        let raw = Rc::new(markdown::parse("[[id:123]] tail"));
+        assert!(same_display(&raw, &raw.clone()));
+        assert!(same_display(&raw, &Rc::new(raw.as_ref().clone())));
+        let title = Rc::new(markdown::with_resolved_titles(
+            &raw,
+            &[("id:123".into(), "Visible title".into())]
+                .into_iter()
+                .collect(),
+        ));
+        assert!(!same_display(&raw, &title));
+        let next = Rc::new(markdown::with_resolved_titles(
+            &raw,
+            &[("id:123".into(), "New title".into())]
+                .into_iter()
+                .collect(),
+        ));
+        assert!(!same_display(&title, &next));
+        assert!(reader_find::search(&next, "Visible").hits.is_empty());
+        assert_eq!(reader_find::search(&next, "New").hits.len(), 1);
+    }
     #[test]
     fn resolved_title_change_invalidates_old_find_document_and_byte_ranges() {
         let raw = markdown::parse("[[id:123]] tail");

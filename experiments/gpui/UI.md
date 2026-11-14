@@ -67,3 +67,22 @@ than substituting network completion or function-call timing. Alternate frontend
 order and record background-load/thermal caveats. Screenshot appearance and the
 existing CPU-only geometry benchmarks do not establish rendering performance.
 Matched captures and presentation measurements are still pending.
+
+### Display projection cost (non-GUI)
+
+An opt-in synthetic debug-build benchmark measures allocation, title projection
+and drop, excluding parsing/network/rendering. With 30 samples, 10,000 blocks
+measured 3.646 ms median / 3.704 ms p95 with no substitutions, and 11.758 / 11.815
+ms with every block substituted. This exposed avoidable repeated work, not an
+observed frame-rate regression. Verified resolver results now retain an immutable
+display snapshot, reused only when all source-provenance fields match; accepted
+resolution rebuilds it once. The uncached fallback still clones raw content.
+A separate Rc clone/drop-only loop averaged about 14.9 ns/op, but excludes
+provenance checks, Find and drawing and is not a like-for-like speedup claim.
+Reproduce with `cargo test --locked --manifest-path experiments/gpui/Cargo.toml
+projection_cost_synthetic -- --ignored --nocapture`.
+
+Clipboard transfer tests construct and inspect the actual GPUI ClipboardItem
+used by the production copy path, including Unicode/whitespace and stale-action
+rejection. They never access the system pasteboard. This validates the submitted
+value, not OS delivery, paste behavior, permissions or accessibility.

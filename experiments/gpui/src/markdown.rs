@@ -1331,6 +1331,65 @@ fn render_table(
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// Synthetic model-only cost, not GPUI layout/render/frame timing.
+    /// Run explicitly with --ignored --nocapture projection_cost_synthetic.
+    #[test]
+    #[ignore = "manual synthetic projection microbenchmark; not frame timing"]
+    fn projection_cost_synthetic() {
+        use std::{hint::black_box, time::Instant};
+        const SAMPLES: usize = 30;
+        for count in [100, 1_000, 10_000] {
+            let source = (0..count).map(|i| format!(
+                "Paragraph {i}: **styled words** before [[id:123]] and Unicode 日本語 after the link.\n\n"
+            )).collect::<String>();
+            let blocks = parse(&source);
+            assert_eq!(blocks.len(), count);
+            for (case, titles) in [
+                ("zero", std::collections::HashMap::new()),
+                (
+                    "every-block",
+                    [(
+                        "id:123".into(),
+                        "Resolved title 日本語 longer than ID".into(),
+                    )]
+                    .into_iter()
+                    .collect(),
+                ),
+            ] {
+                black_box(with_resolved_titles(&blocks, &titles));
+                let mut samples_ms = Vec::with_capacity(SAMPLES);
+                for _ in 0..SAMPLES {
+                    let start = Instant::now();
+                    // Include allocating/projecting and freeing the projection, but
+                    // exclude source creation/parsing and output/logging.
+                    drop(black_box(with_resolved_titles(
+                        black_box(&blocks),
+                        black_box(&titles),
+                    )));
+                    samples_ms.push(start.elapsed().as_secs_f64() * 1_000.0);
+                }
+                // Separately measure cached Rc access, not projection or full
+                // provenance checks. Batch operations to reduce timer overhead.
+                let cached = Rc::new(with_resolved_titles(&blocks, &titles));
+                let start = Instant::now();
+                for _ in 0..100_000 {
+                    drop(black_box(black_box(&cached).clone()));
+                }
+                let cached_ns = start.elapsed().as_secs_f64() * 1e9 / 100_000.0;
+                println!(
+                    "cached-Rc-clone-drop-only blocks={count} substitutions={case} mean_ns={cached_ns:.2} iterations=100000"
+                );
+                samples_ms.sort_by(f64::total_cmp);
+                println!(
+                    "projection-only blocks={count} substitutions={case} samples={SAMPLES} median_ms={:.3} p95_ms={:.3} min_ms={:.3}",
+                    samples_ms[SAMPLES / 2],
+                    samples_ms[(SAMPLES * 95 / 100).min(SAMPLES - 1)],
+                    samples_ms[0]
+                );
+            }
+        }
+    }
+
     #[test]
     fn resolved_titles_only_replace_unaliased_explicit_id_wikilinks() {
         let cases = [
