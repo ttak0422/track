@@ -252,9 +252,12 @@ impl Render for GraphView {
             )
             .on_mouse_move(cx.listener(|this, event: &gpui::MouseMoveEvent, _, cx| {
                 let p = this.local(event.position);
+                let previous_hover = this.hovered;
+                let mut moved_geometry = false;
                 if this.click_start.is_some_and(|(_,start)| (p.x-start.x).hypot(p.y-start.y)>4.) { this.click_start=None; }
                 if event.dragging() {
-                    if let Some((id, previous)) = this.node_drag {
+                    if let Some((id, previous)) = this.node_drag.filter(|(_, previous)| *previous != p) {
+                        moved_geometry = true;
                         this.layout_generation = this.layout_generation.wrapping_add(1);
                         this.layout_status = "manual positions · no elastic physics";
                         graph::drag_node(
@@ -268,7 +271,8 @@ impl Render for GraphView {
                         );
                         this.node_drag = Some((id, p));
                     }
-                    if let Some(previous) = this.pan_from {
+                    if let Some(previous) = this.pan_from.filter(|previous| *previous != p) {
+                        moved_geometry = true;
                         this.camera_intent.changed();
                         this.viewport.pan(Point {
                             x: p.x - previous.x,
@@ -287,7 +291,9 @@ impl Render for GraphView {
                         cx.emit(PreviewIntent::Hover(id, (f32::from(event.position.x), f32::from(event.position.y))));
                     } else { cx.emit(PreviewIntent::Leave); }
                 }
-                cx.notify();
+                if graph::pointer_needs_redraw(previous_hover, this.hovered, moved_geometry) {
+                    cx.notify();
+                }
             }))
             .on_mouse_up(
                 MouseButton::Left,

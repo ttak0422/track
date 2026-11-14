@@ -248,3 +248,11 @@ hover transfer, clipping, theme contrast and accessibility remain GUI-unverified
 The backdrop is opaque rather than the Web canvas's translucent fill. No frame,
 GPU or input-latency measurements were performed; fewer labels are not by themselves
 evidence of a rendering speedup.
+
+Pointer movement now requests graph redraw only when the hovered node changes or
+an owned drag/pan changes geometry. Preview hover/leave/cancel intent still runs
+on every event, preserving its position and timing semantics. Zero-distance drag
+events do not invalidate pending force placement or camera intent. A synthetic
+policy test covers unchanged hover, enter/leave, target changes and moved geometry.
+This does not measure actual frame savings: parent preview notifications may still
+render the workspace, and real pointer/preview behavior remains GUI-unverified.

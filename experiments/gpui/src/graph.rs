@@ -69,6 +69,15 @@ pub fn is_zoom_wheel(control: bool, shift: bool) -> bool {
     control || shift
 }
 
+/// Preview intent still follows every pointer event; only visual invalidation is gated.
+pub fn pointer_needs_redraw(
+    previous: Option<i64>,
+    current: Option<i64>,
+    moved_geometry: bool,
+) -> bool {
+    moved_geometry || previous != current
+}
+
 /// Screen-space title policy, independent of graph layout and GPU drawing.
 pub fn show_label(
     view: Viewport,
@@ -342,6 +351,17 @@ pub fn fixture(count: usize) -> Graph {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn pointer_redraw_tracks_visible_changes_not_repeated_hover() {
+        for target in [None, Some(1), Some(2)] {
+            assert!(!super::pointer_needs_redraw(target, target, false));
+            assert!(super::pointer_needs_redraw(target, target, true));
+        }
+        for (previous, current) in [(None, Some(1)), (Some(1), None), (Some(1), Some(2))] {
+            assert!(super::pointer_needs_redraw(previous, current, false));
+        }
+    }
+
     #[test]
     fn labels_follow_screen_space_density_and_explicit_intent() {
         let small = super::Viewport::new(300., 280.);
