@@ -1,11 +1,12 @@
 //! Read-only full-graph overlays, isolated from reader/editor document state.
 use super::*;
-use graph_preview::{Content, PinResult, Previews, Read, State, Target};
+use graph_preview::{CardRect, Content, PinResult, Previews, Read, State, Target};
 use std::time::{Duration, Instant};
 
 pub struct PreviewUi {
     pub model: Previews,
     clock: Instant,
+    activation: Option<gpui::Subscription>,
     wake: Option<gpui::Task<()>>,
     deadline: Option<u64>,
     generation: u64,
@@ -17,6 +18,7 @@ impl Default for PreviewUi {
         Self {
             model: Previews::default(),
             clock: Instant::now(),
+            activation: None,
             wake: None,
             deadline: None,
             generation: 0,
@@ -48,6 +50,17 @@ impl PreviewUi {
     }
 }
 impl Workspace {
+    fn observe_preview_activation(&mut self, window: &mut gpui::Window, cx: &mut Context<Self>) {
+        if self.previews.activation.is_none() {
+            self.previews.activation =
+                Some(cx.observe_window_activation(window, |this, window, cx| {
+                    if !window.is_window_active() && this.previews.model.geometry_active() {
+                        this.previews.model.end_geometry();
+                        cx.notify();
+                    }
+                }));
+        }
+    }
     pub(crate) fn cancel_transient_preview(&mut self) {
         self.previews.model.navigate();
         self.previews.cancel_wake();
@@ -182,6 +195,7 @@ impl Workspace {
         viewport: gpui::Size<gpui::Pixels>,
         cx: &mut Context<Self>,
     ) -> Vec<gpui::AnyElement> {
+        let viewport_size = (f32::from(viewport.width), f32::from(viewport.height));
         let paper = if dark { 0x222629 } else { 0xffffff };
         let ink = if dark { 0xe9e9e4 } else { 0x1a1a18 };
         let line = if dark { 0x454b4e } else { 0xd9d6cc };
@@ -212,6 +226,12 @@ impl Workspace {
                     _ => format!("Note {}", identity.target.note_id),
                 };
                 let (x,y,width,height) = cascade_bounds(preview.anchor, (f32::from(viewport.width), f32::from(viewport.height)), preview.placement_slot.map(|slot| slot + 1).unwrap_or(0), !self.previews.model.pinned.is_empty());
+                let rect = if pinned { preview.rect } else { None }
+                    .unwrap_or(CardRect { x, y, width, height });
+                let rect = if pinned { rect.bounded(viewport_size).unwrap_or(rect) } else { rect };
+                let CardRect { x, y, width, height } = rect;
+                let drag_identity = identity.clone();
+                let resize_identity = identity.clone();
                 let mut body = div().id(("graph-preview-body", identity.token as usize))
                     .flex_1().min_h_0().overflow_y_scroll().p_3();
                 body = match &preview.state {
@@ -236,7 +256,12 @@ impl Workspace {
                         else { this.previews.model.leave_preview(&hover_identity, this.previews.now()); }
                         this.schedule_preview(cx); cx.notify();
                     }))
-                    .child(div().p_2().min_w_0().flex_shrink_0().border_b_1().border_color(rgb(line)).child(div().truncate().child(title))
+                    .child(div().p_2().min_w_0().flex_shrink_0().border_b_1().border_color(rgb(line)).child(div().id(("preview-drag-title", identity.token as usize)).truncate().child(title)
+                        .on_mouse_down(gpui::MouseButton::Left, cx.listener(move |this,event: &gpui::MouseDownEvent,window,cx| {
+                            this.observe_preview_activation(window, cx);
+                            cx.stop_propagation();
+                            if pinned && this.previews.model.begin_geometry(&drag_identity, (f32::from(event.position.x), f32::from(event.position.y)), rect, false, viewport_size) { cx.notify(); }
+                        })))
                         .child(div().text_xs().truncate().child(format!("{} · ID {}", if identity.target.vault.is_empty() { "launch vault" } else { &identity.target.vault }, identity.target.note_id)))
                         .child(div().flex().flex_wrap().gap_3().text_xs()
                             .child(div().id(("preview-pin", identity.token as usize)).cursor_pointer().child(if pinned { "Unpin" } else { "Pin" })
@@ -264,6 +289,15 @@ impl Workspace {
                         ))
                     .child(body)
                     .child(div().p_2().text_xs().child("Native Markdown subset · links / embeds / actions inert"))
+                    // Design: frame interaction zone, not a floating icon control.
+                    .when(pinned, |el| el.child(div().id(("preview-resize", identity.token as usize))
+                        .flex_shrink_0().h(px(20.)).flex().justify_end().px_2()
+                        .text_xs().text_color(rgb(ink)).child("Resize")
+                        .on_mouse_down(gpui::MouseButton::Left, cx.listener(move |this,event: &gpui::MouseDownEvent,window,cx| {
+                            this.observe_preview_activation(window, cx);
+                            cx.stop_propagation();
+                            if this.previews.model.begin_geometry(&resize_identity, (f32::from(event.position.x), f32::from(event.position.y)), rect, true, viewport_size) { cx.notify(); }
+                        }))))
                     .when(!self.previews.message.is_empty(), |el| el.child(div().p_2().text_xs().child(self.previews.message.clone())))
                     .into_any_element()
             }).collect();
@@ -340,6 +374,55 @@ impl Workspace {
                                 ),
                             )
                     }))
+                    .into_any_element(),
+            );
+        }
+        if let Some(move_identity) = self.previews.model.geometry_identity().cloned() {
+            let up_identity = move_identity.clone();
+            let out_identity = move_identity.clone();
+            let leave_identity = move_identity.clone();
+            // Capture above graph/cards, below the shell's existing menus and dirty dialog.
+            cards.push(
+                div()
+                    .id("preview-geometry-capture")
+                    .absolute()
+                    .inset_0()
+                    .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_mouse_move(
+                        cx.listener(move |this, event: &gpui::MouseMoveEvent, _, cx| {
+                            cx.stop_propagation();
+                            this.previews.model.update_geometry(
+                                &move_identity,
+                                (f32::from(event.position.x), f32::from(event.position.y)),
+                                viewport_size,
+                                event.pressed_button == Some(gpui::MouseButton::Left),
+                            );
+                            cx.notify();
+                        }),
+                    )
+                    .on_mouse_up(
+                        gpui::MouseButton::Left,
+                        cx.listener(move |this, _, _, cx| {
+                            this.previews.model.end_geometry_for(&up_identity);
+                            cx.stop_propagation();
+                            cx.notify();
+                        }),
+                    )
+                    .on_mouse_up_out(
+                        gpui::MouseButton::Left,
+                        cx.listener(move |this, _, _, cx| {
+                            this.previews.model.end_geometry_for(&out_identity);
+                            cx.stop_propagation();
+                            cx.notify();
+                        }),
+                    )
+                    .on_hover(cx.listener(move |this, inside, _, cx| {
+                        if !inside {
+                            this.previews.model.end_geometry_for(&leave_identity);
+                            cx.notify();
+                        }
+                    }))
+                    .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
                     .into_any_element(),
             );
         }

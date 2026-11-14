@@ -25,6 +25,53 @@ pub struct Read {
     pub target: Target,
     pub token: u64,
 }
+/// Session-only pinned card rectangle in workspace-local pixels.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CardRect {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+impl CardRect {
+    pub fn bounded(self, viewport: (f32, f32)) -> Option<Self> {
+        if ![
+            self.x,
+            self.y,
+            self.width,
+            self.height,
+            viewport.0,
+            viewport.1,
+        ]
+        .iter()
+        .all(|v| v.is_finite())
+            || viewport.0 <= 0.
+            || viewport.1 <= 0.
+        {
+            return None;
+        }
+        let left = 12_f32.min(viewport.0 / 4.);
+        let top = 160_f32.min((viewport.1 - 13.).max(0.));
+        let available_w = (viewport.0 - left * 2.).max(1.);
+        let available_h = (viewport.1 - top - 12.).max(1.);
+        let width = self.width.clamp(280_f32.min(available_w), available_w);
+        let height = self.height.clamp(180_f32.min(available_h), available_h);
+        Some(Self {
+            x: self.x.clamp(left, (viewport.0 - left - width).max(left)),
+            y: self.y.clamp(top, (viewport.1 - 12. - height).max(top)),
+            width,
+            height,
+        })
+    }
+}
+#[derive(Clone, Debug)]
+struct CardGesture {
+    identity: Read,
+    start: (f32, f32),
+    rect: CardRect,
+    resize: bool,
+}
+
 /// Diagnostics travel with the body, including successfully fetched empty bodies.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Content {
@@ -46,6 +93,7 @@ pub struct Preview {
     /// Placement is captured once per target, not updated by pointer movement.
     pub anchor: (f32, f32),
     pub placement_slot: Option<usize>,
+    pub rect: Option<CardRect>,
     pub state: State,
     pointer_inside: bool,
 }
@@ -66,8 +114,96 @@ pub struct Previews {
     pub transient: Option<Preview>,
     pub pinned: Vec<Preview>,
     pub raised: Option<Read>,
+    gesture: Option<CardGesture>,
 }
 impl Previews {
+    pub fn geometry_identity(&self) -> Option<&Read> {
+        self.gesture.as_ref().map(|g| &g.identity)
+    }
+    pub fn geometry_active(&self) -> bool {
+        self.gesture.is_some()
+    }
+    pub fn end_geometry_for(&mut self, identity: &Read) {
+        if self.geometry_identity() == Some(identity) {
+            self.end_geometry();
+        }
+    }
+    pub fn end_geometry(&mut self) {
+        self.gesture = None;
+    }
+    pub fn begin_geometry(
+        &mut self,
+        identity: &Read,
+        start: (f32, f32),
+        rect: CardRect,
+        resize: bool,
+        viewport: (f32, f32),
+    ) -> bool {
+        if !start.0.is_finite()
+            || !start.1.is_finite()
+            || !self.pinned.iter().any(|p| &p.read == identity)
+        {
+            return false;
+        }
+        let Some(rect) = rect.bounded(viewport) else {
+            return false;
+        };
+        self.raised = Some(identity.clone());
+        self.gesture = Some(CardGesture {
+            identity: identity.clone(),
+            start,
+            rect,
+            resize,
+        });
+        true
+    }
+    pub fn update_geometry(
+        &mut self,
+        identity: &Read,
+        pointer: (f32, f32),
+        viewport: (f32, f32),
+        pressed: bool,
+    ) -> bool {
+        let Some(gesture) = self.gesture.as_ref() else {
+            return false;
+        };
+        if &gesture.identity != identity {
+            return false;
+        }
+        if !pressed {
+            self.end_geometry();
+            return false;
+        }
+        let Some(preview) = self.pinned.iter_mut().find(|p| p.read == gesture.identity) else {
+            self.gesture = None;
+            return false;
+        };
+        if !pointer.0.is_finite() || !pointer.1.is_finite() {
+            return false;
+        }
+        let (dx, dy) = (pointer.0 - gesture.start.0, pointer.1 - gesture.start.1);
+        let mut rect = gesture.rect;
+        if gesture.resize {
+            rect.width += dx;
+            rect.height += dy;
+        } else {
+            rect.x += dx;
+            rect.y += dy;
+        }
+        let Some(mut rect) = rect.bounded(viewport) else {
+            return false;
+        };
+        if gesture.resize {
+            // Resizing keeps the top-left fixed and stops at the viewport edge.
+            let origin = gesture.rect.bounded(viewport).unwrap();
+            rect.x = origin.x;
+            rect.y = origin.y;
+            rect.width = rect.width.min((viewport.0 - rect.x - 12.).max(1.));
+            rect.height = rect.height.min((viewport.1 - rect.y - 12.).max(1.));
+        }
+        preview.rect = Some(rect);
+        true
+    }
     pub fn set_scope(&mut self, scope: Scope) {
         if self.scope.as_ref() == Some(&scope) {
             return;
@@ -76,17 +212,20 @@ impl Previews {
             self.pinned.clear();
             self.raised = None;
         }
+        self.end_geometry();
         self.clear_transient();
         self.scope = Some(scope);
     }
     /// Call immediately when the owned server fails or is replaced.
     pub fn invalidate_session(&mut self) {
+        self.end_geometry();
         self.clear_transient();
         self.pinned.clear();
         self.raised = None;
         self.scope = None;
     }
     pub fn navigate(&mut self) {
+        self.end_geometry();
         self.clear_transient();
     }
     fn clear_transient(&mut self) {
@@ -194,6 +333,7 @@ impl Previews {
             read: read.clone(),
             anchor,
             placement_slot: None,
+            rect: None,
             state: State::Loading,
             pointer_inside: false,
         });
@@ -221,6 +361,13 @@ impl Previews {
     }
     /// Action identity is resolved at dispatch, not from a rendered slot label.
     pub fn close_identity(&mut self, identity: &Read) -> bool {
+        if self
+            .gesture
+            .as_ref()
+            .is_some_and(|g| &g.identity == identity)
+        {
+            self.end_geometry();
+        }
         if self.raised.as_ref() == Some(identity) {
             self.raised = None;
         }
@@ -256,7 +403,15 @@ impl Previews {
             return false;
         };
         // Explicit Unpin replaces only the disposable transient, never another pin.
-        let preview = self.pinned.remove(index);
+        let mut preview = self.pinned.remove(index);
+        preview.rect = None;
+        if self
+            .gesture
+            .as_ref()
+            .is_some_and(|g| &g.identity == identity)
+        {
+            self.end_geometry();
+        }
         // Unpin must expose the new transient even if a different pin was raised.
         self.raised = None;
         let opener = self
@@ -617,5 +772,100 @@ mod tests {
         p.invalidate_session();
         assert!(p.transient.is_none());
         assert!(!p.complete(&b, Ok(content("late"))));
+    }
+}
+
+#[cfg(test)]
+mod geometry_tests {
+    use super::*;
+    fn pin(p: &mut Previews, id: i64) -> Read {
+        let now = id as u64 * 1000;
+        p.hover(
+            Target {
+                vault: "fixture".into(),
+                note_id: id,
+            },
+            (0., 0.),
+            now,
+        );
+        let read = p.advance(now + OPEN_DELAY_MS).unwrap();
+        assert_eq!(p.pin_identity(&read), PinResult::Pinned);
+        read
+    }
+    fn model() -> Previews {
+        let mut p = Previews::default();
+        p.set_scope(Scope {
+            session: 1,
+            graph: 1,
+            vault: "fixture".into(),
+        });
+        p
+    }
+    fn rect() -> CardRect {
+        CardRect {
+            x: 20.,
+            y: 170.,
+            width: 380.,
+            height: 250.,
+        }
+    }
+    #[test]
+    fn move_resize_clamp_keep_headers_and_actions_reachable() {
+        let mut p = model();
+        let read = pin(&mut p, 1);
+        for resize in [false, true] {
+            for pointer in [(-10000., -10000.), (10000., 10000.)] {
+                assert!(p.begin_geometry(&read, (0., 0.), rect(), resize, (680., 480.)));
+                assert!(p.update_geometry(&read, pointer, (680., 480.), true));
+                let r = p.pinned[0].rect.unwrap();
+                assert!(r.x >= 12. && r.y >= 160.);
+                assert!(r.x + r.width <= 668. && r.y + r.height <= 468.);
+                assert!(r.width >= 280. && r.height >= 180.);
+                if resize {
+                    assert_eq!((r.x, r.y), (20., 170.));
+                }
+            }
+        }
+        let r = rect().bounded((300., 200.)).unwrap();
+        assert!(r.width > 0. && r.height > 0. && r.y + r.height <= 188.);
+        assert!(rect().bounded((f32::NAN, 480.)).is_none());
+        assert!(!p.update_geometry(&read, (f32::INFINITY, 0.), (680., 480.), true));
+    }
+    #[test]
+    fn geometry_survives_raise_other_close_and_navigation_but_not_invalidation() {
+        let mut p = model();
+        let a = pin(&mut p, 1);
+        let b = pin(&mut p, 2);
+        p.begin_geometry(&a, (0., 0.), rect(), false, (1000., 800.));
+        p.update_geometry(&a, (50., 70.), (1000., 800.), true);
+        let saved = p.pinned[0].rect;
+        p.raise_identity(&b);
+        p.close_identity(&b);
+        p.navigate();
+        assert_eq!(p.pinned[0].rect, saved);
+        assert!(!p.geometry_active());
+        p.invalidate_session();
+        assert!(p.pinned.is_empty() && !p.geometry_active());
+    }
+    #[test]
+    fn stale_identity_and_released_button_cannot_move_cards() {
+        let mut p = model();
+        let a = pin(&mut p, 1);
+        p.begin_geometry(&a, (0., 0.), rect(), false, (680., 480.));
+        p.close_identity(&a);
+        let b = pin(&mut p, 2);
+        p.begin_geometry(&b, (0., 0.), rect(), false, (680., 480.));
+        assert!(!p.update_geometry(&a, (20., 20.), (680., 480.), true));
+        p.end_geometry_for(&a);
+        assert!(p.geometry_active());
+        assert!(p.pinned[0].rect.is_none());
+        assert!(!p.update_geometry(&b, (20., 20.), (680., 480.), false));
+        assert!(!p.geometry_active());
+        assert!(p.pinned[0].rect.is_none());
+        p.begin_geometry(&b, (0., 0.), rect(), true, (680., 480.));
+        p.unpin_identity(&b, 3000);
+        assert!(!p.geometry_active());
+        assert!(!p.begin_geometry(&b, (0., 0.), rect(), true, (680., 480.)));
+        assert!(p.transient.as_ref().unwrap().rect.is_none());
     }
 }
