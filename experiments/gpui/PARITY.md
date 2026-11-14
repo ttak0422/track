@@ -341,3 +341,11 @@ identity guards precede GPUI rendering. Inline/table images, remote resources,
 other formats and pinned previews remain unsupported. Asset filesystem symlink
 policy remains the engine's responsibility, not a client containment guarantee.
 Native rendering, color/orientation, reflow/scroll and accessibility remain open.
+
+### Read-only footnote display
+
+Parser-backed references and labeled definitions preserve readable nested content
+and Find ranges. Definitions remain in source order, not web-style reference
+numbering/end collection. Footnote jumps and return links remain unsupported;
+ordinary links inside definitions retain existing resolution rules. Native
+layout, selection and accessibility validation remains pending.

@@ -603,3 +603,11 @@ unavailable metadata. Verify Read precedence, no NEW/unread inference, and no
 label carried across same-ID notes in different vaults or loading placeholders.
 Reload changed metadata and verify the accepted source wins. Confirm narrow/light/
 dark rendering and accessibility, and that reading never sends a milestone POST.
+
+### Footnote display (pending native QA)
+
+Use disposable notes with repeated/missing references, duplicate/unused
+definitions, Unicode labels, and nested lists/quotes/code/tables in definitions.
+Verify visible labels, source-position definitions, preserved ordinary links,
+Find results and subsequent outline jumps. Markers must not pretend to be
+clickable footnote jumps. Check light/dark/narrow layouts, selection and VoiceOver.

@@ -727,6 +727,7 @@ fn inline(node: &Node<'_>, source: &str, out: &mut Cell, mut style: InlineStyle)
                 inline(child, source, out, style);
             }
         }
+        Event::FootnoteReference(label) => out.append(&format!("[^{label}]"), style),
         Event::Code(text) => {
             style.code = true;
             out.append(text, style);
@@ -762,6 +763,18 @@ fn task_state(item: &Node<'_>) -> Option<bool> {
 
 fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut Vec<Block>) {
     match &node.event {
+        Event::Start(Tag::FootnoteDefinition(label)) => {
+            // Labels remain literal and searchable, not fake navigation links.
+            // Keep every definition at its source position, including unused or
+            // repeated labels, rather than dropping content during collection.
+            let mut label_text = Cell::default();
+            label_text.append(&format!("[^{label}]:"), InlineStyle::default());
+            flush_run(&mut label_text, indent, quoted, out);
+            for child in &node.children {
+                blocks(child, source, indent + 1, quoted, out);
+            }
+            return;
+        }
         Event::Start(Tag::Table(alignments)) => {
             // GFM ignores excess row cells. Keep those tables as source instead
             // of silently hiding content that the parser did not represent.
@@ -855,6 +868,7 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
                                 | Tag::List(_)
                                 | Tag::BlockQuote(_)
                                 | Tag::Table(_)
+                                | Tag::FootnoteDefinition(_)
                         )
                 ) {
                     flush_run(&mut run, indent, quoted, out);
@@ -957,12 +971,15 @@ fn flush_run(run: &mut Cell, indent: usize, quoted: bool, out: &mut Vec<Block>) 
     }
 }
 
-/// Parse CommonMark plus tables, ordinary tasks and strike without I/O.
+/// Parse CommonMark plus tables, ordinary tasks, strike and display-only footnotes.
+/// Footnotes stay labeled in source order without renumbering or navigation.
 /// Rich Track task notation remains literal; no task mutation is supported.
 /// Reference definitions omitted by the parser are retained as source fallback.
 pub fn parse(source: &str) -> Vec<Block> {
-    let options =
-        Options::ENABLE_TABLES | Options::ENABLE_TASKLISTS | Options::ENABLE_STRIKETHROUGH;
+    let options = Options::ENABLE_TABLES
+        | Options::ENABLE_TASKLISTS
+        | Options::ENABLE_STRIKETHROUGH
+        | Options::ENABLE_FOOTNOTES;
     let tree = nodes(&mut Parser::new_ext(source, options).into_offset_iter());
     let mut result = Vec::new();
     let mut end = 0;
@@ -2987,5 +3004,98 @@ mod thematic_rule_tests {
         assert_eq!(code[0].kind, BlockKind::Code);
         assert_eq!(code[0].text, "---\n");
         assert_eq!(crate::reader_find::search(&code, "---").hits.len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod footnote_display_tests {
+    use super::*;
+    #[test]
+    fn footnote_definitions_keep_formatted_children_and_source_position() {
+        let parsed = parse("Before[^日本語].\n\n[^日本語]: **Detail** and [note](42.md).\n\nAfter");
+        assert_eq!(
+            parsed.iter().map(|b| b.text.as_str()).collect::<Vec<_>>(),
+            vec![
+                "Before[^日本語].",
+                "[^日本語]:",
+                "Detail and note.",
+                "After"
+            ]
+        );
+        assert_eq!(parsed[2].indent, 1);
+        assert!(parsed[2].spans.iter().any(|s| s.style.strong));
+        assert_eq!(parsed[2].links.len(), 1);
+        assert!(parsed[0].links.is_empty());
+        assert_eq!(
+            crate::reader_find::search(&parsed, "Detail").hits[0].target,
+            Target::Block(2)
+        );
+        assert_eq!(crate::reader_find::search(&parsed, "日本語").hits.len(), 2);
+    }
+    #[test]
+    fn footnote_missing_duplicate_unused_and_multiblock_content_is_visible() {
+        let source = "Missing[^none].\n\n[^same]: first\n\n[^same]: second\n\n[^unused]: unused\n\n    next paragraph\n\n    - nested item";
+        let parsed = parse(source);
+        let text = parsed
+            .iter()
+            .map(|b| b.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        for expected in [
+            "Missing[^none].",
+            "first",
+            "second",
+            "unused",
+            "next paragraph",
+            "nested item",
+        ] {
+            assert!(text.contains(expected), "{expected}: {text}");
+        }
+        assert_eq!(text.matches("[^same]:").count(), 2);
+    }
+    #[test]
+    fn footnote_nested_blocks_and_repeated_table_references_keep_indices() {
+        let parsed = parse(
+            "Ref[^x] again[^x].\n\n| Ref |\n| --- |\n| [^x] |\n\n[^x]: Intro\n\n    > quote\n\n    ```lua\n    print(1)\n    ```\n\n    | Col |\n    | --- |\n    | value |\n\n# Tail",
+        );
+        assert_eq!(parsed[0].text.matches("[^x]").count(), 2);
+        assert_eq!(parsed[1].table.as_ref().unwrap().rows[1][0].text, "[^x]");
+        assert!(
+            parsed
+                .iter()
+                .any(|b| b.quoted && b.text == "quote" && b.indent == 1)
+        );
+        let code = parsed.iter().find(|b| b.kind == BlockKind::Code).unwrap();
+        assert_eq!(code.text, "print(1)\n");
+        assert_eq!(code.language.as_deref(), Some("lua"));
+        assert!(
+            parsed
+                .iter()
+                .any(|b| b.kind == BlockKind::Table && b.indent == 1)
+        );
+        let tail = parsed.len() - 1;
+        assert_eq!(outline(&parsed)[0].block_index, tail);
+        assert_eq!(
+            crate::reader_find::search(&parsed, "Tail").hits[0].target,
+            Target::Block(tail)
+        );
+        assert_eq!(crate::reader_find::search(&parsed, "[^x]").hits.len(), 4);
+    }
+    #[test]
+    fn footnote_parser_does_not_promote_code_or_escaped_markers() {
+        let parsed = parse("```md\n[^a]: code\n```\n\n\\[^b]: escaped\n\n> [^c]: quoted");
+        assert_eq!(parsed[0].kind, BlockKind::Code);
+        assert_eq!(parsed[0].text, "[^a]: code\n");
+        assert!(
+            parsed
+                .iter()
+                .any(|b| b.text == "[^b]: escaped" && b.kind == BlockKind::Paragraph)
+        );
+        assert!(parsed.iter().any(|b| b.text == "[^c]:" && b.quoted));
+        assert!(
+            parsed
+                .iter()
+                .any(|b| b.text == "quoted" && b.quoted && b.indent == 1)
+        );
     }
 }

@@ -461,3 +461,15 @@ negative or malformed values show no label because absence can also mean metadat
 was unavailable; no NEW/unread state is inferred. Snapshot/list hints are not used.
 This is display-only: no viewing timer, milestone POST, persistence or automatic
 refresh is added. Native layout/accessibility validation remains pending.
+
+### Read-only footnote display
+
+The native reader displays footnote references as `[^label]` and definitions with
+that same label followed by their formatted content. Definitions stay at their
+source position, including unused definitions. Their paragraphs, lists, quotes
+and ordinary links remain readable and searchable.
+
+This is a display subset, not full web footnote parity: references are not
+renumbered or clickable, definitions are not collected at the end, and return
+links are not added. Unresolved references remain visible. No source is rewritten.
+Native layout, selection and accessibility validation remains pending.
