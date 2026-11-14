@@ -19,7 +19,7 @@ of support. Use disposable fixture vaults, never a configured personal vault, fo
 | Note body, tags, flags, hierarchy and backlinks | [ ] | [ ] | `NoteReader`, `HierarchyMenu`, `types.ts` |
 | In-memory vault-qualified tabs and close/overflow navigation | [x] | [ ] | `tabs.rs`, `shell.rs`; model tests, native QA pending |
 | Persistent tabs, history and floating previews | [ ] | [ ] | `components/tabs`, `components/preview` |
-| Read-only rendered body/table Find | [x] | [ ] | `reader_find.rs`, `workspace_find.rs`; local matches/highlights and block/cell reveal; native QA pending |
+| Read-only rendered body/table Find | [x] | [ ] | `reader_find.rs`, `workspace_find.rs`; local matches/highlights and block/cell reveal; light/dark native subset checked, IME pending |
 | Reading positions, seen/read milestones and exact-range Find parity | [ ] | [ ] | `reading.ts`, `ReadingPositionBoundary`, `WebViewFindController` |
 | Create, edit, save, delete and metadata editing | [ ] | [ ] | `NoteEditor`, `NoteMetaDialog`, `NoteActionsMenu` |
 | Conflict detection, dirty-state protection and draft recovery | [ ] | [ ] | `NoteEditor.recovery`, `recovery.ts`, desktop termination tests |
@@ -38,7 +38,7 @@ of support. Use disposable fixture vaults, never a configured personal vault, fo
 | Full graph layout, previews and navigation parity | [ ] | [ ] | `GraphCanvas`, `GraphFullView`, `graphWheel` |
 | Themes, keyboard navigation, selection, clipboard and IME | [ ] | [ ] | `themeState`, `keybindings`, desktop reading shortcuts |
 | External Markdown handoff and editor-follow behavior | [ ] | [ ] | `MarkdownViewer`, `markdownHandoff`, `/api/follow` |
-| Read-only scoped Home activity heatmap | [x] | [ ] | `workspace_activity.rs`, `live.rs`; calendar/transport/identity tests; native appearance pending |
+| Read-only scoped Home activity heatmap | [x] | [ ] | `workspace_activity.rs`, `live.rs`; calendar/transport/identity tests; light/dark native rendering checked |
 | Activity journal navigation, live refresh, partial reads and recovery | [ ] | [ ] | `ActivityPanel`, `reading.ts`, `useLiveEvents` |
 | Native menus, build information and safe external links | [ ] | [ ] | `AppDelegate`, `BuildInfo`, `WebURLPolicy` |
 | Native notifications and speech input | [ ] | [ ] | `NativeNotificationBridge`, `NativeSpeechBridge`, `VoiceView` |
@@ -57,7 +57,7 @@ Preview/Edit/Split and unified navigation/exit prompts. Ordinary use remains
 read-only. It supports one in-memory draft, not durable recovery or full editor
 parity. Independent source review and unit tests cover stale callbacks, save
 locking, and transition guards. Disposable native checks cover app-menu quit,
-Cancel, explicit Save, stale-source refusal and Discard, with child-port cleanup.
+Cancel, explicit Save, stale-source refusal, dirty Window Close/repeated Cmd-Q and Discard, with child-port cleanup.
 Dock Quit, active IME and pending/uncertain native-event checks remain open.
 See `NATIVE-QA.md` for evidence and the README for the fixture-only opt-in.
 

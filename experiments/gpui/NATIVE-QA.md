@@ -133,3 +133,42 @@ Observed in light mode:
 Dock Quit, active IME, native pending/uncertain save handling, multiple dirty tabs,
 dark/narrow visual comparison and selection/focus coverage remain pending.
 Ordinary vault editing remains disabled.
+
+### Dark-mode follow-up
+
+The same executable rendered Home activity and Calendar events in dark mode.
+Find distinguished its active and other matches while preserving inline-link
+underlines. Escape followed by clean Cmd-Q exited. This is not a matched Web
+comparison or a contrast/accessibility audit. Attempting to obtain Dock controls
+through the native automation surface returned `timeoutReached`; no Dock Quit
+was performed and no OS input-source settings were changed.
+
+## Lost save acknowledgement, 2026-11-14
+
+The `c055fe0` executable used a new public-help fixture and the test-only
+`qa/save_fault_proxy.py` adapter on dedicated loopback ports. The adapter forwarded
+one original PUT to the real Go backend, then dropped its successful response.
+
+- Save and continue from the quit prompt did not exit after the response loss.
+  The editor retained the draft/dirty mark and displayed “save outcome unknown”.
+- A second explicit Save was refused rather than retried. Inspect server content
+  fetched a comparison without replacing the draft or replaying the quit action.
+  The existing final-newline ambiguity remained explicitly reported.
+- The adapter recorded exactly one successful PUT and one dropped acknowledgement;
+  the disposable file contained the authored marker. This proves the uncertain
+  outcome was not merely a failed preflight or a fabricated backend response.
+- Discard followed by shutdown released public/upstream listeners. The adapter's
+  expected `reaped` audit entry was absent, so owned-child reap is not claimed for
+  this real-backend sequence. A subsequent automation observation showed a fresh
+  unavailable Home before a final clean Cmd-Q; the restart/observation sequence
+  remains ambiguous and needs a dedicated lifecycle follow-up.
+
+Native pending-success timing, Dock Quit and active IME remain unverified.
+This test does not enable ordinary editing or durable recovery.
+
+A follow-up clean GUI shutdown with the shorter adapter grace again lacked the
+reap audit entry; this did not establish the original cause. A separate non-GUI
+run with a new public fixture and real Go child did record SIGTERM, successful
+child reap (13 ms, exit 0) and adapter exit 0. This narrows the remaining gap to
+the GUI/adapter lifecycle sequence rather than proving it safe. The scaffold now
+records lifecycle signals and cleanup timing without logging note contents.

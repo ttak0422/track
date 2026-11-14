@@ -175,10 +175,13 @@ supported. Navigation and exit share Save/Discard/Cancel guards; saving locks
 input and retains the original source revision. Ambiguous failures are not
 retried automatically. Source comparison requires an exact body match before
 explicit reconciliation. Drafts are memory-only: crashes or forced termination
-can lose edits. Draft-preview links are inactive. Native IME, Dock Quit, window
-close and failure-path UI testing remain required before release.
+can lose edits. Draft-preview links are inactive. Native IME, Dock Quit and
+complete pending/failure-path UI testing remain required before release. `NATIVE-QA.md` records the exercised dirty-close and lost-save-ack
+subset. Use `qa/SAVE-FAULTS.md` only with a fresh disposable fixture to reproduce
+held or dropped acknowledgements; it never enables ordinary editing.
 
 Heading links currently support ordinary wiki/Markdown fragments against verified
 notes, including same-note hashes. Missing headings go to the note top. Block
 anchors, encoded fragments and explicit `h-*` IDs remain unsupported and show a
-notice rather than guessing a destination. Native fragment interaction is unverified.
+notice rather than guessing a destination. A plain same-note fragment was
+exercised; cross-note and dirty-navigation paths remain unverified.
