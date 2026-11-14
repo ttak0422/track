@@ -1,4 +1,4 @@
-//! Explicit disposable-fixture tab metadata only. Never loads or saves note bodies.
+//! Explicit disposable-fixture tab/history metadata only. Never loads or saves note bodies.
 use super::*;
 use std::path::PathBuf;
 
@@ -9,7 +9,7 @@ pub struct SessionOptions {
 }
 #[derive(Default)]
 struct Pending {
-    latest: Option<(u64, Vec<tabs::Tab>)>,
+    latest: Option<(u64, Vec<tabs::Tab>, navigation::Snapshot)>,
     completed: u64,
     error: Option<String>,
 }
@@ -28,8 +28,8 @@ impl Writer {
         let thread = std::thread::spawn(move || {
             while receiver.recv().is_ok() {
                 let snapshot = state.lock().unwrap().latest.take();
-                if let Some((sequence, entries)) = snapshot {
-                    let result = store.save(&entries);
+                if let Some((sequence, entries, history)) = snapshot {
+                    let result = store.save_with_history(&entries, &history);
                     let mut state = state.lock().unwrap();
                     state.completed = sequence;
                     if let Err(error) = result {
@@ -49,9 +49,9 @@ impl Writer {
             thread: Some(thread),
         }
     }
-    fn enqueue(&mut self, entries: Vec<tabs::Tab>) {
+    fn enqueue(&mut self, entries: Vec<tabs::Tab>, history: navigation::Snapshot) {
         self.sent += 1;
-        self.shared.lock().unwrap().latest = Some((self.sent, entries));
+        self.shared.lock().unwrap().latest = Some((self.sent, entries, history));
         // Full means a wake already exists; that wake consumes the latest snapshot.
         let _ = self.wake.as_ref().unwrap().try_send(());
     }
@@ -71,6 +71,8 @@ pub struct SessionUi {
     pub options: Option<SessionOptions>,
     worker: Option<Writer>,
     last: Vec<tabs::Tab>,
+    last_history: navigation::Snapshot,
+    restored_history: Option<navigation::History>,
     pub warning: Option<String>,
     pub safe_home: bool,
     known_vaults: Vec<String>,
@@ -96,7 +98,14 @@ impl SessionUi {
             )
         });
         match result {
-            Ok((store, entries)) => {
+            Ok((mut store, entries)) => {
+                let history = store
+                    .restored_history
+                    .take()
+                    .and_then(navigation::History::restore_home)
+                    .unwrap_or_default();
+                self.last_history = history.snapshot();
+                self.restored_history = Some(history);
                 let mut tabs = tabs::Tabs::restore(entries);
                 // Home is the safe active route; relative MRU order of restored notes is retained.
                 tabs.open_home();
@@ -110,9 +119,17 @@ impl SessionUi {
             }
         }
     }
-    pub fn sync(&mut self, tabs: &tabs::Tabs) {
+    /// Consume once; startup navigation races discard, never install, saved routes.
+    pub fn take_restored_history(&mut self, startup_current: bool) -> Option<navigation::History> {
+        self.restored_history.take().filter(|_| startup_current)
+    }
+    pub fn sync(&mut self, tabs: &tabs::Tabs, history: &navigation::History) {
         self.poll_warning();
-        if self.last == tabs.entries() {
+        if self.worker.is_none() {
+            return;
+        }
+        let history = history.snapshot();
+        if self.last == tabs.entries() && self.last_history == history {
             return;
         }
         if self.worker.is_some()
@@ -131,7 +148,8 @@ impl SessionUi {
             return;
         };
         // Bounded latest snapshot, not a queue of disk writes. No filesystem work here.
-        worker.enqueue(tabs.entries().to_vec());
+        worker.enqueue(tabs.entries().to_vec(), history.clone());
+        self.last_history = history;
         self.last = tabs.entries().to_vec();
     }
     pub fn poll_warning(&mut self) {
@@ -223,11 +241,67 @@ mod tests {
         assert!(ui.restore(Err("must not be consulted".into())).is_none());
         let mut tabs = tabs::Tabs::default();
         tabs.open_graph();
-        ui.sync(&tabs);
+        ui.sync(&tabs, &navigation::History::default());
         ui.flush();
         assert!(ui.warning.is_none());
         assert!(ui.worker.is_none());
         assert!(!ui.safe_home);
+    }
+    #[test]
+    fn restart_history_requires_explicit_back_and_cursor_only_change_is_saved() {
+        let fixture = Fixture::new();
+        let mut ui = fixture.ui();
+        let mut tabs = ui.restore(registry()).unwrap();
+        let mut history = ui.restored_history.take().unwrap();
+        tabs.open_note("work", 7, "A");
+        history.record(tabs.active().map(|t| t.key.clone()));
+        tabs.open_graph();
+        history.record(Some(tabs::TabKey::Graph));
+        ui.sync(&tabs, &history);
+        ui.flush();
+        let saved = fixture.bytes();
+        drop(ui);
+        let mut restarted = fixture.ui();
+        let tabs = restarted.restore(registry()).unwrap();
+        let mut history = restarted.restored_history.take().unwrap();
+        assert_eq!(tabs.active().unwrap().key, tabs::TabKey::Home);
+        assert_eq!(history.snapshot().routes.last(), Some(&tabs::TabKey::Home));
+        assert!(history.peek(true).is_none());
+        restarted.sync(&tabs, &history);
+        restarted.flush();
+        assert_eq!(fixture.bytes(), saved); // Safe Home normalization does not rewrite startup.
+        let back = history.peek(false).unwrap();
+        assert_eq!(back.route, Some(tabs::TabKey::Graph));
+        assert!(history.commit(&back));
+        restarted.sync(&tabs, &history);
+        restarted.flush();
+        let moved = fixture.bytes();
+        assert_ne!(moved, saved);
+        let json: serde_json::Value = serde_json::from_slice(&moved).unwrap();
+        assert_eq!(json["history"]["cursor"], history.snapshot().cursor);
+        // The same tabs with a different accepted cursor must still persist.
+        assert!(history.commit(&history.peek(true).unwrap()));
+        restarted.sync(&tabs, &history);
+        restarted.flush();
+        assert_ne!(fixture.bytes(), moved);
+    }
+    #[test]
+    fn startup_race_discards_saved_history_without_replacing_current_routes() {
+        let mut ui = SessionUi::default();
+        let mut saved = navigation::History::default();
+        saved.record(Some(tabs::TabKey::Note {
+            vault: "work".into(),
+            note_id: 7,
+        }));
+        ui.restored_history = Some(saved);
+        let mut current = navigation::History::default();
+        current.record(Some(tabs::TabKey::Graph));
+        let before = current.clone();
+        if let Some(restored) = ui.take_restored_history(false) {
+            current = restored;
+        }
+        assert_eq!(current, before);
+        assert!(ui.take_restored_history(true).is_none());
     }
     #[test]
     fn startup_reads_without_writing_and_selects_safe_home() {
@@ -235,7 +309,7 @@ mod tests {
         let mut ui = fixture.ui();
         let mut tabs = ui.restore(registry()).unwrap();
         tabs.open_note("work", 7, "日本語");
-        ui.sync(&tabs);
+        ui.sync(&tabs, &navigation::History::default());
         ui.flush();
         let bytes = fixture.bytes();
         drop(ui);
@@ -243,7 +317,7 @@ mod tests {
         let restored = restarted.restore(registry()).unwrap();
         assert_eq!(restored.active().unwrap().key, tabs::TabKey::Home);
         assert_eq!(restored.entries()[1].title, "日本語");
-        restarted.sync(&restored);
+        restarted.sync(&restored, &navigation::History::default());
         restarted.flush();
         assert_eq!(fixture.bytes(), bytes);
         assert!(!restarted.permits("unknown"));
@@ -259,7 +333,7 @@ mod tests {
         let key = tabs.open_note("work", 7, "first");
         for n in 0..200 {
             tabs.update_title(&key, format!("title {n}"));
-            ui.sync(&tabs);
+            ui.sync(&tabs, &navigation::History::default());
         }
         ui.flush();
         let saved: serde_json::Value = serde_json::from_slice(&fixture.bytes()).unwrap();
@@ -270,13 +344,13 @@ mod tests {
         )
         .unwrap();
         tabs.open_graph();
-        ui.sync(&tabs);
+        ui.sync(&tabs, &navigation::History::default());
         ui.flush();
         ui.poll_warning();
         assert!(ui.warning.as_deref().unwrap().contains("conflict"));
         assert!(ui.worker.is_none());
         tabs.open_home();
-        ui.sync(&tabs);
+        ui.sync(&tabs, &navigation::History::default());
         assert_eq!(fixture.bytes(), b"corrupt external replacement");
     }
     #[test]
@@ -284,8 +358,10 @@ mod tests {
         let fixture = Fixture::new();
         let mut ui = fixture.ui();
         let mut tabs = ui.restore(registry()).unwrap();
+        let mut history = ui.restored_history.take().unwrap();
         tabs.open_note("work", 7, "Original");
-        ui.sync(&tabs);
+        history.record(tabs.active().map(|t| t.key.clone()));
+        ui.sync(&tabs, &history);
         ui.flush();
         let before = fixture.bytes();
         let storage: live::Storage = serde_json::from_value(
@@ -300,7 +376,7 @@ mod tests {
                 .unwrap(),
             editing::LeaveAction::Stay
         ));
-        ui.sync(&tabs);
+        ui.sync(&tabs, &history);
         ui.flush();
         assert_eq!(fixture.bytes(), before);
         let editing::LeaveAction::Save(save) = edit
@@ -310,14 +386,14 @@ mod tests {
             panic!()
         };
         assert_eq!(edit.leave_prompt(), editing::LeavePrompt::WaitForSave);
-        ui.sync(&tabs);
+        ui.sync(&tabs, &history);
         ui.flush();
         assert_eq!(fixture.bytes(), before);
         assert_eq!(
             edit.finish_save(save.attempt, 1, 2, Err(live::Error::Stale)),
             editing::SaveOutcome::Retained
         );
-        ui.sync(&tabs);
+        ui.sync(&tabs, &history);
         ui.flush();
         assert_eq!(fixture.bytes(), before);
         assert!(matches!(
@@ -326,7 +402,8 @@ mod tests {
             editing::LeaveAction::Leave
         ));
         tabs.open_graph();
-        ui.sync(&tabs);
+        history.record(Some(tabs::TabKey::Graph));
+        ui.sync(&tabs, &history);
         ui.flush();
         assert_ne!(fixture.bytes(), before);
         assert!(

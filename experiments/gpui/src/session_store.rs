@@ -27,6 +27,14 @@ struct Snapshot {
     binding: String,
     revision: u64,
     tabs: Vec<Entry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    history: Option<HistoryEntry>,
+}
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HistoryEntry {
+    routes: Vec<Kind>,
+    cursor: usize,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -37,9 +45,20 @@ struct Entry {
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type", deny_unknown_fields)]
 enum Kind {
-    Home,
-    Graph,
+    Home {},
+    Graph {},
     Note { vault: String, note_id: i64 },
+}
+
+fn encode_kind(key: &TabKey) -> Kind {
+    match key {
+        TabKey::Home => Kind::Home {},
+        TabKey::Graph => Kind::Graph {},
+        TabKey::Note { vault, note_id } => Kind::Note {
+            vault: vault.clone(),
+            note_id: *note_id,
+        },
+    }
 }
 
 pub struct SessionStore {
@@ -52,6 +71,7 @@ pub struct SessionStore {
     binding: String,
     revision: u64,
     original: Option<Vec<u8>>,
+    pub restored_history: Option<crate::navigation::Snapshot>,
 }
 fn err(e: impl std::fmt::Display) -> String {
     format!("Fixture tab persistence disabled: {e}")
@@ -195,13 +215,29 @@ impl SessionStore {
             binding,
             revision: 0,
             original: None,
+            restored_history: None,
         };
         let original = store.read()?;
         let tabs = if let Some(bytes) = &original {
+            let value: serde_json::Value = serde_json::from_slice(bytes).map_err(err)?;
+            if value.get("version").and_then(|v| v.as_u64()) == Some(1)
+                && value.get("history").is_some()
+            {
+                return Err(err("unexpected history in version 1"));
+            }
             let s: Snapshot = serde_json::from_slice(bytes).map_err(err)?;
-            if s.owner != OWNER || s.version != 1 || s.binding != store.binding || s.revision == 0 {
+            if s.owner != OWNER
+                || !matches!(s.version, 1 | 2)
+                || s.binding != store.binding
+                || s.revision == 0
+            {
                 return Err(err("schema or fixture/registry binding mismatch"));
             }
+            store.restored_history = match (s.version, s.history) {
+                (1, None) => None,
+                (2, Some(history)) => Some(store.decode_history(history)?),
+                _ => return Err(err("invalid history schema")),
+            };
             store.revision = s.revision;
             store.decode(s.tabs)?
         } else {
@@ -233,6 +269,44 @@ impl SessionStore {
         owned(&f, false, true)?;
         Ok(Some(bounded(f, LIMIT)?))
     }
+    fn decode_kind(&self, kind: Kind) -> Result<TabKey, String> {
+        match kind {
+            Kind::Home {} => Ok(TabKey::Home),
+            Kind::Graph {} => Ok(TabKey::Graph),
+            Kind::Note { vault, note_id }
+                if note_id > 0
+                    && vault.len() <= 1024
+                    && !vault.contains('\0')
+                    && self.registry.contains(&vault) =>
+            {
+                Ok(TabKey::Note { vault, note_id })
+            }
+            _ => Err(err("unknown vault or invalid note identity")),
+        }
+    }
+    fn decode_history(&self, history: HistoryEntry) -> Result<crate::navigation::Snapshot, String> {
+        if history.routes.is_empty()
+            || history.routes.len() > crate::navigation::LIMIT
+            || history.cursor >= history.routes.len()
+        {
+            return Err(err("invalid history bounds"));
+        }
+        Ok(crate::navigation::Snapshot {
+            routes: history
+                .routes
+                .into_iter()
+                .map(|r| self.decode_kind(r))
+                .collect::<Result<_, _>>()?,
+            cursor: history.cursor,
+        })
+    }
+    pub fn save_with_history(
+        &mut self,
+        tabs: &[Tab],
+        history: &crate::navigation::Snapshot,
+    ) -> Result<(), String> {
+        self.save_snapshot(tabs, history, false)
+    }
     fn decode(&self, entries: Vec<Entry>) -> Result<Vec<Tab>, String> {
         if entries.len() > 128 {
             return Err(err("too many tabs"));
@@ -244,16 +318,7 @@ impl SessionStore {
                 if entry.title.len() > 2048 || entry.title.contains('\0') {
                     return Err(err("invalid title hint"));
                 }
-                let key = match entry.kind {
-                    Kind::Home => TabKey::Home,
-                    Kind::Graph => TabKey::Graph,
-                    Kind::Note { vault, note_id } => {
-                        if note_id <= 0 || !self.registry.contains(&vault) {
-                            return Err(err("unknown vault or invalid note identity"));
-                        }
-                        TabKey::Note { vault, note_id }
-                    }
-                };
+                let key = self.decode_kind(entry.kind)?;
                 if !seen.insert(key.clone()) {
                     return Err(err("duplicate tab identity"));
                 }
@@ -266,10 +331,20 @@ impl SessionStore {
             })
             .collect()
     }
+    #[cfg(test)]
     pub fn save(&mut self, tabs: &[Tab]) -> Result<(), String> {
         self.save_inner(tabs, false)
     }
+    #[cfg(test)]
     fn save_inner(&mut self, tabs: &[Tab], interrupt: bool) -> Result<(), String> {
+        self.save_snapshot(tabs, &crate::navigation::Snapshot::default(), interrupt)
+    }
+    fn save_snapshot(
+        &mut self,
+        tabs: &[Tab],
+        history: &crate::navigation::Snapshot,
+        interrupt: bool,
+    ) -> Result<(), String> {
         let current = path_file(&self.cache, true)?;
         let a = current.metadata().map_err(err)?;
         let b = self.dir.metadata().map_err(err)?;
@@ -296,8 +371,8 @@ impl SessionStore {
             .map(|t| Entry {
                 title: t.title.clone(),
                 kind: match &t.key {
-                    TabKey::Home => Kind::Home,
-                    TabKey::Graph => Kind::Graph,
+                    TabKey::Home => Kind::Home {},
+                    TabKey::Graph => Kind::Graph {},
                     TabKey::Note { vault, note_id } => Kind::Note {
                         vault: vault.clone(),
                         note_id: *note_id,
@@ -308,16 +383,24 @@ impl SessionStore {
         // Validate exactly the same bounds and identity policy in both directions.
         let entries_json = serde_json::to_vec(&entries).map_err(err)?;
         self.decode(serde_json::from_slice(&entries_json).map_err(err)?)?;
+        self.decode_history(HistoryEntry {
+            routes: history.routes.iter().map(encode_kind).collect(),
+            cursor: history.cursor,
+        })?;
         let revision = self
             .revision
             .checked_add(1)
             .ok_or_else(|| err("revision overflow"))?;
         let bytes = serde_json::to_vec(&Snapshot {
             owner: OWNER.into(),
-            version: 1,
+            version: 2,
             binding: self.binding.clone(),
             revision,
             tabs: entries,
+            history: Some(HistoryEntry {
+                routes: history.routes.iter().map(encode_kind).collect(),
+                cursor: history.cursor,
+            }),
         })
         .map_err(err)?;
         if bytes.len() as u64 > LIMIT {
@@ -435,6 +518,115 @@ mod tests {
         ]
     }
     #[test]
+    fn history_v2_roundtrip_and_strict_legacy_migration() {
+        let f = Fixture::new();
+        let (mut store, _) = f.open().unwrap();
+        let mut history = crate::navigation::History::default();
+        history.record(Some(TabKey::Note {
+            vault: "two".into(),
+            note_id: 7,
+        }));
+        store
+            .save_with_history(&tabs(), &history.snapshot())
+            .unwrap();
+        drop(store);
+        let before = std::fs::read(f.state()).unwrap();
+        let (store, _) = f.open().unwrap();
+        assert_eq!(store.restored_history, Some(history.snapshot()));
+        assert_eq!(std::fs::read(f.state()).unwrap(), before);
+        drop(store);
+        let mut legacy: serde_json::Value = serde_json::from_slice(&before).unwrap();
+        legacy["version"] = 1.into();
+        legacy.as_object_mut().unwrap().remove("history");
+        let legacy = serde_json::to_vec(&legacy).unwrap();
+        f.replace(&legacy);
+        let (mut store, restored) = f.open().unwrap();
+        assert!(store.restored_history.is_none());
+        assert_eq!(std::fs::read(f.state()).unwrap(), legacy);
+        store
+            .save_with_history(&restored, &history.snapshot())
+            .unwrap();
+        let saved: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(f.state()).unwrap()).unwrap();
+        assert_eq!(saved["version"], 2);
+        assert_eq!(saved["history"]["routes"][1]["vault"], "two");
+    }
+    #[test]
+    fn invalid_history_save_preserves_previous_snapshot() {
+        let f = Fixture::new();
+        let (mut store, _) = f.open().unwrap();
+        store.save(&tabs()).unwrap();
+        let before = std::fs::read(f.state()).unwrap();
+        for history in [
+            crate::navigation::Snapshot {
+                routes: vec![],
+                cursor: 0,
+            },
+            crate::navigation::Snapshot {
+                routes: vec![TabKey::Home],
+                cursor: 1,
+            },
+            crate::navigation::Snapshot {
+                routes: vec![TabKey::Home; 101],
+                cursor: 0,
+            },
+            crate::navigation::Snapshot {
+                routes: vec![TabKey::Note {
+                    vault: "missing".into(),
+                    note_id: 7,
+                }],
+                cursor: 0,
+            },
+        ] {
+            assert!(store.save_with_history(&tabs(), &history).is_err());
+            assert_eq!(std::fs::read(f.state()).unwrap(), before);
+        }
+    }
+    #[test]
+    fn invalid_history_schema_routes_and_cursor_preserve_artifact() {
+        let f = Fixture::new();
+        let (mut store, _) = f.open().unwrap();
+        store.save(&tabs()).unwrap();
+        drop(store);
+        let original: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(f.state()).unwrap()).unwrap();
+        let duplicate = serde_json::to_string(&original)
+            .unwrap()
+            .replace("\"cursor\":0", "\"cursor\":0,\"cursor\":0");
+        f.replace(duplicate.as_bytes());
+        assert!(f.open().is_err());
+        assert_eq!(std::fs::read(f.state()).unwrap(), duplicate.as_bytes());
+        let invalid = [
+            serde_json::json!(null),
+            serde_json::json!({"routes":[],"cursor":0}),
+            serde_json::json!({"routes":[{"type":"Home"}],"cursor":1}),
+            serde_json::json!({"routes":[{"type":"Note","vault":"missing","note_id":7}],"cursor":0}),
+            serde_json::json!({"routes":[{"type":"Note","vault":"one","note_id":0}],"cursor":0}),
+            serde_json::json!({"routes":[{"type":"Home","body":"private"}],"cursor":0}),
+            serde_json::json!({"routes":[{"type":"Home"}],"cursor":0,"draft":"private"}),
+            serde_json::json!({"routes":vec![serde_json::json!({"type":"Home"});101],"cursor":0}),
+        ];
+        for history in invalid {
+            let mut value = original.clone();
+            value["history"] = history;
+            let bytes = serde_json::to_vec(&value).unwrap();
+            f.replace(&bytes);
+            assert!(
+                f.open().is_err(),
+                "accepted {}",
+                String::from_utf8_lossy(&bytes)
+            );
+            assert_eq!(std::fs::read(f.state()).unwrap(), bytes);
+        }
+        let mut value = original;
+        value["version"] = 1.into();
+        value["history"] = serde_json::Value::Null;
+        let bytes = serde_json::to_vec(&value).unwrap();
+        f.replace(&bytes);
+        assert!(f.open().is_err());
+        assert_eq!(std::fs::read(f.state()).unwrap(), bytes);
+    }
+    #[test]
     fn roundtrip_is_bounded_identity_only_and_startup_does_not_write() {
         let f = Fixture::new();
         let (mut s, initial) = f.open().unwrap();
@@ -485,7 +677,11 @@ mod tests {
             unknown,
         ] {
             f.replace(&bytes);
-            assert!(f.open().is_err());
+            assert!(
+                f.open().is_err(),
+                "accepted {}",
+                String::from_utf8_lossy(&bytes)
+            );
             assert_eq!(std::fs::read(f.state()).unwrap(), bytes);
         }
     }

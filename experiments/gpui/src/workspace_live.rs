@@ -180,8 +180,13 @@ impl Workspace {
                         let apply_startup_route = startup_navigation
                             .accepts(&this.startup_navigation(), this.quit_session.is_closing());
                         this.session_ui = session_ui;
+                        let restored_history =
+                            this.session_ui.take_restored_history(apply_startup_route);
                         if apply_startup_route {
                             if let Some(tabs) = tabs {
+                                if let Some(history) = restored_history {
+                                    this.history = history;
+                                }
                                 this.tabs = tabs;
                             }
                             this.live = Some(session);
@@ -194,7 +199,7 @@ impl Workspace {
                                 .as_ref()
                                 .map(|state| state.generation);
                             this.live = Some(session);
-                            this.session_ui.sync(&this.tabs);
+                            this.session_ui.sync(&this.tabs, &this.history);
                             this.status =
                                 "Owned server ready; current view retained. Reload for fresh data."
                                     .into();
@@ -498,7 +503,7 @@ impl Workspace {
         }
         // Accept before I/O; completion fills this route without adding a visit.
         accept_note_route(&mut self.tabs, &mut self.history, &key);
-        self.session_ui.sync(&self.tabs);
+        self.session_ui.sync(&self.tabs, &self.history);
         self.selected = None;
         self.content.clear();
         self.current_note = None;

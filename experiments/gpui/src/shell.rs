@@ -1154,9 +1154,9 @@ impl Workspace {
                 self.tabs.open_home();
                 // Reopen literal Home while preserving background tabs.
                 self.show_empty_home();
-                self.session_ui.sync(&self.tabs);
             }
         }
+        self.session_ui.sync(&self.tabs, &self.history);
         cx.notify();
     }
     pub(crate) fn activate_tab(&mut self, key: tabs::TabKey, cx: &mut Context<Self>) {
@@ -1188,7 +1188,6 @@ impl Workspace {
         if !self.tabs.activate(&key) {
             return;
         }
-        self.session_ui.sync(&self.tabs);
         self.shell.tab_menu = false;
         self.shell.search_open = false;
         match key {
@@ -1213,6 +1212,7 @@ impl Workspace {
                 }
             }
         }
+        self.session_ui.sync(&self.tabs, &self.history);
         cx.notify();
     }
     pub(crate) fn close_tab(&mut self, key: &tabs::TabKey, cx: &mut Context<Self>) {
@@ -1231,7 +1231,6 @@ impl Workspace {
         if !self.tabs.close(key) {
             return;
         }
-        self.session_ui.sync(&self.tabs);
         self.shell.tab_menu = false;
         if was_active {
             if let Some(next) = self.tabs.active().map(|tab| tab.key.clone()) {
@@ -1243,6 +1242,7 @@ impl Workspace {
                 self.show_empty_home();
             }
         }
+        self.session_ui.sync(&self.tabs, &self.history);
         cx.notify();
     }
     pub fn configured_home_index(&self) -> Option<usize> {
@@ -1288,6 +1288,7 @@ impl Workspace {
         self.current_note_request = None;
         self.current_related.clear();
         self.show_graph = false;
+        self.session_ui.sync(&self.tabs, &self.history);
     }
     pub(crate) fn open_home(&mut self, cx: &mut Context<Self>) {
         if self.guard_transition(workspace_edit::Transition::Home, cx) {
@@ -1308,7 +1309,6 @@ impl Workspace {
             self.load_live_notes(cx);
         } else {
             self.tabs.open_home();
-            self.session_ui.sync(&self.tabs);
             self.show_empty_home();
         }
         cx.notify();
@@ -1496,7 +1496,7 @@ impl Render for Workspace {
                 body.note.title.clone(),
             );
         }
-        self.session_ui.sync(&self.tabs);
+        self.session_ui.sync(&self.tabs, &self.history);
         self.search.update(cx, |search, _| search.set_dark(dark));
         let full_graph_active = self.full_graph_active();
         self.graph_view.update(cx, |graph, cx| {

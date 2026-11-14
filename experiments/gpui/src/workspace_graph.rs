@@ -30,7 +30,7 @@ impl Workspace {
         }
         self.tabs.open_graph();
         self.history.record(Some(tabs::TabKey::Graph));
-        self.session_ui.sync(&self.tabs);
+        self.session_ui.sync(&self.tabs, &self.history);
         self.shell.home = false;
         self.shell.search_open = false;
         self.shell.tab_menu = false;

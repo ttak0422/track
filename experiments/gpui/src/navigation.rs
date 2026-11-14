@@ -1,6 +1,16 @@
-//! Bounded, session-only page history, independent of tab recency and titles.
+//! Bounded page history with explicit fixture snapshot support, independent of tab recency and titles.
 use crate::tabs::TabKey;
-const LIMIT: usize = 100;
+pub const LIMIT: usize = 100;
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Snapshot {
+    pub routes: Vec<TabKey>,
+    pub cursor: usize,
+}
+impl Default for Snapshot {
+    fn default() -> Self {
+        History::default().snapshot()
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Ticket {
     revision: u64,
@@ -23,6 +33,44 @@ impl Default for History {
     }
 }
 impl History {
+    pub fn snapshot(&self) -> Snapshot {
+        Snapshot {
+            routes: self
+                .entries
+                .iter()
+                .map(|r| r.clone().unwrap_or(TabKey::Home))
+                .collect(),
+            cursor: self.cursor,
+        }
+    }
+    /// Explicit fixture restoration is a new safe Home visit, not an auto-replay.
+    /// Discard the saved forward branch and retain at most 99 prior routes.
+    pub fn restore_home(snapshot: Snapshot) -> Option<Self> {
+        if snapshot.routes.is_empty()
+            || snapshot.routes.len() > LIMIT
+            || snapshot.cursor >= snapshot.routes.len()
+        {
+            return None;
+        }
+        let mut entries: Vec<_> = snapshot
+            .routes
+            .into_iter()
+            .take(snapshot.cursor + 1)
+            .map(Some)
+            .collect();
+        if entries.last() != Some(&Some(TabKey::Home)) {
+            entries.push(Some(TabKey::Home));
+        }
+        if entries.len() > LIMIT {
+            entries.remove(0);
+        }
+        Some(Self {
+            cursor: entries.len() - 1,
+            entries,
+            revision: 0,
+        })
+    }
+
     /// Startup may still choose its configured Home. An accepted empty Home is
     /// instead a real route, even though closing the last tab left no tab entry.
     pub fn reload_route(&self, tabs: &crate::tabs::Tabs) -> Option<TabKey> {
@@ -165,5 +213,77 @@ mod tests {
             assert!(h.commit(&h.peek(false).unwrap()));
         }
         assert!(h.peek(false).is_none());
+    }
+}
+
+#[cfg(test)]
+mod restoration_tests {
+    use super::*;
+    #[test]
+    fn restart_home_retains_past_and_truncates_forward_without_replaying() {
+        let mut history = History::default();
+        history.record(Some(TabKey::Note {
+            vault: "one".into(),
+            note_id: 7,
+        }));
+        history.record(Some(TabKey::Note {
+            vault: "two".into(),
+            note_id: 7,
+        }));
+        history.commit(&history.peek(false).unwrap());
+        let mut restored = History::restore_home(history.snapshot()).unwrap();
+        assert_eq!(restored.snapshot().routes.last(), Some(&TabKey::Home));
+        assert!(restored.peek(true).is_none());
+        let back = restored.peek(false).unwrap();
+        assert_eq!(
+            back.route,
+            Some(TabKey::Note {
+                vault: "one".into(),
+                note_id: 7
+            })
+        );
+        restored.commit(&back);
+        assert_eq!(restored.peek(true).unwrap().route, Some(TabKey::Home));
+        restored.record(Some(TabKey::Graph));
+        assert!(restored.peek(true).is_none());
+    }
+    #[test]
+    fn restore_bounds_empty_invalid_cursor_and_repeated_home() {
+        assert!(
+            History::restore_home(Snapshot {
+                routes: vec![],
+                cursor: 0
+            })
+            .is_none()
+        );
+        assert!(
+            History::restore_home(Snapshot {
+                routes: vec![TabKey::Home],
+                cursor: 1
+            })
+            .is_none()
+        );
+        assert!(
+            History::restore_home(Snapshot {
+                routes: vec![TabKey::Home; 101],
+                cursor: 0
+            })
+            .is_none()
+        );
+        let mut history = History::default();
+        for id in 1..=150 {
+            history.record(Some(TabKey::Note {
+                vault: "one".into(),
+                note_id: id,
+            }));
+        }
+        let restored = History::restore_home(history.snapshot()).unwrap();
+        assert_eq!(restored.snapshot().routes.len(), 100);
+        assert_eq!(
+            History::restore_home(restored.snapshot())
+                .unwrap()
+                .snapshot(),
+            restored.snapshot()
+        );
     }
 }
