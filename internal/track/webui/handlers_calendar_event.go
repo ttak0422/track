@@ -91,7 +91,7 @@ func (s *Server) handleCalendarEventsDay(v *vaultView, w http.ResponseWriter, r 
 		writeError(w, errors.New("deleted is not supported for day projection"), http.StatusBadRequest)
 		return
 	}
-	day, err := calendarevent.Day(v.cfg, query.Get("date"), query.Get("time_zone"))
+	day, err := calendarevent.DayContext(r.Context(), v.cfg, query.Get("date"), query.Get("time_zone"))
 	if err != nil {
 		eventError(w, err)
 		return

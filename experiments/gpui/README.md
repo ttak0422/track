@@ -446,28 +446,33 @@ loads. Pinned previews and offline snapshots do not load images. Images are scal
 within reader bounds; orientation/color-profile and native GPU/layout/scroll/AX
 parity remain unverified. Ordinary editing stays disabled.
 
-### Native UTC calendar events
+### Native calendar display zones
 
 Select a Home activity day to list calendar events in the working vault. The
-section is explicitly labelled **Calendar events · YYYY-MM-DD (UTC)**. Timed
-events are matched against that UTC date, not the device-local day's interval.
-Their original start/end timestamps and event time zone remain visible; the
-selected date label is reused as a UTC date even if the Home picker is local.
-All-day events instead keep their independent civil-date range, including the
-first date and excluding the end date. Cancelled events remain visible.
+initial display zone is explicitly **UTC**, not the device time zone. Enter a
+named zone such as `Asia/Tokyo` or `America/New_York` and choose **Apply** to
+request that date in the selected zone. Typing alone does not fetch. A failed
+Apply keeps the previous accepted zone and results, with a separate error;
+it never silently falls back to UTC or relabels old results.
 
-The engine performs precise instant comparisons, including timestamp offsets and
-fractional seconds. Events ending exactly at UTC midnight do not belong to the
-following day. This is a UTC-only subset, not full calendar time-zone parity:
-there is no display-zone selector, recurrence expansion, event editing or link
-opening. Existing calendar clients retain their original list API.
+The engine determines the actual interval for that civil date, including
+23-hour and 25-hour daylight-saving days and midnight transitions. Nonexistent
+or unsupported historical dates fail explicitly. Timed events use precise
+instant comparisons, including offsets and fractional seconds. Their original
+start/end timestamps and event zone remain visible. All-day events keep their
+independent civil-date range, including the first date and excluding the end
+date. Cancelled events remain visible.
+
+The applied zone is session-local. Device-zone following, persistent calendar
+preferences, recurrence expansion, event editing and event-link opening remain
+unsupported. Existing calendar clients retain their original list API.
 
 Up to 4096 source events are accepted; larger or unreadable snapshots fail
 explicitly rather than appearing complete. Results use pages of 100 rows, so
 later matches remain reachable. Active notes, tasks and events report failures
-independently; Retry refreshes the selected scope/day. Stale responses cannot
-replace a newer selection. Successful results are snapshots, not a guarantee of
-vault-wide freshness. Native layout, keyboard and accessibility QA remains pending.
+independently. Stale responses cannot replace a newer date, zone or scope.
+Successful results are snapshots, not a guarantee of vault-wide freshness.
+Native layout, keyboard, IME and accessibility QA remains pending.
 
 ### Recorded reading milestones
 

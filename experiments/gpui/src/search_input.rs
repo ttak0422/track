@@ -42,6 +42,7 @@ pub struct SearchChanged(pub String);
 pub enum InputPurpose {
     WorkspaceSearch,
     ReaderFind,
+    CalendarZone,
 }
 impl InputPurpose {
     fn context(self, composing: bool) -> &'static str {
@@ -50,22 +51,35 @@ impl InputPurpose {
             (Self::WorkspaceSearch, true) => "TrackSearch composing",
             (Self::ReaderFind, false) => "TrackReaderFind",
             (Self::ReaderFind, true) => "TrackReaderFind composing",
+            (Self::CalendarZone, false) => "TrackCalendarZone",
+            (Self::CalendarZone, true) => "TrackCalendarZone composing",
         }
     }
     fn placeholder(self) -> &'static str {
         match self {
             Self::WorkspaceSearch => "Search notes…",
             Self::ReaderFind => "Find in page",
+            Self::CalendarZone => "IANA display zone (e.g. Asia/Tokyo)",
         }
     }
 }
 
+fn replacement_fits(
+    purpose: InputPurpose,
+    current: usize,
+    removed: usize,
+    inserted: usize,
+) -> bool {
+    purpose != InputPurpose::CalendarZone
+        || current.saturating_sub(removed).saturating_add(inserted) <= 128
+}
+
 fn emits_unmark(purpose: InputPurpose, was_marked: bool) -> bool {
-    purpose == InputPurpose::ReaderFind && was_marked
+    purpose != InputPurpose::WorkspaceSearch && was_marked
 }
 
 fn emits_change(purpose: InputPurpose, marked: bool) -> bool {
-    purpose == InputPurpose::WorkspaceSearch || !marked
+    purpose != InputPurpose::ReaderFind || !marked
 }
 
 pub struct SearchInput {
@@ -152,49 +166,93 @@ fn search_bindings() -> Vec<KeyBinding> {
         KeyBinding::new(
             "backspace",
             Backspace,
-            Some("TrackSearch || TrackReaderFind"),
+            Some("TrackSearch || TrackReaderFind || TrackCalendarZone"),
         ),
-        KeyBinding::new("delete", Delete, Some("TrackSearch || TrackReaderFind")),
-        KeyBinding::new("left", Left, Some("TrackSearch || TrackReaderFind")),
-        KeyBinding::new("right", Right, Some("TrackSearch || TrackReaderFind")),
+        KeyBinding::new(
+            "delete",
+            Delete,
+            Some("TrackSearch || TrackReaderFind || TrackCalendarZone"),
+        ),
+        KeyBinding::new(
+            "left",
+            Left,
+            Some("TrackSearch || TrackReaderFind || TrackCalendarZone"),
+        ),
+        KeyBinding::new(
+            "right",
+            Right,
+            Some("TrackSearch || TrackReaderFind || TrackCalendarZone"),
+        ),
         KeyBinding::new(
             "shift-left",
             ExtendLeft,
-            Some("TrackSearch || TrackReaderFind"),
+            Some("TrackSearch || TrackReaderFind || TrackCalendarZone"),
         ),
         KeyBinding::new(
             "shift-right",
             ExtendRight,
-            Some("TrackSearch || TrackReaderFind"),
+            Some("TrackSearch || TrackReaderFind || TrackCalendarZone"),
         ),
-        KeyBinding::new("home", Home, Some("TrackSearch || TrackReaderFind")),
-        KeyBinding::new("end", End, Some("TrackSearch || TrackReaderFind")),
-        KeyBinding::new("cmd-left", Home, Some("TrackSearch || TrackReaderFind")),
-        KeyBinding::new("cmd-right", End, Some("TrackSearch || TrackReaderFind")),
+        KeyBinding::new(
+            "home",
+            Home,
+            Some("TrackSearch || TrackReaderFind || TrackCalendarZone"),
+        ),
+        KeyBinding::new(
+            "end",
+            End,
+            Some("TrackSearch || TrackReaderFind || TrackCalendarZone"),
+        ),
+        KeyBinding::new(
+            "cmd-left",
+            Home,
+            Some("TrackSearch || TrackReaderFind || TrackCalendarZone"),
+        ),
+        KeyBinding::new(
+            "cmd-right",
+            End,
+            Some("TrackSearch || TrackReaderFind || TrackCalendarZone"),
+        ),
         KeyBinding::new(
             "shift-home",
             ExtendHome,
-            Some("TrackSearch || TrackReaderFind"),
+            Some("TrackSearch || TrackReaderFind || TrackCalendarZone"),
         ),
         KeyBinding::new(
             "shift-end",
             ExtendEnd,
-            Some("TrackSearch || TrackReaderFind"),
+            Some("TrackSearch || TrackReaderFind || TrackCalendarZone"),
         ),
         KeyBinding::new(
             "cmd-shift-left",
             ExtendHome,
-            Some("TrackSearch || TrackReaderFind"),
+            Some("TrackSearch || TrackReaderFind || TrackCalendarZone"),
         ),
         KeyBinding::new(
             "cmd-shift-right",
             ExtendEnd,
-            Some("TrackSearch || TrackReaderFind"),
+            Some("TrackSearch || TrackReaderFind || TrackCalendarZone"),
         ),
-        KeyBinding::new("cmd-a", SelectAll, Some("TrackSearch || TrackReaderFind")),
-        KeyBinding::new("cmd-c", Copy, Some("TrackSearch || TrackReaderFind")),
-        KeyBinding::new("cmd-x", Cut, Some("TrackSearch || TrackReaderFind")),
-        KeyBinding::new("cmd-v", Paste, Some("TrackSearch || TrackReaderFind")),
+        KeyBinding::new(
+            "cmd-a",
+            SelectAll,
+            Some("TrackSearch || TrackReaderFind || TrackCalendarZone"),
+        ),
+        KeyBinding::new(
+            "cmd-c",
+            Copy,
+            Some("TrackSearch || TrackReaderFind || TrackCalendarZone"),
+        ),
+        KeyBinding::new(
+            "cmd-x",
+            Cut,
+            Some("TrackSearch || TrackReaderFind || TrackCalendarZone"),
+        ),
+        KeyBinding::new(
+            "cmd-v",
+            Paste,
+            Some("TrackSearch || TrackReaderFind || TrackCalendarZone"),
+        ),
     ]
 }
 
@@ -266,7 +324,11 @@ impl SearchInput {
             dark: false,
             selected_result: None,
             focus: cx.focus_handle(),
-            text: String::new(),
+            text: if purpose == InputPurpose::CalendarZone {
+                "UTC".into()
+            } else {
+                String::new()
+            },
             anchor: 0,
             caret: 0,
             marked: None,
@@ -302,6 +364,9 @@ impl SearchInput {
             .or_else(|| self.marked.clone())
             .unwrap_or_else(|| self.selection());
         let inserted = single_line(text);
+        if !replacement_fits(self.purpose, self.text.len(), range.len(), inserted.len()) {
+            return;
+        }
         self.text.replace_range(range.clone(), &inserted);
         self.marked =
             (marked && !inserted.is_empty()).then_some(range.start..range.start + inserted.len());
@@ -772,5 +837,30 @@ mod tests {
                 .0
                 .is_empty()
         );
+    }
+}
+
+#[cfg(test)]
+mod calendar_zone_input_tests {
+    use super::*;
+    #[test]
+    fn zone_edits_are_bounded_and_composition_invalidates_pending_requests() {
+        assert!(replacement_fits(InputPurpose::CalendarZone, 0, 0, 128));
+        assert!(!replacement_fits(InputPurpose::CalendarZone, 0, 0, 129));
+        assert!(replacement_fits(InputPurpose::CalendarZone, 128, 10, 10));
+        assert!(!replacement_fits(InputPurpose::CalendarZone, 128, 0, 1));
+        assert!(emits_change(InputPurpose::CalendarZone, true));
+        assert!(emits_unmark(InputPurpose::CalendarZone, true));
+        let contexts =
+            [gpui::KeyContext::parse(InputPurpose::CalendarZone.context(false)).unwrap()];
+        let keymap = gpui::Keymap::new(search_bindings());
+        for key in ["enter", "shift-enter", "escape"] {
+            assert!(
+                keymap
+                    .bindings_for_input(&[gpui::Keystroke::parse(key).unwrap()], &contexts)
+                    .0
+                    .is_empty()
+            );
+        }
     }
 }

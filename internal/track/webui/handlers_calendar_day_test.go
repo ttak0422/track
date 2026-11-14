@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestCalendarDayAPI(t *testing.T) {
@@ -25,7 +27,7 @@ func TestCalendarDayAPI(t *testing.T) {
 		{"GET", "?date=2024-02-29&time_zone=UTC&deleted=1", 400},
 		{"GET", "?date=2024-02-29", 400},
 		{"GET", "?time_zone=UTC", 400},
-		{"GET", "?date=2024-02-29&time_zone=Asia%2FTokyo", 400},
+		{"GET", "?date=2024-02-29&time_zone=Asia%2FTokyo&vault=work", 200},
 		{"GET", "?date=2024-02-29%20&time_zone=UTC", 400},
 	} {
 		req, err := http.NewRequest(tc.method, server.URL+"/api/calendar-events/day"+tc.query, nil)
@@ -50,12 +52,23 @@ func TestCalendarDayAPI(t *testing.T) {
 				Zone        string `json:"time_zone"`
 				Start       string `json:"day_start"`
 				End         string `json:"day_end"`
+				StartUnix   int64  `json:"day_start_unix"`
+				EndUnix     int64  `json:"day_end_unix"`
 				Events      []any
 			}
 			if err := json.Unmarshal(raw, &out); err != nil {
 				t.Fatal(err)
 			}
-			if out.Vault != "work" || out.Date != "2024-02-29" || out.Zone != "UTC" || out.Start != "2024-02-29T00:00:00Z" || out.End != "2024-03-01T00:00:00Z" || out.Events == nil || len(out.Events) != 0 {
+			zone, start, end := "UTC", "2024-02-29T00:00:00Z", "2024-03-01T00:00:00Z"
+			if strings.Contains(tc.query, "Asia%2FTokyo") {
+				zone, start, end = "Asia/Tokyo", "2024-02-28T15:00:00Z", "2024-02-29T15:00:00Z"
+			}
+			a, _ := time.Parse(time.RFC3339, start)
+			b, _ := time.Parse(time.RFC3339, end)
+			if out.StartUnix != a.Unix() || out.EndUnix != b.Unix() {
+				t.Fatalf("unix boundaries: %s", raw)
+			}
+			if out.Vault != "work" || out.Date != "2024-02-29" || out.Zone != zone || out.Start != start || out.End != end || out.Events == nil || len(out.Events) != 0 {
 				t.Fatalf("shape: %s", raw)
 			}
 		}

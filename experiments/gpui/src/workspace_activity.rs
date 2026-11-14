@@ -1,5 +1,5 @@
 //! Read-only Home activity. The date picker uses the device-local date; selected
-//! calendar events explicitly use that date label in UTC, not a local-day interval.
+//! calendar events use an explicit session-only engine-projected display zone.
 use super::*;
 use gpui::{Div, SharedString};
 
@@ -58,6 +58,37 @@ pub(crate) struct ActivityState {
     hover: Option<String>,
     agenda: Option<AgendaState>,
 }
+pub(crate) struct CalendarZone {
+    launch: Option<u64>,
+    accepted: String,
+    draft: String,
+    serial: u64,
+    input: Option<gpui::Entity<search_input::SearchInput>>,
+}
+impl Default for CalendarZone {
+    fn default() -> Self {
+        Self {
+            launch: None,
+            accepted: "UTC".into(),
+            draft: "UTC".into(),
+            serial: 0,
+            input: None,
+        }
+    }
+}
+impl CalendarZone {
+    fn advance(&mut self) -> u64 {
+        self.serial = NEXT_AGENDA.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.serial
+    }
+    fn edit(&mut self, text: String) {
+        self.draft = text;
+        self.advance();
+    }
+    fn accepts(&self, serial: u64, zone: &str) -> bool {
+        self.serial == serial && self.draft == zone
+    }
+}
 struct AgendaState {
     date: String,
     serial: u64,
@@ -65,10 +96,31 @@ struct AgendaState {
     tasks: Option<Result<live::DatedTasksResponse, String>>,
     events: Option<Result<live::CalendarDayEventsResponse, String>>,
     events_page: usize,
+    events_pending: Option<String>,
+    events_error: Option<String>,
 }
 impl AgendaState {
     fn accepts(&self, serial: u64, date: &str) -> bool {
         self.serial == serial && self.date == date
+    }
+    fn finish_zone(
+        &mut self,
+        selection: &mut CalendarZone,
+        zone: String,
+        result: Result<live::CalendarDayEventsResponse, String>,
+    ) {
+        self.events_pending = None;
+        match result {
+            Ok(response) => {
+                selection.accepted = zone;
+                self.events = Some(Ok(response));
+                self.events_error = None;
+                self.events_page = 0;
+            }
+            Err(error) => {
+                self.events_error = Some(format!("Display zone {zone:?} not applied: {error}"));
+            }
+        }
     }
 }
 
@@ -175,6 +227,7 @@ impl Workspace {
             weekday,
             ((width - 36.) / 12.).floor().max(1.) as usize,
         );
+        self.sync_calendar_zone(dark, cx);
         let Some(session) = &self.live else {
             return view.child(if self.live_requested {
                 "Activity is waiting for the owned server."
@@ -520,6 +573,8 @@ impl Workspace {
 
     fn select_activity_day(&mut self, identity: Identity, date: String, cx: &mut Context<Self>) {
         if !self.activity_identity_current(&identity)
+            || self.editing_ui.active()
+            || self.editing_ui.has_pending()
             || date < identity.since
             || date > identity.until
         {
@@ -529,6 +584,8 @@ impl Workspace {
             return;
         };
         let client = session.client();
+        let zone_serial = self.shell.calendar_zone.advance();
+        let zone = self.shell.calendar_zone.accepted.clone();
         let state = self.shell.activity.as_mut().unwrap();
         let serial = NEXT_AGENDA.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         state.agenda = Some(AgendaState {
@@ -538,6 +595,8 @@ impl Workspace {
             tasks: None,
             events: None,
             events_page: 0,
+            events_pending: None,
+            events_error: None,
         });
         let Some(permit) = AgendaPermit::acquire() else {
             state.agenda.as_mut().unwrap().events = Some(Err(
@@ -572,7 +631,7 @@ impl Workspace {
                 .dated_tasks(&captured.vault)
                 .map_err(|e| e.to_string());
             let events = client
-                .calendar_day_events(&captured.vault, &selected)
+                .calendar_day_events_in_zone(&captured.vault, &selected, &zone)
                 .map_err(|e| e.to_string());
             let after = client.storage();
             if !after
@@ -613,7 +672,10 @@ impl Workspace {
         cx.spawn(async move |this, cx| {
             let result = job.await;
             let _ = this.update(cx, |this, cx| {
-                if !this.activity_identity_current(&identity) {
+                if !this.activity_identity_current(&identity)
+                    || this.editing_ui.active()
+                    || this.editing_ui.has_pending()
+                {
                     return;
                 }
                 if let Some(agenda) = this
@@ -625,7 +687,12 @@ impl Workspace {
                 {
                     agenda.result = Some(result.0);
                     agenda.tasks = Some(result.1);
-                    agenda.events = Some(result.2);
+                    if this.shell.calendar_zone.serial == zone_serial {
+                        agenda.events = Some(result.2);
+                    } else if agenda.events.is_none() {
+                        agenda.events_error =
+                            Some("Display zone edited. Apply to load calendar events.".into());
+                    }
                     agenda.events_page = 0;
                     cx.notify();
                 }
@@ -756,6 +823,8 @@ mod agenda_tests {
             .unwrap())),
             events: Some(Err("unavailable".into())),
             events_page: 0,
+            events_pending: None,
+            events_error: None,
         };
         assert!(state.result.as_ref().unwrap().is_ok());
         assert!(state.tasks.as_ref().unwrap().is_ok());
@@ -782,6 +851,8 @@ mod agenda_tests {
             tasks: None,
             events: None,
             events_page: 0,
+            events_pending: None,
+            events_error: None,
         };
         assert!(state.accepts(1, "2026-11-14"));
         assert!(!state.accepts(1, "2026-11-13"));
@@ -919,8 +990,8 @@ fn events_page_range(total: usize, requested: usize) -> (usize, usize, std::ops:
     let start = page * 100;
     (page, pages, start..(start + 100).min(total))
 }
-fn events_heading(date: &str) -> String {
-    format!("Calendar events · {date} (UTC)")
+fn events_heading(date: &str, zone: &str) -> String {
+    format!("Calendar events · {date} ({zone})")
 }
 fn event_label(event: &live::CalendarEvent) -> String {
     format!(
@@ -950,20 +1021,41 @@ impl Workspace {
         let Some(agenda) = state.agenda.as_ref() else {
             return view;
         };
-        view = view.child(events_heading(&agenda.date)).child(
-            "Timed events are matched to this UTC date; all-day events use their civil dates.",
-        );
+        view = view
+            .child("Display zone · session only (default UTC)")
+            .children(self.shell.calendar_zone.input.clone())
+            .child(
+                div()
+                    .id("calendar-zone-apply")
+                    .cursor_pointer()
+                    .child("Apply display zone")
+                    .on_click(cx.listener(|this, _, _, cx| this.apply_calendar_zone(cx))),
+            );
+        if let Some(zone) = &agenda.events_pending {
+            view = view.child(format!("Loading {} ({zone})…", agenda.date));
+        }
+        if let Some(error) = &agenda.events_error {
+            view = view.child(error.clone());
+        }
+        if agenda.events.is_none()
+            && (agenda.events_error.is_some() || agenda.events_pending.is_some())
+        {
+            return view;
+        }
         let Some(result) = &agenda.events else {
             return view.child("Loading calendar events…");
         };
         let response = match result {
             Ok(response) => response,
-            Err(_) => return view.child("Calendar events unavailable. Select the day again to retry; notes and tasks are independent."),
+            Err(error) => return view.child(format!("Calendar events unavailable for {} ({}): {error}. Select the day again to retry; notes and tasks are independent.", agenda.date, self.shell.calendar_zone.accepted)),
         };
+        view = view.child(events_heading(&response.date, &response.time_zone)).child(
+            "Timed events match this display-zone date; all-day events keep civil-date membership.",
+        );
         if incomplete(&response.diagnostics) {
             view = view.child("Incomplete or cached calendar events; missing events are unknown.");
         } else if response.events.is_empty() {
-            view = view.child("No calendar events on this UTC date.");
+            view = view.child("No calendar events on this display-zone date.");
         }
         let (page, pages, range) = events_page_range(response.events.len(), agenda.events_page);
         let mut controls = div().flex().gap_3();
@@ -982,6 +1074,7 @@ impl Workspace {
             if let Some(target) = target {
                 let identity = state.identity.clone();
                 let serial = agenda.serial;
+                let zone_serial = self.shell.calendar_zone.serial;
                 let date = agenda.date.clone();
                 controls = controls.child(
                     div()
@@ -993,7 +1086,9 @@ impl Workspace {
                         .cursor_pointer()
                         .child(label)
                         .on_click(cx.listener(move |this, _, _, cx| {
-                            if !this.activity_identity_current(&identity) {
+                            if !this.activity_identity_current(&identity)
+                                || this.shell.calendar_zone.serial != zone_serial
+                            {
                                 return;
                             }
                             if let Some(agenda) = this
@@ -1016,8 +1111,8 @@ impl Workspace {
         // Serial is globally unique across selected-day requests, including ABA.
         let mut rows = div()
             .id(SharedString::from(format!(
-                "calendar-events-{}-{page}",
-                agenda.serial
+                "calendar-events-{}-{}-{page}",
+                agenda.serial, response.time_zone
             )))
             .max_h(px(300.))
             .overflow_y_scroll();
@@ -1054,7 +1149,7 @@ mod utc_event_display_tests {
     #[test]
     fn explicit_utc_heading_and_original_event_labels() {
         assert_eq!(
-            events_heading("2026-11-01"),
+            events_heading("2026-11-01", "UTC"),
             "Calendar events · 2026-11-01 (UTC)"
         );
         let mut event: live::CalendarEvent = serde_json::from_value(serde_json::json!({
@@ -1071,5 +1166,209 @@ mod utc_event_display_tests {
         }
         event.all_day = true;
         assert!(event_label(&event).contains("all-day civil dates (end exclusive)"));
+    }
+}
+
+impl Workspace {
+    fn sync_calendar_zone(&mut self, dark: bool, cx: &mut Context<Self>) {
+        let launch = self.live.as_ref().map(|s| s.client().launch_generation);
+        if self.shell.calendar_zone.launch != launch {
+            self.shell.calendar_zone = CalendarZone {
+                launch,
+                ..Default::default()
+            };
+        }
+        if self.shell.calendar_zone.input.is_none() {
+            let input = cx.new(|cx| {
+                search_input::SearchInput::with_purpose(
+                    search_input::InputPurpose::CalendarZone,
+                    cx,
+                )
+            });
+            self.subscriptions.push(cx.subscribe(
+                &input,
+                |this, entity, event: &search_input::SearchChanged, cx| {
+                    if this.shell.calendar_zone.input.as_ref() != Some(&entity) {
+                        return;
+                    }
+                    this.shell.calendar_zone.edit(event.0.clone());
+                    if let Some(agenda) =
+                        this.shell.activity.as_mut().and_then(|s| s.agenda.as_mut())
+                    {
+                        agenda.events_pending = None;
+                        agenda.events_error = Some(
+                            "Display zone edited; select Apply display zone to load it.".into(),
+                        );
+                    }
+                    cx.notify();
+                },
+            ));
+            self.shell.calendar_zone.input = Some(input);
+        }
+        if let Some(input) = &self.shell.calendar_zone.input {
+            input.update(cx, |input, _| input.set_dark(dark));
+        }
+    }
+
+    fn apply_calendar_zone(&mut self, cx: &mut Context<Self>) {
+        let Some(state) = self.shell.activity.as_ref() else {
+            return;
+        };
+        let identity = state.identity.clone();
+        let Some(agenda) = state.agenda.as_ref() else {
+            return;
+        };
+        let date = agenda.date.clone();
+        let agenda_serial = agenda.serial;
+        if !self.activity_identity_current(&identity)
+            || self.editing_ui.active()
+            || self.editing_ui.has_pending()
+            || self
+                .shell
+                .calendar_zone
+                .input
+                .as_ref()
+                .is_some_and(|input| input.read(cx).is_composing())
+        {
+            return;
+        }
+        let zone = self.shell.calendar_zone.draft.clone();
+        let serial = self.shell.calendar_zone.advance();
+        let agenda = self
+            .shell
+            .activity
+            .as_mut()
+            .unwrap()
+            .agenda
+            .as_mut()
+            .unwrap();
+        agenda.events_pending = Some(zone.clone());
+        agenda.events_error = None;
+        let Some(permit) = AgendaPermit::acquire() else {
+            agenda.events_pending = None;
+            agenda.events_error = Some(format!(
+                "Display zone {zone:?} not applied: earlier requests are still finishing. Retry shortly."
+            ));
+            cx.notify();
+            return;
+        };
+        let client = self.live.as_ref().unwrap().client();
+        let captured = identity.clone();
+        let selected = date.clone();
+        let requested = zone.clone();
+        let job = cx.background_executor().spawn(async move {
+            let _permit = permit;
+            let stale =
+                || "Storage or daily-view identity changed. Reload the workspace.".to_owned();
+            let before = client.storage().map_err(|e| e.to_string())?;
+            if before.phase != "ready" || before.generation != captured.epoch {
+                return Err(stale());
+            }
+            let response = client
+                .calendar_day_events_in_zone(&captured.vault, &selected, &requested)
+                .map_err(|e| e.to_string())?;
+            let after = client.storage().map_err(|e| e.to_string())?;
+            if after.phase != "ready"
+                || after.generation != captured.epoch
+                || response.launch_generation != captured.launch
+                || response.source_vault != captured.vault
+                || response.date != selected
+                || response.time_zone != requested
+            {
+                return Err(stale());
+            }
+            Ok(response)
+        });
+        cx.spawn(async move |this, cx| {
+            let result = job.await;
+            let _ = this.update(cx, |this, cx| {
+                if !this.activity_identity_current(&identity)
+                    || !this.shell.calendar_zone.accepts(serial, &zone)
+                    || this.editing_ui.active()
+                    || this.editing_ui.has_pending()
+                {
+                    return;
+                }
+                if let Some(agenda) = this
+                    .shell
+                    .activity
+                    .as_mut()
+                    .and_then(|s| s.agenda.as_mut())
+                    .filter(|a| a.accepts(agenda_serial, &date))
+                {
+                    agenda.finish_zone(&mut this.shell.calendar_zone, zone, result);
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+}
+
+#[cfg(test)]
+mod zone_selection_tests {
+    use super::*;
+    fn response(zone: &str) -> live::CalendarDayEventsResponse {
+        serde_json::from_value(
+            serde_json::json!({"vault":"work","date":"2026-11-14","time_zone":zone,
+            "day_start":"2026-11-14T00:00:00Z","day_end":"2026-11-15T00:00:00Z","events":[]}),
+        )
+        .unwrap()
+    }
+    fn agenda() -> AgendaState {
+        AgendaState {
+            date: "2026-11-14".into(),
+            serial: 7,
+            result: None,
+            tasks: None,
+            events: Some(Ok(response("UTC"))),
+            events_page: 2,
+            events_pending: None,
+            events_error: None,
+        }
+    }
+    #[test]
+    fn edit_is_local_and_invalidates_aba_without_relabeling_snapshot() {
+        let mut selection = CalendarZone::default();
+        let original = selection.advance();
+        let state = agenda();
+        selection.edit("Asia/Tokyo".into());
+        assert_eq!(selection.accepted, "UTC");
+        assert_eq!(
+            state.events.as_ref().unwrap().as_ref().unwrap().time_zone,
+            "UTC"
+        );
+        selection.edit("UTC".into());
+        assert!(!selection.accepts(original, "UTC"));
+        let applied = selection.advance();
+        assert!(selection.accepts(applied, "UTC"));
+        selection.advance(); // date selection also invalidates the previous Apply
+        assert!(!selection.accepts(applied, "UTC"));
+    }
+    #[test]
+    fn apply_success_commits_but_failure_preserves_accepted_label_and_rows() {
+        let mut selection = CalendarZone::default();
+        let mut state = agenda();
+        state.events_pending = Some("Asia/Tokyo".into());
+        state.finish_zone(
+            &mut selection,
+            "Asia/Tokyo".into(),
+            Ok(response("Asia/Tokyo")),
+        );
+        assert_eq!(selection.accepted, "Asia/Tokyo");
+        assert_eq!(state.events_page, 0);
+        assert!(state.events_pending.is_none());
+        state.events_pending = Some("Local".into());
+        state.finish_zone(&mut selection, "Local".into(), Err("unknown zone".into()));
+        assert_eq!(selection.accepted, "Asia/Tokyo");
+        let accepted = state.events.as_ref().unwrap().as_ref().unwrap();
+        assert_eq!(
+            events_heading(&accepted.date, &accepted.time_zone),
+            "Calendar events · 2026-11-14 (Asia/Tokyo)"
+        );
+        assert!(state.events_error.as_ref().unwrap().contains("Local"));
+        assert!(state.events_pending.is_none());
+        assert_eq!(CalendarZone::default().accepted, "UTC");
     }
 }

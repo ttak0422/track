@@ -438,7 +438,7 @@ pub struct CalendarEventsResponse {
     #[serde(flatten)]
     pub diagnostics: Fields,
 }
-/// UTC membership is authoritative engine output; stored event labels stay opaque.
+/// Day membership is authoritative engine output; stored event labels stay opaque.
 #[derive(Clone, Debug, Deserialize)]
 pub struct CalendarDayEventsResponse {
     pub vault: String,
@@ -446,6 +446,10 @@ pub struct CalendarDayEventsResponse {
     pub time_zone: String,
     pub day_start: String,
     pub day_end: String,
+    #[serde(default)]
+    pub day_start_unix: Option<i64>,
+    #[serde(default)]
+    pub day_end_unix: Option<i64>,
     pub events: Vec<CalendarEvent>,
     #[serde(skip)]
     pub source_vault: String,
@@ -477,6 +481,39 @@ fn utc_day_bounds(date: &str) -> Option<(String, String)> {
         format!("{date}T00:00:00Z"),
         format!("{year:04}-{month:02}-{day:02}T00:00:00Z"),
     ))
+}
+
+// UTC formatting delegates calendar conversion to the platform, never its local
+// timezone. The engine supplies integral-second boundaries. Require matching
+// strings as well as bounded signed instants, so contradictory wire data fails.
+fn calendar_boundary_matches(label: &str, unix: i64) -> bool {
+    // RFC3339's supported positive four-digit years, inclusive through 9999.
+    if !(-62_135_596_800..=253_402_300_799).contains(&unix) {
+        return false;
+    }
+    let seconds = unix as libc::time_t;
+    if seconds as i64 != unix {
+        return false;
+    }
+    let mut calendar = std::mem::MaybeUninit::<libc::tm>::uninit();
+    // SAFETY: both pointers are valid and gmtime_r initializes the output on
+    // success. It has no mutable global timezone dependency.
+    let calendar = unsafe {
+        if libc::gmtime_r(&seconds, calendar.as_mut_ptr()).is_null() {
+            return false;
+        }
+        calendar.assume_init()
+    };
+    label
+        == format!(
+            "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+            calendar.tm_year + 1900,
+            calendar.tm_mon + 1,
+            calendar.tm_mday,
+            calendar.tm_hour,
+            calendar.tm_min,
+            calendar.tm_sec
+        )
 }
 
 fn validate_calendar_records(
@@ -1103,6 +1140,55 @@ impl ReadClient {
         {
             return Err(Error::Shape(
                 "calendar UTC date or boundaries mismatch".into(),
+            ));
+        }
+        validate_calendar_records(&mut result.vault, &result.events, vault)?;
+        result.source_vault = vault.into();
+        result.launch_generation = self.launch_generation;
+        Ok(result)
+    }
+
+    /// Named display-zone projection. Zone authority and event membership stay
+    /// in the engine; no host timezone discovery or legacy fallback is used.
+    pub fn calendar_day_events_in_zone(
+        &self,
+        vault: &str,
+        date: &str,
+        zone: &str,
+    ) -> Result<CalendarDayEventsResponse, Error> {
+        let utc_bounds = utc_day_bounds(date).ok_or_else(|| {
+            Error::Config("calendar day requires a date in years 0001..9998".into())
+        })?;
+        if vault.len() > 1024 || vault.contains('\0') {
+            return Err(Error::Config(
+                "calendar events require a bounded vault name".into(),
+            ));
+        }
+        if zone.is_empty() || zone.len() > 128 || zone.chars().any(char::is_control) {
+            return Err(Error::Config(
+                "calendar day requires a bounded named time zone".into(),
+            ));
+        }
+        let mut args = vault_query(vault);
+        args.push(("date", date.into()));
+        args.push(("time_zone", zone.into()));
+        let mut result: CalendarDayEventsResponse = self.get("/api/calendar-events/day", &args)?;
+        let valid_bounds = match (result.day_start_unix, result.day_end_unix) {
+            (Some(start), Some(end)) => {
+                start < end
+                    && calendar_boundary_matches(&result.day_start, start)
+                    && calendar_boundary_matches(&result.day_end, end)
+            }
+            _ => false,
+        };
+        if result.date != date
+            || result.time_zone != zone
+            || !valid_bounds
+            || (zone == "UTC"
+                && (result.day_start != utc_bounds.0 || result.day_end != utc_bounds.1))
+        {
+            return Err(Error::Shape(
+                "calendar date, zone or boundaries mismatch".into(),
             ));
         }
         validate_calendar_records(&mut result.vault, &result.events, vault)?;
@@ -3240,6 +3326,137 @@ mod tests {
     fn calendar_day_fixture() -> Value {
         serde_json::json!({"vault":"work", "date":"2026-11-01", "time_zone":"UTC",
             "day_start":"2026-11-01T00:00:00Z", "day_end":"2026-11-02T00:00:00Z", "events":[]})
+    }
+    fn zoned_calendar_day_fixture() -> Value {
+        serde_json::json!({"vault":"work", "date":"2026-11-01", "time_zone":"America/New_York",
+            "day_start":"2026-11-01T04:00:00Z", "day_end":"2026-11-02T05:00:00Z",
+            "day_start_unix":1793505600_i64, "day_end_unix":1793595600_i64, "events":[]})
+    }
+    #[test]
+    fn calendar_named_zone_projection_and_escaped_query() {
+        let mut body = zoned_calendar_day_fixture();
+        body["events"] = serde_json::json!([calendar_event_fixture()]);
+        body["read_state"] = serde_json::json!({"partial":true});
+        let (client, worker) = mock(200, body.to_string());
+        let result = client
+            .calendar_day_events_in_zone("work", "2026-11-01", "America/New_York")
+            .unwrap();
+        assert_eq!(result.time_zone, "America/New_York");
+        assert_eq!(
+            result.day_end_unix.unwrap() - result.day_start_unix.unwrap(),
+            25 * 3600
+        );
+        assert_eq!(result.source_vault, "work");
+        assert_eq!(result.launch_generation, client.launch_generation);
+        assert_eq!(result.events.len(), 1);
+        assert_eq!(result.diagnostics["read_state"]["partial"], true);
+        assert!(
+            worker
+                .join()
+                .unwrap()
+                .contains("time_zone=America%2FNew_York HTTP/")
+        );
+        // Names are validated authoritatively by the engine, but never injected
+        // as query delimiters by the client.
+        let (client, worker) = mock(400, "{}");
+        assert!(matches!(
+            client.calendar_day_events_in_zone("work", "2026-11-01", "Etc/GMT+5&date=x"),
+            Err(Error::Http { status: 400, .. })
+        ));
+        assert!(
+            worker
+                .join()
+                .unwrap()
+                .contains("time_zone=Etc%2FGMT%2B5%26date%3Dx HTTP/")
+        );
+    }
+    #[test]
+    fn calendar_named_zone_rejects_bad_echo_boundaries_and_records() {
+        for (field, value) in [
+            ("vault", serde_json::json!("other")),
+            ("date", serde_json::json!("2026-11-02")),
+            ("time_zone", serde_json::json!("US/Eastern")),
+            ("day_start", serde_json::json!("2026-11-01T04:00:00+00:00")),
+            ("day_start", serde_json::json!("2026-02-30T04:00:00Z")),
+            ("day_start", serde_json::json!("garbage")),
+            ("day_start_unix", serde_json::json!(1793505601_i64)),
+            ("day_start_unix", serde_json::json!(1793595600_i64)),
+            ("day_start_unix", serde_json::json!(-62135596801_i64)),
+            ("day_end_unix", serde_json::json!(253402300800_i64)),
+            ("day_end_unix", serde_json::json!(1793505600_i64)),
+            ("day_end_unix", serde_json::json!(1.5)),
+            ("day_end_unix", serde_json::json!("NaN")),
+            ("day_end_unix", Value::Null),
+            ("events", serde_json::json!([{"id":"bad"}])),
+            (
+                "events",
+                serde_json::json!([calendar_event_fixture(), calendar_event_fixture()]),
+            ),
+            ("events", Value::Array(vec![calendar_event_fixture(); 4097])),
+        ] {
+            let mut body = zoned_calendar_day_fixture();
+            body[field] = value;
+            let (client, worker) = mock(200, body.to_string());
+            assert!(
+                matches!(
+                    client.calendar_day_events_in_zone("work", "2026-11-01", "America/New_York"),
+                    Err(Error::Shape(_))
+                ),
+                "{field}"
+            );
+            worker.join().unwrap();
+        }
+        for field in ["day_start_unix", "day_end_unix"] {
+            let mut body = zoned_calendar_day_fixture();
+            body.as_object_mut().unwrap().remove(field);
+            let (client, worker) = mock(200, body.to_string());
+            assert!(matches!(
+                client.calendar_day_events_in_zone("work", "2026-11-01", "America/New_York"),
+                Err(Error::Shape(_))
+            ));
+            worker.join().unwrap();
+        }
+    }
+    #[test]
+    fn calendar_named_zone_input_bounds_and_utc_strictness() {
+        let mut body = calendar_day_fixture();
+        body["day_start_unix"] = serde_json::json!(1793491200_i64);
+        body["day_end_unix"] = serde_json::json!(1793577600_i64);
+        let (client, worker) = mock(200, body.to_string());
+        for zone in ["", "a\0b", "a\nb", &"x".repeat(129)] {
+            assert!(matches!(
+                client.calendar_day_events_in_zone("work", "2026-11-01", zone),
+                Err(Error::Config(_))
+            ));
+        }
+        assert!(matches!(
+            client.calendar_day_events_in_zone("work", "9999-01-01", "UTC"),
+            Err(Error::Config(_))
+        ));
+        assert!(matches!(
+            client.calendar_day_events_in_zone("bad\0vault", "2026-11-01", "UTC"),
+            Err(Error::Config(_))
+        ));
+        client
+            .calendar_day_events_in_zone("work", "2026-11-01", "UTC")
+            .unwrap();
+        worker.join().unwrap();
+        let mut body = zoned_calendar_day_fixture();
+        body["time_zone"] = serde_json::json!("UTC");
+        let (client, worker) = mock(200, body.to_string());
+        assert!(matches!(
+            client.calendar_day_events_in_zone("work", "2026-11-01", "UTC"),
+            Err(Error::Shape(_))
+        ));
+        worker.join().unwrap();
+        assert!(calendar_boundary_matches(
+            "0001-01-01T00:00:00Z",
+            -62135596800
+        ));
+        assert!(calendar_boundary_matches(
+            "9999-12-31T23:59:59Z",
+            253402300799
+        ));
     }
     #[test]
     fn calendar_day_events_scoped_projection_preserves_labels() {

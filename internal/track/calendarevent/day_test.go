@@ -1,6 +1,9 @@
 package calendarevent
 
 import (
+	"bytes"
+	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"os"
@@ -26,7 +29,7 @@ func TestDayBoundaries(t *testing.T) {
 			t.Fatalf("accepted %q: %v", date, err)
 		}
 	}
-	for _, zone := range []string{"", "utc", "UTC ", "America/New_York"} {
+	for _, zone := range []string{"", "utc", "UTC ", "Local", "+09:00", "Mars/Test", strings.Repeat("X", 129)} {
 		if _, err := Day(cfg, "2024-02-29", zone); !errors.Is(err, ErrValidation) {
 			t.Fatalf("accepted %q: %v", zone, err)
 		}
@@ -255,5 +258,189 @@ func TestDayMissingVaultAndAnchoredStorage(t *testing.T) {
 	got, err := read(root, testID)
 	if err != nil || !reflect.DeepEqual(got.Event, saved) {
 		t.Fatalf("anchored record: %+v %v", got, err)
+	}
+}
+
+func TestDayNamedZones(t *testing.T) {
+	cfg := &config.Config{VaultDir: t.TempDir()}
+	for _, tc := range []struct{ date, zone, start, end string }{
+		{"2026-11-02", "Asia/Tokyo", "2026-11-01T15:00:00Z", "2026-11-02T15:00:00Z"},
+		{"2026-03-08", "America/New_York", "2026-03-08T05:00:00Z", "2026-03-09T04:00:00Z"},
+		{"2026-11-01", "America/New_York", "2026-11-01T04:00:00Z", "2026-11-02T05:00:00Z"},
+		{"2018-11-04", "America/Sao_Paulo", "2018-11-04T03:00:00Z", "2018-11-05T02:00:00Z"},
+		{"2011-12-29", "Pacific/Apia", "2011-12-29T10:00:00Z", "2011-12-30T10:00:00Z"},
+		{"2011-12-31", "Pacific/Apia", "2011-12-30T10:00:00Z", "2011-12-31T10:00:00Z"},
+		{"9998-12-31", "America/New_York", "9998-12-31T05:00:00Z", "9999-01-01T05:00:00Z"},
+	} {
+		t.Run(tc.date+tc.zone, func(t *testing.T) {
+			day, err := Day(cfg, tc.date, tc.zone)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if day.DayStart != tc.start || day.DayEnd != tc.end || day.TimeZone != tc.zone {
+				t.Fatalf("%+v", day)
+			}
+			start, _ := time.Parse(time.RFC3339, day.DayStart)
+			end, _ := time.Parse(time.RFC3339, day.DayEnd)
+			if start.Unix() != day.DayStartUnix || end.Unix() != day.DayEndUnix {
+				t.Fatal("inconsistent unix boundaries")
+			}
+		})
+	}
+	for _, tc := range []struct{ date, zone, problem string }{
+		{"2011-12-30", "Pacific/Apia", "nonexistent"},
+		{"0001-01-01", "Asia/Tokyo", "outside RFC3339"},
+	} {
+		if _, err := Day(cfg, tc.date, tc.zone); !errors.Is(err, ErrValidation) || !strings.Contains(err.Error(), tc.problem) {
+			t.Fatalf("%+v: %v", tc, err)
+		}
+	}
+}
+
+// fixtureLocation builds deterministic TZif v1 data without consulting host zones.
+func fixtureLocation(t *testing.T, offsets []int32, transitions []int32, indices []byte) *time.Location {
+	t.Helper()
+	var b bytes.Buffer
+	b.WriteString("TZif")
+	b.Write(make([]byte, 16))
+	for _, n := range []int32{0, 0, 0, int32(len(transitions)), int32(len(offsets)), 2} {
+		binary.Write(&b, binary.BigEndian, n)
+	}
+	for _, sec := range transitions {
+		binary.Write(&b, binary.BigEndian, sec)
+	}
+	b.Write(indices)
+	for _, offset := range offsets {
+		binary.Write(&b, binary.BigEndian, offset)
+		b.Write([]byte{0, 0})
+	}
+	b.Write([]byte{'X', 0})
+	loc, err := time.LoadLocationFromTZData("fixture", b.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return loc
+}
+
+func TestCivilDayAdversarialTransitions(t *testing.T) {
+	civil, _ := time.Parse(time.DateOnly, "2026-11-02")
+	for _, tc := range []struct {
+		name               string
+		offsets            []int32
+		at                 int64
+		wantStart, wantEnd int64
+		disconnected       bool
+	}{
+		{"repeated midnight", []int32{0, -3600}, 3600, 0, 90000, false},
+		{"rollback across date", []int32{0, -7200}, 3600, 0, 0, true},
+		{"missing midnight", []int32{0, 3600}, 0, 0, 82800, false},
+		{"large legal TZif offset", []int32{360000}, 0, -360000, -273600, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var transitions []int32
+			var indices []byte
+			if len(tc.offsets) > 1 {
+				transitions = []int32{int32(civil.Unix() + tc.at)}
+				indices = []byte{1}
+			}
+			loc := fixtureLocation(t, tc.offsets, transitions, indices)
+			start, end, err := civilDayInterval(civil, loc)
+			if tc.disconnected {
+				if !errors.Is(err, ErrValidation) || !strings.Contains(err.Error(), "disconnected") {
+					t.Fatalf("%v", err)
+				}
+			} else if err != nil || start.Unix() != civil.Unix()+tc.wantStart || end.Unix() != civil.Unix()+tc.wantEnd {
+				t.Fatalf("%v %v %v", start, end, err)
+			}
+		})
+	}
+}
+
+func TestDayNamedMembership(t *testing.T) {
+	for i, tc := range []struct {
+		start, end   string
+		allDay, want bool
+	}{
+		{"2026-03-08T04:00:00Z", "2026-03-08T05:00:00Z", false, false},
+		{"2026-03-09T04:00:00Z", "2026-03-09T05:00:00Z", false, false},
+		{"2026-03-08T04:00:00Z", "2026-03-08T05:00:00.000000001Z", false, true},
+		{"2026-03-09T03:59:59.999999999Z", "2026-03-09T04:00:00Z", false, true},
+		{"2026-03-08", "2026-03-09", true, true},
+		{"2026-03-07", "2026-03-08", true, false},
+	} {
+		cfg := &config.Config{VaultDir: t.TempDir()}
+		zone := "UTC"
+		if tc.allDay {
+			zone = ""
+		}
+		event, err := Save(cfg, op(i+500), request(Fields{Title: "boundary", Start: tc.start, End: tc.end, TimeZone: zone, AllDay: tc.allDay, Status: "cancelled"}, 0, op(i+600)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		day, err := Day(cfg, "2026-03-08", "America/New_York")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if (len(day.Events) == 1) != tc.want {
+			t.Fatalf("%+v: %+v", tc, day)
+		}
+		if tc.want && !reflect.DeepEqual(day.Events[0], event) {
+			t.Fatal("changed original event")
+		}
+	}
+}
+
+func TestDayCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := DayContext(ctx, &config.Config{VaultDir: t.TempDir()}, "2026-03-08", "America/New_York"); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+}
+
+func BenchmarkCivilDayInterval(b *testing.B) {
+	for _, tc := range []struct{ zone, date string }{
+		{"Asia/Tokyo", "2026-11-02"}, {"America/New_York", "2026-11-02"},
+		{"America/Sao_Paulo", "2026-11-02"}, {"America/New_York", "9998-12-31"},
+	} {
+		b.Run(tc.zone+tc.date, func(b *testing.B) {
+			civil, _ := time.Parse(time.DateOnly, tc.date)
+			loc, err := time.LoadLocation(tc.zone)
+			if err != nil {
+				b.Fatal(err)
+			}
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if _, _, err := civilDayInterval(civil, loc); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+func TestCivilDayTransitionBudget(t *testing.T) {
+	civil, _ := time.Parse(time.DateOnly, "2026-11-02")
+	transitions := make([]int32, 65537)
+	indices := make([]byte, len(transitions))
+	for i := range transitions {
+		transitions[i] = int32(civil.Unix() - 86400 + int64(i))
+		indices[i] = byte(i % 2)
+	}
+	loc := fixtureLocation(t, []int32{0, 1}, transitions, indices)
+	if _, _, err := civilDayInterval(civil, loc); !errors.Is(err, ErrValidation) || !strings.Contains(err.Error(), "too many") {
+		t.Fatalf("budget: %v", err)
+	}
+}
+
+func TestCivilDayPOSIXLeapYearTail(t *testing.T) {
+	civil, _ := time.Parse(time.DateOnly, "2040-12-31")
+	loc, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start, end, err := civilDayInterval(civil, loc)
+	if err != nil || start.Format(time.RFC3339) != "2040-12-31T05:00:00Z" || end.Format(time.RFC3339) != "2041-01-01T05:00:00Z" {
+		t.Fatalf("%v %v %v", start, end, err)
 	}
 }
