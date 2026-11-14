@@ -405,7 +405,7 @@ both fields is shown once. The state, scheduled/due dates and source note/line a
 labels only. Selecting a task opens its note, not a line jump or editor. No task
 mutation endpoint is called. Each response is bounded to 4096 dated tasks, and
 at most 100 matches are shown with a truncation notice. Task and active-note
-failures are shown separately; Retry refreshes both under the same identity and
+failures are shown separately; Retry refreshes the day lists under the same identity and
 two-job concurrency guard. Native layout and accessibility remain unverified.
 
 Task dates remain authored date-shaped labels: an impossible calendar date is
@@ -432,3 +432,21 @@ read-only, with no disk cache or automatic retries; Reload retries failed/busy
 loads. Pinned previews and offline snapshots do not load images. Images are scaled
 within reader bounds; orientation/color-profile and native GPU/layout/scroll/AX
 parity remain unverified. Ordinary editing stays disabled.
+
+### Native all-day calendar events
+
+The selected Home activity day also lists all-day calendar events from the working
+vault. Events include their first day and exclude their end date; multi-day
+events appear on each covered day. Cancelled events remain visible with their
+status. This list is read-only and does not open links, create events or edit dates.
+
+Timed events are not included yet. A separate count reports timed events in the
+whole vault, not events on the selected day. An empty all-day list therefore does
+not mean the day has no timed events. No time-zone conversion or recurrence
+expansion is attempted.
+
+The response is limited to 4096 events and the day view to 100 all-day matches,
+with explicit error/truncation notices. Active notes, tasks and events show errors
+independently; Retry refreshes all three under the same scope/day identity and
+bounded request guard. Old responses cannot replace a newer selection. Native
+layout, keyboard and accessibility validation remains pending.

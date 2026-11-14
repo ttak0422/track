@@ -577,3 +577,13 @@ modified keys, repeated Enter, pointer drag, temporary/pinned previews, menus,
 search, dialogs and IME composition never cause accidental navigation. Switch
 graph scope/reload while settling and ensure cleared/stale nodes cannot open.
 Validate Tab exit, focus indication, narrow layouts and VoiceOver independently.
+
+### All-day calendar events (pending native QA)
+
+Use disposable vault events covering one day, several days and a leap day. Verify
+exclusive end dates, cancelled status, no deleted events, and the explicit
+vault-wide timed-event omission notice. An empty all-day result must not imply
+there are no timed events. Change scope/day or restart the server during delayed
+reads; old responses must not appear. Exercise independent event/agenda/task errors
+and Retry, long titles, over 100 matches, narrow layout and VoiceOver. No event
+or note writes and no external link opening should occur.

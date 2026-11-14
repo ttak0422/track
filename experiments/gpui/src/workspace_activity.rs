@@ -60,6 +60,7 @@ struct AgendaState {
     serial: u64,
     result: Option<Result<live::AgendaResponse, String>>,
     tasks: Option<Result<live::DatedTasksResponse, String>>,
+    events: Option<Result<live::CalendarEventsResponse, String>>,
 }
 impl AgendaState {
     fn accepts(&self, serial: u64, date: &str) -> bool {
@@ -377,6 +378,7 @@ impl Workspace {
             )
             .child(self.activity_agenda(cx))
             .child(self.activity_tasks(cx))
+            .child(self.activity_events())
     }
 }
 #[cfg(test)]
@@ -525,8 +527,12 @@ impl Workspace {
             serial,
             result: None,
             tasks: None,
+            events: None,
         });
         let Some(permit) = AgendaPermit::acquire() else {
+            state.agenda.as_mut().unwrap().events = Some(Err(
+                "Earlier requests are still finishing. Retry shortly.".into(),
+            ));
             state.agenda.as_mut().unwrap().tasks = Some(Err(
                 "Earlier requests are still finishing. Retry shortly.".into(),
             ));
@@ -547,7 +553,7 @@ impl Workspace {
                 .as_ref()
                 .is_ok_and(|s| s.phase == "ready" && s.generation == captured.epoch)
             {
-                return (Err(stale()), Err(stale()));
+                return (Err(stale()), Err(stale()), Err(stale()));
             }
             let response = client
                 .agenda(&selected, &captured.vault)
@@ -555,12 +561,15 @@ impl Workspace {
             let tasks = client
                 .dated_tasks(&captured.vault)
                 .map_err(|e| e.to_string());
+            let events = client
+                .calendar_events(&captured.vault)
+                .map_err(|e| e.to_string());
             let after = client.storage();
             if !after
                 .as_ref()
                 .is_ok_and(|s| s.phase == "ready" && s.generation == captured.epoch)
             {
-                return (Err(stale()), Err(stale()));
+                return (Err(stale()), Err(stale()), Err(stale()));
             }
             let response = response.and_then(|r| {
                 if r.launch_generation == captured.launch
@@ -579,7 +588,14 @@ impl Workspace {
                     Err(stale())
                 }
             });
-            (response, tasks)
+            let events = events.and_then(|r| {
+                if r.launch_generation == captured.launch && r.source_vault == captured.vault {
+                    Ok(r)
+                } else {
+                    Err(stale())
+                }
+            });
+            (response, tasks, events)
         });
         cx.spawn(async move |this, cx| {
             let result = job.await;
@@ -596,6 +612,7 @@ impl Workspace {
                 {
                     agenda.result = Some(result.0);
                     agenda.tasks = Some(result.1);
+                    agenda.events = Some(result.2);
                     cx.notify();
                 }
             });
@@ -711,12 +728,44 @@ mod agenda_tests {
         assert_eq!(ACTIVE_AGENDA.load(std::sync::atomic::Ordering::Acquire), 0);
     }
     #[test]
+    fn calendar_failure_does_not_hide_agenda_or_tasks_and_success_keeps_diagnostics() {
+        let mut state = AgendaState {
+            date: "2026-11-14".into(),
+            serial: 7,
+            result: Some(Ok(serde_json::from_value(
+                serde_json::json!({"date":"2026-11-14","notes":[]}),
+            )
+            .unwrap())),
+            tasks: Some(Ok(serde_json::from_value(
+                serde_json::json!({"vault":"work","tasks":[]}),
+            )
+            .unwrap())),
+            events: Some(Err("unavailable".into())),
+        };
+        assert!(state.result.as_ref().unwrap().is_ok());
+        assert!(state.tasks.as_ref().unwrap().is_ok());
+        assert!(state.events.as_ref().unwrap().is_err());
+        state.events = Some(Ok(serde_json::from_value(
+            serde_json::json!({"vault":"work","events":[],"read_state":{"partial":true}}),
+        )
+        .unwrap()));
+        state.result = Some(Err("unavailable".into()));
+        state.tasks = Some(Err("unavailable".into()));
+        assert!(incomplete(
+            &state.events.as_ref().unwrap().as_ref().unwrap().diagnostics
+        ));
+        assert!(state.accepts(7, "2026-11-14"));
+        assert!(!state.accepts(6, "2026-11-14"));
+        assert!(!state.accepts(7, "2026-11-13"));
+    }
+    #[test]
     fn day_selection_rejects_out_of_order_and_same_day_retry_results() {
         let mut state = AgendaState {
             date: "2026-11-14".into(),
             serial: 1,
             result: None,
             tasks: None,
+            events: None,
         };
         assert!(state.accepts(1, "2026-11-14"));
         assert!(!state.accepts(1, "2026-11-13"));
@@ -845,5 +894,55 @@ mod daily_task_tests {
         assert!(task_on_day("2026-11-14", "2026-11-14", "2026-11-14"));
         assert!(!task_on_day("2026-11-13", "2026-11-13", "2026-11-14"));
         assert!(!task_on_day("", "", "2026-11-14"));
+    }
+}
+
+impl Workspace {
+    fn activity_events(&self) -> Div {
+        let mut view = div().mt_3().flex().flex_col().gap_1();
+        let Some(agenda) = self.shell.activity.as_ref().and_then(|s| s.agenda.as_ref()) else {
+            return view;
+        };
+        view = view.child(format!("All-day calendar events · {}", agenda.date));
+        let Some(result) = &agenda.events else {
+            return view.child("Loading calendar events…");
+        };
+        let response = match result {
+            Ok(response) => response,
+            Err(_) => return view.child("Calendar events unavailable. Select the day again to retry; notes and tasks are independent."),
+        };
+        let timed = response.events.iter().filter(|e| !e.all_day).count();
+        view = view.child(format!("All-day events only. {timed} timed event(s) in this vault are not included; this is not a selected-day count."));
+        let matching: Vec<_> = response
+            .events
+            .iter()
+            .filter(|e| e.all_day_on(&agenda.date))
+            .collect();
+        if incomplete(&response.diagnostics) {
+            view = view.child("Incomplete or cached calendar events; missing events are unknown.");
+        } else if matching.is_empty() {
+            view = view.child("No all-day events on this day.");
+        }
+        for event in matching.iter().take(100) {
+            view = view.child(format!(
+                "{} · {} · {} to {} (end exclusive){}",
+                event.status,
+                event.title,
+                event.start,
+                event.end,
+                if event.location.is_empty() {
+                    String::new()
+                } else {
+                    format!(" · {}", event.location)
+                }
+            ));
+        }
+        if matching.len() > 100 {
+            view = view.child(format!(
+                "Showing the first 100 of {} matching all-day events.",
+                matching.len()
+            ));
+        }
+        view.child("Read-only calendar metadata · no event editing, links or recurrence expansion.")
     }
 }
