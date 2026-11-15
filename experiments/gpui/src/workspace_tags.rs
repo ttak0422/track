@@ -78,7 +78,10 @@ impl Workspace {
     // Pending dirty decisions are deliberately left to guard_transition, which owns
     // Save/Discard/Cancel and freezes the first admitted intent.
     pub(crate) fn tag_routing_blocked(&self, cx: &App) -> bool {
-        self.tag_routing_blocked_with_owner(false, false, false, cx)
+        self.tag_routing_blocked_with_owner(false, false, false, false, cx)
+    }
+    pub(crate) fn reader_preview_routing_blocked(&self, cx: &App) -> bool {
+        self.tag_routing_blocked_with_owner(false, false, false, true, cx)
     }
     pub(crate) fn tag_transition_blocked(
         &self,
@@ -95,17 +98,19 @@ impl Workspace {
                 matches!(intent, Transition::ActivateTab(_)),
                 matches!(intent, Transition::WorkingVault(_)),
                 false,
+                false,
                 cx,
             )
     }
     pub(crate) fn tag_search_result_blocked(&self, cx: &App) -> bool {
-        self.tag_routing_blocked_with_owner(false, false, true, cx)
+        self.tag_routing_blocked_with_owner(false, false, true, false, cx)
     }
     fn tag_routing_blocked_with_owner(
         &self,
         allow_tab_menu: bool,
         allow_vault_menu: bool,
         allow_search: bool,
+        own_reader_preview: bool,
         cx: &App,
     ) -> bool {
         self.enlarged_image_open()
@@ -128,7 +133,7 @@ impl Workspace {
             || self.handoff_active()
             || self.includes_preview_active()
             || self.previews.model.geometry_active()
-            || self.previews.model.transient.is_some()
+            || (!own_reader_preview && self.previews.model.transient.is_some())
     }
     pub(crate) fn activate_reader_tag(
         &mut self,

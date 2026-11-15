@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 
 pub struct PreviewUi {
     pub model: Previews,
+    pub(crate) reader_due: bool,
     clock: Instant,
     activation: Option<gpui::Subscription>,
     selector_scroll: gpui::ScrollHandle,
@@ -19,6 +20,7 @@ impl Default for PreviewUi {
     fn default() -> Self {
         Self {
             model: Previews::default(),
+            reader_due: false,
             clock: Instant::now(),
             activation: None,
             selector_scroll: gpui::ScrollHandle::new(),
@@ -32,7 +34,7 @@ impl Default for PreviewUi {
     }
 }
 impl PreviewUi {
-    fn now(&self) -> u64 {
+    pub(crate) fn now(&self) -> u64 {
         self.clock.elapsed().as_millis().min(u64::MAX as u128) as u64
     }
     fn prune_content(&mut self) {
@@ -287,10 +289,18 @@ impl Workspace {
         }
         cx.notify();
     }
-    fn observe_preview_activation(&mut self, window: &mut gpui::Window, cx: &mut Context<Self>) {
+    pub(crate) fn observe_preview_activation(
+        &mut self,
+        window: &mut gpui::Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.previews.activation.is_none() {
             self.previews.activation =
                 Some(cx.observe_window_activation(window, |this, window, cx| {
+                    if !window.is_window_active() && this.reader_hover_active() {
+                        this.cancel_transient_preview();
+                        cx.notify();
+                    }
                     if !window.is_window_active() && this.previews.model.geometry_active() {
                         this.previews.model.end_geometry();
                         cx.notify();
@@ -299,6 +309,8 @@ impl Workspace {
         }
     }
     pub(crate) fn cancel_transient_preview(&mut self) {
+        self.clear_reader_hover_owner();
+        self.previews.reader_due = false;
         self.previews.model.navigate();
         self.previews.cancel_wake();
         self.previews.message.clear();
@@ -335,7 +347,7 @@ impl Workspace {
         self.schedule_preview(cx);
         cx.notify();
     }
-    fn schedule_preview(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn schedule_preview(&mut self, cx: &mut Context<Self>) {
         self.previews.prune_content();
         let deadline = self.previews.model.next_deadline();
         if deadline == self.previews.deadline {
@@ -355,6 +367,12 @@ impl Workspace {
                     return;
                 }
                 this.previews.deadline = None;
+                if this.reader_hover_active() {
+                    // Window geometry/focus is available only at the next render.
+                    this.previews.reader_due = true;
+                    cx.notify();
+                    return;
+                }
                 let read = this.previews.model.advance(this.previews.now());
                 if let Some(read) = read {
                     this.read_graph_preview(read, cx);
@@ -364,7 +382,7 @@ impl Workspace {
             });
         }));
     }
-    fn read_graph_preview(&mut self, read: Read, cx: &mut Context<Self>) {
+    pub(crate) fn read_graph_preview(&mut self, read: Read, cx: &mut Context<Self>) {
         let Some(session) = self.live.clone() else {
             return;
         };
@@ -372,13 +390,29 @@ impl Workspace {
         if session.client().launch_generation != read.scope.session {
             return;
         }
+        let Some(permit) = preview_permit::Permit::acquire() else {
+            self.previews.model.complete(
+                &read,
+                Err("Preview read capacity is busy; leave and hover again to retry.".into()),
+            );
+            return;
+        };
         let request = read.clone();
         let job = cx.background_executor().spawn(async move {
+            let _permit = permit;
             let client = session.client();
             fetch_preview(
                 &request,
                 epoch,
-                || client.storage().map(|storage| storage.generation),
+                || {
+                    client.storage().and_then(|storage| {
+                        if storage.phase == "ready" {
+                            Ok(storage.generation)
+                        } else {
+                            Err(live::Error::Stale)
+                        }
+                    })
+                },
                 |key| client.note(key),
             )
         });
@@ -395,7 +429,7 @@ impl Workspace {
                 {
                     return;
                 }
-                if !this.preview_present(&read) {
+                if !this.reader_hover_source_current(cx) || !this.preview_present(&read) {
                     return;
                 }
                 let blocks = result
@@ -461,6 +495,7 @@ impl Workspace {
             let front = ordered.remove(index);
             ordered.push(front);
         }
+        let reader_transient = self.reader_hover_active();
         let mut cards: Vec<_> = ordered.into_iter().map(|(pinned, preview)| {
                 let identity = preview.read.clone();
                 let hover_identity = identity.clone();
@@ -510,7 +545,7 @@ impl Workspace {
                         })))
                         .child(div().text_xs().truncate().child(format!("{} · ID {}", if identity.target.vault.is_empty() { "launch vault" } else { &identity.target.vault }, identity.target.note_id)))
                         .child(div().flex().flex_wrap().gap_3().text_xs()
-                            .child(div().id(("preview-pin", identity.token as usize)).cursor_pointer().child(if pinned { "Unpin" } else { "Pin" })
+                            .when(!reader_transient, |controls| controls.child(div().id(("preview-pin", identity.token as usize)).cursor_pointer().child(if pinned { "Unpin" } else { "Pin" })
                                 .on_click(cx.listener(move |this,_,_,cx| {
                                     if !this.preview_present(&pin_identity) { return; }
                                     this.previews.message.clear();
@@ -526,10 +561,11 @@ impl Workspace {
                                     this.open_live_key(live::NoteKey { vault: open_identity.target.vault.clone(), note_id: open_identity.target.note_id }, cx);
                                     cx.stop_propagation();
                                 })))
+                            )
                             .child(div().id(("preview-close", identity.token as usize)).cursor_pointer().child("Close")
                                 .on_click(cx.listener(move |this,_,_,cx| {
                                     if !this.preview_present(&close_identity) { return; }
-                                    this.previews.model.close_identity(&close_identity);
+                                    if this.reader_hover_active() { this.cancel_transient_preview(); } else { this.previews.model.close_identity(&close_identity); }
                                     this.previews.message.clear(); this.schedule_preview(cx); cx.stop_propagation(); cx.notify();
                                 })))
                         ))
@@ -668,7 +704,20 @@ fn fetch_preview(
     if storage()? != before {
         return Err(live::Error::Stale);
     }
-    result.map(preview_content)
+    result.and_then(|response| {
+        // Keep parsing bounded even when a server returns an unusually large note.
+        if response.note.note.note_id != request.target.note_id
+            || (!request.target.vault.is_empty()
+                && response.note.note.vault != request.target.vault)
+            || response.note.body.len() > 256 * 1024
+            || response.note.note.title.len() > 64 * 1024
+        {
+            return Err(live::Error::Shape(
+                "Preview identity or size limit exceeded".into(),
+            ));
+        }
+        Ok(preview_content(response))
+    })
 }
 fn completion_current(
     launch: u64,
@@ -732,6 +781,80 @@ mod tests {
     use super::*;
     fn response() -> live::NoteResponse {
         serde_json::from_value(serde_json::json!({"note":{"note_id":7,"vault":"fixture","title":"Fixture","path":"fixture.md","file_kind":"note","body":"# Authored heading","etag":"x","read_only":true}})).unwrap()
+    }
+    #[test]
+    fn preview_response_identity_and_parse_bounds_are_enforced() {
+        let read = Read {
+            scope: graph_preview::Scope {
+                session: 1,
+                graph: 2,
+                vault: "fixture".into(),
+            },
+            target: Target {
+                vault: "fixture".into(),
+                note_id: 7,
+            },
+            token: 1,
+        };
+        for variant in 0..4 {
+            let mut r = response();
+            match variant {
+                0 => r.note.note.note_id = 8,
+                1 => r.note.note.vault = "other".into(),
+                2 => r.note.body = "x".repeat(256 * 1024 + 1),
+                _ => r.note.note.title = "x".repeat(64 * 1024 + 1),
+            }
+            assert!(fetch_preview(&read, Some(3), || Ok(3), |_| Ok(r)).is_err());
+        }
+        let mut r = response();
+        r.note.body = "x".repeat(256 * 1024);
+        assert_eq!(
+            fetch_preview(&read, Some(3), || Ok(3), |_| Ok(r))
+                .unwrap()
+                .body
+                .len(),
+            256 * 1024
+        );
+    }
+    #[test]
+    fn preview_rest_early_leave_card_hold_and_old_timer_identity() {
+        let mut m = Previews::default();
+        m.set_scope(graph_preview::Scope {
+            session: 1,
+            graph: 2,
+            vault: "fixture".into(),
+        });
+        let a = Target {
+            vault: "fixture".into(),
+            note_id: 7,
+        };
+        let b = Target {
+            vault: "fixture".into(),
+            note_id: 8,
+        };
+        m.hover(a.clone(), (10., 20.), 0);
+        m.leave_opener(100);
+        assert!(m.advance(260).is_none());
+        m.hover(a, (10., 20.), 300);
+        assert!(m.advance(559).is_none());
+        let old = m.advance(560).unwrap();
+        m.leave_opener(570);
+        assert!(m.enter_preview(&old));
+        assert!(m.advance(900).is_none());
+        assert!(m.transient.is_some());
+        m.leave_preview(&old, 901);
+        m.advance(1120);
+        assert!(m.transient.is_some());
+        m.advance(1121);
+        assert!(m.transient.is_none());
+        m.hover(b, (20., 30.), 1200);
+        let new = m.advance(1460).unwrap();
+        assert!(!m.leave_preview(&old, 1500));
+        assert!(!m.close_identity(&old));
+        assert_eq!(m.transient.as_ref().unwrap().read, new);
+        m.navigate();
+        assert!(!m.complete(&new, Ok(preview_content(response()))));
+        assert!(m.advance(2000).is_none());
     }
     #[test]
     fn pin_keyboard_scope_never_enters_text_or_blocked_contexts() {

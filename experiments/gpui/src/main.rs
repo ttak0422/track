@@ -35,6 +35,7 @@ mod note_metadata;
 mod note_properties;
 mod numeric_chart;
 mod numeric_chart_view;
+mod preview_permit;
 mod query_view;
 mod raster;
 mod reader_find;

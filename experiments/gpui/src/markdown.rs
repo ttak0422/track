@@ -159,6 +159,18 @@ pub fn with_resolved_titles(
 /// Shell supplies verified internal or explicit HTTP(S) links. Others stay inert.
 #[derive(Clone)]
 pub struct LinkCallbacks {
+    pub hover: Option<
+        Rc<
+            dyn Fn(
+                &str,
+                Option<&Link>,
+                Option<&gpui::MouseMoveEvent>,
+                Option<(&gpui::TextLayout, usize)>,
+                &mut Window,
+                &mut App,
+            ),
+        >,
+    >,
     pub arrival_block: Option<usize>,
     pub enlarge: Option<Rc<dyn Fn(usize, &mut Window, &mut App)>>,
     pub plain_click: Option<Rc<dyn Fn(usize, &gpui::ClickEvent, &mut Window, &mut App)>>,
@@ -2098,7 +2110,6 @@ fn render_elements(
                             })
                         },
                     )
-                    .into_any_element()
             } else if let Some(entry) = entries.iter().find(|entry| entry.block_index == index) {
                 row.id(SharedString::from(format!(
                     "markdown-heading:{}",
@@ -2109,7 +2120,6 @@ fn render_elements(
                         .and_then(|anchors| anchors.targets.get(&entry.anchor))
                         .cloned(),
                 )
-                .into_any_element()
             } else if let Some((index, anchor)) = anchors.and_then(|anchors| {
                 anchors
                     .footnotes
@@ -2118,7 +2128,6 @@ fn render_elements(
             }) {
                 row.id(SharedString::from(format!("markdown-footnote-{index}")))
                     .anchor_scroll(Some(anchor.clone()))
-                    .into_any_element()
             } else if let Some(activate) = callbacks
                 .filter(|_| plain_reader_block(block))
                 .and_then(|callbacks| callbacks.plain_click.as_ref())
@@ -2126,10 +2135,32 @@ fn render_elements(
                 let activate = activate.clone();
                 row.id(SharedString::from(format!("plain-reader-{index}")))
                     .on_click(move |event, window, cx| activate(index, event, window, cx))
-                    .into_any_element()
             } else {
-                row.into_any_element()
+                row.id(SharedString::from(format!("reader-row-{index}")))
             };
+            let leave = callbacks.and_then(|callbacks| callbacks.hover.clone());
+            let movement = leave.clone();
+            let element = element
+                .on_mouse_move(move |event, window, cx| {
+                    if let Some(movement) = &movement {
+                        movement(
+                            &format!("md-block-{index}"),
+                            None,
+                            Some(event),
+                            None,
+                            window,
+                            cx,
+                        );
+                    }
+                })
+                .on_hover(move |inside, window, cx| {
+                    if !inside {
+                        if let Some(leave) = &leave {
+                            leave(&format!("md-block-{index}"), None, None, None, window, cx);
+                        }
+                    }
+                })
+                .into_any_element();
             // Copy and Find may coexist after Find closes. Lay out both retained
             // anchors; choosing just one leaves the other with stale/no bounds.
             let element = if let Some(anchor) = copy
@@ -2235,7 +2266,28 @@ fn link_text(
         })
         .collect();
     let activate = callbacks.activate.clone();
+    let layout = text.layout().clone();
+    let hovered = active.clone();
+    let hover = callbacks.hover.clone();
+    let hover_id = id.clone();
     InteractiveText::new(SharedString::from(id), text)
+        .on_hover(move |index, event, window, cx| {
+            if let Some(hover) = &hover {
+                let link = index.and_then(|index| {
+                    hovered.iter().find(|link| {
+                        (link.range.start + offset..link.range.end + offset).contains(&index)
+                    })
+                });
+                hover(
+                    &hover_id,
+                    link,
+                    Some(&event),
+                    Some((&layout, offset)),
+                    window,
+                    cx,
+                );
+            }
+        })
         .tooltip(move |index, _, cx| {
             destinations
                 .iter()
@@ -2537,6 +2589,38 @@ fn render_table(
                     "find-cell-{block_index}-{index}-{column}"
                 )))
                 .anchor_scroll(find.and_then(|f| f.anchors.targets.get(&target)).cloned())
+                .on_mouse_move({
+                    let movement = callbacks.and_then(|callbacks| callbacks.hover.clone());
+                    move |event, window, cx| {
+                        if let Some(movement) = &movement {
+                            movement(
+                                &format!("md-table-{block_index}-{index}-{column}"),
+                                None,
+                                Some(event),
+                                None,
+                                window,
+                                cx,
+                            );
+                        }
+                    }
+                })
+                .on_hover({
+                    let leave = callbacks.and_then(|callbacks| callbacks.hover.clone());
+                    move |inside, window, cx| {
+                        if !inside {
+                            if let Some(leave) = &leave {
+                                leave(
+                                    &format!("md-table-{block_index}-{index}-{column}"),
+                                    None,
+                                    None,
+                                    None,
+                                    window,
+                                    cx,
+                                );
+                            }
+                        }
+                    }
+                })
             }))
         }))
 }
@@ -3235,6 +3319,7 @@ mod tests {
         assert!(pending.iter().filter(|span| span.style.unresolved).count() >= 2);
         assert!(pending.iter().all(|span| !span.style.link));
         let callbacks = LinkCallbacks {
+            hover: None,
             arrival_block: None,
             enlarge: None,
             plain_click: None,
@@ -3940,6 +4025,7 @@ mod footnote_navigation_tests {
         let cell = &parsed[0].table.as_ref().unwrap().rows[1][0];
         assert!(footnote_link_valid(&parsed, &cell.links[0]));
         let callbacks = LinkCallbacks {
+            hover: None,
             arrival_block: None,
             enlarge: None,
             plain_click: None,

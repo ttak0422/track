@@ -517,6 +517,7 @@ pub struct ShellState {
     pending_fragment: Option<PendingFragment>,
     pub(crate) reader_focus: Option<gpui::FocusHandle>,
     workspace_focus: Option<gpui::FocusHandle>,
+    reader_hover: Option<ReaderHover>,
     reader_scrolls: std::collections::HashMap<tabs::TabKey, gpui::ScrollHandle>,
     reader_content: std::collections::HashMap<tabs::TabKey, ReaderContentIdentity>,
     tab_cycle: Vec<tabs::TabKey>,
@@ -635,6 +636,7 @@ impl Default for ShellState {
             pending_fragment: None,
             reader_focus: None,
             workspace_focus: None,
+            reader_hover: None,
             reader_scrolls: Default::default(),
             reader_content: Default::default(),
             tab_cycle: Vec::new(),
@@ -695,6 +697,281 @@ fn footnote_jump_allowed(
         && current == Some(source)
         && displayed == current_displayed
         && markdown::footnote_link_valid(current_displayed, link)
+}
+
+struct ReaderHover {
+    source: LinkSource,
+    document: code_copy::Document,
+    displayed: std::rc::Rc<Vec<markdown::Block>>,
+    id: String,
+    link: markdown::Link,
+    target: live::NoteKey,
+    geometry: FootnoteGeometry,
+    offset: gpui::Point<gpui::Pixels>,
+    interaction: u64,
+    scroll_epoch: u64,
+    scope_revision: u64,
+    layout: gpui::TextLayout,
+    rendered_range: std::ops::Range<usize>,
+}
+impl ReaderHover {
+    fn source_matches(
+        &self,
+        source: Option<&LinkSource>,
+        document: Option<&code_copy::Document>,
+        displayed: &std::rc::Rc<Vec<markdown::Block>>,
+        interaction: u64,
+        scroll_epoch: u64,
+        scope_revision: u64,
+        offset: Option<gpui::Point<gpui::Pixels>>,
+    ) -> bool {
+        source == Some(&self.source)
+            && document == Some(&self.document)
+            && std::rc::Rc::ptr_eq(&self.displayed, displayed)
+            && interaction == self.interaction
+            && scroll_epoch == self.scroll_epoch
+            && scope_revision == self.scope_revision
+            && offset == Some(self.offset)
+    }
+}
+impl Workspace {
+    pub(crate) fn reader_hover_active(&self) -> bool {
+        self.shell.reader_hover.is_some()
+    }
+    pub(crate) fn clear_reader_hover_owner(&mut self) {
+        self.shell.reader_hover = None;
+    }
+    fn reader_hover_document(&self, window: &Window, cx: &App) -> Option<code_copy::Document> {
+        if !window.is_window_active() || !self.previews.model.pinned.is_empty() {
+            return None;
+        }
+        let focus_allowed = window.focused(cx).is_none()
+            || self
+                .shell
+                .reader_focus
+                .as_ref()
+                .is_some_and(|focus| focus.is_focused(window))
+            || self
+                .shell
+                .workspace_focus
+                .as_ref()
+                .is_some_and(|focus| focus.is_focused(window));
+        if !focus_allowed {
+            return None;
+        }
+        self.accepted_reader_document_for(cx, self.reader_hover_active())
+    }
+    pub(crate) fn reader_hover_source_current(&self, cx: &App) -> bool {
+        let Some(owner) = &self.shell.reader_hover else {
+            return true;
+        };
+        owner.source_matches(
+            self.current_link_source().as_ref(),
+            self.accepted_reader_document_for(cx, true).as_ref(),
+            &self.displayed_content(),
+            self.shell.positions.interaction,
+            self.shell.reader_scroll_epoch,
+            self.shell.scope_revision,
+            owner
+                .document
+                .tab
+                .as_ref()
+                .and_then(|tab| self.shell.reader_scrolls.get(tab))
+                .map(|handle| handle.offset()),
+        )
+    }
+    fn reader_hover_current(&self, window: &Window, cx: &App) -> bool {
+        let Some(owner) = &self.shell.reader_hover else {
+            return false;
+        };
+        let Some(tab) = &owner.document.tab else {
+            return false;
+        };
+        let Some(handle) = self.shell.reader_scrolls.get(tab) else {
+            return false;
+        };
+        self.reader_hover_source_current(cx)
+            && self.reader_hover_document(window, cx).as_ref() == Some(&owner.document)
+            && self.current_link_source().as_ref() == Some(&owner.source)
+            && std::rc::Rc::ptr_eq(&owner.displayed, &self.displayed_content())
+            && FootnoteGeometry::capture(handle, window).as_ref() == Some(&owner.geometry)
+            && handle.offset() == owner.offset
+            && self.shell.positions.interaction == owner.interaction
+            && self.shell.reader_scroll_epoch == owner.scroll_epoch
+            && self.shell.scope_revision == owner.scope_revision
+            && markdown::resolve_term(&owner.link.target)
+                .and_then(|term| self.shell.links.as_ref()?.resolved.get(&term))
+                .is_some_and(|target| target == &owner.target)
+    }
+    fn reader_link_hover(
+        &mut self,
+        source: &LinkSource,
+        displayed: &std::rc::Rc<Vec<markdown::Block>>,
+        id: &str,
+        link: Option<&markdown::Link>,
+        event: Option<&gpui::MouseMoveEvent>,
+        layout: Option<(&gpui::TextLayout, usize)>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.current_link_source().as_ref() != Some(source)
+            || !std::rc::Rc::ptr_eq(displayed, &self.displayed_content())
+        {
+            return;
+        }
+        let link = link.filter(|_| event.is_some_and(|event| event.pressed_button.is_none()));
+        let Some(link) = link else {
+            if let Some(owner) = self
+                .shell
+                .reader_hover
+                .as_ref()
+                .filter(|owner| owner.id == id && owner.source == *source)
+            {
+                let inside = event.is_some_and(|event| {
+                    event.pressed_button.is_none()
+                        && owner
+                            .layout
+                            .index_for_position(event.position)
+                            .ok()
+                            .is_some_and(|index| owner.rendered_range.contains(&index))
+                });
+                if inside {
+                    let target = graph_preview::Target {
+                        vault: owner.target.vault.clone(),
+                        note_id: owner.target.note_id,
+                    };
+                    let point = event.unwrap().position;
+                    self.previews.model.hover(
+                        target,
+                        (f32::from(point.x), f32::from(point.y)),
+                        self.previews.now(),
+                    );
+                } else {
+                    self.previews.model.leave_opener(self.previews.now());
+                }
+                self.schedule_preview(cx);
+                cx.notify();
+            }
+            return;
+        };
+        let Some(document) = self.reader_hover_document(window, cx) else {
+            return;
+        };
+        if markdown::is_local_fragment(&link.target)
+            || external_links::destination(&link.target).is_some()
+        {
+            return;
+        }
+        let Some(term) = markdown::resolve_term(&link.target) else {
+            return;
+        };
+        let Some(target) = self
+            .shell
+            .links
+            .as_ref()
+            .filter(|cache| cache.source == *source && !cache.pending)
+            .and_then(|cache| cache.resolved.get(&term))
+            .cloned()
+        else {
+            return;
+        };
+        let Some((layout, offset_in_text)) = layout else {
+            return;
+        };
+        if let Some(owner) = self
+            .shell
+            .reader_hover
+            .as_mut()
+            .filter(|owner| owner.id == id && owner.link == *link && owner.target == target)
+        {
+            owner.layout = layout.clone();
+            let point = event.unwrap().position;
+            self.previews.model.hover(
+                graph_preview::Target {
+                    vault: target.vault,
+                    note_id: target.note_id,
+                },
+                (f32::from(point.x), f32::from(point.y)),
+                self.previews.now(),
+            );
+            self.schedule_preview(cx);
+            cx.notify();
+            return;
+        }
+        let Some(handle) = document
+            .tab
+            .as_ref()
+            .and_then(|tab| self.shell.reader_scrolls.get(tab))
+        else {
+            return;
+        };
+        let Some(geometry) = FootnoteGeometry::capture(handle, window) else {
+            return;
+        };
+        let offset = handle.offset();
+        self.cancel_transient_preview();
+        self.shell.reader_hover = Some(ReaderHover {
+            source: source.clone(),
+            document,
+            displayed: displayed.clone(),
+            id: id.into(),
+            link: link.clone(),
+            target: target.clone(),
+            geometry,
+            offset,
+            interaction: self.shell.positions.interaction,
+            scroll_epoch: self.shell.reader_scroll_epoch,
+            scope_revision: self.shell.scope_revision,
+            layout: layout.clone(),
+            rendered_range: link.range.start + offset_in_text..link.range.end + offset_in_text,
+        });
+        self.previews.model.set_scope(graph_preview::Scope {
+            session: source.launch_generation,
+            graph: source.request,
+            vault: target.vault.clone(),
+        });
+        let event = event.unwrap();
+        self.previews.model.hover(
+            graph_preview::Target {
+                vault: target.vault,
+                note_id: target.note_id,
+            },
+            (f32::from(event.position.x), f32::from(event.position.y)),
+            self.previews.now(),
+        );
+        self.observe_preview_activation(window, cx);
+        self.schedule_preview(cx);
+        cx.notify();
+    }
+    fn sync_reader_hover(&mut self, window: &Window, cx: &mut Context<Self>) {
+        if !self.reader_hover_active() {
+            return;
+        }
+        if !self.reader_hover_current(window, cx) {
+            self.cancel_transient_preview();
+            return;
+        }
+        if self.previews.reader_due
+            && self.previews.model.transient.is_none()
+            && !self.shell.reader_hover.as_ref().is_some_and(|owner| {
+                owner
+                    .layout
+                    .index_for_position(window.mouse_position())
+                    .ok()
+                    .is_some_and(|index| owner.rendered_range.contains(&index))
+            })
+        {
+            self.cancel_transient_preview();
+            return;
+        }
+        if self.previews.reader_due {
+            self.previews.reader_due = false;
+            if let Some(read) = self.previews.model.advance(self.previews.now()) {
+                self.read_graph_preview(read, cx);
+            }
+            self.schedule_preview(cx);
+        }
+    }
 }
 
 struct ReaderKeyOwner {
@@ -953,6 +1230,9 @@ impl FootnoteGeometry {
 }
 impl Workspace {
     pub(crate) fn footnote_reader_available(&self, cx: &App) -> bool {
+        self.footnote_reader_available_for(cx, false)
+    }
+    fn footnote_reader_available_for(&self, cx: &App, own_preview: bool) -> bool {
         self.find_available()
             && self.editing_ui.follow_safe()
             && !self.creation_open()
@@ -964,7 +1244,7 @@ impl Workspace {
             && !self.quit_session.is_closing()
             && self.quit_session.failure().is_none()
             && self.shell.pending_fragment.is_none()
-            && self.previews.model.transient.is_none()
+            && (own_preview || self.previews.model.transient.is_none())
             && !self.previews.model.geometry_active()
             && !self.search.read(cx).is_composing()
             && !self.shell.calendar_zone.is_composing(cx)
@@ -1477,9 +1757,20 @@ fn cycle_index(index: usize, len: usize, backwards: bool) -> usize {
 }
 impl Workspace {
     fn accepted_reader_document(&self, cx: &App) -> Option<code_copy::Document> {
+        self.accepted_reader_document_for(cx, false)
+    }
+    fn accepted_reader_document_for(
+        &self,
+        cx: &App,
+        own_preview: bool,
+    ) -> Option<code_copy::Document> {
         if self.shell.accepted_title_request != Some(self.request)
-            || !self.footnote_reader_available(cx)
-            || self.tag_routing_blocked(cx)
+            || !self.footnote_reader_available_for(cx, own_preview)
+            || if own_preview {
+                self.reader_preview_routing_blocked(cx)
+            } else {
+                self.tag_routing_blocked(cx)
+            }
             || self.editor_shortcut_blocked(cx)
             || self.shell.find.is_composing(cx)
             || (self.session_ui.recovery_enabled()
@@ -2921,6 +3212,7 @@ impl Workspace {
 
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.sync_reader_hover(window, cx);
         self.sync_reader_hierarchy(window, cx);
         self.sync_enlarged_image(window, cx);
         let title_source = self.copy_title_source(cx);
@@ -2982,7 +3274,28 @@ impl Render for Workspace {
         let plain_source = link_source.clone();
         let plain_displayed = external_displayed.clone();
         let plain_weak = cx.entity().downgrade();
+        let hover_source = link_source.clone();
+        let hover_displayed = external_displayed.clone();
+        let hover_weak = cx.entity().downgrade();
         let link_callbacks = markdown::LinkCallbacks {
+            hover: Some(std::rc::Rc::new(
+                move |id, link, event, layout, window, cx| {
+                    if let Some(source) = &hover_source {
+                        let _ = hover_weak.update(cx, |this, cx| {
+                            this.reader_link_hover(
+                                source,
+                                &hover_displayed,
+                                id,
+                                link,
+                                event,
+                                layout,
+                                window,
+                                cx,
+                            )
+                        });
+                    }
+                },
+            )),
             arrival_block: self
                 .shell
                 .block_arrival
@@ -3006,6 +3319,7 @@ impl Render for Workspace {
                         .is_some_and(|term| resolved_terms.contains_key(&term))
             }),
             activate: std::rc::Rc::new(move |link, window, cx| {
+                let _ = weak.update(cx, |this, _| this.cancel_transient_preview());
                 if let Some(source) = &link_source {
                     let _ = weak.update(cx, |this, cx| {
                         if matches!(link.target, markdown::LinkTarget::Footnote { .. }) {
@@ -5900,5 +6214,118 @@ mod native_find_tests {
         assert!(native_find_enabled(true, true, false, true, false, false));
         assert!(!native_find_enabled(true, true, false, true, true, false));
         assert!(native_find_enabled(true, true, false, true, true, true));
+    }
+}
+
+#[cfg(test)]
+mod reader_hover_tests {
+    use super::*;
+    fn owner() -> ReaderHover {
+        ReaderHover {
+            source: LinkSource {
+                note: live::NoteKey {
+                    vault: "work".into(),
+                    note_id: 7,
+                },
+                etag: "a".into(),
+                storage_generation: 2,
+                launch_generation: 3,
+                request: 4,
+            },
+            document: code_copy::Document {
+                tab: Some(tabs::TabKey::Note {
+                    vault: "work".into(),
+                    note_id: 7,
+                }),
+                request: 4,
+                etag: Some("a".into()),
+                storage: Some(2),
+                launch: Some(3),
+            },
+            displayed: std::rc::Rc::new(markdown::parse("[[Target]]")),
+            id: "md-block-0".into(),
+            link: markdown::parse("[[Target]]")[0].links[0].clone(),
+            target: live::NoteKey {
+                vault: "work".into(),
+                note_id: 8,
+            },
+            geometry: FootnoteGeometry {
+                reader: gpui::Bounds {
+                    origin: point(px(0.), px(0.)),
+                    size: size(px(600.), px(500.)),
+                },
+                extent: size(px(0.), px(700.)),
+                viewport: size(px(900.), px(800.)),
+                scale: 1.,
+            },
+            offset: point(px(0.), px(-30.)),
+            interaction: 10,
+            scroll_epoch: 11,
+            scope_revision: 12,
+            layout: Default::default(),
+            rendered_range: 0..6,
+        }
+    }
+    #[test]
+    fn reader_hover_requires_exact_source_and_accepted_document() {
+        let o = owner();
+        let matches = |source: Option<&LinkSource>, document: Option<&code_copy::Document>| {
+            o.source_matches(source, document, &o.displayed, 10, 11, 12, Some(o.offset))
+        };
+        assert!(matches(Some(&o.source), Some(&o.document)));
+        assert!(!matches(None, Some(&o.document)));
+        assert!(!matches(Some(&o.source), None));
+        for i in 0..6 {
+            let mut source = o.source.clone();
+            match i {
+                0 => source.note.vault = "other".into(),
+                1 => source.note.note_id += 1,
+                2 => source.etag += "new",
+                3 => source.storage_generation += 1,
+                4 => source.launch_generation += 1,
+                _ => source.request += 1,
+            };
+            assert!(!matches(Some(&source), Some(&o.document)));
+        }
+        let mut doc = o.document.clone();
+        doc.tab = Some(tabs::TabKey::Graph);
+        assert!(!matches(Some(&o.source), Some(&doc)));
+    }
+    #[test]
+    fn reader_hover_rejects_reflow_scroll_and_replaced_equal_content() {
+        let o = owner();
+        let matches =
+            |displayed: &std::rc::Rc<Vec<markdown::Block>>, interaction, epoch, scope, offset| {
+                o.source_matches(
+                    Some(&o.source),
+                    Some(&o.document),
+                    displayed,
+                    interaction,
+                    epoch,
+                    scope,
+                    offset,
+                )
+            };
+        assert!(!matches(
+            &std::rc::Rc::new((*o.displayed).clone()),
+            10,
+            11,
+            12,
+            Some(o.offset)
+        ));
+        assert!(!matches(&o.displayed, 11, 11, 12, Some(o.offset)));
+        assert!(!matches(&o.displayed, 10, 12, 12, Some(o.offset)));
+        assert!(!matches(&o.displayed, 10, 11, 13, Some(o.offset)));
+        assert!(!matches(
+            &o.displayed,
+            10,
+            11,
+            12,
+            Some(point(px(0.), px(-31.)))
+        ));
+        assert!(!matches(&o.displayed, 10, 11, 12, None));
+        let mut changed = o.geometry.clone();
+        changed.viewport.width = px(680.);
+        assert_ne!(changed, o.geometry);
     }
 }
