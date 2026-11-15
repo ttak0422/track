@@ -27,6 +27,7 @@ func fixture(t *testing.T) (string, map[string][]byte) {
 		"template/200.template.md":            []byte("<!-- track-template\nname: default\n-->\n{{ title }}\n"),
 		".track/notes/100.yaml":               []byte("version: 1\ntitle: Title\ntags: [backup]\n"),
 		".track/notes/20261101.yaml":          []byte("version: 1\ntitle: Journal\n"),
+		".track/timelines/project.json":       []byte(`{"schema_version":1,"project_id":"project","revision":1}`),
 		".track/config.yml":                   []byte("date_format: '2006-01-02'\n"),
 		"assets/image.png":                    {0, 1, 2, 255},
 		"data/samples.jsonl":                  []byte("{\"value\":42}\n"),
@@ -60,6 +61,8 @@ func TestRoundTrip(t *testing.T) {
 	os.MkdirAll(filepath.Join(source, ".git"), 0o700)
 	os.WriteFile(filepath.Join(source, ".git/config"), []byte("fixture-token"), 0o600)
 	os.WriteFile(filepath.Join(source, ".DS_Store"), []byte("finder"), 0o600)
+	os.WriteFile(filepath.Join(source, ".track/timelines/.project.lock"), []byte("lock-transient"), 0o600)
+	os.WriteFile(filepath.Join(source, ".track/timelines/.project-a.tmp"), []byte("temp-transient"), 0o600)
 	manifest, err := Write([]Vault{{Name: "work", Prefix: "vault", Source: source}}, stage)
 	if err != nil {
 		t.Fatal(err)
@@ -122,6 +125,9 @@ func TestRoundTrip(t *testing.T) {
 		data, err := io.ReadAll(tr)
 		if err != nil {
 			t.Fatal(err)
+		}
+		if strings.Contains(hdr.Name, "timelines/.") {
+			t.Fatalf("timeline transient leaked: %s", hdr.Name)
 		}
 		if strings.Contains(string(data), "fixture-token") {
 			t.Fatal("git config leaked")
@@ -473,5 +479,21 @@ func TestIndependentConfigCopiesArePreservedAsVaultContent(t *testing.T) {
 			t.Fatal("independent vault file changed", err)
 		}
 		return
+	}
+}
+
+func TestTimelineBackupRejectsSymlinks(t *testing.T) {
+	for _, name := range []string{"project.json", ".project.lock", ".project-x.tmp"} {
+		t.Run(name, func(t *testing.T) {
+			source, _ := fixture(t)
+			dest := filepath.Join(source, ".track/timelines", name)
+			os.Remove(dest)
+			if err := os.Symlink(filepath.Join(t.TempDir(), "outside"), dest); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Write([]Vault{{Name: "work", Prefix: "vault", Source: source}}, filepath.Join(t.TempDir(), "backup.tar.gz")); err == nil {
+				t.Fatal("accepted timeline symlink")
+			}
+		})
 	}
 }
