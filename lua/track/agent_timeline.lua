@@ -66,6 +66,35 @@ function M.new(project_id, options)
       end
    end
 
+   local timer, watch_generation = nil, 0
+
+   function view.stop_watching()
+      watch_generation = watch_generation + 1
+      if timer then timer:stop(); timer:close(); timer = nil end
+   end
+
+   -- Opt-in lifecycle ownership: the caller must dispose when its UI is closed.
+   -- Rendering remains cache-only; one read/write may be in flight at a time.
+   function view.watch(interval_ms, callback)
+      assert(type(interval_ms) == "number" and interval_ms >= 1000, "poll interval must be at least 1000 ms")
+      view.stop_watching()
+      local owned = watch_generation
+      timer = (vim.uv or vim.loop).new_timer()
+      timer:start(interval_ms, interval_ms, function()
+         vim.schedule(function()
+            if owned == watch_generation and timer and not view.writing and not view.loading then
+               view.refresh(callback)
+            end
+         end)
+      end)
+      return view.stop_watching
+   end
+
+   function view.dispose()
+      view.stop_watching()
+      view.cancel()
+   end
+
    function view.request(kind, payload)
       return { source = "nvim", event_id = event_id(), expected_revision = view.snapshot and view.snapshot.revision or 0,
          kind = kind, payload = payload }
@@ -112,10 +141,27 @@ function M.new(project_id, options)
          for _, task in ipairs(by_parent[parent] or {}) do
             rows[#rows + 1] = string.rep("  ", math.min(depth, 32)) .. "[" .. task.status .. "] "
                .. task.title:gsub("[%c]", " ")
+            local progress = snapshot.task_progress and snapshot.task_progress[task.id]
+            if progress then
+               rows[#rows] = rows[#rows] .. string.format("  %.0f%% (%g min remaining)", progress.fraction * 100, progress.remaining_minutes)
+            end
             add(task.id, depth + 1)
          end
       end
       add("", 0)
+      local function text(value) return tostring(value or ""):gsub("[%c]", " ") end
+      for i = math.max(1, #(snapshot.reports or {}) - 2), #(snapshot.reports or {}) do
+         local report = snapshot.reports[i]
+         rows[#rows + 1] = "Report [" .. text(report.task_id or "project") .. "]: " .. text(report.summary)
+      end
+      for i = math.max(1, #(snapshot.discussions or {}) - 2), #(snapshot.discussions or {}) do
+         local entry = snapshot.discussions[i]
+         rows[#rows + 1] = text(entry.author) .. " -> " .. text(entry.target_id) .. ": " .. text(entry.text)
+      end
+      for i = math.max(1, #(snapshot.controls or {}) - 4), #(snapshot.controls or {}) do
+         local control = snapshot.controls[i]
+         rows[#rows + 1] = text(control.task_id) .. " " .. text(control.action) .. ": " .. text(control.status)
+      end
       return rows
    end
 

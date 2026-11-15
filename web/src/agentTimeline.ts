@@ -18,6 +18,7 @@ export interface AgentProgress { fraction: number; done_minutes: number; remaini
 export interface AgentProjectSummary { project_id: string; title: string; note_id?: string; revision: number; progress: AgentProgress }
 export interface AgentProject extends AgentProjectSummary {
   schema_version: number; description?: string; mode: "serial" | "parallel";
+  task_progress?: Record<string, AgentProgress>;
   tasks: AgentTask[]; reports: AgentReport[]; discussions: AgentDiscussion[]; controls: AgentControl[]; events: AgentEvent[];
 }
 export interface AgentRequest { source: string; event_id: string; expected_revision: number; kind: string; payload: unknown }

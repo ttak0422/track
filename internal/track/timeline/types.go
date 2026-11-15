@@ -119,6 +119,8 @@ type Snapshot struct {
 	Controls    []Control    `json:"controls"`
 	Events      []Event      `json:"events"`
 	Progress    Progress     `json:"progress"`
+	// TaskProgress is derived from each task subtree, never accepted as input.
+	TaskProgress map[string]Progress `json:"task_progress"`
 }
 
 type Summary struct {

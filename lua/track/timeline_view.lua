@@ -9,16 +9,30 @@ local function lines(snapshot)
       string.format("Revision %d | %.0f%% | %.1f min remaining", snapshot.revision,
          snapshot.progress.fraction * 100, snapshot.progress.remaining_minutes),
       "r refresh   a append/update record   q close", "", "## Tasks" }
+   local children = {}
    for _, task in ipairs(snapshot.tasks) do
-      result[#result + 1] = string.format("[%s] %s (%s)%s", task.status, clean(task.title), task.id,
-         task.parent_id and " <- " .. task.parent_id or "")
-      result[#result + 1] = string.format("  owner=%s weight=%g effort=%g/%g min mode=%s", task.owner or "", task.weight, task.done_minutes, task.remaining_minutes, task.mode)
-      if task.detail then result[#result + 1] = "  " .. clean(task.detail) end
+      local parent = task.parent_id or ""
+      children[parent] = children[parent] or {}
+      table.insert(children[parent], task)
    end
+   local function tasks(parent, depth)
+      for _, task in ipairs(children[parent] or {}) do
+         local indent = string.rep("  ", math.min(depth, 32))
+         local progress = snapshot.task_progress and snapshot.task_progress[task.id]
+         result[#result + 1] = indent .. string.format("[%s] %s (%s)%s", task.status, clean(task.title), task.id,
+            progress and string.format(" | %.0f%%", progress.fraction * 100) or "")
+         result[#result + 1] = indent .. string.format("  owner=%s priority=%s weight=%g effort=%g/%g min mode=%s",
+            task.owner or "", task.priority ~= nil and "P" .. task.priority or "unprioritized",
+            task.weight, task.done_minutes, task.remaining_minutes, task.mode)
+         if task.detail then result[#result + 1] = indent .. "  " .. clean(task.detail) end
+         tasks(task.id, depth + 1)
+      end
+   end
+   tasks("", 0)
    result[#result + 1] = ""
    result[#result + 1] = "## Reports"
    for _, report in ipairs(snapshot.reports) do
-      result[#result + 1] = report.id .. " | " .. clean(report.author) .. " | " .. clean(report.summary)
+      result[#result + 1] = report.id .. " | " .. clean(report.author) .. " | " .. (report.task_id and "task:" .. report.task_id or "project") .. " | " .. clean(report.summary)
       result[#result + 1] = "  " .. report.period_start .. " - " .. report.period_end .. " events: " .. table.concat(report.event_sequences, ", ")
       if report.uncertainty then result[#result + 1] = "Uncertainty: " .. clean(report.uncertainty) end
       if report.user_action then result[#result + 1] = "User action: " .. clean(report.user_action) end
@@ -38,12 +52,14 @@ local function lines(snapshot)
    result[#result + 1] = "## Recorded events"
    for _, event in ipairs(snapshot.events) do
       result[#result + 1] = string.format("%d %s %s %s:%s", event.sequence, event.at, event.kind, event.source, event.event_id)
+      result[#result + 1] = "  Payload: " .. clean(vim.json.encode(event.payload))
    end
    return result
 end
 
-local function edit_record(view, kind, payload, on_saved)
+local function edit_record(view, kind, payload, on_saved, revision)
    local request = view.request(kind, payload)
+   if revision then request.expected_revision = revision end
    local buf = vim.api.nvim_create_buf(false, true)
    vim.cmd("botright split")
    vim.api.nvim_win_set_buf(0, buf)
@@ -136,12 +152,28 @@ function M.open(project_id, options)
    vim.keymap.set("n", "a", function()
       if not view.snapshot then return end
       vim.ui.select(kinds, { prompt = "Append an explicit record" }, function(kind)
-         if kind then edit_record(view, kind, payload_for(view, kind), function() render() end) end
+         if not kind or not vim.api.nvim_buf_is_valid(buf) then return end
+         if kind ~= "task.upsert" then
+            edit_record(view, kind, payload_for(view, kind), function() render() end)
+            return
+         end
+         -- Task upserts replace the complete record. Freeze both its fields and
+         -- revision before opening the picker; a refresh must not rebase a draft.
+         local revision = view.snapshot.revision
+         local choices = { { title = "+ New task" } }
+         for _, task in ipairs(view.snapshot.tasks) do
+            choices[#choices + 1] = { title = task.title .. " (" .. task.id .. ")", task = vim.deepcopy(task) }
+         end
+         vim.ui.select(choices, { prompt = "Create or edit task", format_item = function(item) return item.title end }, function(choice)
+            if not choice or not vim.api.nvim_buf_is_valid(buf) then return end
+            edit_record(view, kind, choice.task or payload_for(view, kind), function() render() end, revision)
+         end)
       end)
    end, { buffer = buf })
-   vim.api.nvim_create_autocmd("BufWipeout", { buffer = buf, once = true, callback = view.cancel })
+   vim.api.nvim_create_autocmd("BufWipeout", { buffer = buf, once = true, callback = view.dispose })
    render()
    view.refresh(render)
+   view.watch(5000, render)
 end
 
 return M

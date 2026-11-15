@@ -83,6 +83,15 @@ local function run()
       assert(rendered:find(expected, 1, true), "missing timeline content: " .. expected)
    end
    assert(not vim.bo[buf].modifiable and not vim.bo[buf].modified, "timeline should be read-only")
+   -- The open native view observes an independent writer without manual refresh.
+   external.event_id, external.expected_revision = "monitor", 3
+   external.payload.title = "Observed external progress"
+   local advanced = vim.system({ binary, "timeline-project", "apply", "--id", "e2e-project" },
+      { text = true, stdin = vim.json.encode(external), timeout = 15000 }):wait()
+   assert(advanced.code == 0, advanced.stderr)
+   assert(vim.wait(8000, function()
+      return table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n"):find("Observed external progress", 1, true) ~= nil
+   end, 20), "open timeline did not monitor the external writer")
    -- Execute the real buffer-local q mapping, including BufWipeout cancellation.
    vim.api.nvim_feedkeys("q", "xt", false)
    assert(vim.wait(1000, function() return not vim.api.nvim_buf_is_valid(buf) end, 10), "q did not wipe timeline")

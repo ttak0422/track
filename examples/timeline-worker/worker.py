@@ -14,6 +14,10 @@ class WorkerError(Exception):
     pass
 
 
+class RevisionConflict(WorkerError):
+    pass
+
+
 def now():
     return datetime.datetime.now(datetime.timezone.utc).isoformat()
 
@@ -44,18 +48,63 @@ class Client:
                 raise WorkerError("Track returned invalid JSON; inspect the ledger before restarting")
             if result.returncode or not isinstance(response, dict) or response.get("error"):
                 error = response.get("error") if isinstance(response, dict) else "invalid response"
-                raise WorkerError(f"Track rejected request: {error}. No automatic rebase or restart.")
+                if result.returncode and error in ("timeline revision conflict", "apply timeline event: timeline revision conflict"):
+                    raise RevisionConflict(error)
+                raise WorkerError(f"Track rejected request: {error}. No automatic restart.")
             return response
 
     def read(self):
         return self.call("get")
 
+    @staticmethod
+    def preconditions(snapshot, kind, payload):
+        """Only demo operations with a known, narrow read set can reconcile."""
+        def find(collection, identity):
+            return next((item for item in snapshot.get(collection, [])
+                         if item["id"] == identity), None)
+
+        if kind == "task.upsert":
+            task_id = payload["id"]
+            target = find("tasks", task_id)
+            extra = find("tasks", payload.get("parent_id"))
+        elif kind == "control.update":
+            target = find("controls", payload["id"])
+            if target is None:
+                raise WorkerError("Control disappeared; manual reconciliation required")
+            task_id, extra = target["task_id"], None
+        elif kind == "report.add":
+            task_id = payload.get("task_id")
+            target = find("reports", payload["id"])
+            by_sequence = {event["sequence"]: event for event in snapshot.get("events", [])}
+            extra = [by_sequence.get(seq) for seq in payload["event_sequences"]]
+            if any(event is None for event in extra):
+                raise WorkerError("Report provenance changed; manual reconciliation required")
+        else:
+            raise WorkerError("This operation does not support conflict reconciliation")
+        # A new or changed control on this task must not be bypassed by a progress
+        # write. Changes on other tasks do not invalidate this worker's intention.
+        controls = [item for item in snapshot.get("controls", []) if item["task_id"] == task_id]
+        return (target, find("tasks", task_id), controls, extra)
+
     def apply(self, snapshot, kind, payload):
-        self.last_event_id = "demo-" + uuid.uuid4().hex
-        return self.call("apply", {
-            "source": self.owner, "event_id": self.last_event_id,
-            "expected_revision": snapshot["revision"], "kind": kind, "payload": payload,
-        })
+        original = snapshot
+        for attempt in range(4):
+            self.last_event_id = "demo-" + uuid.uuid4().hex
+            try:
+                return self.call("apply", {
+                    "source": self.owner, "event_id": self.last_event_id,
+                    "expected_revision": snapshot["revision"], "kind": kind, "payload": payload,
+                })
+            except RevisionConflict:
+                # A definitive rejection is the only permission to refresh the
+                # revision and assign a new action ID. Timeouts stay inside call().
+                if attempt == 3:
+                    raise WorkerError("Conflict retry limit reached; inspect the ledger before restarting")
+                before = self.preconditions(original, kind, payload)
+                fresh = self.read()
+                if before != self.preconditions(fresh, kind, payload):
+                    raise WorkerError("Affected task/control/provenance changed; manual reconciliation required")
+                snapshot = fresh
 
 
 class Demo:

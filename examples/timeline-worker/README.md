@@ -58,9 +58,13 @@ does not adopt another writer’s task; manual reconciliation is required.
   argument arrays and JSON stdin, never shell evaluation.
 - Timeout retries use the same serialized request and event identity. Two timeouts
   produce an uncertain-outcome error; inspect recorded events before restarting.
-- Revision conflicts stop the worker; they are not blindly rebased onto a new task
-  state. This deliberately small adapter favors preserving another writer's edits
-  over retrying until success. Keep one writer per task and refresh other writers.
+- A definitive revision-conflict rejection permits at most three refresh/retry
+  attempts with new event IDs. Task/control records and relevant control requests
+  must remain identical; report references must also still match. Unrelated task
+  writes can therefore proceed concurrently, while same-task edits, ownership
+  changes and control changes require manual reconciliation. Unsupported operations
+  fail without rebasing. Timeouts never trigger revision refresh or a new event ID.
+  Keep one writer per task; this is optimistic reconciliation, not a worker lease.
 - A crash between acknowledgement, task status and completion can leave an incomplete
   control receipt. These operations are separate ledger events, not a transaction.
 - The report references this invocation's actual events, including progress and
@@ -75,6 +79,7 @@ TRACK_TEST_BIN=/tmp/track-timeline-demo python3 -B -m unittest discover \
 ```
 
 Integration tests use temporary vaults and exercise real CLI writes, progress/report
-references, safe-point controls and owner filtering. Unit tests cover identical
-request retries and refusal to rebase conflicts. Without `TRACK_TEST_BIN`, only the
+references, safe-point controls and owner filtering. Tests also cover unrelated-task conflict
+reconciliation, rejection of same-task/control changes, bounded retries and identical
+request retries after timeouts. Without `TRACK_TEST_BIN`, only the
 unit tests run; integration tests are explicitly skipped.

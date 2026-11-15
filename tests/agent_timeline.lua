@@ -62,6 +62,44 @@ local component = view.komado_component()
 assert(component.update[1] == 'User' and component.update.pattern == 'TrackTimelineChanged')
 assert(spec.item(spec.source()[1]).provider == 'Demo  50%')
 assert(#jobs == n)
+local timers = {}
+vim.uv.new_timer = function()
+   local timer = {}
+   function timer:start(_, _, cb) self.callback = cb end
+   function timer:stop() self.stopped = true end
+   function timer:close() self.closed = true end
+   timers[#timers + 1] = timer
+   return timer
+end
+view.watch(1000)
+local before_watch = #jobs
+timers[1].callback()
+while #scheduled > 0 do table.remove(scheduled, 1)() end
+assert(#jobs == before_watch + 1)
+-- Outstanding reads do not overlap.
+timers[1].callback()
+while #scheduled > 0 do table.remove(scheduled, 1)() end
+assert(#jobs == before_watch + 1)
+finish(jobs[#jobs], 0, 'good')
+-- A queued tick from a disposed UI cannot issue a request.
+timers[1].callback()
+view.dispose()
+while #scheduled > 0 do table.remove(scheduled, 1)() end
+assert(#jobs == before_watch + 1 and timers[1].stopped and timers[1].closed)
+view.watch(1000)
+assert(#timers == 2)
+view.apply(view.request('project.update', {title='Demo'}))
+local pending_write = #jobs
+timers[2].callback()
+while #scheduled > 0 do table.remove(scheduled, 1)() end
+assert(#jobs == pending_write)
+finish(jobs[#jobs], 0, 'good')
+view.dispose()
+view.snapshot.reports = {{summary='Summary',task_id='parent'}}
+view.snapshot.discussions = {{author='worker',target_id='parent',text='Message'}}
+view.snapshot.controls = {{task_id='parent',action='pause',status='requested'}}
+local rich = table.concat(view.rows(), '\n')
+assert(rich:find('Report [parent]: Summary',1,true) and rich:find('worker -> parent: Message',1,true) and rich:find('parent pause: requested',1,true))
 print('agent timeline adapter tests passed')
 
 vim = host_vim
