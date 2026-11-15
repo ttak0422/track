@@ -43,6 +43,7 @@ pub enum Transition {
     Reload,
     Graph,
     FullGraph,
+    Calendar,
     WorkingVault(String),
     CreateNote,
     Quit,
@@ -476,6 +477,7 @@ impl Workspace {
             Transition::Reload => self.load_notes(cx),
             Transition::Graph => self.load_graph(cx),
             Transition::FullGraph => self.open_full_graph(cx),
+            Transition::Calendar => self.open_calendar(cx),
             Transition::WorkingVault(scope) => self.change_working_vault(scope, cx),
             Transition::CreateNote => self.open_creation_form(cx),
             Transition::Quit => {
@@ -1548,6 +1550,7 @@ mod tests {
             Transition::Reload,
             Transition::Graph,
             Transition::FullGraph,
+            Transition::Calendar,
             Transition::Quit,
             Transition::Note(live::NoteKey {
                 vault: "a".into(),
@@ -1959,6 +1962,7 @@ mod pending_transition_tests {
         for destination in [
             Transition::Home,
             Transition::FullGraph,
+            Transition::Calendar,
             Transition::WorkingVault("two".into()),
             Transition::Reload,
             Transition::Quit,
@@ -2283,6 +2287,7 @@ mod image_overlay_transition_tests {
             Transition::Home,
             Transition::Reload,
             Transition::FullGraph,
+            Transition::Calendar,
             Transition::CreateNote,
         ] {
             assert!(image_overlay_blocks_transition(true, &intent));

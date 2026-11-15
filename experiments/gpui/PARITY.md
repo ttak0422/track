@@ -549,8 +549,9 @@ Explicit disposable-fixture session persistence adds schema 6 recent-list restar
 continuity, independently of open tabs; legacy schemas restore empty recents.
 Restore stays on Home and performs no title fetch or synthetic visit. Unknown-vault
 metadata fails closed rather than preserving an unavailable row as interactive.
-Native restart/race QA for this addition is pending; immediate/abrupt quit durability
-remains unverified. Hover/focus-to-open behavior is not yet implemented. The popup does not fetch titles or preview notes; it uses the normal
+Isolated native completed-save restart, closed-tab retention, cross-vault same-ID
+reopening and accepted revisit ordering passed. Race/native offline-peer checks
+and immediate/abrupt quit durability remain unverified. Hover/focus-to-open behavior is not yet implemented. The popup does not fetch titles or preview notes; it uses the normal
 guarded note route when a row is activated. Close, Escape, and outside clicks do
 not change the reader scroll handle or offset.
 
@@ -611,3 +612,21 @@ Included Markdown validation: 803 Rust tests passed (7 ignored), isolated
 foreign/host same-title and same-ID resolution, Back, missing-target retention,
 excluded controls and Quit passed with 20 unchanged canonical hashes. Unicode,
 empty-vault, cap/race/keyboard/IME native cases remain follow-ups.
+
+### Dedicated Calendar: bounded read-only month slice
+
+Calendar now has a separate tab/history route, Sunday-first month grid and
+Previous/Next/Current month controls. One scoped activity-range snapshot supplies
+note-activity counts. All real dates are selectable, including zero-count dates,
+which can still have tasks/events; this is an intentional difference from an
+empty/inert cell. Selected-day sections reuse the bounded agenda/task/event
+adapters and exact note navigation. Surface, month revision, selected-day serial,
+registry, scope, request, launch and storage guards reject stale work.
+
+Calendar route persistence is fixture-only schema 7 (read versions 1–6 too),
+with safe Home startup; month/day/results are not saved. No ordinary writes or
+journal/event/task edits are enabled. Monthly three-item snippets, full-calendar
+planning interactions and broader Calendar parity remain unimplemented. Isolated native
+zero-activity task/event display, vault scope, Search/task navigation, Back, Reload,
+Next/Current month and safe Home restart passed. Dirty/IME, rapid-response races
+and interrupted-save scenarios remain unverified natively.

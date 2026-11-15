@@ -89,13 +89,23 @@ impl Workspace {
         cx: &App,
     ) -> bool {
         use workspace_edit::Transition;
+        let calendar = workspace_calendar::involves_calendar(
+            intent,
+            self.calendar_active(),
+            self.tabs
+                .entries()
+                .iter()
+                .any(|tab| tab.key == tabs::TabKey::Calendar),
+        );
         let involves_page = self.tag_page.is_some()
+            || calendar
             || matches!(intent, Transition::Tag { .. })
             || matches!(intent, Transition::History(ticket) if matches!(ticket.route, Some(tabs::TabKey::Tag { .. })));
         involves_page
             && !matches!(intent, Transition::Quit)
             && self.tag_routing_blocked_with_owner(
-                matches!(intent, Transition::ActivateTab(_)),
+                matches!(intent, Transition::ActivateTab(_))
+                    || (calendar && matches!(intent, Transition::CloseTab(_))),
                 matches!(intent, Transition::WorkingVault(_)),
                 false,
                 false,
@@ -437,6 +447,19 @@ impl Workspace {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn calendar_search_results_have_only_explicit_search_owner_exception() {
+        for (tag, calendar) in [(true, false), (false, true)] {
+            assert!(workspace_live::search_result_page_owner(tag, calendar));
+            // The explicit result callback may release Search. Ordinary page
+            // navigation cannot, and owning Search never permits another menu.
+            assert!(!surface_blocks(true, false, false, true, false, false));
+            assert!(surface_blocks(true, false, false, false, false, false));
+            assert!(surface_blocks(true, true, false, true, false, false));
+            assert!(surface_blocks(true, false, true, true, false, false));
+        }
+        assert!(!workspace_live::search_result_page_owner(false, false));
+    }
     #[test]
     fn owning_surface_navigation_is_distinct_from_obscured_page_clicks() {
         assert!(surface_blocks(true, false, false, false, false, false));

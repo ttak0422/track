@@ -1035,3 +1035,27 @@ Labels are bounded to 512 characters / 2048 UTF-8 bytes. The unchanged 128 KiB
 total snapshot cap can reject an otherwise individually valid list; a warning
 is shown, with no truncation or replacement. Queued metadata is not guaranteed
 durable on immediate/abrupt quit; no forced writer join has been added.
+
+### Dedicated read-only Calendar
+
+Choose **Calendar** in the rail for a Sunday-first month grid. Previous month,
+Next month and Current month use civil dates; Current month recomputes the
+current device-local date. Cell counts are **note activity only**, from one
+working-vault month-range request, not task/event counts or a federated total.
+Select any day, including a zero-count day, for bounded active-note, dated-task
+and engine-projected event sections. This deliberate subset allows empty-activity
+day selection because tasks/events can exist there. Missing counts in a partial
+response remain unknown. Read-only note actions keep their exact source vault.
+
+The page reuses the existing day-details display-zone control (UTC initially),
+request limits and stale-response checks. It does not add month-wide note/task/
+event snippets, journal creation, calendar editing, recurrence expansion or
+external event links. Native layout/route QA for this addition remains pending.
+
+Calendar is a normal non-note tab with Back/Forward, Close and guarded Reload.
+Its displayed month, selected day and responses are memory-only. Protected
+fixture snapshots containing the Calendar tab/history route use schema 7;
+versions 1–6 remain readable, and older versions cannot contain Calendar routes.
+Startup still restores Home without fetching Calendar. Ordinary launches add no
+session writes. Existing metadata limits and abrupt-quit durability limitations
+remain unchanged.

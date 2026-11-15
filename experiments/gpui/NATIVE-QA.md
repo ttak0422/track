@@ -1718,3 +1718,34 @@ changes remain unverified natively. Normal-vault editing remains disabled.
 routes and the changed rendered page was inspected. Independent review found no
 remaining P1/P2. The popup subtitle was corrected after this run to avoid claiming
 that fixture-restored history is always memory-only.
+
+## Dedicated Calendar (candidate)
+
+Use an isolated two-vault fixture with matching note IDs, scheduled/due tasks,
+and an all-day event on a future date that has zero note activity. First confirm
+that both vaults' activity agenda is empty for that date; counts must not imply
+that tasks or events are absent. Open Calendar, select the zero-count date, and
+check each selected scope's tasks/events independently. Check Previous, Next,
+Current month, selected-day navigation to a note, Back, and native View Reload.
+Search/Find/IME or other interaction owners must prevent a conflicting Calendar
+entry without changing its state or issuing reads. Dirty or uncertain saves must
+retain the existing guarded transition behavior.
+
+With fixture session persistence explicitly enabled, wait for the completed save,
+quit, and restart: Home must remain selected; the Calendar tab may restore but its
+month, selected date, and fetched content must not. Opening that tab is a fresh
+explicit read. Check unchanged canonical note/metadata/event hashes and closed
+owned listeners after Quit. Native results are recorded below; no real
+vault write or IME verification is claimed.
+
+On 2026-11-15, an isolated host/foreign fixture verified a zero-note-activity date
+with scheduled tasks and all-day events in each selected vault. Native View Reload
+was enabled and reloaded Calendar; Calendar Search opened a foreign result and
+Back returned to Calendar. Next/Current month, explicit task-to-note navigation,
+and completed-save schema-7 restart on Home passed. Restored Calendar opened
+without retaining the previous selected date. Native inspection found and fixed
+left-padding override that placed the rail over Sunday cells; the rebuilt layout
+kept the full grid and day labels clear. All 20 canonical hashes stayed unchanged,
+and both owned listeners closed. Previous-month, dirty/IME, rapid response races,
+exact GET counts, accessibility and interrupted-save scenarios remain unverified
+natively; ordinary vault editing stays disabled.

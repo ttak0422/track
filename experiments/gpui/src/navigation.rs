@@ -144,6 +144,19 @@ mod tests {
         })
     }
     #[test]
+    fn calendar_back_forward_and_restoration_keep_safe_home() {
+        let mut history = History::default();
+        history.record(Some(TabKey::Calendar));
+        history.record(note("work", 42));
+        let back = history.peek(false).unwrap();
+        assert_eq!(back.route, Some(TabKey::Calendar));
+        assert!(history.commit(&back));
+        assert_eq!(history.peek(true).unwrap().route, note("work", 42));
+        let restored = History::restore_home(history.snapshot()).unwrap();
+        assert_eq!(restored.current(), Some(&TabKey::Home));
+        assert_eq!(restored.peek(false).unwrap().route, Some(TabKey::Calendar));
+    }
+    #[test]
     fn tag_page_history_keeps_retained_tabs_and_safe_home_restore() {
         let mut tabs = crate::tabs::Tabs::default();
         let a = tabs.open_note("one", 7, "A");

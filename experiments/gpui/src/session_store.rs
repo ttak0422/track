@@ -121,6 +121,7 @@ struct Entry {
 enum Kind {
     Home {},
     Graph {},
+    Calendar {},
     Tag { tag: String, scope: String },
     Note { vault: String, note_id: i64 },
 }
@@ -129,6 +130,7 @@ fn encode_kind(key: &TabKey) -> Kind {
     match key {
         TabKey::Home => Kind::Home {},
         TabKey::Graph => Kind::Graph {},
+        TabKey::Calendar => Kind::Calendar {},
         TabKey::Tag { tag, scope } => Kind::Tag {
             tag: tag.clone(),
             scope: scope.clone(),
@@ -333,18 +335,27 @@ impl SessionStore {
                 return Err(err("reading positions must be a list"));
             }
             let version = value.get("version").and_then(|v| v.as_u64());
-            if (version == Some(6) && !value.get("recent_notes").is_some_and(|v| v.is_array()))
+            if (version.is_some_and(|v| v >= 6)
+                && !value.get("recent_notes").is_some_and(|v| v.is_array()))
                 || (version.is_some_and(|v| v < 6) && value.get("recent_notes").is_some())
             {
                 return Err(err("invalid recent notes schema"));
             }
             let s: Snapshot = serde_json::from_slice(bytes).map_err(err)?;
             if s.owner != OWNER
-                || !matches!(s.version, 1 | 2 | 3 | 4 | 5 | 6)
+                || !matches!(s.version, 1 | 2 | 3 | 4 | 5 | 6 | 7)
                 || s.binding != store.binding
                 || s.revision == 0
             {
                 return Err(err("schema or fixture/registry binding mismatch"));
+            }
+            if s.version < 7
+                && (s.tabs.iter().any(|t| matches!(t.kind, Kind::Calendar {}))
+                    || s.history
+                        .as_ref()
+                        .is_some_and(|h| h.routes.iter().any(|r| matches!(r, Kind::Calendar {}))))
+            {
+                return Err(err("calendar route requires version 7"));
             }
             if s.version < 5
                 && s.history
@@ -355,12 +366,12 @@ impl SessionStore {
             }
             store.restored_history = match (s.version, s.history) {
                 (1, None) => None,
-                (2 | 3 | 4 | 5 | 6, Some(history)) => Some(store.decode_history(history)?),
+                (2 | 3 | 4 | 5 | 6 | 7, Some(history)) => Some(store.decode_history(history)?),
                 _ => return Err(err("invalid history schema")),
             };
             store.restored_scope = match (s.version, s.working_scope) {
                 (1 | 2, None) => None,
-                (3 | 4 | 5 | 6, Some(scope)) => {
+                (3 | 4 | 5 | 6 | 7, Some(scope)) => {
                     store.validate_scope(&scope)?;
                     Some(scope)
                 }
@@ -409,6 +420,7 @@ impl SessionStore {
         match kind {
             Kind::Home {} => Ok(TabKey::Home),
             Kind::Graph {} => Ok(TabKey::Graph),
+            Kind::Calendar {} => Ok(TabKey::Calendar),
             Kind::Tag { tag, scope } if TabKey::valid_tag_route(&tag, &scope) => {
                 Ok(TabKey::Tag { tag, scope })
             }
@@ -572,6 +584,7 @@ impl SessionStore {
                 let title = match &key {
                     TabKey::Home => "Home".into(),
                     TabKey::Graph => "Graph".into(),
+                    TabKey::Calendar => "Calendar".into(),
                     _ => entry.title,
                 };
                 Ok(Tab { key, title })
@@ -633,7 +646,11 @@ impl SessionStore {
         let bytes = serde_json::to_vec(&Snapshot {
             owner: OWNER.into(),
             // Version 5 adds page-only tag history. Keep non-tag saves compatible.
-            version: if self.recent_notes.is_some() {
+            version: if tabs.iter().any(|t| t.key == TabKey::Calendar)
+                || history.routes.iter().any(|r| *r == TabKey::Calendar)
+            {
+                7
+            } else if self.recent_notes.is_some() {
                 6
             } else if history
                 .routes
@@ -649,7 +666,13 @@ impl SessionStore {
             tabs: entries,
             working_scope: Some(scope.unwrap_or(&self.registry[0]).to_owned()),
             reading_positions: Some(positions.clone()),
-            recent_notes: self.recent_notes.clone(),
+            recent_notes: if tabs.iter().any(|t| t.key == TabKey::Calendar)
+                || history.routes.iter().any(|r| *r == TabKey::Calendar)
+            {
+                Some(self.recent_notes.clone().unwrap_or_default())
+            } else {
+                self.recent_notes.clone()
+            },
             history: Some(HistoryEntry {
                 routes: history.routes.iter().map(encode_kind).collect(),
                 cursor: history.cursor,
@@ -821,6 +844,68 @@ mod tests {
                 note_id: id,
             },
             title: "Saved".into(),
+        }
+    }
+    #[test]
+    fn calendar_schema7_roundtrip_and_legacy_smuggling_rejection() {
+        let f = Fixture::new();
+        let (mut store, _) = f.open().unwrap();
+        let entries = vec![Tab {
+            key: TabKey::Calendar,
+            title: "Calendar".into(),
+        }];
+        let mut history = crate::navigation::History::default();
+        history.record(Some(TabKey::Calendar));
+        store
+            .save_with_recents(&entries, &history.snapshot(), "one", &[], &[])
+            .unwrap();
+        drop(store);
+        let bytes = std::fs::read(f.state()).unwrap();
+        let (store, restored) = f.open().unwrap();
+        assert_eq!(restored, entries);
+        assert_eq!(
+            crate::navigation::History::restore_home(store.restored_history.clone().unwrap())
+                .unwrap()
+                .current(),
+            Some(&TabKey::Home)
+        );
+        assert_eq!(std::fs::read(f.state()).unwrap(), bytes);
+        drop(store);
+        let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["version"], 7);
+        assert!(value.get("month").is_none());
+        assert!(value.get("selected_day").is_none());
+        for version in 1..=6 {
+            for keep_tab in [true, false] {
+                let mut bad = value.clone();
+                bad["version"] = version.into();
+                if keep_tab {
+                    bad["history"]["routes"] = serde_json::json!([{"type":"Home"}]);
+                    bad["history"]["cursor"] = 0.into();
+                } else {
+                    bad["tabs"] = serde_json::json!([]);
+                }
+                let map = bad.as_object_mut().unwrap();
+                if version < 6 {
+                    map.remove("recent_notes");
+                }
+                if version < 4 {
+                    map.remove("reading_positions");
+                }
+                if version < 3 {
+                    map.remove("working_scope");
+                }
+                if version == 1 && !keep_tab {
+                    continue;
+                }
+                if version == 1 {
+                    map.remove("history");
+                }
+                let invalid = serde_json::to_vec(&bad).unwrap();
+                f.replace(&invalid);
+                assert!(f.open().is_err());
+                assert_eq!(std::fs::read(f.state()).unwrap(), invalid);
+            }
         }
     }
     #[test]

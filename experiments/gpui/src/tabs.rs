@@ -12,6 +12,7 @@ pub const OVERFLOW_WIDTH: u32 = 44;
 pub enum TabKey {
     Home,
     Graph,
+    Calendar,
     /// A page route only: never an entry in the persistent tab strip.
     Tag {
         tag: String,
@@ -82,6 +83,9 @@ impl Tabs {
         self.entries.iter().find(|tab| &tab.key == key)
     }
 
+    pub fn open_calendar(&mut self) -> TabKey {
+        self.open(TabKey::Calendar, "Calendar".into())
+    }
     pub fn open_graph(&mut self) -> TabKey {
         self.open(TabKey::Graph, "Graph".into())
     }
@@ -187,6 +191,17 @@ impl Tabs {
 mod tests {
     use super::*;
 
+    #[test]
+    fn calendar_is_an_ordinary_non_note_tab_with_neighbor_close() {
+        let mut tabs = Tabs::default();
+        let note = tabs.open_note("work", 42, "Note");
+        tabs.open_calendar();
+        assert_eq!(tabs.active().unwrap().key, TabKey::Calendar);
+        tabs.open_calendar();
+        assert_eq!(tabs.entries().len(), 2);
+        tabs.close(&TabKey::Calendar);
+        assert_eq!(tabs.active().unwrap().key, note);
+    }
     #[test]
     fn tag_page_is_not_a_tab_and_literal_identity_is_bounded() {
         let tag = TabKey::Tag {

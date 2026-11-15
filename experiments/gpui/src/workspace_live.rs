@@ -463,8 +463,10 @@ impl Workspace {
         let Some(note) = self.search_results.get(index).cloned() else {
             return;
         };
-        if self.tag_page.is_some() {
-            // This callback belongs to Search, not the obscured tag page.
+        if search_result_page_owner(self.tag_page.is_some(), self.calendar_active()) {
+            // This callback belongs to Search, not the obscured Tag/Calendar page.
+            // Admit only its explicit owner path; composition and other overlays
+            // remain blocked before closing Search or changing the route.
             if self.tag_search_result_blocked(cx) {
                 return;
             }
@@ -802,6 +804,10 @@ impl Workspace {
         .detach();
         cx.notify();
     }
+}
+
+pub(crate) fn search_result_page_owner(tag_page: bool, calendar_page: bool) -> bool {
+    tag_page || calendar_page
 }
 
 /// Only known transient phases are retried. Errors, unknown/terminal phases,

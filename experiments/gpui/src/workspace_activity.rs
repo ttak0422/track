@@ -25,7 +25,22 @@ impl Drop for AgendaPermit {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+enum Surface {
+    Home,
+    Calendar(u64),
+}
+impl Surface {
+    fn accepts(&self, home: bool, calendar: bool, revision: u64) -> bool {
+        match self {
+            Self::Home => home && !calendar,
+            Self::Calendar(captured) => !home && calendar && *captured == revision,
+        }
+    }
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct Identity {
+    surface: Surface,
+    registry: Option<(String, Vec<String>)>,
     launch: u64,
     epoch: u64,
     request: u64,
@@ -273,6 +288,35 @@ pub(crate) fn incomplete(fields: &std::collections::BTreeMap<String, serde_json:
 }
 impl Workspace {
     pub(crate) fn home_activity(&mut self, width: f32, dark: bool, cx: &mut Context<Self>) -> Div {
+        self.activity_view(width, dark, false, cx)
+    }
+    pub(crate) fn calendar_activity(
+        &mut self,
+        width: f32,
+        dark: bool,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        self.activity_view(width, dark, true, cx)
+    }
+    fn activity_surface_current(&self, identity: &Identity) -> bool {
+        identity.surface.accepts(
+            self.shell.home,
+            self.calendar_active(),
+            self.shell.calendar.revision,
+        ) && match identity.surface {
+            Surface::Home => true,
+            Surface::Calendar(_) => {
+                identity.registry.is_some() && self.follow_registry() == identity.registry
+            }
+        }
+    }
+    fn activity_view(
+        &mut self,
+        width: f32,
+        dark: bool,
+        month_view: bool,
+        cx: &mut Context<Self>,
+    ) -> Div {
         let muted = if dark { 0x969a96 } else { 0x77776f };
         let mut view = div()
             .w(px(width))
@@ -283,6 +327,17 @@ impl Workspace {
         let Some((today, weekday)) = today() else {
             return view.child("Activity unavailable: local date could not be read.");
         };
+        let month = if month_view {
+            if self.shell.calendar.month.is_none() {
+                self.shell.calendar.month = calendar_month::Month::containing(&today.text());
+            }
+            self.shell.calendar.month.clone()
+        } else {
+            None
+        };
+        if month_view && month.is_none() {
+            return view.child("Calendar date unavailable.");
+        }
         let dates = calendar(
             today,
             weekday,
@@ -302,14 +357,30 @@ impl Workspace {
         if self.quit_session.is_closing() || self.quit_session.failure().is_some() {
             return view.child("Activity unavailable: owned server stopped.");
         }
+        let registry = if month_view {
+            self.follow_registry()
+        } else {
+            None
+        };
+        if month_view && registry.is_none() {
+            return view.child("Calendar requires a verified vault registry.");
+        }
         let identity = Identity {
+            surface: if month_view {
+                Surface::Calendar(self.shell.calendar.revision)
+            } else {
+                Surface::Home
+            },
+            registry,
             launch: session.client().launch_generation,
             epoch,
             request: self.request,
             scope_revision: self.shell.scope_revision,
             vault: self.working_vault_scope().to_owned(),
-            since: dates[0].text(),
-            until: today.text(),
+            since: month
+                .as_ref()
+                .map_or_else(|| dates[0].text(), |m| m.first()),
+            until: month.as_ref().map_or_else(|| today.text(), |m| m.last()),
         };
         if self
             .shell
@@ -325,7 +396,10 @@ impl Workspace {
                 agenda: None,
             });
             let task_identity = identity.clone();
+            let permit = AgendaPermit::acquire();
             let job = cx.background_executor().spawn(async move {
+                let _permit =
+                    permit.ok_or("Earlier agenda requests are finishing. Reload to retry.")?;
                 let before = client.storage().map_err(|e| e.to_string())?;
                 if before.phase != "ready" || before.generation != task_identity.epoch {
                     return Err("Storage changed or is incomplete. Reload the workspace.".into());
@@ -359,7 +433,7 @@ impl Workspace {
                         this.request,
                         this.shell.scope_revision,
                         this.working_vault_scope(),
-                        this.shell.home
+                        this.activity_surface_current(&response_identity)
                             && !this.quit_session.is_closing()
                             && this.quit_session.failure().is_none(),
                     ) {
@@ -379,7 +453,35 @@ impl Workspace {
             .detach();
         }
         let state = self.shell.activity.as_ref().unwrap();
-        view = view.child(div().mb_2().child("Activity"));
+        view = view.child(div().mb_2().child(if month_view {
+            "Calendar · note activity"
+        } else {
+            "Activity"
+        }));
+        if let Some(month) = &month {
+            let mut controls = div()
+                .flex()
+                .gap_3()
+                .mb_3()
+                .child(format!("{:04} / {:02}", month.year, month.month));
+            for (label, step) in [
+                ("Previous month", -1),
+                ("Current month", 0),
+                ("Next month", 1),
+            ] {
+                let captured = identity.clone();
+                controls = controls.child(
+                    div()
+                        .id(SharedString::from(format!("calendar-month-{step}")))
+                        .cursor_pointer()
+                        .child(label)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.step_calendar_month(&captured, step, cx);
+                        })),
+                );
+            }
+            view = view.child(controls).child("Counts show note activity only, not tasks or events. Select any day, including zero-count days.");
+        }
         let Some(result) = &state.result else {
             return view.child("Loading activity…");
         };
@@ -405,6 +507,69 @@ impl Workspace {
             .iter()
             .map(|c| (c.date.as_str(), c.count))
             .collect();
+        if let Some(month) = &month {
+            let selected = state.agenda.as_ref().map(|a| a.date.clone());
+            let mut grid = div().flex().flex_col().gap_2().mt_3();
+            let cell_width = ((width - 36.) / 7.).max(32.);
+            let mut headings = div().flex().gap_1();
+            for day in ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] {
+                headings = headings.child(div().w(px(cell_width)).child(day));
+            }
+            grid = grid.child(headings);
+            let mut cells: Vec<Option<String>> = vec![None; month.leading()];
+            cells.extend(month.days().into_iter().map(Some));
+            while cells.len() % 7 != 0 {
+                cells.push(None);
+            }
+            for week in cells.chunks(7) {
+                let mut row = div().flex().gap_1();
+                for day in week {
+                    let cell = div()
+                        .w(px(cell_width))
+                        .h(px(62.))
+                        .p_1()
+                        .border_1()
+                        .border_color(rgb(if dark { 0x414848 } else { 0xd8d8d2 }));
+                    if let Some(date) = day {
+                        let count = counts.get(date.as_str()).copied();
+                        let label = count
+                            .map(|v| v.to_string())
+                            .unwrap_or_else(|| if partial { "?".into() } else { "0".into() });
+                        let current = date == &today.text();
+                        let captured = identity.clone();
+                        let clicked = date.clone();
+                        let id = SharedString::from(format!("calendar-day-{date}"));
+                        let mut active = cell
+                            .id(id)
+                            .cursor_pointer()
+                            .flex()
+                            .flex_col()
+                            .child(format!(
+                                "{}{}{}",
+                                &date[8..],
+                                if current { " · today" } else { "" },
+                                if selected.as_ref() == Some(date) {
+                                    " •"
+                                } else {
+                                    ""
+                                }
+                            ))
+                            .child(format!("{label} notes"));
+                        active = active.on_click(cx.listener(move |this, _, _, cx| {
+                            this.select_activity_day(captured.clone(), clicked.clone(), cx);
+                        }));
+                        row = row.child(active);
+                    } else {
+                        row = row.child(cell);
+                    }
+                }
+                grid = grid.child(row);
+            }
+            return view.child(grid)
+                .when(partial, |view| view.child("Incomplete or cached activity: missing counts are unknown."))
+                .child("Read-only day details below. Month-wide snippets and journal creation are not implemented.")
+                .child(self.activity_agenda(cx)).child(self.activity_tasks(cx)).child(self.activity_events(cx));
+        }
         // Missing buckets are zero only for complete responses, never partial ones.
         let colors = if dark {
             [0x303638, 0x623b33, 0x945040, 0xc66850, 0xf4785e]
@@ -505,8 +670,38 @@ impl Workspace {
 mod tests {
     use super::*;
     #[test]
+    fn home_and_calendar_callbacks_cannot_cross_surfaces_or_month_aba() {
+        assert!(Surface::Home.accepts(true, false, 4));
+        assert!(!Surface::Home.accepts(false, true, 4));
+        assert!(Surface::Calendar(4).accepts(false, true, 4));
+        assert!(!Surface::Calendar(4).accepts(true, false, 4));
+        assert!(!Surface::Calendar(4).accepts(false, true, 6));
+        let id = Identity {
+            surface: Surface::Calendar(4),
+            registry: Some(("host".into(), vec!["host".into()])),
+            launch: 1,
+            epoch: 2,
+            request: 3,
+            scope_revision: 4,
+            vault: "host".into(),
+            since: "2026-11-01".into(),
+            until: "2026-11-30".into(),
+        };
+        let mut changed = id.clone();
+        changed.registry.as_mut().unwrap().1.push("foreign".into());
+        assert_ne!(id, changed);
+        changed = id.clone();
+        changed.surface = Surface::Calendar(6);
+        assert_ne!(id, changed);
+        // Zero activity is not consulted by selection admission: dated tasks/events
+        // can exist even when the note agenda is empty.
+        assert!(live::calendar_date_valid("2026-11-17"));
+    }
+    #[test]
     fn callback_rejects_each_changed_identity_dimension() {
         let id = Identity {
+            surface: Surface::Home,
+            registry: None,
             launch: 2,
             epoch: 8,
             request: 4,
@@ -622,7 +817,7 @@ impl Workspace {
             self.request,
             self.shell.scope_revision,
             self.working_vault_scope(),
-            self.shell.home
+            self.activity_surface_current(identity)
                 && !self.quit_session.is_closing()
                 && self.quit_session.failure().is_none(),
         ) && self
@@ -646,6 +841,29 @@ impl Workspace {
             && self.previews.model.transient.is_none()
             && !self.search.read(cx).is_composing()
             && !self.shell.calendar_zone.is_composing(cx)
+    }
+    fn step_calendar_month(&mut self, identity: &Identity, step: i32, cx: &mut Context<Self>) {
+        if !matches!(identity.surface, Surface::Calendar(_))
+            || !self.activity_identity_current(identity)
+            || !self.activity_selection_available(cx)
+        {
+            return;
+        }
+        let next = if step == 0 {
+            device_today().and_then(|(date, _)| calendar_month::Month::containing(&date))
+        } else {
+            self.shell
+                .calendar
+                .month
+                .as_ref()
+                .and_then(|month| month.shifted(step > 0))
+        };
+        if let Some(month) = next {
+            self.shell.calendar.month = Some(month);
+            self.shell.calendar.revision = self.shell.calendar.revision.wrapping_add(1);
+            self.shell.activity = None;
+            cx.notify();
+        }
     }
     fn step_activity_day(
         &mut self,
@@ -1494,6 +1712,8 @@ mod adjacent_day_tests {
     use super::*;
     fn identity() -> Identity {
         Identity {
+            surface: Surface::Home,
+            registry: None,
             launch: 1,
             epoch: 2,
             request: 3,

@@ -522,6 +522,7 @@ pub struct ShellState {
     pub(crate) reader_hierarchy: Option<workspace_hierarchy::ReaderHierarchy>,
     pub(crate) weekly: Option<workspace_weekly::WeeklyState>,
     pub(crate) activity: Option<workspace_activity::ActivityState>,
+    pub(crate) calendar: workspace_calendar::CalendarState,
     pub(crate) journal_day: Option<workspace_journal_day::JournalDayState>,
     pub(crate) calendar_zone: workspace_activity::CalendarZone,
     pub home: bool,
@@ -647,6 +648,7 @@ impl Default for ShellState {
             relation_pages: Default::default(),
             weekly: None,
             activity: None,
+            calendar: Default::default(),
             journal_day: None,
             calendar_zone: Default::default(),
             home: true,
@@ -3142,6 +3144,7 @@ impl Workspace {
             tabs::TabKey::Tag { tag, scope } => self.open_tag_page(tag, scope, cx),
             tabs::TabKey::Home => self.show_empty_home(),
             tabs::TabKey::Graph => self.open_full_graph(cx),
+            tabs::TabKey::Calendar => self.open_calendar(cx),
             tabs::TabKey::Note { vault, note_id } => {
                 self.shell.home = false;
                 if self.live.is_some() {
@@ -3195,6 +3198,11 @@ impl Workspace {
                             launch,
                             self.accepted_storage_generation,
                         )
+                }
+                tabs::TabKey::Calendar => {
+                    self.calendar_active()
+                        && self.follow_registry().is_some()
+                        && self.session_ui.permits(self.working_vault_scope())
                 }
                 _ => false,
             })
@@ -3386,6 +3394,7 @@ impl Workspace {
             }
             Some(tabs::TabKey::Tag { tag, scope }) => self.open_tag_page(tag, scope, cx),
             Some(tabs::TabKey::Graph) => self.open_full_graph(cx),
+            Some(tabs::TabKey::Calendar) => self.open_calendar(cx),
             _ => {
                 // History Home is the literal destination, not today's configured note.
                 self.tabs.open_home();
@@ -3437,6 +3446,7 @@ impl Workspace {
             tabs::TabKey::Tag { .. } => return, // pages never occur in Tabs
             tabs::TabKey::Home => self.open_home(cx),
             tabs::TabKey::Graph => self.open_full_graph(cx),
+            tabs::TabKey::Calendar => self.open_calendar(cx),
             tabs::TabKey::Note { vault, note_id } => {
                 self.shell.home = false;
                 self.selected = None;
@@ -3485,7 +3495,10 @@ impl Workspace {
             return;
         }
         if save {
-            if !self.shell.home && !self.full_graph_active() && self.editor_shortcut_save_eligible()
+            if !self.shell.home
+                && !self.full_graph_active()
+                && !self.calendar_active()
+                && self.editor_shortcut_save_eligible()
             {
                 self.editor_save(false, cx);
             }
@@ -4058,6 +4071,7 @@ impl Render for Workspace {
             .sync_with_scope(&self.tabs, &self.history, &self.shell.working_scope);
         self.search.update(cx, |search, _| search.set_dark(dark));
         let full_graph_active = self.full_graph_active();
+        let calendar_active = self.calendar_active();
         self.graph_view.update(cx, |graph, cx| {
             graph.set_dark(dark, cx);
             graph.set_compact(true, cx);
@@ -4417,7 +4431,7 @@ impl Render for Workspace {
                     .on_click(cx.listener(|this, _, window, cx| this.toggle_recent(window, cx))),
             )
             .when(
-                !home && !full_graph_active && self.tag_page.is_none(),
+                !home && !full_graph_active && !calendar_active && self.tag_page.is_none(),
                 |rail| rail.child(self.reader_hierarchy_entry(window, cx)),
             )
             .child(
@@ -4440,6 +4454,14 @@ impl Render for Workspace {
                         cx.notify();
                     },
                 )),
+            )
+            .child(
+                div()
+                    .id("calendar-open")
+                    .text_size(px(9.))
+                    .cursor_pointer()
+                    .child("Calendar")
+                    .on_click(cx.listener(|this, _, _, cx| this.open_calendar(cx))),
             )
             .child(
                 div()
@@ -4500,7 +4522,10 @@ impl Render for Workspace {
                     .on_click(cx.listener(|this, _, _, cx| this.load_notes(cx))),
             )
             .when(
-                self.editing_ui.enabled() && !full_graph_active && self.tag_page.is_none(),
+                self.editing_ui.enabled()
+                    && !full_graph_active
+                    && !calendar_active
+                    && self.tag_page.is_none(),
                 |rail| rail.child(self.render_edit_controls(cx)),
             )
             .child(div().w(px(24.)).h(px(1.)).my_1().bg(rgb(p.line)))
@@ -5130,7 +5155,11 @@ impl Render for Workspace {
         // FocusHandle can outlive its mounted element. Repair only recognized
         // handles whose exact surface is absent, never an arbitrary live input.
         let stale_focus = stale_workspace_focus(
-            !home && !full_graph_active && self.tag_page.is_none() && !self.editing_ui.active(),
+            !home
+                && !full_graph_active
+                && !calendar_active
+                && self.tag_page.is_none()
+                && !self.editing_ui.active(),
             self.shell
                 .reader_focus
                 .as_ref()
@@ -5521,11 +5550,18 @@ impl Render for Workspace {
                 root.child(self.render_tag_page(p.ink, p.muted, p.line, cx))
             })
             .when(home, |root| root.child(home_view))
+            .when(calendar_active, |root| {
+                root.child(self.render_calendar(f32::from(window.viewport_size().width), dark, cx))
+            })
             .when(full_graph_active, |root| {
                 root.child(self.render_full_graph(cx))
             })
             .when(
-                !home && !full_graph_active && self.tag_page.is_none() && !self.editing_ui.active(),
+                !home
+                    && !full_graph_active
+                    && !calendar_active
+                    && self.tag_page.is_none()
+                    && !self.editing_ui.active(),
                 |root| {
                     root.child(
                         div()
