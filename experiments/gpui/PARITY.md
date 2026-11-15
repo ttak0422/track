@@ -336,6 +336,13 @@ This is not persisted reading position, seen/read tracking or native scroll QA.
 
 ### Read-only daily agenda
 
+Selected-day Previous/Next controls use civil ±1 arithmetic within the current
+activity range. They reuse guarded three-section reads and bounded concurrency;
+old results cannot acquire a new date label. No empty-day skipping or new
+out-of-range fetching is added. Date/range/stale/reset models are covered;
+native controls, keyboard and IME remain unverified.
+
+
 Home activity day selection fetches the existing engine's active-note agenda for
 an explicit date and working-vault scope. Bounded results and partial diagnostics
 are displayed; links use guarded note navigation. Request identity rejects stale

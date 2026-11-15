@@ -446,6 +446,13 @@ Native scroll behavior after source changes, resize and reload remains unverifie
 
 ### Read-only daily agenda
 
+With a day selected, **Previous day** and **Next day** move exactly one civil date,
+including empty days. Notes, dated tasks and calendar events switch together;
+the working scope and accepted display zone stay unchanged. Navigation stops at
+the displayed activity-calendar range, with disabled boundary controls. These
+controls only read data; they never create a journal.
+
+
 Select an activity-calendar day on Home to list notes recorded as active that day
 in the working vault. This sends an explicit-date `GET /api/agenda`; it never calls
 the journal-creation endpoint. Selecting a result uses the existing vault-qualified

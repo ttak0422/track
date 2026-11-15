@@ -106,6 +106,24 @@ struct AgendaState {
     events_error: Option<String>,
 }
 impl AgendaState {
+    fn loading(date: String, serial: u64) -> Self {
+        Self {
+            date,
+            serial,
+            result: None,
+            tasks: None,
+            events: None,
+            events_page: 0,
+            events_pending: None,
+            events_error: None,
+        }
+    }
+    fn busy(&mut self) {
+        let error = "Earlier requests are still finishing. Retry shortly.".to_owned();
+        self.result = Some(Err(error.clone()));
+        self.tasks = Some(Err(error.clone()));
+        self.events = Some(Err(error));
+    }
     fn accepts(&self, serial: u64, date: &str) -> bool {
         self.serial == serial && self.date == date
     }
@@ -163,6 +181,39 @@ impl Day {
         self
     }
 }
+/// Civil arithmetic only: never add seconds or reinterpret a display-zone date.
+fn adjacent_day(date: &str, forward: bool) -> Option<String> {
+    if !live::calendar_date_valid(date) {
+        return None;
+    }
+    let mut day = Day {
+        year: date[..4].parse().ok()?,
+        month: date[5..7].parse().ok()?,
+        day: date[8..].parse().ok()?,
+    };
+    if forward {
+        day.day += 1;
+        if !live::calendar_date_valid(&day.text()) {
+            day.day = 1;
+            day.month += 1;
+            if day.month == 13 {
+                day.month = 1;
+                day.year += 1;
+            }
+        }
+    } else {
+        day = day.previous();
+    }
+    let result = day.text();
+    live::calendar_date_valid(&result).then_some(result)
+}
+fn adjacent_in_range(identity: &Identity, date: &str, forward: bool) -> Option<String> {
+    if date < identity.since.as_str() || date > identity.until.as_str() {
+        return None;
+    }
+    adjacent_day(date, forward).filter(|next| next >= &identity.since && next <= &identity.until)
+}
+
 fn calendar(today: Day, weekday: usize, weeks: usize) -> Vec<Day> {
     let count = (weeks.clamp(1, 40) - 1) * 7 + weekday.min(6) + 1;
     let mut dates = vec![today];
@@ -577,10 +628,49 @@ impl Workspace {
             .is_some_and(|s| &s.identity == identity)
     }
 
+    fn activity_selection_available(&self, cx: &App) -> bool {
+        self.editing_ui.follow_safe()
+            && !self.creation_open()
+            && !self.handoff_active()
+            && !self.includes_preview_active()
+            && !self.shell.search_open
+            && !self.shell.find.open
+            && !self.shell.vault_menu
+            && !self.shell.tab_menu
+            && !self.shell.diagnostics
+            && !self.previews.model.geometry_active()
+            && self.previews.model.transient.is_none()
+            && !self.search.read(cx).is_composing()
+            && !self.shell.calendar_zone.is_composing(cx)
+    }
+    fn step_activity_day(
+        &mut self,
+        identity: Identity,
+        serial: u64,
+        date: &str,
+        forward: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.activity_identity_current(&identity)
+            || !self.activity_selection_available(cx)
+            || !self
+                .shell
+                .activity
+                .as_ref()
+                .and_then(|s| s.agenda.as_ref())
+                .is_some_and(|a| a.accepts(serial, date))
+        {
+            return;
+        }
+        if let Some(next) = adjacent_in_range(&identity, date, forward) {
+            self.select_activity_day(identity, next, cx);
+        }
+    }
+
     fn select_activity_day(&mut self, identity: Identity, date: String, cx: &mut Context<Self>) {
         if !self.activity_identity_current(&identity)
-            || self.editing_ui.active()
-            || self.editing_ui.has_pending()
+            || !self.activity_selection_available(cx)
+            || !live::calendar_date_valid(&date)
             || date < identity.since
             || date > identity.until
         {
@@ -594,26 +684,9 @@ impl Workspace {
         let zone = self.shell.calendar_zone.accepted.clone();
         let state = self.shell.activity.as_mut().unwrap();
         let serial = NEXT_AGENDA.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        state.agenda = Some(AgendaState {
-            date: date.clone(),
-            serial,
-            result: None,
-            tasks: None,
-            events: None,
-            events_page: 0,
-            events_pending: None,
-            events_error: None,
-        });
+        state.agenda = Some(AgendaState::loading(date.clone(), serial));
         let Some(permit) = AgendaPermit::acquire() else {
-            state.agenda.as_mut().unwrap().events = Some(Err(
-                "Earlier requests are still finishing. Retry shortly.".into(),
-            ));
-            state.agenda.as_mut().unwrap().tasks = Some(Err(
-                "Earlier requests are still finishing. Retry shortly.".into(),
-            ));
-            state.agenda.as_mut().unwrap().result = Some(Err(
-                "Earlier requests are still finishing. Retry shortly.".into(),
-            ));
+            state.agenda.as_mut().unwrap().busy();
             cx.notify();
             return;
         };
@@ -716,6 +789,39 @@ impl Workspace {
         let Some(agenda) = state.agenda.as_ref() else {
             return view;
         };
+        let available = self.activity_identity_current(&state.identity)
+            && self.activity_selection_available(cx);
+        let mut controls = div().flex().gap_3();
+        for (forward, id, label) in [
+            (false, "agenda-previous-day", "Previous day"),
+            (true, "agenda-next-day", "Next day"),
+        ] {
+            let enabled =
+                available && adjacent_in_range(&state.identity, &agenda.date, forward).is_some();
+            let identity = state.identity.clone();
+            let date = agenda.date.clone();
+            let serial = agenda.serial;
+            controls = controls.child(
+                div()
+                    .id(id)
+                    .child(label)
+                    .when(enabled, |button| {
+                        button
+                            .cursor_pointer()
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.step_activity_day(
+                                    identity.clone(),
+                                    serial,
+                                    &date,
+                                    forward,
+                                    cx,
+                                );
+                            }))
+                    })
+                    .when(!enabled, |button| button.opacity(0.45)),
+            );
+        }
+        view = view.child(controls).child(format!("Day navigation is limited to the displayed activity range: {} to {}. Boundary controls are disabled.", state.identity.since, state.identity.until));
         view = view.child(format!("Active notes · {}", agenda.date));
         let Some(result) = &agenda.result else {
             return view.child("Loading active notes…");
@@ -1376,5 +1482,108 @@ mod zone_selection_tests {
         assert!(state.events_error.as_ref().unwrap().contains("Local"));
         assert!(state.events_pending.is_none());
         assert_eq!(CalendarZone::default().accepted, "UTC");
+    }
+}
+
+#[cfg(test)]
+mod adjacent_day_tests {
+    use super::*;
+    fn identity() -> Identity {
+        Identity {
+            launch: 1,
+            epoch: 2,
+            request: 3,
+            scope_revision: 4,
+            vault: "work".into(),
+            since: "2024-02-28".into(),
+            until: "2024-03-02".into(),
+        }
+    }
+    #[test]
+    fn civil_steps_cover_month_year_leap_century_and_dst_dates() {
+        for (from, to) in [
+            ("2024-02-28", "2024-02-29"),
+            ("2024-02-29", "2024-03-01"),
+            ("2023-02-28", "2023-03-01"),
+            ("1900-02-28", "1900-03-01"),
+            ("2000-02-28", "2000-02-29"),
+            ("2026-04-30", "2026-05-01"),
+            ("2026-12-31", "2027-01-01"),
+            ("2026-03-08", "2026-03-09"),
+            ("2026-11-01", "2026-11-02"),
+        ] {
+            assert_eq!(adjacent_day(from, true).as_deref(), Some(to));
+            assert_eq!(adjacent_day(to, false).as_deref(), Some(from));
+        }
+        for invalid in [
+            "",
+            "2024-2-28",
+            "2023-02-29",
+            "2026-13-01",
+            "2026-00-00",
+            "日本語",
+        ] {
+            assert!(adjacent_day(invalid, true).is_none());
+            assert!(adjacent_day(invalid, false).is_none());
+        }
+        assert!(adjacent_day("9999-12-31", true).is_none());
+        assert!(adjacent_day("0000-01-01", false).is_none());
+    }
+    #[test]
+    fn range_boundaries_do_not_skip_empty_dates_or_expand_requests() {
+        let identity = identity();
+        assert!(adjacent_in_range(&identity, &identity.since, false).is_none());
+        assert!(adjacent_in_range(&identity, &identity.until, true).is_none());
+        assert!(adjacent_in_range(&identity, "2024-02-27", true).is_none());
+        assert_eq!(
+            adjacent_in_range(&identity, "2024-02-28", true).as_deref(),
+            Some("2024-02-29")
+        );
+        assert_eq!(
+            adjacent_in_range(&identity, "2024-03-01", false).as_deref(),
+            Some("2024-02-29")
+        );
+        assert_eq!(identity.vault, "work");
+    }
+    #[test]
+    fn consecutive_steps_and_aba_reject_late_results_and_stale_controls() {
+        let identity = identity();
+        let mut current = AgendaState::loading("2024-02-28".into(), 11);
+        let first = (current.serial, current.date.clone());
+        let next = adjacent_in_range(&identity, &current.date, true).unwrap();
+        current = AgendaState::loading(next, 12);
+        assert!(!current.accepts(first.0, &first.1));
+        let second = (current.serial, current.date.clone());
+        current = AgendaState::loading(
+            adjacent_in_range(&identity, &current.date, false).unwrap(),
+            13,
+        );
+        assert_eq!(current.date, first.1);
+        assert!(!current.accepts(first.0, &first.1));
+        assert!(!current.accepts(second.0, &second.1));
+        assert!(current.accepts(13, "2024-02-28"));
+    }
+    #[test]
+    fn new_day_resets_all_sections_and_busy_failure_keeps_new_date() {
+        let mut state = AgendaState::loading("2024-02-28".into(), 1);
+        state.result = Some(Err("old notes".into()));
+        state.tasks = Some(Err("old tasks".into()));
+        state.events = Some(Err("old events".into()));
+        state.events_page = 4;
+        state.events_pending = Some("Asia/Tokyo".into());
+        state.events_error = Some("old error".into());
+        assert!(state.result.is_some());
+        state = AgendaState::loading("2024-02-29".into(), 2);
+        assert!(state.result.is_none() && state.tasks.is_none() && state.events.is_none());
+        assert_eq!(state.events_page, 0);
+        assert!(state.events_pending.is_none() && state.events_error.is_none());
+        state.busy();
+        assert!(state.result.as_ref().unwrap().is_err());
+        assert!(state.tasks.as_ref().unwrap().is_err());
+        assert!(state.events.as_ref().unwrap().is_err());
+        assert_eq!(state.date, "2024-02-29");
+        assert!(!state.accepts(1, "2024-02-28"));
+        let retry = AgendaState::loading(state.date.clone(), 3);
+        assert!(!retry.accepts(state.serial, &state.date));
     }
 }

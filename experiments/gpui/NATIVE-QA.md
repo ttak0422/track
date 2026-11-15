@@ -1174,3 +1174,14 @@ Cmd-Q exited, ports 24462/24463 closed, and all 10 canonical fixture files match
 the baseline. Four model regressions supplement these pointer checks. Native
 resize/reflow, keyboard activation, accessibility and IME were not verified here.
 Ordinary vault editing remains disabled.
+
+### Selected-day Previous/Next candidate (not yet native-verified)
+
+- Model coverage: civil month/year/leap/DST-date stepping, range limits, stale
+  controls/results including ABA, all-section reset and busy/retry state.
+- Pending Mac QA: select a Home day; Previous/Next updates notes/tasks/events to
+  one date, including empty days. Repeat rapidly with slow/failing reads; old
+  rows must not appear under the new date. Check both disabled range boundaries.
+- Verify scope and accepted display zone remain unchanged, and menu/dialog,
+  composition, dirty-editor and quit ownership block input. Actual GUI/IME,
+  keyboard and accessibility are unverified. No new mutation endpoints.
