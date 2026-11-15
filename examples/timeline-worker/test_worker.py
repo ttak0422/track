@@ -3,6 +3,8 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -50,6 +52,46 @@ class IntegrationTest(unittest.TestCase):
         self.assertTrue(all(seq < snapshot["revision"] for seq in report["event_sequences"]))
         with self.assertRaisesRegex(WorkerError, "new task ID"):
             Demo(self.client, "task", 2, 0.01, 1).run()
+
+    def test_same_owner_edit_during_step_sleep_is_preserved(self):
+        external = None
+        def edit_during_sleep(_):
+            nonlocal external
+            snapshot = self.client.read()
+            task = dict(snapshot["tasks"][0], status="blocked", done_minutes=5, remaining_minutes=20)
+            external = self.client.apply(snapshot, "task.upsert", task)
+        with patch("worker.time", SimpleNamespace(sleep=edit_during_sleep, monotonic=time.monotonic)):
+            with self.assertRaisesRegex(WorkerError, "Task changed outside"):
+                Demo(self.client, "task", 1, 0.01, 1).run()
+        self.assertEqual(self.client.read(), external)
+        self.assertEqual(external["reports"], [])
+
+    def test_newer_task_in_identical_retry_receipt_is_not_adopted(self):
+        demo = Demo(self.client, "task", 2, 0.01, 1)
+        snapshot = demo.task(self.client.read(), "active")
+        original_apply = self.client.apply
+        def late_receipt(snapshot, kind, payload):
+            own = original_apply(snapshot, kind, payload)
+            own_id = self.client.last_event_id
+            changed = dict(own["tasks"][0], status="blocked", done_minutes=5, remaining_minutes=20)
+            newer = original_apply(own, "task.upsert", changed)
+            self.client.last_event_id = own_id
+            return newer
+        with patch.object(self.client, "apply", side_effect=late_receipt):
+            with self.assertRaisesRegex(WorkerError, "Task changed outside"):
+                demo.task(snapshot, "active")
+        self.assertEqual(demo.accepted_task["status"], "active")
+        self.assertEqual(self.client.read()["tasks"][0]["status"], "blocked")
+
+    def test_changed_task_is_not_acknowledged_by_controls(self):
+        demo = Demo(self.client, "task", 2, 0.01, 1)
+        snapshot = demo.task(self.client.read(), "active")
+        snapshot = self.client.apply(snapshot, "control.request", {
+            "id":"pause", "task_id":"task", "owner":"worker", "action":"pause"})
+        snapshot = self.client.apply(snapshot, "task.upsert", dict(snapshot["tasks"][0], status="blocked"))
+        with self.assertRaisesRegex(WorkerError, "Task changed outside"):
+            demo.controls(snapshot)
+        self.assertEqual(self.client.read(), snapshot)
 
     def test_pause_resume_at_safe_point_and_other_owner_ignored(self):
         demo = Demo(self.client, "task", 2, 0.01, 1)
