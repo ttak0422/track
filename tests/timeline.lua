@@ -12,7 +12,7 @@ vim = {
    end,
 }
 package.loaded['track.client'] = {bin = function() return '/bin/track' end}
-local timeline = require('track.timeline').new('/vault/note/123.md')
+local timeline = dofile('lua/track/timeline.lua').new('/vault/note/123.md')
 local function finish(job, code, data)
    job.callback({code = code, signal = 0, stdout = data, stderr = 'failed'})
    while #scheduled > 0 do table.remove(scheduled, 1)() end

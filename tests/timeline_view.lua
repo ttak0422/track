@@ -29,7 +29,7 @@ vim = {
     nvim_create_autocmd=function(name,opt) if name=='BufWriteCmd' then writes[opt.buffer]=opt.callback end end,
   },
 }
-require('track.timeline_view').open('demo',{})
+dofile('lua/track/timeline_view.lua').open('demo',{})
 mappings[1].a()
 writes[2]()
 assert(options[2].modifiable==false)

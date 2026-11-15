@@ -16,7 +16,7 @@ vim = {
    end,
 }
 package.loaded['track.client'] = {bin = function() return '/bin/track' end}
-local m = require('track.agent_timeline')
+local m = dofile('lua/track/agent_timeline.lua')
 local view = m.new('demo', {vault = 'work'})
 local function finish(job, code, data)
    job.callback({code = code, signal = 0, stdout = data, stderr = 'failed'})
