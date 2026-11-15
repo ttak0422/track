@@ -306,3 +306,33 @@ func TestMultiprocessWrite(t *testing.T) {
 		t.Fatalf("final %+v %v", got, err)
 	}
 }
+
+func TestCanonicalPreservesLargeNoteIdentity(t *testing.T) {
+	for _, id := range []int64{9007199254740993, 9223372036854775807} {
+		t.Run(fmt.Sprint(id), func(t *testing.T) {
+			s, root := fixture(t)
+			request := req(0, "created", "project.create", Project{Title: "Exact identity", NoteID: id})
+			got := apply(t, s, request)
+			if got.NoteID != id {
+				t.Fatalf("note id rounded: got %d, want %d", got.NoteID, id)
+			}
+			reopened, err := NewStore(root).Read(context.Background(), "plan")
+			if err != nil || reopened.NoteID != id {
+				t.Fatalf("persisted note id: %+v %v", reopened, err)
+			}
+			if retry := apply(t, s, request); retry.Revision != 1 || retry.NoteID != id {
+				t.Fatalf("identical retry: %+v", retry)
+			}
+			different := req(0, "created", "project.create", Project{Title: "Exact identity", NoteID: id - 1})
+			if _, err := s.Apply(context.Background(), "plan", different); !errors.Is(err, ErrDuplicate) {
+				t.Fatalf("different note id accepted as identical: %v", err)
+			}
+		})
+	}
+}
+
+func TestCanonicalRejectsTrailingJSON(t *testing.T) {
+	if _, err := canonical([]byte(`{"title":"one"} {"title":"two"}`)); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("multiple JSON values accepted: %v", err)
+	}
+}

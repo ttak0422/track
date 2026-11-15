@@ -45,9 +45,16 @@ func canonical(raw []byte) (json.RawMessage, error) {
 	if len(raw) > 64<<10 {
 		return nil, ErrLimit
 	}
+	// Preserve integer identifiers exactly. Decoding into float64 would round
+	// note_id values above 2^53 and could collapse distinct idempotency payloads.
 	var value any
-	if err := json.Unmarshal(raw, &value); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&value); err != nil {
 		return nil, invalid("payload JSON: %v", err)
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		return nil, invalid("payload must contain one JSON value")
 	}
 	if _, ok := value.(map[string]any); !ok {
 		return nil, invalid("payload must be an object")

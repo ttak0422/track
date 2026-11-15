@@ -36,6 +36,8 @@ import type {
   VaultsResponse,} from "./types";
 
 interface APIOptions {
+  // Non-note APIs must preserve their own opaque record identities.
+  normalizeNoteIDs?: boolean;
   method?: string;
   body?: unknown;
   signal?: AbortSignal;
@@ -65,10 +67,10 @@ export async function api<T>(path: string, options: APIOptions = {}): Promise<T>
   }
 
   const response = await fetch(path, init);
-  return handleResponse<T>(response);
+  return handleResponse<T>(response, options.normalizeNoteIDs !== false);
 }
 
-async function handleResponse<T>(response: Response): Promise<T> {
+async function handleResponse<T>(response: Response, normalizeNoteIDs = true): Promise<T> {
   let body: unknown;
   try { body = await response.json(); }
   catch {
@@ -81,7 +83,7 @@ async function handleResponse<T>(response: Response): Promise<T> {
         : `${response.status} ${response.statusText}`;
     throw new APIError(response.status, message);
   }
-  return normalizeIDs(body) as T;
+  return (normalizeNoteIDs ? normalizeIDs(body) : body) as T;
 }
 
 export { normalizeIDs } from "./normalizeIDs";
