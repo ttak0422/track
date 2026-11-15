@@ -928,3 +928,21 @@ fail closed while that handler reports composition; same-mode selection and
 changes after commit/cancel remain allowed. A pure admission-matrix regression
 covers the rule. It is not Workspace/input-method integration evidence, and
 native IME acceptance remains open.
+
+## About executable identity, 2026-11-15
+
+The application-menu About action displayed the version, full 40-character
+revision, clean source state and build target in a readable native window.
+Repeated activation did not create another About window. Its Close button and
+traffic-light close returned to the existing Home/note route. On a disposable
+dirty note, opening and dismissing About preserved the visible draft and Edit
+mode; Cmd-Q still presented Save/Discard/Cancel. Explicit Discard then exited
+without writing the sentinel to the source.
+
+The first native run found Window → Close Window did not dismiss About because
+its action tried to update an already-dispatching window. Window updates are now
+deferred. On clean `ebe48d1`, the same menu action closed only About, retained
+Home and the owned server, and About reopened successfully. Final workspace
+quit stopped the fixture server. Clipboard non-interference is source-reviewed,
+not a native sentinel test in this run; About performs no clipboard action.
+Native IME and ordinary-vault editing acceptance remain unresolved.
