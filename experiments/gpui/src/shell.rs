@@ -484,6 +484,7 @@ pub struct ShellState {
     code_copy: code_copy::State,
     block_arrival: block_arrival::State,
     title_copy: title_copy::State,
+    markdown_copy: markdown_copy::State,
     pub(crate) accepted_title_request: Option<u64>,
     code_anchors: Option<std::rc::Rc<markdown::FindAnchors>>,
     code_focus: std::collections::BTreeMap<usize, gpui::FocusHandle>,
@@ -601,6 +602,7 @@ impl Default for ShellState {
             code_copy: Default::default(),
             block_arrival: Default::default(),
             title_copy: Default::default(),
+            markdown_copy: Default::default(),
             accepted_title_request: None,
             code_anchors: None,
             code_focus: Default::default(),
@@ -1539,6 +1541,80 @@ impl Workspace {
             });
         })
         .detach();
+    }
+    fn sync_markdown_copy(&mut self, cx: &App) {
+        let document = self.accepted_reader_document(cx);
+        let body = self.current_note.as_ref().map(|note| note.body.as_str());
+        self.shell.markdown_copy.sync(document, body);
+    }
+    fn copy_markdown(&mut self, epoch: u64, window: &Window, cx: &mut Context<Self>) {
+        if !self.native_find_available(false, window, cx) {
+            return;
+        }
+        let document = self.accepted_reader_document(cx);
+        let body = self.current_note.as_ref().map(|note| note.body.as_str());
+        let Some(payload) = self
+            .shell
+            .markdown_copy
+            .payload(epoch, document.as_ref(), body)
+        else {
+            return;
+        };
+        let payload = match payload {
+            Ok(payload) => payload,
+            Err(error) => {
+                self.shell.navigation_notice = Some(error.into());
+                cx.notify();
+                return;
+            }
+        };
+        // Submission only: GPUI provides no success/failure receipt or readback.
+        cx.write_to_clipboard(gpui::ClipboardItem::new_string(payload));
+        let serial = self.shell.markdown_copy.submitted();
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(1500))
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.sync_markdown_copy(cx);
+                if this.shell.markdown_copy.expire(epoch, serial) {
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+    fn copy_markdown_control(
+        &self,
+        muted: u32,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        let enabled =
+            self.shell.markdown_copy.ready() && self.native_find_available(false, window, cx);
+        let epoch = self.shell.markdown_copy.epoch;
+        div()
+            .id("copy-reader-markdown")
+            .w(px(145.))
+            .flex_shrink_0()
+            .text_size(px(12.))
+            .line_height(px(22.))
+            .text_color(rgb(muted))
+            .opacity(if enabled { 1. } else { 0.5 })
+            .when(enabled, |button| button.cursor_pointer())
+            .child(if self.shell.markdown_copy.oversized {
+                "Copy MD >256 KiB"
+            } else if self.shell.markdown_copy.feedback.is_some() {
+                "Copy submitted"
+            } else {
+                "Copy MD"
+            })
+            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.copy_markdown(epoch, window, cx);
+                cx.stop_propagation();
+            }))
     }
     fn block_arrival_source(&self, index: usize, cx: &App) -> Option<block_arrival::Source> {
         // Reuse accepted-reader identity admission, including pending reads, full
@@ -2849,6 +2925,7 @@ impl Render for Workspace {
         self.sync_enlarged_image(window, cx);
         let title_source = self.copy_title_source(cx);
         self.shell.title_copy.sync(title_source);
+        self.sync_markdown_copy(cx);
         self.sync_creation_journal(cx);
         self.sync_block_arrival(cx);
         if self.shell.reader_keys.as_ref().is_some_and(|owner| {
@@ -3901,6 +3978,9 @@ impl Render for Workspace {
                                                     },
                                                 )),
                                         )
+                                    })
+                                    .when(self.current_note.is_some(), |row| {
+                                        row.child(self.copy_markdown_control(p.muted, window, cx))
                                     }),
                             )
                             .child(markdown::render_with_positions(

@@ -24,6 +24,7 @@ mod input_trace;
 mod live;
 mod live_events;
 mod markdown;
+mod markdown_copy;
 mod markdown_handoff;
 mod mindmap;
 mod mindmap_view;

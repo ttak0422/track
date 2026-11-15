@@ -1329,9 +1329,9 @@ owned ports closed, and all 12 canonical fixture hashes stayed unchanged.
 687 Rust tests passed, 7 ignored; formatting and native build passed. Independent
 review found no P1/P2 issue. Normal vault writes remain disabled.
 
-## Copy title: native validation pending
+## Copy title: original checklist and bounded native evidence
 
-Check explicit Copy title submits exact Unicode/plain title, preserves focus, wraps long titles and gives renewed “Copy submitted” feedback on rapid clicks. Navigate/Back/reload while a timer is pending; stale timers/callbacks must not affect another title. Pending/error, Home/Tag/Graph, Enlarge, Find/search, composition, editor/save/recovery and quit owners must not copy. No Cmd-C hook or clipboard readback is introduced. Three model tests added; cloud diff-check passed, Rust/build/native/IME not run here.
+Check explicit Copy title submits exact Unicode/plain title, preserves focus, wraps long titles and gives renewed “Copy submitted” feedback on rapid clicks. Navigate/Back/reload while a timer is pending; stale timers/callbacks must not affect another title. Pending/error, Home/Tag/Graph, Enlarge, Find/search, composition, editor/save/recovery and quit owners must not copy. No Cmd-C hook or clipboard readback is introduced. Three model tests were added before the bounded native run below. Unchecked cases in this checklist remain unverified.
 
 Native macOS pointer smoke on 2026-11-15 verified Copy title on the isolated
 Raster Enlargement QA note, its submission acknowledgement, and exact plain-title
@@ -1433,3 +1433,11 @@ existing overlay pause without replacing the handle, then the near-bottom checks
 above passed. Re-review found no remaining P1/P2. Actual IME, interrupted reads,
 scope/storage replacement, large/paged tree wheel behavior, repeated labels and
 full accessibility remain unverified natively. No ordinary vault write gate changed.
+
+## Copy MD: disposable clipboard smoke and remaining coverage
+
+Use an isolated accepted note with Unicode/ordinary Markdown, aliases/empty aliases, heading/block fragments, numeric targets, nested labels, code literals, valid include options, malformed/escaped syntax and table cells. Explicit Copy MD should submit portable raw-body text and renew “Copy submitted” feedback without focus/reader movement. Paste only into an authorized fixture control for a roundtrip; do not inspect the prior clipboard. Check navigation/reload and rapid-copy timers, disabled modal/input/IME/quit/recovery states and >256 KiB refusal without truncation. Unknown include tails, midline includes and code intentionally remain literal. Nine model tests added; 718 Rust tests passed (7 ignored), formatting and debug build passed. Independent review found a reference-definition URL preservation issue; reference spans and conservative duplicate/continuation protection were added, then re-review found no remaining P1/P2.
+
+A disposable two-note fixture verified explicit Copy MD and transient submission feedback. A plain-text editor sink in the fixture directory received Japanese text, normal Markdown/table/link syntax, flattened alias/fragment/numeric targets and valid include labels exactly as expected; inline/fenced code, malformed wiki text, unknown include suffix and midline include remained literal. The saved sink matched the expected conversion of the accepted HTTP body, whose terminal newline is omitted by the engine. Reader content position did not move when copying. All 10 canonical files stayed unchanged and both owned ports closed after native Quit and the owned response probe. No prior clipboard was read.
+
+Rapid timer races, source-switch/oversize refusal, full owner combinations and actual IME remain model-only or unverified natively. This is not full clipboard, accessibility or native editing acceptance.

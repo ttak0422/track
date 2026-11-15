@@ -489,9 +489,9 @@ unverified. Reload is excluded.
 
 Explicit read-only enlargement of already decoded current-reader standalone PNG/JPEG images is implemented with exact source/block/allocation guards and one modal owner. Aspect-fit and identity/admission models pass on macOS. Native PNG landscape/portrait fit, content click, wheel isolation, dismissal, bottom-position retention and open-overlay Quit were verified. JPEG, resize, full keyboard/AX, source changes and IME combinations remain unverified. No new formats, fetches, zoom/pan, clipboard, persistence or vault writes.
 
-## Current reader title copy candidate
+## Current reader title copy
 
-Explicit exact-title clipboard submission is source/tab/revision/launch/vault qualified, bounded to 64 KiB, with generation-safe 1.5-second feedback. Reuses the accepted reader and existing owner guards; no focus acquisition, clipboard reads, mutation or persistence. Model tests added for Unicode, bounds, stale sources and repeated-copy timers. Cloud Rust and native validation are pending; preview copy is deferred.
+Explicit exact-title clipboard submission is source/tab/revision/launch/vault qualified, bounded to 64 KiB, with generation-safe 1.5-second feedback. Reuses the accepted reader and existing owner guards; no focus acquisition, clipboard reads, mutation or persistence. Shipped in `8b256fb`; the macOS suite passed 690 tests with 7 ignored, and an isolated native clipboard roundtrip verified exact title submission (see NATIVE-QA.md). General IME/accessibility and the other listed scenarios remain unverified; preview copy is deferred.
 
 ## Authored block links candidate
 
@@ -518,3 +518,7 @@ Conditional workspace-root listeners plus action-time checks route native Edit â
 ## Reader Hierarchy panel
 
 A source/scope-qualified, click-only reader panel reuses Home hierarchy transport, concurrency, diagnostics and bounded row rendering. Reader roots stay expanded; Home root behavior is unchanged. Close invalidates pending requests and stale controls; modal focus gates background navigation/Find/scroll and pauses follow. Five model tests added for admission, lifecycle, roots/nested/leaves, repeated labels/paging and errors. 709 Rust tests passed (7 ignored), formatting and build passed. Disposable native expansion/navigation/Back, dismissal/position retention, input isolation and Home smoke passed; IME/interrupted/large-tree coverage remains pending. No new endpoints, writes, settings or persistence; no reference hover/grace behavior.
+
+## Copy MD
+
+Explicit current-reader Copy MD converts accepted raw-body wiki labels and wholly valid include lines to portable Markdown, preserving ordinary source bytes and code. It deliberately preserves code literals, midline includes and unsupported include tails rather than reproducing destructive reference text-level conversion. Source/body/owner revalidation, a 256 KiB refusal limit and token-qualified submission feedback are implemented. Nine model tests added; 718 Rust tests passed (7 ignored), formatting and build passed. Disposable native clipboard round trip and submission feedback passed; full owner/race/IME coverage remains pending. Reference definitions and uncertain continuations remain conservative literals. No resolution, requests, export, clipboard reads, writes or persistence.
