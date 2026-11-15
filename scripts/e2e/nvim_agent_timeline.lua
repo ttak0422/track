@@ -32,6 +32,8 @@ local function run()
       assert(vim.fn.resolve(vim.fn.fnamemodify(binary, ":p")) == vim.fn.resolve(vim.fn.fnamemodify(vim.env.TRACK_TEST_BIN, ":p")),
          "bundled Track binary overrides TRACK_TEST_BIN; build the intended binary at that location")
    end
+   local initialized = vim.system({ binary, "init" }, { text = true, timeout = 15000 }):wait()
+   assert(initialized.code == 0, initialized.stderr)
    local model = require("track.agent_timeline")
    local view = model.new("e2e-project", { vault_dir = root .. "/vault" })
    local function apply(request)
