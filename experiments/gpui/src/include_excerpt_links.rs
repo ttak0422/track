@@ -1,4 +1,4 @@
-//! Explicit wiki-link controls for accepted included prose, not general hrefs.
+//! Explicit internal-note controls for accepted included prose, not general hrefs.
 use super::*;
 const MAX_LINKS: usize = 16;
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -23,6 +23,63 @@ fn wiki_term(link: &markdown::Link) -> Option<String> {
     }
     markdown::resolve_term(&link.target)
 }
+/// Deliberately narrower than ordinary Markdown href handling: simple relative
+/// note titles only. Strip literal .md before decoding, never choose a basename.
+fn markdown_note_term(destination: &str) -> Option<String> {
+    let raw = destination.trim();
+    if raw.is_empty()
+        || raw.len() > 4096
+        || raw.chars().any(char::is_control)
+        || raw.contains(['/', '\\', ':', '?', '#'])
+    {
+        return None;
+    }
+    let stem = if raw
+        .get(raw.len().saturating_sub(3)..)
+        .is_some_and(|s| s.eq_ignore_ascii_case(".md"))
+    {
+        &raw[..raw.len() - 3]
+    } else {
+        raw
+    };
+    let mut bytes = Vec::with_capacity(stem.len());
+    let mut input = stem.as_bytes().iter().copied();
+    while let Some(byte) = input.next() {
+        if byte == b'%' {
+            let hi = (input.next()? as char).to_digit(16)?;
+            let lo = (input.next()? as char).to_digit(16)?;
+            bytes.push(((hi << 4) | lo) as u8);
+        } else {
+            bytes.push(byte);
+        }
+    }
+    let decoded = String::from_utf8(bytes).ok()?;
+    let term = decoded.trim();
+    // An encoded terminal .md is a literal title suffix, not an extension to
+    // strip a second time. Other dotted/email-like forms stay inert.
+    let encoded_md = stem.contains('%')
+        && !stem.contains('.')
+        && term
+            .get(term.len().saturating_sub(3)..)
+            .is_some_and(|s| s.eq_ignore_ascii_case(".md"))
+        && !term[..term.len() - 3].contains('.');
+    if term.is_empty()
+        || term.len() > 4096
+        || term.chars().any(char::is_control)
+        || term.contains(['/', '\\', ':', '?', '#', '@', '%'])
+        || (term.contains('.') && !encoded_md)
+    {
+        return None;
+    }
+    Some(term.to_owned())
+}
+fn link_term(link: &markdown::Link) -> Option<String> {
+    match &link.target {
+        markdown::LinkTarget::Wiki { .. } => wiki_term(link),
+        markdown::LinkTarget::Markdown { destination } => markdown_note_term(destination),
+        markdown::LinkTarget::Footnote { .. } => None,
+    }
+}
 fn eligible(blocks: &[markdown::Block]) -> Vec<(usize, markdown::Link)> {
     blocks
         .iter()
@@ -31,7 +88,7 @@ fn eligible(blocks: &[markdown::Block]) -> Vec<(usize, markdown::Link)> {
         .flat_map(|(i, b)| {
             b.links
                 .iter()
-                .filter(move |l| wiki_term(l).is_some() && b.text.get(l.range.clone()).is_some())
+                .filter(move |l| link_term(l).is_some() && b.text.get(l.range.clone()).is_some())
                 .map(move |l| (i, l.clone()))
         })
         .take(MAX_LINKS)
@@ -120,7 +177,7 @@ impl Workspace {
             let label = blocks[block]
                 .text
                 .get(link.range.clone())
-                .unwrap_or("Wiki link");
+                .unwrap_or("Note link");
             controls = controls.child(
                 div()
                     .id(gpui::SharedString::from(format!(
@@ -154,7 +211,7 @@ impl Workspace {
         let Some(handle) = cx.active_window().and_then(shortcut_workspace) else {
             return;
         };
-        let Some(term) = wiki_term(&ticket.link) else {
+        let Some(term) = link_term(&ticket.link) else {
             return;
         };
         let state = self.shell.includes.as_mut().unwrap();
@@ -173,7 +230,7 @@ impl Workspace {
         let permit = query_navigation::Permit;
         let token = SERIAL.fetch_add(1, Ordering::Relaxed);
         state.query_nav.pending = Some(token);
-        state.query_nav.notice = Some("Resolving included wiki link…".into());
+        state.query_nav.notice = Some("Resolving included note link…".into());
         let source = resolver_source(&ticket);
         let client = self.live.as_ref().unwrap().client();
         let job = cx.background_executor().spawn(async move {
@@ -318,13 +375,81 @@ mod tests {
             .1
     }
     #[test]
-    fn prose_wiki_only_and_bounded_in_original_order() {
+    fn simple_markdown_targets_normalize_without_label_or_path_guessing() {
+        for (raw, expected) in [
+            ("Design.md", "Design"),
+            ("Title.MD", "Title"),
+            ("Caf%C3%A9.md", "Café"),
+            ("Title%2Emd", "Title.md"),
+            ("  Design  ", "Design"),
+        ] {
+            assert_eq!(markdown_note_term(raw).as_deref(), Some(expected));
+        }
+        for raw in [
+            "",
+            "#Heading",
+            "Note.md#Heading",
+            "Note?x=1",
+            "https://example.invalid",
+            "id:42",
+            "work:Note",
+            "mailto:x@y",
+            "/Note",
+            "../Note",
+            "docs/Note.md",
+            "docs%2FNote.md",
+            "assets/pic.png",
+            "apps/thing",
+            "foo.com",
+            "foo%2Ecom",
+            "a%3Ab",
+            "a%23b",
+            "a%3Fb",
+            "a%5Cb",
+            "Bad%",
+            "Bad%Q1",
+            "%FF",
+            "%00",
+            ".md",
+            "..",
+            "a@b",
+        ] {
+            assert!(markdown_note_term(raw).is_none(), "{raw}");
+        }
+        let parsed = link("[Not identity](Caf%C3%A9.MD)");
+        assert_eq!(link_term(&parsed).as_deref(), Some("Café"));
+        assert!(matches!(
+            parsed.target,
+            markdown::LinkTarget::Markdown { .. }
+        ));
+    }
+    #[test]
+    fn markdown_links_retain_include_origin_and_exact_ticket_target() {
+        for (wire, expected) in [(None, "host"), (Some(""), ""), (Some("foreign"), "foreign")] {
+            let t = LinkTicket {
+                owner: owner(wire),
+                block: 0,
+                link: link("[Alias](Same.md)"),
+            };
+            assert_eq!(resolver_source(&t).note.vault, expected);
+            assert_eq!(t.owner.identity.source.note.vault, "host");
+            assert_eq!(link_term(&t.link).as_deref(), Some("Same"));
+            let mut changed = t.clone();
+            changed.link = link("[Alias](Other.md)");
+            assert_ne!(t, changed);
+            changed = t.clone();
+            changed.owner.epoch += 1;
+            assert_ne!(t, changed);
+        }
+    }
+    #[test]
+    fn prose_note_links_are_bounded_in_original_order() {
         let blocks=markdown::preview_blocks("[[Same|one]] [[Same|two]] [relative](Note.md) [web](https://example.invalid)\n\n```text\n[[Code]]\n```\n\n[[Last]]").unwrap();
         let accepted = eligible(&blocks);
-        assert_eq!(accepted.len(), 3);
+        assert_eq!(accepted.len(), 4);
         assert_ne!(accepted[0].1.range, accepted[1].1.range);
         assert_eq!(wiki_term(&accepted[0].1).as_deref(), Some("Same"));
-        assert_eq!(wiki_term(&accepted[2].1).as_deref(), Some("Last"));
+        assert_eq!(wiki_term(&accepted[3].1).as_deref(), Some("Last"));
         let many = (0..100)
             .map(|i| format!("[[Note {i}]]"))
             .collect::<Vec<_>>()

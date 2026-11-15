@@ -1673,3 +1673,17 @@ Pure coverage checks prose-only wiki admission, duplicate ranges and 16-control 
 801 Rust tests passed (7 ignored), fmt/native build/diff checks passed; independent review found no remaining P1/P2. The new test exposed the existing terminal-hash wiki parsing bug: `[[C#]]` incorrectly selected `C`; the parser now keeps exactly empty terminal hash suffixes in the key, with alias/qualified-title and unchanged heading/block regressions. Help site built 37 routes and affected output was inspected.
 
 Disposable registered host+foreign fixture: both vaults contained `Same Target`; the foreign excerpt's unqualified aliased link opened the foreign destination, not its host namesake. Back restored the host; missing foreign target retained the accepted preview with a not-found notice and no creation. The heading-link control also opened the foreign destination (exact scroll/highlight placement was not established on this short page). Clean Cmd-Q, 20 canonical fixture hashes unchanged, both owned listeners closed. Explicit per-link controls only, not inline link-click/keyboard/modifier/hover parity. Native block fragments, repeated/capped controls, pending lookup races, storage changes and real IME remain unverified. Ordinary vault writes remain disabled.
+
+## Included simple Markdown note-link controls (candidate)
+
+Pure regressions cover uppercase MD, encoded Unicode, encoded literal .md, label independence, strict malformed/path/scheme/query/hash rejection, inherited/empty/foreign origins and changed target/epoch tickets. Native follow-up: host and foreign each have Same Target; `[Alias](Same%20Target.MD)` in foreign excerpt opens only foreign target; missing target retains preview; query/hash/path/external links have no control; Back and fixture hashes remain intact. No native pass is claimed yet.
+
+Included Markdown control validation (2026-11-15): 803 Rust tests passed, 7 ignored;
+formatting, native build and the 37-route help site passed. Independent review found
+no P1/P2. An isolated host/foreign fixture with identical note titles and numeric
+IDs opened the foreign destination through `Same%20Target.MD`, restored the host
+with Back, and retained the preview after a missing target. External, asset and
+fragment links had no Open controls. Escape and Quit succeeded; all 20 canonical
+hashes were unchanged and both owned listener ports closed. Unicode targets,
+explicit empty-vault resolution, cap/race/keyboard/IME cases remain unverified
+natively. Normal vault editing remains disabled.

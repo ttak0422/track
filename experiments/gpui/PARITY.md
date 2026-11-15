@@ -597,6 +597,13 @@ Successful rendered-preview include headers offer explicit Open source note from
 
 Include-source validation: 796 Rust tests passed (7 ignored), native alias-to-identity and distinct-source navigation/Back/Quit smoke passed without fixture writes. Cross-vault, journal, stale-state races and keyboard/IME remain native follow-ups.
 
-Accepted included prose has explicit per-link Open controls for the first 16 parsed wiki occurrences, not direct inline hyperlink activation. Included vault/etag/identity and host route ownership remain separate through bounded resolution; exact occurrence and owner tickets gate completion. Heading/block fragments retain their authored wiki targets. Markdown/external/code/generated-query links and modifier/keyboard/hover parity remain excluded. Existing header Open source and query navigation remain separate actions sharing the lookup bound. Native validation pending; normal-vault gates unchanged.
+Accepted included prose has explicit per-link Open controls for the first 16 supported parsed wiki/Markdown occurrences, not direct inline hyperlink activation. Included vault/etag/identity and host route ownership remain separate through bounded resolution; exact occurrence and owner tickets gate completion. Heading/block fragments retain their authored wiki targets. Unsupported Markdown/external/code/generated-query links and modifier/keyboard/hover parity remain excluded. Existing header Open source and query navigation remain separate actions sharing the lookup bound. Native validation pending; normal-vault gates unchanged.
 
 Included wiki validation: 801 Rust tests passed (7 ignored), isolated foreign/host same-title resolution, failed-target preview retention, Back and Quit passed without canonical writes. Heading control destination checked; exact fragment placement, block/race/keyboard/IME cases remain native follow-ups.
+
+Included explicit link controls additionally admit simple relative Markdown note titles with case-insensitive literal .md removal before strict percent decoding. Encoded .md remains part of the decoded title; query/hash/path/scheme/domain-like or malformed targets stay inert. This is deliberately narrower than reference Markdown linking. Included namespace and host route owner remain separate; existing exact tickets/worker cap apply. Host Markdown parsing and wiki fragment behavior are unchanged. Native verification pending.
+
+Included Markdown validation: 803 Rust tests passed (7 ignored), isolated
+foreign/host same-title and same-ID resolution, Back, missing-target retention,
+excluded controls and Quit passed with 20 unchanged canonical hashes. Unicode,
+empty-vault, cap/race/keyboard/IME native cases remain follow-ups.
