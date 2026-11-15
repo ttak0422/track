@@ -868,3 +868,47 @@ mod calendar_zone_input_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod native_find_binding_tests {
+    use super::*;
+    #[test]
+    fn find_accelerators_have_one_action_and_keep_enter_local() {
+        let mut bindings = crate::workspace_key_bindings();
+        bindings.extend(search_bindings());
+        let keymap = gpui::Keymap::new(bindings);
+        for context in [
+            "",
+            "TrackReaderFind",
+            "TrackReaderFind composing",
+            "TrackSearch",
+            "TrackSourceEditor",
+        ] {
+            let contexts = [gpui::KeyContext::parse(context).unwrap()];
+            for (key, action) in [
+                (
+                    "cmd-f",
+                    Box::new(crate::NativeFind) as Box<dyn gpui::Action>,
+                ),
+                ("cmd-g", Box::new(crate::NativeFindNext)),
+                ("cmd-shift-g", Box::new(crate::NativeFindPrevious)),
+            ] {
+                let (matches, pending) =
+                    keymap.bindings_for_input(&[gpui::Keystroke::parse(key).unwrap()], &contexts);
+                assert!(!pending);
+                assert_eq!(matches.len(), 1, "{context}: {key}");
+                assert!(matches[0].action().partial_eq(action.as_ref()));
+            }
+        }
+        let contexts = [gpui::KeyContext::parse("TrackReaderFind").unwrap()];
+        for (key, action) in [
+            ("enter", Box::new(FindNext) as Box<dyn gpui::Action>),
+            ("shift-enter", Box::new(FindPrevious)),
+        ] {
+            let (matches, _) =
+                keymap.bindings_for_input(&[gpui::Keystroke::parse(key).unwrap()], &contexts);
+            assert_eq!(matches.len(), 1);
+            assert!(matches[0].action().partial_eq(action.as_ref()));
+        }
+    }
+}

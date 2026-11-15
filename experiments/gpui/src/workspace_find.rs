@@ -19,6 +19,16 @@ pub(crate) struct FindState {
     scroll_retries: u8,
 }
 impl FindState {
+    pub(crate) fn native_has_query(&self) -> bool {
+        !self.query.trim().is_empty()
+    }
+    pub(crate) fn native_owns_focus(&self, window: &Window, cx: &App) -> bool {
+        self.open
+            && self
+                .input
+                .as_ref()
+                .is_some_and(|input| input.focus_handle(cx).is_focused(window))
+    }
     pub(crate) fn is_composing(&self, cx: &App) -> bool {
         self.input
             .as_ref()
@@ -263,37 +273,6 @@ impl Workspace {
         }
         cx.notify();
     }
-    pub(crate) fn find_keyboard(
-        &mut self,
-        event: &gpui::KeyDownEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> bool {
-        let focused = self
-            .shell
-            .reader_focus
-            .as_ref()
-            .is_some_and(|f| f.is_focused(window))
-            || self
-                .shell
-                .find
-                .input
-                .as_ref()
-                .is_some_and(|i| i.focus_handle(cx).is_focused(window));
-        if !focused || !self.find_available() {
-            return false;
-        }
-        let m = event.keystroke.modifiers;
-        if m.platform && !m.control && !m.alt && event.keystroke.key == "f" && !m.shift {
-            self.open_find(window, cx);
-            return true;
-        }
-        if m.platform && !m.control && !m.alt && event.keystroke.key == "g" {
-            self.move_find(!m.shift, cx);
-            return true;
-        }
-        false
-    }
     pub(crate) fn find_overlay(
         &self,
         dark: bool,
@@ -490,5 +469,24 @@ mod tests {
         assert!(!scroll_is_current(2, 2, 4, 4, false, true, true));
         assert!(!scroll_is_current(2, 2, 4, 4, true, false, true));
         assert!(!scroll_is_current(2, 2, 4, 4, true, true, false));
+    }
+}
+
+#[cfg(test)]
+mod native_query_tests {
+    use super::*;
+    #[test]
+    fn retained_query_can_step_when_closed_but_empty_query_cannot() {
+        let mut state = FindState::default();
+        assert!(!state.native_has_query());
+        state.query = "  ".into();
+        assert!(!state.native_has_query());
+        state.query = "日本語".into();
+        state.open = true;
+        assert!(state.native_has_query());
+        state.deactivate();
+        assert!(!state.open);
+        assert!(state.native_has_query());
+        assert_eq!(state.query, "日本語");
     }
 }

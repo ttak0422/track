@@ -510,3 +510,7 @@ Rust/build/native appearance and timeout validation remain pending.
 Arrival-cue native pointer smoke passed for dark paragraph and light list rows,
 including expiry without layout/position change. See NATIVE-QA.md for limits and
 700-test evidence; this does not establish full keyboard/IME/block parity.
+
+## Native Find routing
+
+Conditional workspace-root listeners plus action-time checks route native Edit → Find commands to the accepted reader only. Old raw Cmd-F/Cmd-G handling is removed; Find input Enter/Shift-Enter stays local. Existing root focus recovery does not grant reader j/k ownership or replace an existing input focus. Four model/keymap tests added; 704 Rust tests passed (7 ignored), formatting and build passed. Disposable native menu/accelerator, query retention and Home/Search/About exclusion smoke passed; IME and interruption coverage remain pending. No requests, writes, clipboard or persistence changes.

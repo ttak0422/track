@@ -2,6 +2,17 @@
 use super::*;
 use gpui::{Div, Focusable, PathBuilder, Stateful, WindowAppearance, canvas, point};
 
+fn native_find_enabled(
+    active_workspace: bool,
+    accepted: bool,
+    blocked: bool,
+    allowed_focus: bool,
+    step: bool,
+    has_query: bool,
+) -> bool {
+    active_workspace && accepted && !blocked && allowed_focus && (!step || has_query)
+}
+
 fn native_history_dispatch_allowed(active: bool, workspace_window: bool, available: bool) -> bool {
     active && workspace_window && available
 }
@@ -2385,6 +2396,72 @@ impl Workspace {
         }
         true
     }
+    fn native_find_available(&self, step: bool, window: &Window, cx: &App) -> bool {
+        let accepted = self.shell.accepted_title_request == Some(self.request)
+            && self.current_link_source().is_some_and(|source| {
+                self.current_note_request.as_ref().is_some_and(|route| {
+                    source.note == *route
+                        && self
+                            .current_note
+                            .as_ref()
+                            .is_some_and(|note| note.note.key() == *route)
+                        && self.tabs.active().is_some_and(|tab| {
+                            tab.key
+                                == (tabs::TabKey::Note {
+                                    vault: route.vault.clone(),
+                                    note_id: route.note_id,
+                                })
+                        })
+                }) && self
+                    .live
+                    .as_ref()
+                    .and_then(|live| live.initial_storage.as_ref())
+                    .is_some_and(|storage| {
+                        storage.phase == "ready" && storage.generation == source.storage_generation
+                    })
+            });
+        let blocked = !self.find_available()
+            || !self.editing_ui.plain_reader_mode()
+            || self.editor_shortcut_blocked(cx)
+            || self.tag_page.is_some()
+            || self.partial_read
+            || self.read_error.is_some()
+            || self.quit_session.is_closing()
+            || self.quit_session.failure().is_some()
+            || self.shell.pending_fragment.is_some()
+            || self.previews.model.transient.is_some()
+            || self.previews.model.geometry_active()
+            || self.search.read(cx).is_composing()
+            || self.shell.calendar_zone.is_composing(cx)
+            || self.shell.find.is_composing(cx)
+            || (self.session_ui.recovery_enabled()
+                && (!self.session_ui.recovery_ready()
+                    || self.session_ui.recovery_record().is_some()
+                    || self.session_ui.recovery_status()
+                        != workspace_session::RecoveryStatus::Ready(
+                            draft_recovery::LocalStatus::Empty,
+                        )));
+        let allowed_focus = window.focused(cx).is_none()
+            || self
+                .shell
+                .workspace_focus
+                .as_ref()
+                .is_some_and(|focus| focus.is_focused(window))
+            || self
+                .shell
+                .reader_focus
+                .as_ref()
+                .is_some_and(|focus| focus.is_focused(window))
+            || self.shell.find.native_owns_focus(window, cx);
+        native_find_enabled(
+            window.is_window_active() && cx.active_window().and_then(shortcut_workspace).is_some(),
+            accepted,
+            blocked,
+            allowed_focus,
+            step,
+            self.shell.find.native_has_query(),
+        )
+    }
     fn native_history_owner_blocked(&self, cx: &App) -> bool {
         self.tag_routing_blocked(cx)
             || self.editor_shortcut_blocked(cx)
@@ -4010,13 +4087,37 @@ impl Render for Workspace {
         if workspace_root_focus_allowed(
             window.is_window_active(),
             window.focused(cx).is_some() && !stale_focus,
-            self.native_history_owner_blocked(cx),
+            self.native_history_owner_blocked(cx) && !self.native_find_available(false, window, cx),
         ) {
             window.focus(&workspace_focus);
         }
         div()
             .id("workspace-shell")
             .track_focus(&workspace_focus)
+            .when(self.native_find_available(false, window, cx), |root| {
+                root.on_action(cx.listener(|this, _: &NativeFind, window, cx| {
+                    if this.native_find_available(false, window, cx) {
+                        this.open_find(window, cx);
+                    }
+                    cx.stop_propagation();
+                }))
+            })
+            .when(self.native_find_available(true, window, cx), |root| {
+                root.on_action(cx.listener(|this, _: &NativeFindNext, window, cx| {
+                    if this.native_find_available(true, window, cx) {
+                        this.move_find(true, cx);
+                    }
+                    cx.stop_propagation();
+                }))
+                .on_action(cx.listener(
+                    |this, _: &NativeFindPrevious, window, cx| {
+                        if this.native_find_available(true, window, cx) {
+                            this.move_find(false, cx);
+                        }
+                        cx.stop_propagation();
+                    },
+                ))
+            })
             .when(self.native_history_available(false, cx), |root| {
                 root.on_action(cx.listener(|this, _: &HistoryBack, window, cx| {
                     if native_history_dispatch_allowed(
@@ -4111,10 +4212,6 @@ impl Render for Workspace {
                     return;
                 }
                 if this.code_keyboard(event, window, cx) {
-                    cx.stop_propagation();
-                    return;
-                }
-                if this.find_keyboard(event, window, cx) {
                     cx.stop_propagation();
                     return;
                 }
@@ -5679,5 +5776,33 @@ mod fragment_layout_tests {
                 current[0], current[1], current[2], current[3], current[4], current[5]
             ));
         }
+    }
+}
+
+#[cfg(test)]
+mod native_find_tests {
+    use super::native_find_enabled;
+    #[test]
+    fn native_find_requires_active_accepted_unblocked_reader_and_allowed_focus() {
+        assert!(native_find_enabled(true, true, false, true, false, false));
+        for flags in [
+            (false, true, false, true),
+            (true, false, false, true),
+            (true, true, true, true),
+            (true, true, false, false),
+        ] {
+            assert!(!native_find_enabled(
+                flags.0, flags.1, flags.2, flags.3, false, true
+            ));
+            assert!(!native_find_enabled(
+                flags.0, flags.1, flags.2, flags.3, true, true
+            ));
+        }
+    }
+    #[test]
+    fn native_next_previous_require_query_but_open_does_not() {
+        assert!(native_find_enabled(true, true, false, true, false, false));
+        assert!(!native_find_enabled(true, true, false, true, true, false));
+        assert!(native_find_enabled(true, true, false, true, true, true));
     }
 }

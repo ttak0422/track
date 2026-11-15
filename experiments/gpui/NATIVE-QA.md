@@ -1390,3 +1390,23 @@ found no P1/P2 issue. Rapid/repeated cue replacement, modal/IME interruption,
 keyboard and accessibility remain unverified natively; source/timer invalidation
 has model coverage. Centered placement is still unavailable. Ordinary vault writes
 remain disabled.
+
+## Native Find menu: disposable read-only smoke
+
+On macOS, a two-note fixture with three English and three Japanese matches separated
+by 16 prose paragraphs verified Edit → Find opening without a prose click, initial
+empty-query Next/Previous disabling, pointer Next 1→2, Cmd-G 2→3→1 and
+Shift-Cmd-G 1→3. Repeated Cmd-F selected the retained query without advancing.
+Pasted Japanese text survived closing/reopening; this is not IME-composition proof.
+Done closed the bar. Cmd-G with a closed bar resumed the existing search behavior
+at its first result rather than continuing the previous active result. An absent
+query displayed No matches; clearing the query disabled native Next/Previous.
+Home, global Search and the active About window disabled all three Find commands.
+About closed normally and the native Quit menu exited the fixture.
+
+All 10 canonical fixture files stayed unchanged and both owned ports closed.
+704 tests passed (7 ignored), formatting and debug build passed; independent review
+found no P1/P2 issue. Actual IME composition, inactive/reactivated-window races,
+Graph/editor/image-modal interactions, stale-dispatch races, full accessibility,
+and local Enter/Shift-Enter delivery remain unverified natively. Existing safety
+and source guards remain in force; normal vault writes stay disabled.

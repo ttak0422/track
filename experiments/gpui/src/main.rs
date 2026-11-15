@@ -73,7 +73,10 @@ actions!(
         CopyBuildInfo,
         ShowAbout,
         HistoryBack,
-        HistoryForward
+        HistoryForward,
+        NativeFind,
+        NativeFindNext,
+        NativeFindPrevious
     ]
 );
 
@@ -84,6 +87,9 @@ fn workspace_key_bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-w", CloseTab, None),
         KeyBinding::new("cmd-[", HistoryBack, None),
         KeyBinding::new("cmd-]", HistoryForward, None),
+        KeyBinding::new("cmd-f", NativeFind, None),
+        KeyBinding::new("cmd-g", NativeFindNext, None),
+        KeyBinding::new("cmd-shift-g", NativeFindPrevious, None),
         KeyBinding::new("cmd-m", MinimizeWindow, None),
         KeyBinding::new("ctrl-cmd-f", ToggleFullscreen, None),
     ]
@@ -663,6 +669,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     MenuItem::action("Save", Save),
                     MenuItem::action("Close Tab", CloseTab),
                 ],
+            },
+            Menu {
+                name: "Edit".into(),
+                items: vec![MenuItem::submenu(Menu {
+                    name: "Find".into(),
+                    items: vec![
+                        MenuItem::action("Find…", NativeFind),
+                        MenuItem::action("Find Next", NativeFindNext),
+                        MenuItem::action("Find Previous", NativeFindPrevious),
+                    ],
+                })],
             },
             Menu {
                 name: "View".into(),
