@@ -297,6 +297,10 @@ impl Workspace {
         if self.previews.activation.is_none() {
             self.previews.activation =
                 Some(cx.observe_window_activation(window, |this, window, cx| {
+                    if !window.is_window_active() {
+                        this.clear_reader_selection();
+                        cx.notify();
+                    }
                     if !window.is_window_active() && this.reader_hover_active() {
                         this.cancel_transient_preview();
                         cx.notify();

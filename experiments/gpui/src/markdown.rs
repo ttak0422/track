@@ -156,9 +156,32 @@ pub fn with_resolved_titles(
     displayed
 }
 
+#[derive(Clone, Copy)]
+pub enum SelectionPhase {
+    Begin,
+    Move,
+    End,
+    Leave,
+    Cancel,
+}
+#[derive(Clone)]
+pub struct SelectionCallbacks {
+    pub selected: Option<(usize, Range<usize>)>,
+    pub pointer: Rc<
+        dyn Fn(
+            usize,
+            SelectionPhase,
+            &gpui::TextLayout,
+            Option<gpui::Point<gpui::Pixels>>,
+            &mut Window,
+            &mut App,
+        ) -> bool,
+    >,
+}
 /// Shell supplies verified internal or explicit HTTP(S) links. Others stay inert.
 #[derive(Clone)]
 pub struct LinkCallbacks {
+    pub selection: Option<SelectionCallbacks>,
     pub hover: Option<
         Rc<
             dyn Fn(
@@ -2008,7 +2031,24 @@ fn render_elements(
             }
             let offset = text.len() - block.text.len();
             let visible_spans = resolved_spans(&block.spans, &block.links, callbacks);
-            let presentation = if block.kind == BlockKind::Code {
+            let selection = callbacks
+                .and_then(|c| c.selection.as_ref())
+                .filter(|_| crate::reader_selection::eligible(block));
+            let selected = selection
+                .and_then(|c| c.selected.as_ref())
+                .filter(|(i, _)| *i == index)
+                .map(|(_, r)| r.clone());
+            let presentation = if let Some(range) = selected {
+                let runs = styled_runs(text.clone(), &visible_spans, offset, theme, mono, bold);
+                let mut runs = highlight_runs(runs, &[(range, true)], dark);
+                for run in &mut runs {
+                    if run.background_color.is_some() {
+                        run.background_color =
+                            Some(rgb(if dark { 0x315976 } else { 0xb5daf2 }).into());
+                    }
+                }
+                StyledText::new(text).with_runs(runs)
+            } else if block.kind == BlockKind::Code {
                 let runs = code_runs(block, offset, dark);
                 let hits: Vec<_> = highlights
                     .get(&Target::Block(index))
@@ -2044,6 +2084,7 @@ fn render_elements(
             } else {
                 row
             };
+            let selection_layout = presentation.layout().clone();
             let row = row.child(link_text(
                 presentation,
                 &block.links,
@@ -2138,6 +2179,71 @@ fn render_elements(
             } else {
                 row.id(SharedString::from(format!("reader-row-{index}")))
             };
+            let selection_leave = selection.map(|s| s.pointer.clone());
+            let leave_layout = selection_layout.clone();
+            let element = element.when_some(selection.cloned(), |element, selection| {
+                let begin = selection.pointer.clone();
+                let moving = selection.pointer.clone();
+                let end = selection.pointer.clone();
+                let outside = selection.pointer;
+                let down_layout = selection_layout.clone();
+                let move_layout = selection_layout.clone();
+                let up_layout = selection_layout.clone();
+                element
+                    .on_mouse_down(gpui::MouseButton::Left, move |event, window, cx| {
+                        let m = event.modifiers;
+                        if event.click_count == 1
+                            && !m.shift
+                            && !m.control
+                            && !m.alt
+                            && !m.platform
+                            && begin(
+                                index,
+                                SelectionPhase::Begin,
+                                &down_layout,
+                                Some(event.position),
+                                window,
+                                cx,
+                            )
+                        {
+                            cx.stop_propagation();
+                        }
+                    })
+                    .on_mouse_move(move |event, window, cx| {
+                        let phase = if event.pressed_button == Some(gpui::MouseButton::Left) {
+                            SelectionPhase::Move
+                        } else {
+                            SelectionPhase::Cancel
+                        };
+                        if moving(index, phase, &move_layout, Some(event.position), window, cx) {
+                            cx.stop_propagation();
+                        }
+                    })
+                    .on_mouse_up(gpui::MouseButton::Left, move |event, window, cx| {
+                        if end(
+                            index,
+                            SelectionPhase::End,
+                            &up_layout,
+                            Some(event.position),
+                            window,
+                            cx,
+                        ) {
+                            cx.stop_propagation();
+                        }
+                    })
+                    .on_mouse_up_out(gpui::MouseButton::Left, move |_, window, cx| {
+                        if outside(
+                            index,
+                            SelectionPhase::Cancel,
+                            &selection_layout,
+                            None,
+                            window,
+                            cx,
+                        ) {
+                            cx.stop_propagation();
+                        }
+                    })
+            });
             let leave = callbacks.and_then(|callbacks| callbacks.hover.clone());
             let movement = leave.clone();
             let element = element
@@ -2155,6 +2261,16 @@ fn render_elements(
                 })
                 .on_hover(move |inside, window, cx| {
                     if !inside {
+                        if let Some(cancel) = &selection_leave {
+                            cancel(
+                                index,
+                                SelectionPhase::Leave,
+                                &leave_layout,
+                                Some(window.mouse_position()),
+                                window,
+                                cx,
+                            );
+                        }
                         if let Some(leave) = &leave {
                             leave(&format!("md-block-{index}"), None, None, None, window, cx);
                         }
@@ -3319,6 +3435,7 @@ mod tests {
         assert!(pending.iter().filter(|span| span.style.unresolved).count() >= 2);
         assert!(pending.iter().all(|span| !span.style.link));
         let callbacks = LinkCallbacks {
+            selection: None,
             hover: None,
             arrival_block: None,
             enlarge: None,
@@ -4025,6 +4142,7 @@ mod footnote_navigation_tests {
         let cell = &parsed[0].table.as_ref().unwrap().rows[1][0];
         assert!(footnote_link_valid(&parsed, &cell.links[0]));
         let callbacks = LinkCallbacks {
+            selection: None,
             hover: None,
             arrival_block: None,
             enlarge: None,
