@@ -178,9 +178,32 @@ pub struct SelectionCallbacks {
         ) -> bool,
     >,
 }
+/// Accepted reader-owned PDF raster; never resolves or fetches a reference.
+#[derive(Clone)]
+pub struct PdfProjection {
+    pub block: usize,
+    pub reference: String,
+    pub page: u32,
+    pub pages: u32,
+    pub image: Arc<gpui::RenderImage>,
+}
+impl PdfProjection {
+    fn matches(&self, index: usize, block: &Block) -> bool {
+        self.block == index
+            && block.image.as_deref() == Some(self.reference.as_str())
+            && block.kind == BlockKind::Paragraph
+            && !block.quoted
+            && block.indent == 0
+            && block.marker.is_none()
+            && self.page > 0
+            && self.page <= self.pages
+            && crate::reader_pdf::asset_name(&self.reference).is_ok()
+    }
+}
 /// Shell supplies verified internal or explicit HTTP(S) links. Others stay inert.
 #[derive(Clone)]
 pub struct LinkCallbacks {
+    pub pdf: Option<PdfProjection>,
     pub selection: Option<SelectionCallbacks>,
     pub hover: Option<
         Rc<
@@ -2306,6 +2329,30 @@ fn render_elements(
                 format!("md-block-{index}"),
                 theme,
             ));
+            // Keep visible authored text and its shaped Find/selection metadata.
+            // A fixed-height extra region never changes host block numbering.
+            let row = if let Some(pdf) = callbacks
+                .and_then(|c| c.pdf.as_ref())
+                .filter(|p| p.matches(index, block))
+            {
+                row.child(
+                    div().relative().w_full().max_w(px(620.)).h(px(360.)).child(
+                        gpui::img(pdf.image.clone())
+                            .absolute()
+                            .inset_0()
+                            .size_full()
+                            .object_fit(gpui::ObjectFit::Contain),
+                    ),
+                )
+                .child(
+                    div()
+                        .text_size(px(12.))
+                        .line_height(px(20.))
+                        .child(format!("PDF page {} / {}", pdf.page, pdf.pages)),
+                )
+            } else {
+                row
+            };
             let row = if let Some(image) = images.and_then(|images| images.get(&index)) {
                 let (width, ratio) = crate::raster::inline_geometry(image.width, image.height);
                 row.child(
@@ -3648,6 +3695,7 @@ mod tests {
         assert!(pending.iter().filter(|span| span.style.unresolved).count() >= 2);
         assert!(pending.iter().all(|span| !span.style.link));
         let callbacks = LinkCallbacks {
+            pdf: None,
             selection: None,
             hover: None,
             arrival_block: None,
@@ -4355,6 +4403,7 @@ mod footnote_navigation_tests {
         let cell = &parsed[0].table.as_ref().unwrap().rows[1][0];
         assert!(footnote_link_valid(&parsed, &cell.links[0]));
         let callbacks = LinkCallbacks {
+            pdf: None,
             selection: None,
             hover: None,
             arrival_block: None,
@@ -5081,5 +5130,38 @@ mod passage_restore_tests {
         changed = measured(598., -978.);
         changed.reader.size.width += px(1.);
         assert!(passage_offset(&passage, &changed).is_none());
+    }
+}
+
+#[cfg(test)]
+mod pdf_projection_tests {
+    use super::*;
+    #[test]
+    fn exact_standalone_occurrence_keeps_source_model() {
+        let body = "before\n\n![Deck](assets/a.pdf)\n\nbetween\n\n![Deck](assets/a.pdf)\n\nafter";
+        let blocks = parse_reader(body);
+        let original = blocks.clone();
+        let projection = PdfProjection {
+            block: 1,
+            reference: "assets/a.pdf".into(),
+            page: 2,
+            pages: 3,
+            image: Arc::new(gpui::RenderImage::new([image::Frame::new(
+                image::RgbaImage::new(1, 1),
+            )])),
+        };
+        assert!(projection.matches(1, &blocks[1]));
+        assert!(!projection.matches(3, &blocks[3]));
+        assert!(!projection.matches(0, &blocks[0]));
+        let mut different = blocks[1].clone();
+        different.image = Some("assets/b.pdf".into());
+        assert!(!projection.matches(1, &different));
+        assert_eq!(blocks, original);
+        assert_eq!(blocks[0].text, "before");
+        assert_eq!(blocks[2].text, "between");
+        assert_eq!(blocks[4].text, "after");
+        let mut invalid = projection.clone();
+        invalid.page = 4;
+        assert!(!invalid.matches(1, &blocks[1]));
     }
 }

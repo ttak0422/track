@@ -282,6 +282,7 @@ mod tests {
             serial: 7,
             cancel: Arc::new(AtomicBool::new(false)),
             pending: false,
+            inline: false,
             bytes: None,
             display: Some(Display {
                 page: 1,

@@ -575,3 +575,12 @@ page navigation/actions/zoom; Close, Escape and backdrop dismiss. Reader media
 input/routing guards cover both image and PDF overlays. Isolated current-page
 enlargement, dismissal, routing containment and guarded Quit passed. Narrow
 layout scroll retention and native storage races remain unverified.
+
+Accepted PDF pages can be explicitly shown at the exact standalone attachment
+occurrence. The source label remains visibly shaped (source Find/Copy MD intact),
+with a fixed-height aspect-fit page appended below it; this is not full source
+notation replacement. One shared accepted raster is displayed, and other
+occurrences require Hide first. Show/Hide uses existing guarded passage restore.
+No PDF text search, automatic loading, or additional decode. Isolated duplicate
+occurrence, below-page passage retention and Find checks passed; narrow layout,
+bottom clamping and native race/error injection remain unverified.

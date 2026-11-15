@@ -1,6 +1,8 @@
 //! Explicit read-only local PDF inspector. No document actions or persistent cache.
 #[path = "workspace_pdf_enlarge.rs"]
 mod enlarge;
+#[path = "workspace_pdf_inline.rs"]
+mod inline;
 use super::*;
 pub(crate) use enlarge::Modal;
 use std::sync::{
@@ -45,6 +47,7 @@ pub(crate) struct State {
     serial: u64,
     cancel: Arc<AtomicBool>,
     pending: bool,
+    inline: bool,
     bytes: Option<Arc<Vec<u8>>>,
     display: Option<Display>,
     notice: Option<String>,
@@ -157,6 +160,11 @@ impl Workspace {
         {
             return;
         }
+        if self.reader_pdf.as_ref().is_some_and(|s| {
+            reader_pdf::switch_blocked(s.inline, (s.block, &s.reference), (block, &reference))
+        }) {
+            return;
+        }
         if let Some(serial) = expected {
             if !self.reader_pdf.as_ref().is_some_and(|s| {
                 s.matches(&identity, &reference, serial)
@@ -184,6 +192,7 @@ impl Workspace {
         } else {
             None
         };
+        let inline = same && old.as_ref().is_some_and(|s| s.inline);
         drop(old);
         self.reader_pdf = Some(State {
             identity: identity.clone(),
@@ -192,6 +201,7 @@ impl Workspace {
             serial,
             cancel: cancel.clone(),
             pending: false,
+            inline,
             bytes: bytes.clone(),
             display,
             notice: None,
@@ -300,13 +310,21 @@ impl Workspace {
             .text_size(px(12.))
             .child("LOCAL PDF · read-only");
         for (block, reference) in refs {
+            let blocked = self.reader_pdf.as_ref().is_some_and(|s| {
+                reader_pdf::switch_blocked(s.inline, (s.block, &s.reference), (block, &reference))
+            });
             let source = identity.clone();
             let label = reference.chars().take(100).collect::<String>();
             view = view.child(
                 div()
                     .id(("load-local-pdf", block))
                     .cursor_pointer()
-                    .child(format!("Load {label}"))
+                    .opacity(if blocked { 0.4 } else { 1. })
+                    .child(if blocked {
+                        format!("Hide reader PDF first: {label}")
+                    } else {
+                        format!("Load {label}")
+                    })
                     .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.load_pdf(
@@ -329,12 +347,20 @@ impl Workspace {
                 div()
                     .id("close-local-pdf")
                     .cursor_pointer()
-                    .child("Close PDF")
+                    .child(if state.inline {
+                        "Hide reader PDF before closing"
+                    } else {
+                        "Close PDF"
+                    })
+                    .opacity(if state.inline { 0.4 } else { 1. })
                     .on_click(cx.listener(move |this, _, window, cx| {
                         if window.is_window_active()
                             && this.pdf_available(cx)
                             && this.pdf_identity().as_ref() == Some(&source)
-                            && this.reader_pdf.as_ref().is_some_and(|s| s.serial == serial)
+                            && this
+                                .reader_pdf
+                                .as_ref()
+                                .is_some_and(|s| s.serial == serial && !s.inline)
                         {
                             this.reader_pdf = None;
                             cx.notify();
@@ -342,6 +368,9 @@ impl Workspace {
                         cx.stop_propagation();
                     })),
             );
+            view = view.when_some(self.pdf_inline_control(cx), |view, control| {
+                view.child(control)
+            });
             if state.pending {
                 view = view.child("Loading PDF page…");
             }
@@ -462,6 +491,7 @@ mod tests {
             serial: 7,
             cancel: cancel.clone(),
             pending: true,
+            inline: false,
             bytes: None,
             display: None,
             notice: None,

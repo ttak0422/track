@@ -61,3 +61,35 @@ mod tests {
         assert_eq!(references(&blocks), vec![(0, "assets/a.pdf".into())]);
     }
 }
+
+/// Identical asset names do not authorize a different authored occurrence.
+pub(crate) fn switch_blocked(inline: bool, current: (usize, &str), next: (usize, &str)) -> bool {
+    inline && current != next
+}
+#[cfg(test)]
+mod inline_switch_tests {
+    use super::*;
+    #[test]
+    fn duplicate_asset_requires_hide_before_switch() {
+        assert!(!switch_blocked(
+            false,
+            (1, "assets/a.pdf"),
+            (3, "assets/a.pdf")
+        ));
+        assert!(switch_blocked(
+            true,
+            (1, "assets/a.pdf"),
+            (3, "assets/a.pdf")
+        ));
+        assert!(switch_blocked(
+            true,
+            (1, "assets/a.pdf"),
+            (1, "assets/b.pdf")
+        ));
+        assert!(!switch_blocked(
+            true,
+            (1, "assets/a.pdf"),
+            (1, "assets/a.pdf")
+        ));
+    }
+}

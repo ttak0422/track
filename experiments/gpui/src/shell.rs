@@ -3801,6 +3801,7 @@ impl Render for Workspace {
         let select_displayed = external_displayed.clone();
         let select_weak = cx.entity().downgrade();
         let link_callbacks = markdown::LinkCallbacks {
+            pdf: self.pdf_projection(),
             selection: Some(markdown::SelectionCallbacks {
                 selected: self
                     .shell
@@ -4098,7 +4099,8 @@ impl Render for Workspace {
             .ok()
             .or_else(|| self.follow_layout_source(cx))
             .or_else(|| self.block_fragment_layout_source(cx))
-            .or_else(|| self.includes_layout_source());
+            .or_else(|| self.includes_layout_source())
+            .or_else(|| self.pdf_layout_source());
         if self.shell.positions.source != position_source {
             self.shell.positions.source = position_source.clone();
             self.shell.positions.anchors = position_source.as_ref().and_then(|_| {

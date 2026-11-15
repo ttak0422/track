@@ -1612,3 +1612,19 @@ note/metadata/asset hashes; no ordinary session or PDF-cache writes are allowed.
   accessibility and actual IME composition remain unverified. The overlay reuses
   the accepted image by construction; native request counts were not measured.
   This is a static snapshot, not a separately paged PDF viewer.
+
+## PDF accepted-page reader projection
+
+- Disposable fixture with 35 prose passages and two identical PDF references:
+  the first loaded occurrence displayed its Japanese page below its visible
+  source; after Hide and loading the second occurrence, only that location gained
+  the projection. Other occurrence/Close controls required Hide first.
+- Page 2 was accepted while projected. After naturally scrolling below the first
+  PDF, repeated Hide/Show preserved the same visible passage and vertical offset.
+- Find after expanding the later occurrence highlighted the visible tail passage;
+  source labels and surrounding text remained available. Guarded Quit succeeded.
+- All 13 fixture note/sidecar/asset hashes remained unchanged, and owned ports
+  closed after Quit. No ordinary vault was opened or written.
+- Narrow layouts, bottom-clamp transitions, page-error injection, source/scope
+  races, clipboard/heading navigation and actual IME remain unverified. No extra
+  fetch/decode is present in Show/Hide; request counts were not instrumented.
