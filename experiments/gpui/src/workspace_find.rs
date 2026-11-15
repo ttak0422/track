@@ -19,6 +19,11 @@ pub(crate) struct FindState {
     scroll_retries: u8,
 }
 impl FindState {
+    pub(crate) fn is_composing(&self, cx: &App) -> bool {
+        self.input
+            .as_ref()
+            .is_some_and(|input| input.read(cx).is_composing())
+    }
     pub(crate) fn rebind_scroll(&mut self, scroll: &gpui::ScrollHandle) {
         self.revision = self.revision.wrapping_add(1);
         self.pending_scroll = false;

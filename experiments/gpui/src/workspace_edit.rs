@@ -229,6 +229,9 @@ impl EditingUi {
     pub fn active(&self) -> bool {
         self.active.is_some()
     }
+    pub(crate) fn plain_reader_mode(&self) -> bool {
+        self.mode == EditorMode::Preview && self.follow_safe()
+    }
     pub(crate) fn follow_safe(&self) -> bool {
         !self.creation.open
             && self.active.is_none()

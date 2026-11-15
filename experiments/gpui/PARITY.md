@@ -457,3 +457,14 @@ and clicks. Home/day/zone state is untouched. Existing two-read concurrency and
 Success-empty, partial/cache and errors differ, with bounded explicit retry.
 No mutations, NEW inference, anniversary expansion, hover previews or pagination.
 Eligibility/identity/order/empty/stale models are covered; native QA is pending.
+
+### Focused plain-reader j/k
+
+Explicit stationary unmodified single-click on noninteractive prose acquires
+source/tab/content/geometry-bound reader keys. Lowercase unmodified j/k scroll
+synchronously by three rendered body lines (24px/line fallback), with repeat and
+edge clamps. Escape/other owners/source or layout changes revoke ownership;
+interactive content never acquires it. No new requests, writes or persistence.
+Selection-style gestures and marked-text owners are excluded rather than adding
+a reader selection/input framework. Models cover commands, clamp/fallback and
+click/focus/source rejection. Native keyboard and actual IME remain unverified.

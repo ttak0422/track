@@ -53,6 +53,7 @@ impl Workspace {
         }
     }
     pub(crate) fn cancel_position_resume(&mut self) {
+        self.shell.reader_keys = None;
         self.shell.footnote_return = None;
         self.cancel_follow_reveal();
         self.shell.positions.interaction = self.shell.positions.interaction.wrapping_add(1);
@@ -396,6 +397,8 @@ pub struct ShellState {
     pub(crate) handoff: workspace_handoff::HandoffUi,
     positions: ReadingPositions,
     footnote_return: Option<std::rc::Rc<FootnoteReturn>>,
+    reader_keys: Option<ReaderKeyOwner>,
+    reader_scroll_epoch: u64,
     code_copy: code_copy::State,
     code_anchors: Option<std::rc::Rc<markdown::FindAnchors>>,
     code_focus: std::collections::BTreeMap<usize, gpui::FocusHandle>,
@@ -450,6 +453,8 @@ impl ShellState {
     /// entire handle so callbacks already queued can only move an abandoned reader.
     /// Preserve the offset in a fresh handle and rebind every host anchor namespace.
     fn detach_reader_scroll(&mut self, key: &tabs::TabKey) {
+        self.reader_keys = None;
+        self.reader_scroll_epoch = self.reader_scroll_epoch.wrapping_add(1);
         self.footnote_return = None;
         let replacement = gpui::ScrollHandle::new();
         if let Some(previous) = self.reader_scrolls.get(key) {
@@ -504,6 +509,8 @@ impl Default for ShellState {
             handoff: Default::default(),
             positions: Default::default(),
             footnote_return: None,
+            reader_keys: None,
+            reader_scroll_epoch: 0,
             code_copy: Default::default(),
             code_anchors: None,
             code_focus: Default::default(),
@@ -594,6 +601,180 @@ fn footnote_jump_allowed(
         && current == Some(source)
         && displayed == current_displayed
         && markdown::footnote_link_valid(current_displayed, link)
+}
+
+struct ReaderKeyOwner {
+    source: LinkSource,
+    tab: tabs::TabKey,
+    displayed: std::rc::Rc<Vec<markdown::Block>>,
+    geometry: FootnoteGeometry,
+    epoch: u64,
+}
+impl ReaderKeyOwner {
+    fn matches(
+        &self,
+        source: Option<&LinkSource>,
+        tab: Option<&tabs::TabKey>,
+        displayed: &[markdown::Block],
+        epoch: u64,
+        focused: bool,
+        available: bool,
+    ) -> bool {
+        available
+            && focused
+            && source == Some(&self.source)
+            && tab == Some(&self.tab)
+            && displayed == self.displayed.as_ref()
+            && epoch == self.epoch
+    }
+}
+fn plain_click_admitted(
+    left: bool,
+    down_count: usize,
+    up_count: usize,
+    stationary: bool,
+    unmodified: bool,
+) -> bool {
+    left && down_count == 1 && up_count == 1 && stationary && unmodified
+}
+fn plain_reader_click(event: &gpui::ClickEvent) -> bool {
+    let gpui::ClickEvent::Mouse(event) = event else {
+        return false;
+    };
+    let unmodified =
+        |m: gpui::Modifiers| !m.shift && !m.control && !m.alt && !m.platform && !m.function;
+    plain_click_admitted(
+        event.down.button == gpui::MouseButton::Left && event.up.button == gpui::MouseButton::Left,
+        event.down.click_count,
+        event.up.click_count,
+        event.down.position == event.up.position,
+        unmodified(event.down.modifiers) && unmodified(event.up.modifiers),
+    )
+}
+impl Workspace {
+    fn reader_key_available(&self, cx: &App) -> bool {
+        self.footnote_reader_available(cx)
+            && self.editing_ui.plain_reader_mode()
+            && !self.shell.find.is_composing(cx)
+            && !self.follow.controller.enabled()
+    }
+    fn reader_key_owner_current(&self, owner: &ReaderKeyOwner, window: &Window, cx: &App) -> bool {
+        owner.matches(
+            self.current_link_source().as_ref(),
+            self.tabs.active().map(|tab| &tab.key),
+            &self.displayed_content(),
+            self.shell.reader_scroll_epoch,
+            self.shell
+                .reader_focus
+                .as_ref()
+                .is_some_and(|focus| focus.is_focused(window)),
+            self.reader_key_available(cx),
+        ) && self
+            .current_note_request
+            .as_ref()
+            .is_some_and(|route| position_route_matches(&owner.source, route, &owner.tab))
+            && window.viewport_size() == owner.geometry.viewport
+            && window.scale_factor() == owner.geometry.scale
+    }
+    fn claim_reader_keys(
+        &mut self,
+        source: &LinkSource,
+        displayed: &std::rc::Rc<Vec<markdown::Block>>,
+        index: usize,
+        event: &gpui::ClickEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !plain_reader_click(event)
+            || !self.reader_key_available(cx)
+            || self.current_link_source().as_ref() != Some(source)
+            || self.displayed_content().as_ref() != displayed.as_ref()
+            || !displayed
+                .get(index)
+                .is_some_and(markdown::plain_reader_block)
+        {
+            return;
+        }
+        let Some(tab) = self.tabs.active().map(|tab| tab.key.clone()) else {
+            return;
+        };
+        if !self
+            .current_note_request
+            .as_ref()
+            .is_some_and(|route| position_route_matches(source, route, &tab))
+        {
+            return;
+        }
+        let Some(geometry) = self
+            .shell
+            .reader_scrolls
+            .get(&tab)
+            .and_then(|handle| FootnoteGeometry::capture(handle, window))
+        else {
+            return;
+        };
+        // Retire already-queued anchor callbacks before taking manual ownership.
+        // The replacement handle keeps the current offset and lays out next frame.
+        self.suspend_host_reader_actions();
+        if let Some(focus) = &self.shell.reader_focus {
+            window.focus(focus);
+        }
+        self.shell.reader_keys = Some(ReaderKeyOwner {
+            source: source.clone(),
+            tab,
+            displayed: displayed.clone(),
+            geometry,
+            epoch: self.shell.reader_scroll_epoch,
+        });
+        cx.notify();
+    }
+    fn reader_scroll_keyboard(
+        &mut self,
+        event: &gpui::KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let m = event.keystroke.modifiers;
+        let Some(direction) = reader_scroll::direction(
+            &event.keystroke.key,
+            m.shift,
+            m.control,
+            m.alt,
+            m.platform,
+            m.function,
+        ) else {
+            return false;
+        };
+        let Some(owner) = &self.shell.reader_keys else {
+            return false;
+        };
+        if !self.reader_key_owner_current(owner, window, cx) {
+            self.shell.reader_keys = None;
+            return false;
+        }
+        let Some(handle) = self.shell.reader_scrolls.get(&owner.tab) else {
+            return false;
+        };
+        if FootnoteGeometry::capture(handle, window).as_ref() != Some(&owner.geometry) {
+            self.shell.reader_keys = None;
+            return false;
+        }
+        let current = handle.offset();
+        let Some(y) = reader_scroll::offset(
+            f32::from(current.y),
+            f32::from(handle.max_offset().height),
+            Some(markdown::BODY_LINE_HEIGHT),
+            direction,
+        ) else {
+            return false;
+        };
+        // Root's manual-input path already cancels follow/position resumption.
+        // No deferred callback, history entry, request or input-handler dispatch.
+        handle.set_offset(point(current.x, px(y)));
+        window.refresh();
+        cx.notify();
+        true
+    }
 }
 
 /// One explicit local return, never a route-history entry or persisted position.
@@ -2316,6 +2497,17 @@ impl Workspace {
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_creation_journal(cx);
+        if self.shell.reader_keys.as_ref().is_some_and(|owner| {
+            !self.reader_key_owner_current(owner, window, cx)
+                || self
+                    .shell
+                    .reader_scrolls
+                    .get(&owner.tab)
+                    .and_then(|handle| FootnoteGeometry::capture(handle, window))
+                    .is_some_and(|geometry| geometry != owner.geometry)
+        }) {
+            self.shell.reader_keys = None;
+        }
         self.sync_journal_day(cx);
         if self
             .shell
@@ -2356,7 +2548,17 @@ impl Render for Workspace {
             local_fragments_ready && self.find_available() && self.read_error.is_none();
         let footnote_labels = markdown::footnote_targets(&external_displayed);
         let weak = cx.entity().downgrade();
+        let plain_source = link_source.clone();
+        let plain_displayed = external_displayed.clone();
+        let plain_weak = cx.entity().downgrade();
         let link_callbacks = markdown::LinkCallbacks {
+            plain_click: Some(std::rc::Rc::new(move |index, event, window, cx| {
+                if let Some(source) = &plain_source {
+                    let _ = plain_weak.update(cx, |this, cx| {
+                        this.claim_reader_keys(source, &plain_displayed, index, event, window, cx)
+                    });
+                }
+            })),
             resolved: std::rc::Rc::new(move |target| {
                 (external_ready
                     && matches!(target, markdown::LinkTarget::Footnote { label } if footnote_labels.contains_key(label)))
@@ -3497,10 +3699,20 @@ impl Render for Workspace {
                 gpui::MouseButton::Left,
                 cx.listener(|this, _, _, _| {
                     this.shell.tab_cycle.clear();
+                    this.shell.reader_keys = None;
                     this.cancel_follow_reveal();
                     this.shell.positions.interaction =
                         this.shell.positions.interaction.wrapping_add(1);
                 }),
+            )
+            .on_mouse_move(cx.listener(|this, event: &gpui::MouseMoveEvent, _, _| {
+                if event.pressed_button.is_some() {
+                    this.shell.reader_keys = None;
+                }
+            }))
+            .on_mouse_down(
+                gpui::MouseButton::Right,
+                cx.listener(|this, _, _, _| this.shell.reader_keys = None),
             )
             .on_scroll_wheel(cx.listener(|this, _, _, _| {
                 this.cancel_follow_reveal();
@@ -3529,7 +3741,12 @@ impl Render for Workspace {
                     cx.stop_propagation();
                     return;
                 }
+                if this.reader_scroll_keyboard(event, window, cx) {
+                    cx.stop_propagation();
+                    return;
+                }
                 if event.keystroke.key == "escape" {
+                    this.shell.reader_keys = None;
                     if this.shell.vault_menu {
                         this.shell.vault_menu = false;
                         cx.notify();
@@ -4899,5 +5116,91 @@ mod typed_property_link_tests {
             &changed,
             true
         ));
+    }
+}
+
+#[cfg(test)]
+mod reader_key_ownership_tests {
+    use super::*;
+    #[test]
+    fn plain_single_click_excludes_modified_multiclick_and_drag_selection_intent() {
+        assert!(plain_click_admitted(true, 1, 1, true, true));
+        for args in [
+            (false, 1, 1, true, true),
+            (true, 2, 2, true, true),
+            (true, 1, 2, true, true),
+            (true, 1, 1, false, true),
+            (true, 1, 1, true, false),
+        ] {
+            assert!(!plain_click_admitted(
+                args.0, args.1, args.2, args.3, args.4
+            ));
+        }
+    }
+    #[test]
+    fn reader_keys_require_explicit_focus_current_source_and_uncontested_owner() {
+        let source = LinkSource {
+            note: live::NoteKey {
+                vault: "work".into(),
+                note_id: 7,
+            },
+            etag: "v1".into(),
+            storage_generation: 2,
+            launch_generation: 3,
+            request: 4,
+        };
+        let tab = tabs::TabKey::Note {
+            vault: "work".into(),
+            note_id: 7,
+        };
+        let displayed = std::rc::Rc::new(markdown::parse("Plain paragraph"));
+        let owner = ReaderKeyOwner {
+            source: source.clone(),
+            tab: tab.clone(),
+            displayed: displayed.clone(),
+            epoch: 9,
+            geometry: FootnoteGeometry {
+                reader: gpui::Bounds::new(point(px(0.), px(0.)), gpui::size(px(800.), px(600.))),
+                extent: gpui::size(px(0.), px(4000.)),
+                viewport: gpui::size(px(1000.), px(800.)),
+                scale: 2.,
+            },
+        };
+        assert!(owner.matches(Some(&source), Some(&tab), &displayed, 9, true, true));
+        for field in 0..6 {
+            let mut stale = source.clone();
+            match field {
+                0 => stale.note.vault = "other".into(),
+                1 => stale.note.note_id += 1,
+                2 => stale.etag.push('x'),
+                3 => stale.storage_generation += 1,
+                4 => stale.launch_generation += 1,
+                _ => stale.request += 1,
+            }
+            assert!(!owner.matches(Some(&stale), Some(&tab), &displayed, 9, true, true));
+        }
+        assert!(!owner.matches(Some(&source), Some(&tab), &displayed, 9, false, true)); // Escape / other focus
+        assert!(!owner.matches(Some(&source), Some(&tab), &displayed, 9, true, false)); // composition/menu/other owner
+        assert!(!owner.matches(Some(&source), Some(&tab), &displayed, 10, true, true)); // detached handle
+        assert!(!owner.matches(
+            Some(&source),
+            Some(&tabs::TabKey::Home),
+            &displayed,
+            9,
+            true,
+            true
+        ));
+        assert!(!owner.matches(
+            Some(&source),
+            Some(&tab),
+            &markdown::parse("Changed display"),
+            9,
+            true,
+            true
+        ));
+        let mut shell = ShellState::default();
+        shell.reader_keys = Some(owner);
+        shell.detach_reader_scroll(&tab);
+        assert!(shell.reader_keys.is_none());
     }
 }

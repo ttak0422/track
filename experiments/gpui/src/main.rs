@@ -37,6 +37,7 @@ mod query_view;
 mod raster;
 mod reader_find;
 mod reader_relations;
+mod reader_scroll;
 mod search_input;
 mod session_store;
 mod shell;

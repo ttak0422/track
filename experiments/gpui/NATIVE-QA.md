@@ -1243,3 +1243,29 @@ error/Retry, foreign-vault, long-list, interrupted/IME and keyboard/accessibilit
 scenarios remain unverified. Rust tests: 669 passed, 7 ignored; formatting, native
 build and help-site generation/text inspection passed. Normal vault writes stay
 disabled.
+
+### Focused reader j/k candidate (native validation pending)
+
+- Models: lowercase/no-modifier admission, repeated three-line movement, both
+  edges, 72px fallback, invalid geometry, plain-block/click/focus/source rejection.
+- Pending native: click long plain prose, j/k and held repeat, top/bottom clamp,
+  Escape then no movement until a fresh eligible click; link/code/table/input
+  focus must retain keys. Check navigation/reload/resize and competing owners.
+- Actual IME and selection/input interruption remain unverified. This scoped
+  prose path adds no input handler, clipboard, persistence, fetch or vault write.
+
+Native macOS reader smoke on 2026-11-15 used a long, isolated read-only fixture.
+An initial extra paragraph wrapper narrowed the body incorrectly; attaching the
+click listener to the existing row fixed that layout before publication. In the
+corrected native build, clicking plain prose enabled j/k movement of about 89px
+per press. Repeated separate presses accumulated immediately, both boundaries
+clamped, Escape disabled movement, and a fresh plain click restored it. Shift+j
+was inert. Search received input through the active IME rather than moving the
+reader; literal ASCII input and complete IME composition were not established.
+A held-key tool call produced one visible step, so OS key-repeat behavior is not
+claimed. The native Quit menu exited; all 10 canonical fixture files retained
+their hashes and both owned ports closed. Rust tests: 675 passed, 7 ignored;
+formatting, build and help-site generation passed. Link/code/table exclusion,
+navigation/resize invalidation, selection, full keyboard/accessibility and
+interrupted owner flows still require native coverage. Normal vault writes
+remain disabled.

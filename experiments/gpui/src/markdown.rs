@@ -157,6 +157,7 @@ pub fn with_resolved_titles(
 /// Shell supplies verified internal or explicit HTTP(S) links. Others stay inert.
 #[derive(Clone)]
 pub struct LinkCallbacks {
+    pub plain_click: Option<Rc<dyn Fn(usize, &gpui::ClickEvent, &mut Window, &mut App)>>,
     pub resolved: Rc<dyn Fn(&LinkTarget) -> bool>,
     pub activate: Rc<dyn Fn(&Link, &mut Window, &mut App)>,
 }
@@ -1629,6 +1630,22 @@ pub fn render_with_positions(
     }
 }
 
+pub const BODY_LINE_HEIGHT: f32 = 29.6;
+pub fn plain_reader_block(block: &Block) -> bool {
+    block.kind == BlockKind::Paragraph
+        && block.links.is_empty()
+        && block.table.is_none()
+        && block.image.is_none()
+        && block.language.is_none()
+        && block.marker.is_none()
+        && !block.quoted
+        && block.indent == 0
+        && !block
+            .spans
+            .iter()
+            .any(|span| span.style.code || span.style.link)
+}
+
 fn render_reader(
     blocks: &[Block],
     dark: bool,
@@ -1645,7 +1662,7 @@ fn render_reader(
         .flex()
         .flex_col()
         .text_size(px(16.))
-        .line_height(px(29.6))
+        .line_height(px(BODY_LINE_HEIGHT))
         .font_family(".SystemUIFont")
         .text_color(rgb(theme.ink))
         .children(render_elements(
@@ -1686,7 +1703,7 @@ fn render_elements(
                 .w_full()
                 .min_w_0()
                 .text_size(px(16.))
-                .line_height(px(29.6))
+                .line_height(px(BODY_LINE_HEIGHT))
                 .font_family(".SystemUIFont")
                 .text_color(rgb(theme.ink))
                 .pl(px((block.indent * 16) as f32));
@@ -1915,6 +1932,14 @@ fn render_elements(
                 }) {
                     row.id(SharedString::from(format!("markdown-footnote-{index}")))
                         .anchor_scroll(Some(anchor.clone()))
+                        .into_any_element()
+                } else if let Some(activate) = callbacks
+                    .filter(|_| plain_reader_block(block))
+                    .and_then(|callbacks| callbacks.plain_click.as_ref())
+                {
+                    let activate = activate.clone();
+                    row.id(SharedString::from(format!("plain-reader-{index}")))
+                        .on_click(move |event, window, cx| activate(index, event, window, cx))
                         .into_any_element()
                 } else {
                     row.into_any_element()
@@ -3024,6 +3049,7 @@ mod tests {
         assert!(pending.iter().filter(|span| span.style.unresolved).count() >= 2);
         assert!(pending.iter().all(|span| !span.style.link));
         let callbacks = LinkCallbacks {
+            plain_click: None,
             resolved: Rc::new(|_| true),
             activate: Rc::new(|_, _, _| {}),
         };
@@ -3726,6 +3752,7 @@ mod footnote_navigation_tests {
         let cell = &parsed[0].table.as_ref().unwrap().rows[1][0];
         assert!(footnote_link_valid(&parsed, &cell.links[0]));
         let callbacks = LinkCallbacks {
+            plain_click: None,
             resolved: Rc::new(|t| matches!(t, LinkTarget::Footnote { .. })),
             activate: Rc::new(|_, _, _| {}),
         };
@@ -4141,5 +4168,28 @@ mod include_preview_tests {
             &"paragraph\n\n".repeat(4096),
         );
         assert!(included_preview(&response).is_err());
+    }
+}
+
+#[cfg(test)]
+mod plain_reader_ownership_tests {
+    use super::*;
+    #[test]
+    fn only_noninteractive_prose_blocks_can_acquire_reader_keys() {
+        assert!(plain_reader_block(&parse("A plain 日本語 paragraph.")[0]));
+        for text in [
+            "# Heading",
+            "[link](Other)",
+            "[[Missing]]",
+            "`code`",
+            "```rs\nlet x=1;\n```",
+            "![image](assets/x.png)",
+            "> quoted",
+            "- item",
+            "| x |\n|---|\n| y |",
+            "Ref[^x]\n\n[^x]: body",
+        ] {
+            assert!(!plain_reader_block(&parse(text)[0]), "{text}");
+        }
     }
 }
