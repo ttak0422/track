@@ -375,6 +375,7 @@ impl Workspace {
 
     pub fn search_live(&mut self, query: String, cx: &mut Context<Self>) {
         // Old-query rows must not remain selectable during the debounce/request.
+        self.shell.search_refinement = None;
         self.search_results.clear();
         self.search.update(cx, |search, _| search.reset_result());
         cx.notify();
@@ -390,6 +391,7 @@ impl Workspace {
         let Some(session) = self.live.clone() else {
             return;
         };
+        let refinement = self.search_refinement_stamp(&query);
         let current = self.query_epoch.clone();
         self.status = "Searching all served vaults…".into();
         let expected_epoch = self.accepted_storage_generation;
@@ -432,6 +434,7 @@ impl Workspace {
                         this.partial_read = partial(&response.diagnostics);
                         this.search.update(cx, |search, _| search.reset_result());
                         this.search_results = response.results;
+                        this.shell.search_refinement = refinement;
                         this.list_status = format!(
                             "Workspace-wide search{}",
                             diagnostics(&response.diagnostics)

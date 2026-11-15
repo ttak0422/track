@@ -1019,3 +1019,7 @@ Native Reload validation: 730 Rust tests passed (7 ignored), formatting/native b
 
 ### Single-paragraph selection candidate
 Drag within one unstyled plain paragraph, including its soft-wrapped lines, then use **Copy selection** beside the title. Forward and backward ranges use Unicode grapheme boundaries; copied text has no invented wrap newlines. Clipboard submission is explicit and capped at 256 KiB. Escape/outside click clears; leaving the paragraph during a drag, navigation, reflow or another owner cancels. Styled/link-containing paragraphs, headings, lists, tables, code, media and previews are excluded. Cross-block selection, keyboard extension, rich copy and accessibility selection remain outside this subset. An isolated native smoke verified Japanese partial selection, reverse soft-wrapped highlighting, explicit copy/paste into fixture search, Escape, outside-drag cancellation and ordinary link navigation. Broader native acceptance remains pending.
+
+Live search-result `#tag` buttons refine the current query without opening a note or switching vaults. Exact duplicate terms are no-ops; appended queries normalize whitespace. Invalid tags (empty, whitespace/control-containing, over 4096 bytes) and queries over 64 KiB are refused without truncation. Snapshot tags remain inert because local substring filtering is not engine tag search. Native refinement validation is pending.
+
+Result tags containing `%` or `_`, or ending in `/`, remain inert because the engine does not preserve literal tag matching for those forms.

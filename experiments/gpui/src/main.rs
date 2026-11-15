@@ -43,6 +43,7 @@ mod reader_relations;
 mod reader_scroll;
 mod reader_selection;
 mod search_input;
+mod search_refinement;
 mod session_store;
 mod shell;
 mod tabs;

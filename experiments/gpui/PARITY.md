@@ -13,7 +13,7 @@ of support. Use disposable fixture vaults, never a configured personal vault, fo
 | --- | :---: | :---: | --- |
 | Synthetic/JSON snapshot list and metadata selection | [x] | [ ] | `experiments/gpui/src/main.rs` |
 | Explicit read-only vault list and portable Markdown | [x] | [ ] | `src/backend.rs`; native QA with public help fixture |
-| Owned HTTP read-only notes and federated search | [x] | [ ] | `live.rs`, `workspace_live.rs`; public-help search/source/quit smoke |
+| Owned HTTP read-only notes and federated search | [x] | [ ] | `live.rs`, `workspace_live.rs`; public-help search/source/quit smoke. Live result-tag refinement candidate reuses input/debounce; snapshots inert, native validation pending |
 | Session-only working-vault scope selection | [x] | [ ] | `shell.rs`; existing tabs/Home/federated search remain unchanged |
 | Persistent vault scope and workspace preferences | [ ] | [ ] | Fixture-only working scope implemented; ordinary persistence and other preferences remain open |
 | Note body, tags, flags, hierarchy and backlinks | [ ] | [ ] | Accepted-source tags and typed read-only DEPRECATED/CONFIDENTIAL badges implemented; unknown flags remain literal neutral labels. Full visual/hierarchy parity and native narrow-label QA remain open. |

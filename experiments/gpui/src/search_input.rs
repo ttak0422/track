@@ -283,6 +283,18 @@ fn result_step(selected: Option<usize>, len: usize, forward: bool) -> Option<usi
     })
 }
 
+fn refined_tag_text(
+    purpose: InputPurpose,
+    composing: bool,
+    current: &str,
+    expected: &str,
+    tag: &str,
+) -> Option<String> {
+    if purpose != InputPurpose::WorkspaceSearch || composing || current != expected {
+        return None;
+    }
+    crate::search_refinement::append(current, tag)
+}
 impl SearchInput {
     pub fn is_composing(&self) -> bool {
         self.marked.is_some()
@@ -300,6 +312,21 @@ impl SearchInput {
 
     pub fn query(&self) -> &str {
         &self.text
+    }
+    /// Explicit result-tag refinement uses the same committed input event path.
+    /// It does not focus, commit preedit, or create a second search pipeline.
+    pub fn refine_tag(&mut self, expected_query: &str, tag: &str, cx: &mut Context<Self>) -> bool {
+        let Some(next) = refined_tag_text(
+            self.purpose,
+            self.is_composing(),
+            &self.text,
+            expected_query,
+            tag,
+        ) else {
+            return false;
+        };
+        self.replace(Some(0..self.text.len()), &next, false, None, cx);
+        true
     }
     pub fn clear(&mut self, cx: &mut Context<Self>) {
         self.selected_result = None;
@@ -910,5 +937,33 @@ mod native_find_binding_tests {
             assert_eq!(matches.len(), 1);
             assert!(matches[0].action().partial_eq(action.as_ref()));
         }
+    }
+}
+
+#[cfg(test)]
+mod tag_refinement_tests {
+    use super::*;
+    #[test]
+    fn only_matching_committed_workspace_query_can_emit_replacement() {
+        assert_eq!(
+            refined_tag_text(InputPurpose::WorkspaceSearch, false, "text", "text", "a"),
+            Some("text #a".into())
+        );
+        assert_eq!(
+            refined_tag_text(InputPurpose::WorkspaceSearch, true, "text", "text", "a"),
+            None
+        );
+        assert_eq!(
+            refined_tag_text(InputPurpose::WorkspaceSearch, false, "new", "text", "a"),
+            None
+        );
+        assert_eq!(
+            refined_tag_text(InputPurpose::ReaderFind, false, "text", "text", "a"),
+            None
+        );
+        assert_eq!(
+            refined_tag_text(InputPurpose::WorkspaceSearch, false, " #a ", " #a ", "a"),
+            None
+        );
     }
 }

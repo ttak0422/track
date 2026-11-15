@@ -513,6 +513,7 @@ pub struct ShellState {
     code_anchors: Option<std::rc::Rc<markdown::FindAnchors>>,
     code_focus: std::collections::BTreeMap<usize, gpui::FocusHandle>,
     pub(crate) find: workspace_find::FindState,
+    pub(crate) search_refinement: Option<search_refinement::Stamp>,
     relation_pages: reader_relations::Pages,
     pub(crate) includes: Option<workspace_includes::IncludesState>,
     pub(crate) note_tasks: Option<workspace_note_tasks::NoteTasksState>,
@@ -635,6 +636,7 @@ impl Default for ShellState {
             code_anchors: None,
             code_focus: Default::default(),
             find: Default::default(),
+            search_refinement: None,
             hierarchy: None,
             reader_hierarchy: None,
             note_tasks: None,
@@ -3556,6 +3558,71 @@ impl Workspace {
     }
 }
 impl Workspace {
+    pub(crate) fn search_refinement_stamp(&self, query: &str) -> Option<search_refinement::Stamp> {
+        let session = self.live.as_ref()?;
+        if session.failure().is_some() {
+            return None;
+        }
+        let storage = session.initial_storage.as_ref()?;
+        if storage.phase != "ready" || Some(storage.generation) != self.accepted_storage_generation
+        {
+            return None;
+        }
+        Some(search_refinement::Stamp {
+            query: query.into(),
+            epoch: self.query_epoch.load(std::sync::atomic::Ordering::SeqCst),
+            request: self.request,
+            launch: session.client().launch_generation,
+            storage: storage.generation,
+            scope_revision: self.shell.scope_revision,
+        })
+    }
+    fn refine_search_tag(
+        &mut self,
+        stamp: &search_refinement::Stamp,
+        key: &live::NoteKey,
+        tag: &str,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let input = self.search.read(cx);
+        let current = self.search_refinement_stamp(input.query());
+        let allowed = window.is_window_active()
+            && cx.active_window().and_then(shortcut_workspace).is_some()
+            && (window.focused(cx).is_none()
+                || self.search.focus_handle(cx).is_focused(window)
+                || self
+                    .shell
+                    .workspace_focus
+                    .as_ref()
+                    .is_some_and(|focus| focus.is_focused(window)))
+            && self.shell.search_open
+            && !self.tag_search_result_blocked(cx)
+            && !self.reader_selection_dragging()
+            && !self.shell.find.open
+            && !self.shell.find.is_composing(cx)
+            && !self.creation_open()
+            && self.editing_ui.follow_safe()
+            && (!self.session_ui.recovery_enabled()
+                || (self.session_ui.recovery_ready()
+                    && self.session_ui.recovery_record().is_none()
+                    && self.session_ui.recovery_status()
+                        == workspace_session::RecoveryStatus::Ready(
+                            draft_recovery::LocalStatus::Empty,
+                        )));
+        if !search_refinement::admits(stamp, current.as_ref(), input.is_composing(), allowed)
+            || self.shell.search_refinement.as_ref() != Some(stamp)
+            || !self
+                .search_results
+                .iter()
+                .any(|row| row.key() == *key && row.tags.iter().any(|value| value == tag))
+        {
+            return;
+        }
+        self.search.update(cx, |input, cx| {
+            input.refine_tag(&stamp.query, tag, cx);
+        });
+    }
     fn search_result_indices(&self, cx: &App) -> Vec<usize> {
         let query = self.search.read(cx).query().to_lowercase();
         if query.trim().is_empty() {
@@ -4874,11 +4941,26 @@ impl Render for Workspace {
                                 let i = *result_indices.get(row)?;
                                 let (title, tags) = if this.live.is_some() {
                                     let note = this.search_results.get(i)?;
-                                    (note.title.clone(), note.tags.join(" · "))
+                                    (note.title.clone(), note.tags.clone())
                                 } else {
                                     let note = this.snapshot.notes.get(i)?;
-                                    (note.title.clone(), note.tags.join(" · "))
+                                    (note.title.clone(), note.tags.clone())
                                 };
+                                let refinement = this
+                                    .shell
+                                    .search_refinement
+                                    .clone()
+                                    .filter(|stamp| {
+                                        this.search_refinement_stamp(this.search.read(cx).query())
+                                            .as_ref()
+                                            == Some(stamp)
+                                    })
+                                    .map(std::rc::Rc::new);
+                                let key = this
+                                    .search_results
+                                    .get(i)
+                                    .filter(|_| this.live.is_some())
+                                    .map(|row| row.key());
                                 Some(
                                     div()
                                         .id(i)
@@ -4894,27 +4976,71 @@ impl Render for Workspace {
                                             this.search.read(cx).selected_result() == Some(row),
                                             |row| row.bg(rgb(p.line)),
                                         )
-                                        .child(div().text_size(px(13.)).child(title))
+                                        .child(
+                                            div()
+                                                .id(("search-result-title", i))
+                                                .text_size(px(13.))
+                                                .cursor_pointer()
+                                                .child(title)
+                                                .on_click(cx.listener(move |this, _, _, cx| {
+                                                    if this
+                                                        .query_epoch
+                                                        .load(std::sync::atomic::Ordering::SeqCst)
+                                                        != query_generation
+                                                    {
+                                                        return;
+                                                    }
+                                                    if this.live.is_some() {
+                                                        this.select_search_result(i, cx);
+                                                    } else {
+                                                        this.select_from_ui(i, cx);
+                                                    }
+                                                })),
+                                        )
                                         .child(
                                             div()
                                                 .text_size(px(10.))
                                                 .text_color(rgb(p.muted))
-                                                .child(tags),
-                                        )
-                                        .on_click(cx.listener(move |this, _, _, cx| {
-                                            if this
-                                                .query_epoch
-                                                .load(std::sync::atomic::Ordering::SeqCst)
-                                                != query_generation
-                                            {
-                                                return;
-                                            }
-                                            if this.live.is_some() {
-                                                this.select_search_result(i, cx);
-                                            } else {
-                                                this.select_from_ui(i, cx);
-                                            }
-                                        })),
+                                                .flex()
+                                                .gap_2()
+                                                .overflow_hidden()
+                                                .children(tags.into_iter().enumerate().map(
+                                                    |(tag_index, tag)| {
+                                                        let ticket = refinement.clone();
+                                                        let key = key.clone();
+                                                        let enabled = ticket.is_some()
+                                                            && key.is_some()
+                                                            && search_refinement::valid_tag(&tag);
+                                                        div()
+                                                            .id(gpui::SharedString::from(format!(
+                                                                "search-result-tag-{i}-{tag_index}"
+                                                            )))
+                                                            .child(format!("#{tag}"))
+                                                            .when(enabled, |tag_view| {
+                                                                tag_view.cursor_pointer()
+                                                            })
+                                                            .on_mouse_down(
+                                                                gpui::MouseButton::Left,
+                                                                |_, _, cx| cx.stop_propagation(),
+                                                            )
+                                                            .on_click(cx.listener(
+                                                                move |this, _, window, cx| {
+                                                                    if let (
+                                                                        Some(ticket),
+                                                                        Some(key),
+                                                                    ) = (&ticket, &key)
+                                                                    {
+                                                                        this.refine_search_tag(
+                                                                            ticket, key, &tag,
+                                                                            window, cx,
+                                                                        );
+                                                                    }
+                                                                    cx.stop_propagation();
+                                                                },
+                                                            ))
+                                                    },
+                                                )),
+                                        ),
                                 )
                             })
                             .collect()
