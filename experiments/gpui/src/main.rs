@@ -73,6 +73,7 @@ mod workspace_includes;
 mod workspace_journal_day;
 mod workspace_live;
 mod workspace_note_tasks;
+mod workspace_open_tasks;
 mod workspace_preview;
 mod workspace_recent;
 mod workspace_session;

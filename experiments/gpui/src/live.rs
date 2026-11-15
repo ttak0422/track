@@ -1415,12 +1415,34 @@ impl ReadClient {
     /// Vault-wide dated tasks in every state. No id/open filter, task mutation,
     /// journal creation, recurrence expansion, or fallback vault request.
     pub fn dated_tasks(&self, vault: &str) -> Result<DatedTasksResponse, Error> {
+        self.task_listing(vault, None)
+    }
+    /// Explicit engine-prioritized open dated tasks; preserve received order/rows.
+    pub fn open_tasks(&self, vault: &str, launch_vault: &str) -> Result<DatedTasksResponse, Error> {
+        self.task_listing(vault, Some(launch_vault))
+    }
+    fn task_listing(
+        &self,
+        vault: &str,
+        open_launch: Option<&str>,
+    ) -> Result<DatedTasksResponse, Error> {
         if vault.len() > 1024 || vault.contains('\0') {
             return Err(Error::Config(
                 "dated tasks require a bounded vault name".into(),
             ));
         }
-        let mut result: DatedTasksResponse = self.get("/api/tasks", &vault_query(vault))?;
+        let mut query = vault_query(vault);
+        if open_launch.is_some() {
+            query.push(("open", "1".into()));
+        }
+        let mut result: DatedTasksResponse = self.get("/api/tasks", &query)?;
+        if open_launch
+            .is_some_and(|launch| !calendar_range_vault_matches(vault, &result.vault, launch))
+        {
+            return Err(Error::Shape(
+                "open tasks returned an unverified vault".into(),
+            ));
+        }
         if result.vault.len() > 1024
             || result.vault.contains('\0')
             || (!vault.is_empty() && !result.vault.is_empty() && result.vault != vault)
@@ -1444,7 +1466,8 @@ impl ReadClient {
                 || task.line == 0
                 || task.line > i64::MAX as u64
                 || task.done != terminal
-                || !identities.insert((task.note_id, task.line))
+                || (open_launch.is_none() && !identities.insert((task.note_id, task.line)))
+                || (open_launch.is_some() && terminal)
                 || task.file_kind.is_empty()
                 || task.file_kind.len() > 128
                 || task.title.len() > 64 * 1024
@@ -5875,6 +5898,62 @@ mod tests {
             "scheduled":"2026-11-13","due":"2026-11-14","text":"do the thing"})
     }
 
+    #[test]
+    fn open_tasks_use_engine_filter_order_duplicates_and_qualified_scope() {
+        let a = dated_task_fixture();
+        let mut b = a.clone();
+        b["note_id"] = serde_json::json!(9);
+        let (client, worker) = mock(
+            200,
+            serde_json::json!({
+                "vault":"work","tasks":[a.clone(),b.clone(),a.clone()],
+                "read_state":{"partial":true,"cache_used":true}
+            })
+            .to_string(),
+        );
+        let result = client.open_tasks("work", "main").unwrap();
+        assert_eq!(
+            result.tasks.iter().map(|r| r.note_id).collect::<Vec<_>>(),
+            vec![42, 9, 42]
+        );
+        assert_eq!(result.source_vault, "work");
+        assert_eq!(result.diagnostics["read_state"]["partial"], true);
+        let request = worker.join().unwrap();
+        assert!(request.starts_with("GET /api/tasks?"));
+        assert!(request.contains("open=1"));
+        assert!(request.contains("vault=work"));
+        for (requested, wire, valid) in [
+            ("", "", true),
+            ("main", "", true),
+            ("work", "work", true),
+            ("work", "", false),
+            ("", "work", false),
+        ] {
+            let (client, worker) = mock(
+                200,
+                serde_json::json!({"vault":wire,"tasks":[]}).to_string(),
+            );
+            assert_eq!(client.open_tasks(requested, "main").is_ok(), valid);
+            worker.join().unwrap();
+        }
+        let (client, worker) = mock(
+            200,
+            serde_json::json!({"vault":"work","tasks":[a.clone(),a]}).to_string(),
+        );
+        assert!(client.dated_tasks("work").is_err());
+        assert!(!worker.join().unwrap().contains("open="));
+        let mut terminal = dated_task_fixture();
+        terminal["state"] = serde_json::json!("DONE");
+        terminal["done"] = serde_json::json!(true);
+        for tasks in [vec![terminal], vec![b; 4097]] {
+            let (client, worker) = mock(
+                200,
+                serde_json::json!({"vault":"work","tasks":tasks}).to_string(),
+            );
+            assert!(client.open_tasks("work", "main").is_err());
+            worker.join().unwrap();
+        }
+    }
     #[test]
     fn dated_tasks_listing_is_read_only_scoped_and_preserves_all_states() {
         let tasks: Vec<_> = ["TODO", "DOING", "WAITING", "DONE", "CANCELLED"]

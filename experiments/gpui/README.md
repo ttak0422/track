@@ -1156,3 +1156,20 @@ Missing/invalid paths and styled or stale selections disable the action.
 This is exact selected-source-line copying, not whole-block reference parity.
 Cloud model tests do not establish native clipboard/pointer validation; see the
 [experimental native workspace guide](../../docs/help/note/1785024017000.md).
+
+#### Explicit Open tasks (read-only)
+
+Home's **Open tasks** disclosure uses one explicit scoped `GET /api/tasks?open=1`
+and preserves engine ordering/eligibility and duplicate rows. An empty scope
+means launch vault. Native acceptance is limited to 16 MiB / 4096 rows, with local
+100-row paging, shared agenda concurrency and a separate single-inflight permit.
+No per-row fetch or paging-request loop is introduced. Source-note opening uses
+the existing guarded vault-qualified route. Scope, storage, launch, request,
+reload and page revisions protect asynchronous completion and row callbacks.
+
+Loading, complete-empty, partial/cached and failure states stay distinct; Retry is
+explicit. Unknown task states and malformed/oversize responses fail closed.
+The existing server still materializes all matching indexed tasks and may refresh
+derived index/cache; client bounds do not imply bounded server work. No task/note
+mutation API or ordinary-vault write feature is added. Native GUI remains
+unverified; cloud model/adapter tests cover only the stated contracts.
