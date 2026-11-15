@@ -535,3 +535,17 @@ Native Reload validation: 730 Rust tests passed (7 ignored), formatting/native b
 
 ### Plain-paragraph selection candidate
 One accepted live unstyled paragraph supports paint-only forward/backward range selection and explicit plain-text Copy selection. Grapheme-safe endpoints preserve authored displayed linebreaks, not soft wraps. Source/tab/request/revision/launch/storage, displayed-content identity, reader bounds/offset, scale, viewport and working scope are revalidated before copy. Drag cancels competing automatic positioning without replacing ScrollHandle; no global Cmd-C, input handler, auto-copy, request, persistence or vault write. Copy reports submission only with token-qualified feedback. Other owners, unsupported blocks and geometry changes cancel rather than guess. Cross-block/rich/keyboard/accessibility parity and actual IME remain unverified; model checks do not prove native hit testing.
+
+### Current-run recent notes
+
+The explicit Recent rail popup lists up to 100 successfully opened live notes,
+newest first, deduplicated by validated vault and note ID. Closing a tab retains
+its recent entry. A named working scope shows that vault and the launch vault;
+the launch/default scope shows all recent entries. Accepted title updates do not
+change recency. Failed, stale, preview, and editor-follow reads do not add visits.
+
+This native slice has no recent-history disk I/O or restart continuity, even with
+fixture session persistence enabled. Hover/focus-to-open behavior is not yet
+implemented. The popup does not fetch titles or preview notes; it uses the normal
+guarded note route when a row is activated. Close, Escape, and outside clicks do
+not change the reader scroll handle or offset.

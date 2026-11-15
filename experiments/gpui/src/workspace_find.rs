@@ -74,7 +74,8 @@ fn scroll_is_current(
 }
 impl Workspace {
     pub(crate) fn find_available(&self) -> bool {
-        !self.enlarged_image_open()
+        !self.recent_open()
+            && !self.enlarged_image_open()
             && !self.reader_hierarchy_open()
             && !self.handoff_active()
             && !self.includes_preview_active()

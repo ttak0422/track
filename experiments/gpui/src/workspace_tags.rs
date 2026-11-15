@@ -113,7 +113,8 @@ impl Workspace {
         own_reader_preview: bool,
         cx: &App,
     ) -> bool {
-        self.enlarged_image_open()
+        self.recent_open()
+            || self.enlarged_image_open()
             || self.reader_hierarchy_open()
             || self.search.read(cx).is_composing()
             || self.shell.calendar_zone.is_composing(cx)

@@ -42,6 +42,7 @@ mod reader_find;
 mod reader_relations;
 mod reader_scroll;
 mod reader_selection;
+mod recent_notes;
 mod search_input;
 mod search_refinement;
 mod session_store;
@@ -61,6 +62,7 @@ mod workspace_journal_day;
 mod workspace_live;
 mod workspace_note_tasks;
 mod workspace_preview;
+mod workspace_recent;
 mod workspace_session;
 mod workspace_tags;
 use backend::{Backend, Note, Snapshot};
@@ -280,7 +282,7 @@ impl Workspace {
                         }
                         this.selected = None;
                         this.content.clear();
-                        if !this.restore_reload_route(reload_route.clone(), cx) && !this.snapshot.notes.is_empty() {
+                        if !this.restore_reload_route(reload_route.clone(), false, cx) && !this.snapshot.notes.is_empty() {
                             this.select(0, cx);
                         }
                     }
@@ -309,7 +311,12 @@ impl Workspace {
         self.shell.home = false;
         self.shell.search_open = false;
         self.search.update(cx, |search, cx| search.clear(cx));
+        let previous = self.request;
+        let recent_key = self.live_notes.get(index).map(|note| note.key());
         self.select(index, cx);
+        if let Some(key) = recent_key {
+            self.recent_note_requested(previous, key);
+        }
     }
     fn select(&mut self, index: usize, cx: &mut Context<Self>) {
         let Some(note) = self.snapshot.notes.get(index) else {

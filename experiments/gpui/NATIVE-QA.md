@@ -1494,3 +1494,26 @@ Formatting, debug build and 753 tests passed (7 ignored). All runs preserved
 all 10 canonical files and closed both owned ports after Quit. Resize/scroll races,
 foreign-vault origins, rich content, native Copy MD roundtrip and actual IME
 remain separate acceptance checks; this is not full automatic transclusion.
+
+### Recent notes candidate
+
+Native validation pending: open disposable A/B/A, close A's tab and reopen it from
+Recent; verify newest-first ordering and ordinary Back/Forward independently.
+Check empty and scrollable lists, vault-qualified same-ID entries, named scope
+filtering, unavailable targets, and rapid route/registry/scope changes. Near the
+bottom of a note, Escape and outside dismissal must preserve the visible passage.
+Background navigation, Find, editor/creation uncertainty, and composition ownership
+must not be bypassed. Verify canonical hashes unchanged and no recent-history disk
+I/O. Restart continuity and native IME interaction remain separate unverified gates.
+
+A three-note disposable fixture verified Alpha/Beta/Alpha produces Alpha then
+Beta without duplicates; closing Alpha retains its row and clicking it reopens
+the correct note. Escape closes the popup. Opening it over a scrolled Alpha,
+scrolling the backdrop, and outside dismissal leave the visible passage in place.
+Cmd-W while the popup owns focus did not close a tab; Cmd-Q still exited through
+the ordinary shutdown path. All 12 canonical files remained unchanged and both
+owned ports closed. macOS formatting, debug build and 761 tests passed (7 ignored).
+The initial Home-only empty state, long-list scrolling, foreign scopes, injected
+stale responses, restart and actual IME remain unverified natively. Review found
+and fixed non-user Reload/startup visits and missing modal input containment
+before this smoke; those background admission branches have model coverage.

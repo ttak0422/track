@@ -350,7 +350,7 @@ impl Workspace {
                         this.selected = None;
                         this.content.clear();
                         this.status.clear();
-                        if this.restore_reload_route(reload_route.clone(), cx) {
+                        if this.restore_reload_route(reload_route.clone(), false, cx) {
                             // Refresh the accepted route, not a new first/Home-note visit.
                         } else if this.session_ui.safe_home {
                             this.shell.home = true;
@@ -568,7 +568,9 @@ impl Workspace {
             return;
         };
         if let Some(index) = self.live_notes.iter().position(|n| n.key() == key) {
+            let previous = self.request;
             self.select(index, cx);
+            self.recent_note_requested(previous, key);
             return;
         }
         // Accept before I/O; completion fills this route without adding a visit.
@@ -582,7 +584,9 @@ impl Workspace {
         self.current_related.clear();
         self.show_graph = false;
         self.read_error = None;
+        let previous = self.request;
         self.request += 1;
+        self.recent_note_requested(previous, key.clone());
         self.graph_request += 1;
         cx.notify(); // Publish the accepted destination before its asynchronous read.
         let request = self.request;
@@ -650,8 +654,13 @@ impl Workspace {
                             file_kind: note.file_kind.clone(),
                         });
                         this.live_notes.push(note);
+                        let recent = this.recent_request_pending(request, &destination);
+                        let previous = this.request;
                         this.follow.routing = this.following_read(request);
                         this.select(this.live_notes.len() - 1, cx);
+                        if recent {
+                            this.recent_note_requested(previous, fragment_destination.clone());
+                        }
                         this.follow.routing = false;
                         this.transfer_follow_read(request);
                         this.advance_fragment_request(request, this.request, &fragment_destination);
@@ -754,6 +763,13 @@ impl Workspace {
                         this.content = markdown::parse_reader(&response.note.body);
                         this.partial_read =
                             response.note.read_only || partial(&response.related_and_diagnostics);
+                        if !this.following_read(request) && !this.shell.home {
+                            this.recent_accept_note(
+                                request,
+                                &accepted_request,
+                                &response.note.note,
+                            );
+                        }
                         this.current_note = Some(response.note.clone());
                         this.shell.accepted_title_request = Some(request);
                         this.current_note_request = Some(accepted_request.clone());

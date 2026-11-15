@@ -340,6 +340,9 @@ fn fixture_note(root: &Path, path: &Path) -> bool {
 impl Workspace {
     /// true means caller must stop before changing any navigation state.
     pub(crate) fn guard_transition(&mut self, intent: Transition, cx: &mut Context<Self>) -> bool {
+        if self.recent_open() && !matches!(intent, Transition::Quit) {
+            return true;
+        }
         if self.reader_selection_dragging() {
             if matches!(intent, Transition::Quit) {
                 self.clear_reader_selection();

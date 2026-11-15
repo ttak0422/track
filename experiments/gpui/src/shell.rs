@@ -515,6 +515,7 @@ pub struct ShellState {
     pub(crate) find: workspace_find::FindState,
     pub(crate) search_refinement: Option<search_refinement::Stamp>,
     relation_pages: reader_relations::Pages,
+    pub(crate) recent: workspace_recent::State,
     pub(crate) includes: Option<workspace_includes::IncludesState>,
     pub(crate) note_tasks: Option<workspace_note_tasks::NoteTasksState>,
     pub(crate) hierarchy: Option<workspace_hierarchy::HierarchyState>,
@@ -640,6 +641,7 @@ impl Default for ShellState {
             hierarchy: None,
             reader_hierarchy: None,
             note_tasks: None,
+            recent: Default::default(),
             includes: None,
             relation_pages: Default::default(),
             activity: None,
@@ -3102,6 +3104,7 @@ impl Workspace {
     pub(crate) fn restore_reload_route(
         &mut self,
         route: Option<tabs::TabKey>,
+        record_visit: bool,
         cx: &mut Context<Self>,
     ) -> bool {
         let Some(route) = route else {
@@ -3114,7 +3117,11 @@ impl Workspace {
             tabs::TabKey::Note { vault, note_id } => {
                 self.shell.home = false;
                 if self.live.is_some() {
+                    let previous = self.request;
                     self.open_live_key(live::NoteKey { vault, note_id }, cx);
+                    if !record_visit && self.request != previous {
+                        self.forget_recent_request(self.request);
+                    }
                 } else if let Some(i) = self
                     .snapshot
                     .notes
@@ -3304,7 +3311,7 @@ impl Workspace {
                     return;
                 }
                 let route = self.history.current().cloned();
-                self.restore_reload_route(route, cx);
+                self.restore_reload_route(route, true, cx);
                 cx.notify();
             }
             return;
@@ -3426,6 +3433,9 @@ impl Workspace {
         cx.notify();
     }
     pub(crate) fn workspace_shortcut(&mut self, save: bool, cx: &mut Context<Self>) {
+        if self.recent_open() {
+            return;
+        }
         if self.enlarged_image_open() || self.reader_hierarchy_open() {
             return;
         }
@@ -3755,6 +3765,7 @@ impl Render for Workspace {
         if self.handoff_active() {
             return self.render_handoff(dark, (p.paper, p.ink, p.line), cx);
         }
+        self.invalidate_recent_panel(window);
         self.reset_stale_includes();
         if self.includes_preview_active() {
             return self.rendered_includes_preview(dark, (p.paper, p.ink, p.line), window, cx);
@@ -4363,6 +4374,15 @@ impl Render for Workspace {
                             )
                         })
                 }),
+            )
+            .child(
+                div()
+                    .id("recent-toggle")
+                    .py_2()
+                    .text_size(px(10.))
+                    .cursor_pointer()
+                    .child("Recent")
+                    .on_click(cx.listener(|this, _, window, cx| this.toggle_recent(window, cx))),
             )
             .when(
                 !home && !full_graph_active && self.tag_page.is_none(),
@@ -5224,6 +5244,13 @@ impl Render for Workspace {
                     cx.stop_propagation();
                     return;
                 }
+                if this.recent_open() {
+                    if event.keystroke.key == "escape" {
+                        this.close_recent(window, cx);
+                    }
+                    cx.stop_propagation();
+                    return;
+                }
                 if this.enlarged_image_open()
                     || this.reader_hierarchy_open()
                     || this.creation_open()
@@ -5474,6 +5501,9 @@ impl Render for Workspace {
             })
             .child(rail)
             .children(self.render_graph_previews(dark, window.viewport_size(), cx))
+            .when(self.recent_open(), |root| {
+                root.child(self.render_recent((p.paper, p.ink, p.muted, p.line), cx))
+            })
             .when(self.shell.find.open, |root| {
                 root.child(self.find_overlay(dark, window.viewport_size().width, cx))
             })
