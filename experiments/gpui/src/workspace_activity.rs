@@ -82,6 +82,85 @@ pub(crate) struct ActivityState {
     hover: Option<String>,
     agenda: Option<AgendaState>,
     month_events: Option<MonthEvents>,
+    month_content: Option<MonthContent>,
+}
+// A bounded civil comparison, never seconds or device-local timezone arithmetic.
+fn month_due_bar(due: &str, today: &str) -> Option<(u8, bool)> {
+    if !live::calendar_date_valid(due) || !live::calendar_date_valid(today) {
+        return None;
+    }
+    if due < today {
+        return Some((14, true));
+    }
+    let mut day = today.to_owned();
+    for distance in 0..14 {
+        if day == due {
+            return Some((14 - distance, false));
+        }
+        day = adjacent_day(&day, true)?;
+    }
+    Some((0, false))
+}
+fn short_month_label(text: &str) -> String {
+    let label: String = text.chars().take(22).collect();
+    if text.chars().count() > 22 {
+        format!("{label}…")
+    } else {
+        label
+    }
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ContentTicket {
+    serial: u64,
+    zone_revision: u64,
+    zone: String,
+}
+impl ContentTicket {
+    fn current(&self, revision: u64, zone: &str) -> bool {
+        self.zone_revision == revision && self.zone == zone
+    }
+}
+struct MonthContent {
+    ticket: ContentTicket,
+    result: Option<Result<live::CalendarContentResponse, String>>,
+}
+fn read_month_content(
+    client: &live::ReadClient,
+    identity: &Identity,
+    ticket: &ContentTicket,
+) -> Result<live::CalendarContentResponse, String> {
+    let launch = identity
+        .registry
+        .as_ref()
+        .filter(|(launch, names)| names.contains(launch))
+        .map(|(launch, _)| launch.as_str())
+        .ok_or("Calendar registry unavailable.")?;
+    let before = client.storage().map_err(|e| e.to_string())?;
+    if before.phase != "ready" || before.generation != identity.epoch {
+        return Err("Calendar storage unavailable.".into());
+    }
+    let response = client
+        .calendar_content(
+            &identity.vault,
+            launch,
+            &identity.since,
+            &identity.until,
+            &ticket.zone,
+        )
+        .map_err(|e| e.to_string())?;
+    let after = client.storage().map_err(|e| e.to_string())?;
+    if after.phase != "ready"
+        || after.generation != identity.epoch
+        || response.source_vault != identity.vault
+        || response.launch_generation != identity.launch
+        || !identity.range_vault_matches(&response.vault)
+        || response.time_zone != ticket.zone
+        || response.since != identity.since
+        || response.until != identity.until
+    {
+        return Err("Calendar content source or storage became stale.".into());
+    }
+    Ok(response)
 }
 struct MonthEvents {
     serial: u64,
@@ -311,6 +390,128 @@ pub(crate) fn incomplete(fields: &std::collections::BTreeMap<String, serde_json:
     check(&serde_json::to_value(fields).unwrap_or_default())
 }
 impl Workspace {
+    fn content_ticket(&self) -> ContentTicket {
+        ContentTicket {
+            serial: NEXT_AGENDA.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            zone_revision: self.shell.calendar_zone.revision,
+            zone: self.shell.calendar_zone.draft.clone(),
+        }
+    }
+    fn finish_month_content(
+        &mut self,
+        identity: &Identity,
+        ticket: &ContentTicket,
+        result: Result<live::CalendarContentResponse, String>,
+    ) {
+        if !self.activity_identity_current(identity)
+            || !ticket.current(
+                self.shell.calendar_zone.revision,
+                &self.shell.calendar_zone.draft,
+            )
+        {
+            return;
+        }
+        if let Some(content) = self
+            .shell
+            .activity
+            .as_mut()
+            .and_then(|s| s.month_content.as_mut())
+            .filter(|c| c.ticket == *ticket)
+        {
+            content.result = Some(result);
+        }
+    }
+    fn current_month_content<'a>(&self, state: &'a ActivityState) -> Option<&'a MonthContent> {
+        state.month_content.as_ref().filter(|c| {
+            self.activity_identity_current(&state.identity)
+                && c.ticket.current(
+                    self.shell.calendar_zone.revision,
+                    &self.shell.calendar_zone.draft,
+                )
+        })
+    }
+    fn month_content_notice(&self, state: &ActivityState) -> String {
+        match self
+            .current_month_content(state)
+            .and_then(|c| c.result.as_ref())
+        {
+            None => {
+                "Month tasks / notes unknown or loading. Apply to retry after a zone change.".into()
+            }
+            Some(Err(e)) => {
+                format!("Month tasks / notes unavailable: {e}. Counts unknown; Apply to retry.")
+            }
+            Some(Ok(r)) if incomplete(&r.diagnostics) => {
+                "Month tasks / notes partial; counts unknown.".into()
+            }
+            Some(Ok(r)) => format!(
+                "Tasks / notes · selected vault only · civil dates · due bars relative to {} ({})",
+                r.today, r.time_zone
+            ),
+        }
+    }
+    fn month_content_preview(&self, state: &ActivityState, date: &str, width: f32) -> Div {
+        let mut view = div().flex().flex_col().gap_1().text_size(px(10.));
+        let accepted = self
+            .current_month_content(state)
+            .and_then(|c| c.result.as_ref())
+            .and_then(|r| r.as_ref().ok())
+            .filter(|r| !incomplete(&r.diagnostics));
+        let Some((response, row)) =
+            accepted.and_then(|r| r.days.iter().find(|d| d.date == date).map(|d| (r, d)))
+        else {
+            return view.child("Tasks: unknown").child("Notes: unknown");
+        };
+        view = view.child(format!("{} tasks", row.task_count));
+        for task in &row.tasks {
+            let mut item = div()
+                .h(px(22.))
+                .flex()
+                .flex_col()
+                .gap(px(1.))
+                .overflow_hidden();
+            if let Some((units, overdue)) = month_due_bar(&task.due, &response.today) {
+                item = item.child(
+                    div()
+                        .h(px(3.))
+                        .w_full()
+                        .rounded(px(2.))
+                        .bg(rgb(0x60666a))
+                        .child(
+                            div()
+                                .h(px(3.))
+                                .w(px(width.max(0.) * units as f32 / 14.))
+                                .rounded(px(2.))
+                                .bg(rgb(if overdue { 0xd65e5e } else { 0x729bad })),
+                        ),
+                );
+            }
+            view = view.child(item.child(short_month_label(&task.text)));
+        }
+        if row.task_count > row.tasks.len() as u64 {
+            view = view.child(format!(
+                "+{} tasks",
+                row.task_count - row.tasks.len() as u64
+            ));
+        }
+        view = view.child(format!("{} notes", row.note_count));
+        for note in &row.notes {
+            view = view.child(div().h(px(18.)).overflow_hidden().child(
+                if note.title.trim().is_empty() {
+                    "Untitled".into()
+                } else {
+                    short_month_label(&note.title)
+                },
+            ));
+        }
+        if row.note_count > row.notes.len() as u64 {
+            view = view.child(format!(
+                "+{} notes",
+                row.note_count - row.notes.len() as u64
+            ));
+        }
+        view
+    }
     fn month_events_current<'a>(&self, state: &'a ActivityState) -> Option<&'a MonthEvents> {
         let events = state.month_events.as_ref()?;
         (self.activity_identity_current(&state.identity)
@@ -388,6 +589,13 @@ impl Workspace {
             zone: zone.clone(),
             result: None,
         });
+        let content_ticket = explicit.then(|| self.content_ticket());
+        if let Some(ticket) = &content_ticket {
+            self.shell.activity.as_mut().unwrap().month_content = Some(MonthContent {
+                ticket: ticket.clone(),
+                result: None,
+            });
+        }
         let Some(permit) = AgendaPermit::acquire() else {
             self.shell
                 .activity
@@ -399,6 +607,13 @@ impl Workspace {
                 .result = Some(Err(
                 "Earlier requests are still finishing; retry shortly.".into()
             ));
+            if let Some(ticket) = &content_ticket {
+                self.finish_month_content(
+                    identity,
+                    ticket,
+                    Err("Earlier requests are still finishing; Apply to retry.".into()),
+                );
+            }
             cx.notify();
             return;
         };
@@ -407,48 +622,57 @@ impl Workspace {
         let requested = zone.clone();
         let job = cx.background_executor().spawn(async move {
             let _permit = permit;
-            let before = client.storage().map_err(|e| e.to_string())?;
-            if before.phase != "ready" || before.generation != captured.epoch {
-                return Err("Storage changed; reload workspace.".into());
-            }
-            let launch_name = captured
-                .registry
+            let event_result: Result<live::CalendarRangeResponse, String> = (|| {
+                let before = client.storage().map_err(|e| e.to_string())?;
+                if before.phase != "ready" || before.generation != captured.epoch {
+                    return Err("Storage changed; reload workspace.".into());
+                }
+                let launch_name = captured
+                    .registry
+                    .as_ref()
+                    .filter(|(launch, names)| names.contains(launch))
+                    .map(|(launch, _)| launch.as_str())
+                    .ok_or_else(|| "Calendar registry unavailable.".to_owned())?;
+                let response = client
+                    .calendar_range(
+                        &captured.vault,
+                        launch_name,
+                        &captured.since,
+                        &captured.until,
+                        &requested,
+                    )
+                    .map_err(|e| e.to_string())?;
+                let after = client.storage().map_err(|e| e.to_string())?;
+                if after.phase != "ready"
+                    || after.generation != captured.epoch
+                    || response.launch_generation != captured.launch
+                    || response.source_vault != captured.vault
+                    || !captured.range_vault_matches(&response.vault)
+                    || response.time_zone != requested
+                    || response.since != captured.since
+                    || response.until != captured.until
+                {
+                    return Err("Calendar range source or storage became stale.".into());
+                }
+                Ok(response)
+            })();
+            let content_result = content_ticket
                 .as_ref()
-                .filter(|(launch, names)| names.contains(launch))
-                .map(|(launch, _)| launch.as_str())
-                .ok_or_else(|| "Calendar registry unavailable.".to_owned())?;
-            let response = client
-                .calendar_range(
-                    &captured.vault,
-                    launch_name,
-                    &captured.since,
-                    &captured.until,
-                    &requested,
-                )
-                .map_err(|e| e.to_string())?;
-            let after = client.storage().map_err(|e| e.to_string())?;
-            if after.phase != "ready"
-                || after.generation != captured.epoch
-                || response.launch_generation != captured.launch
-                || response.source_vault != captured.vault
-                || !captured.range_vault_matches(&response.vault)
-                || response.time_zone != requested
-                || response.since != captured.since
-                || response.until != captured.until
-            {
-                return Err("Calendar range source or storage became stale.".into());
-            }
-            Ok(response)
+                .map(|t| (t.clone(), read_month_content(&client, &captured, t)));
+            (event_result, content_result)
         });
         let identity = identity.clone();
         cx.spawn(async move |this, cx| {
-            let result = job.await;
+            let (result, content_result) = job.await;
             let _ = this.update(cx, |this, cx| {
                 if !this.activity_identity_current(&identity)
                     || this.shell.calendar_zone.revision != revision
                     || this.shell.calendar_zone.draft != zone
                 {
                     return;
+                }
+                if let Some((ticket, content)) = content_result {
+                    this.finish_month_content(&identity, &ticket, content);
                 }
                 let Some(events) = this
                     .shell
@@ -571,44 +795,62 @@ impl Workspace {
             .is_none_or(|state| state.identity != identity)
         {
             let client = session.client();
+            let content_ticket = (month_view
+                && self.shell.calendar_zone.draft == self.shell.calendar_zone.accepted)
+                .then(|| self.content_ticket());
             self.shell.activity = Some(ActivityState {
                 identity: identity.clone(),
                 result: None,
                 hover: None,
                 agenda: None,
                 month_events: None,
+                month_content: content_ticket.as_ref().map(|ticket| MonthContent {
+                    ticket: ticket.clone(),
+                    result: None,
+                }),
             });
             let task_identity = identity.clone();
             let permit = AgendaPermit::acquire();
             let job = cx.background_executor().spawn(async move {
-                let _permit =
-                    permit.ok_or("Earlier agenda requests are finishing. Reload to retry.")?;
-                let before = client.storage().map_err(|e| e.to_string())?;
-                if before.phase != "ready" || before.generation != task_identity.epoch {
-                    return Err("Storage changed or is incomplete. Reload the workspace.".into());
-                }
-                let response = client
-                    .activity(
-                        &task_identity.since,
-                        &task_identity.until,
-                        &task_identity.vault,
-                    )
-                    .map_err(|e| e.to_string())?;
-                let after = client.storage().map_err(|e| e.to_string())?;
-                if after.phase != "ready"
-                    || after.generation != before.generation
-                    || response.launch_generation != task_identity.launch
-                    || response.source_vault != task_identity.vault
-                    || response.activity.since != task_identity.since
-                    || response.activity.until != task_identity.until
-                {
-                    return Err("Activity response became stale. Reload the workspace.".into());
-                }
-                Ok(response)
+                let Some(_permit) = permit else {
+                    let error = "Earlier agenda requests are finishing. Apply or reload to retry."
+                        .to_owned();
+                    return (Err(error.clone()), content_ticket.map(|t| (t, Err(error))));
+                };
+                let activity_result: Result<live::ActivityResponse, String> = (|| {
+                    let before = client.storage().map_err(|e| e.to_string())?;
+                    if before.phase != "ready" || before.generation != task_identity.epoch {
+                        return Err(
+                            "Storage changed or is incomplete. Reload the workspace.".into()
+                        );
+                    }
+                    let response = client
+                        .activity(
+                            &task_identity.since,
+                            &task_identity.until,
+                            &task_identity.vault,
+                        )
+                        .map_err(|e| e.to_string())?;
+                    let after = client.storage().map_err(|e| e.to_string())?;
+                    if after.phase != "ready"
+                        || after.generation != before.generation
+                        || response.launch_generation != task_identity.launch
+                        || response.source_vault != task_identity.vault
+                        || response.activity.since != task_identity.since
+                        || response.activity.until != task_identity.until
+                    {
+                        return Err("Activity response became stale. Reload the workspace.".into());
+                    }
+                    Ok(response)
+                })();
+                let content_result = content_ticket
+                    .as_ref()
+                    .map(|t| (t.clone(), read_month_content(&client, &task_identity, t)));
+                (activity_result, content_result)
             });
             let response_identity = identity.clone();
             cx.spawn(async move |this, cx| {
-                let result = job.await;
+                let (result, content_result) = job.await;
                 let _ = this.update(cx, |this, cx| {
                     if !response_identity.accepts(
                         this.live.as_ref().map(|s| s.client().launch_generation),
@@ -621,6 +863,9 @@ impl Workspace {
                             && this.quit_session.failure().is_none(),
                     ) {
                         return;
+                    }
+                    if let Some((ticket, content)) = content_result {
+                        this.finish_month_content(&response_identity, &ticket, content);
                     }
                     if let Some(state) = this
                         .shell
@@ -674,21 +919,21 @@ impl Workspace {
                 );
             }
             let captured = identity.clone();
-            view = view.child(controls).child("Note activity and event counts are separate. Select any day, including zero-note days.")
-                .child("Month event display zone · session only")
+            view = view.child(controls).child("Events, tasks and notes have separate summary counts. Select any day, including zero-note days.")
+                .child("Month display zone · session only")
                 .children(self.shell.calendar_zone.input.clone())
-                .child(div().id("calendar-month-zone-apply").cursor_pointer().child("Apply / retry month events")
+                .child(div().id("calendar-month-zone-apply").cursor_pointer().child("Apply / retry month summaries")
                     .on_click(cx.listener(move |this, _, _, cx| this.fetch_month_events(&captured, true, cx))))
-                .child(self.month_events_notice(state));
+                .child(self.month_events_notice(state)).child(self.month_content_notice(state));
         }
         let response = match &state.result {
             Some(Ok(response)) => Some(response),
             result if month_view => {
                 let message = match result {
                     Some(Err(error)) => {
-                        format!("Note activity unavailable: {error}. Counts are unknown.")
+                        format!("Activity refresh unavailable: {error}. Month summary results are independent.")
                     }
-                    _ => "Loading note activity; counts are unknown.".into(),
+                    _ => "Refreshing activity before the month summary; summary results are independent.".into(),
                 };
                 view = view.child(message);
                 None
@@ -725,20 +970,17 @@ impl Workspace {
             while cells.len() % 7 != 0 {
                 cells.push(None);
             }
+            // Auto-height flex rows stretch all seven cells to their tallest bounded preview.
             for week in cells.chunks(7) {
                 let mut row = div().flex().gap_1();
                 for day in week {
                     let cell = div()
                         .w(px(cell_width))
-                        .h(px(156.))
+                        .min_h(px(156.))
                         .p_1()
                         .border_1()
                         .border_color(rgb(if dark { 0x414848 } else { 0xd8d8d2 }));
                     if let Some(date) = day {
-                        let count = counts.get(date.as_str()).copied();
-                        let label = count
-                            .map(|v| v.to_string())
-                            .unwrap_or_else(|| if partial { "?".into() } else { "0".into() });
                         let current = date == &today.text();
                         let captured = identity.clone();
                         let clicked = date.clone();
@@ -758,8 +1000,8 @@ impl Workspace {
                                     ""
                                 }
                             ))
-                            .child(format!("{label} notes"))
-                            .child(self.month_day_preview(state, date));
+                            .child(self.month_day_preview(state, date))
+                            .child(self.month_content_preview(state, date, cell_width - 8.));
                         active = active.on_click(cx.listener(move |this, _, _, cx| {
                             this.select_activity_day(captured.clone(), clicked.clone(), cx);
                         }));
@@ -771,8 +1013,8 @@ impl Workspace {
                 grid = grid.child(row);
             }
             return view.child(grid)
-                .when(partial, |view| view.child("Incomplete or cached activity: missing counts are unknown."))
-                .child("Read-only day details below. Month note/task snippets and journal creation are not implemented.")
+                .when(partial, |view| view.child("Activity refresh is incomplete or cached; independently accepted month summaries remain usable."))
+                .child("Read-only day details below. Snippets are read-only; day details do not auto-open journals.")
                 .child(self.activity_agenda(cx)).child(self.activity_tasks(cx)).child(self.activity_events(cx));
         }
         let response = response.expect("Home returned above without an accepted activity response");
@@ -875,6 +1117,45 @@ impl Workspace {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn due_bar_uses_engine_today_civil_days_and_terminal_state_independence() {
+        assert_eq!(month_due_bar("", "2026-11-17"), None);
+        assert_eq!(month_due_bar("2026-02-30", "2026-11-17"), None);
+        assert_eq!(month_due_bar("2026-11-16", "2026-11-17"), Some((14, true)));
+        assert_eq!(month_due_bar("2026-11-17", "2026-11-17"), Some((14, false)));
+        assert_eq!(month_due_bar("2026-11-24", "2026-11-17"), Some((7, false)));
+        assert_eq!(month_due_bar("2026-12-01", "2026-11-17"), Some((0, false)));
+        assert_eq!(month_due_bar("2027-01-01", "2026-11-17"), Some((0, false)));
+        assert_eq!(month_due_bar("2024-03-01", "2024-02-28"), Some((12, false)));
+        assert_eq!(month_due_bar("2027-01-01", "2026-12-31"), Some((13, false)));
+        // No task-state or selected-cell argument: terminal rows use the same bar.
+    }
+    #[test]
+    fn summary_ticket_rejects_initial_apply_and_zone_aba_without_day_dependency() {
+        let initial = ContentTicket {
+            serial: 1,
+            zone_revision: 0,
+            zone: "UTC".into(),
+        };
+        let retry = ContentTicket {
+            serial: 2,
+            ..initial.clone()
+        };
+        assert_ne!(initial, retry); // Initial completion cannot overwrite explicit Apply, even same zone.
+        assert!(retry.current(0, "UTC"));
+        assert!(!retry.current(2, "UTC")); // UTC -> Tokyo -> UTC is a new intent.
+        assert!(!retry.current(0, "Asia/Tokyo"));
+        let pending = MonthContent {
+            ticket: retry.clone(),
+            result: None,
+        };
+        assert!(pending.result.is_none()); // Neither pending nor a busy refusal means zero.
+        let busy = MonthContent {
+            ticket: retry,
+            result: Some(Err("retry".into())),
+        };
+        assert!(busy.result.as_ref().unwrap().is_err());
+    }
     #[test]
     fn month_range_launch_alias_does_not_rebind_foreign_scope() {
         let mut identity = Identity {

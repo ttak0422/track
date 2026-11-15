@@ -1764,3 +1764,35 @@ the launch scope showed its four events without foreign previews. All 23 canonic
 fixture file hashes remained unchanged and both owned listeners closed on Quit.
 Real IME, native DST transitions and rapid-response races are not verified by
 this pass. Normal vault editing remains disabled.
+
+## Calendar month task and note previews
+
+Use an isolated two-vault fixture with equal note IDs across scopes. Give the
+host four notes with two activity dates and five dated tasks, including a
+completed task and a task whose scheduled and due date are identical. The other
+scope should have a different number of notes and tasks. Verify independent
+three-row limits and overflow for events, tasks and notes; all labels share the
+day-cell action. Check zone-edit invalidation, Apply, switching scope, day details
+and Quit. Do not interpret an unready index as zero: wait for verified activity
+and use the explicit retry control. Confirm canonical hashes remain unchanged.
+
+Automated coverage must include the existing parser's syntactically valid but
+impossible optional task dates: a valid scheduled date still contributes a task
+without requiring an impossible due date to draw a bar. Real IME, interrupted
+requests and native deadline-boundary timing are separate verification limits.
+
+On 2026-11-15, the isolated host/foreign fixture showed five host tasks and four
+notes, with independent +2 task/+1 note overflow and previews on both activity
+dates. Completed tasks remained visible, and equal scheduled/due dates counted
+once. UTC-to-Asia/Tokyo editing hid old summaries; Apply changed the engine's
+reference day from November 15 to November 16 without changing civil membership.
+A cold foreign index returned unknown while its independent event remained
+visible; explicit retry showed two tasks and one note, without host previews.
+Clicking a preview selected that day's foreign agenda, tasks and event details.
+All 30 canonical fixture hashes remained unchanged; owned listeners closed on
+Quit. The first pass found excessive fixed-height empty rows and duplicate note
+counts. A second pass verified compact empty rows, equal-height cells within
+each dense row, separate task/note counts without duplicated activity counts,
+and preview selection of the host day details after scrolling. All 30 canonical
+file hashes again remained unchanged and both owned listeners closed. Rust tests
+passed (833 passed, 7 ignored); Go tests passed, including the read-only endpoint.

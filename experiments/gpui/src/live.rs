@@ -490,6 +490,126 @@ pub struct CalendarRangeResponse {
     #[serde(flatten)]
     pub diagnostics: Fields,
 }
+/// Scoped, index-only civil month summary. No note body or mutation authority.
+#[derive(Clone, Debug, Deserialize)]
+pub struct CalendarTaskPreview {
+    pub note_id: i64,
+    pub file_kind: String,
+    pub line: u64,
+    pub text: String,
+    pub text_truncated: bool,
+    pub state: String,
+    pub done: bool,
+    pub priority: String,
+    pub scheduled: String,
+    pub due: String,
+}
+#[derive(Clone, Debug, Deserialize)]
+pub struct CalendarNotePreview {
+    pub note_id: i64,
+    pub file_kind: String,
+    pub title: String,
+    pub title_truncated: bool,
+}
+#[derive(Clone, Debug, Deserialize)]
+pub struct CalendarContentDay {
+    pub date: String,
+    pub task_count: u64,
+    pub tasks: Vec<CalendarTaskPreview>,
+    pub note_count: u64,
+    pub notes: Vec<CalendarNotePreview>,
+}
+#[derive(Clone, Debug, Deserialize)]
+pub struct CalendarContentResponse {
+    pub vault: String,
+    pub since: String,
+    pub until: String,
+    pub time_zone: String,
+    pub today: String,
+    pub days: Vec<CalendarContentDay>,
+    #[serde(skip)]
+    pub source_vault: String,
+    #[serde(skip)]
+    pub launch_generation: u64,
+    #[serde(flatten)]
+    pub diagnostics: Fields,
+}
+fn validate_calendar_content(
+    value: &CalendarContentResponse,
+    vault: &str,
+    launch: &str,
+    since: &str,
+    until: &str,
+    zone: &str,
+) -> Result<(), Error> {
+    let dates = range_dates(since, until)
+        .ok_or_else(|| Error::Shape("invalid calendar content range".into()))?;
+    let kind = |s: &str| !s.is_empty() && s.len() <= 128 && !s.chars().any(char::is_control);
+    let label = |s: &str, truncated: bool| {
+        s.len() <= 256 && !s.chars().any(char::is_control) && (!truncated || s.ends_with('…'))
+    };
+    if value.vault.len() > 1024
+        || value.vault.contains('\0')
+        || !calendar_range_vault_matches(vault, &value.vault, launch)
+        || value.since != since
+        || value.until != until
+        || value.time_zone != zone
+        || !calendar_date_valid(&value.today)
+        || value.days.len() != dates.len()
+    {
+        return Err(Error::Shape(
+            "calendar content identity or coverage mismatch".into(),
+        ));
+    }
+    for (day, date) in value.days.iter().zip(dates) {
+        let mut tasks = std::collections::HashSet::new();
+        let mut notes = std::collections::HashSet::new();
+        if day.date != date
+            || day.task_count > 16384
+            || day.note_count > 16384
+            || day.tasks.len() != (day.task_count as usize).min(3)
+            || day.notes.len() != (day.note_count as usize).min(3)
+        {
+            return Err(Error::Shape(
+                "calendar content count or day mismatch".into(),
+            ));
+        }
+        for task in &day.tasks {
+            let terminal = match task.state.as_str() {
+                "TODO" | "DOING" | "WAITING" => false,
+                "DONE" | "CANCELLED" => true,
+                _ => return Err(Error::Shape("unknown calendar task state".into())),
+            };
+            if task.note_id <= 0
+                || task.line == 0
+                || task.line > i64::MAX as u64
+                || !kind(&task.file_kind)
+                || !label(&task.text, task.text_truncated)
+                || task.done != terminal
+                || !tasks.insert((task.note_id, task.line))
+                || (!task.priority.is_empty()
+                    && !(task.priority.len() == 1
+                        && task.priority.as_bytes()[0].is_ascii_uppercase()))
+                || [&task.scheduled, &task.due]
+                    .iter()
+                    .any(|d| !d.is_empty() && !date_wire_shape(d))
+                || (task.scheduled != date && task.due != date)
+            {
+                return Err(Error::Shape("invalid calendar task preview".into()));
+            }
+        }
+        for note in &day.notes {
+            if note.note_id <= 0
+                || !kind(&note.file_kind)
+                || !label(&note.title, note.title_truncated)
+                || !notes.insert(note.note_id)
+            {
+                return Err(Error::Shape("invalid calendar note preview".into()));
+            }
+        }
+    }
+    Ok(())
+}
 fn range_dates(since: &str, until: &str) -> Option<Vec<String>> {
     if !event_date_valid(since) || !event_date_valid(until) || since > until {
         return None;
@@ -938,6 +1058,15 @@ impl ReadClient {
         query: &[(&str, String)],
         timeout: Option<Duration>,
     ) -> Result<T, Error> {
+        self.get_bounded(path, query, timeout, BODY_LIMIT)
+    }
+    fn get_bounded<T: DeserializeOwned>(
+        &self,
+        path: &str,
+        query: &[(&str, String)],
+        timeout: Option<Duration>,
+        limit: u64,
+    ) -> Result<T, Error> {
         if !self.alive.load(Ordering::Acquire) {
             return Err(Error::Stale);
         }
@@ -955,13 +1084,13 @@ impl ReadClient {
         let status = response.status().as_u16();
         let mut bytes = Vec::new();
         (&mut response)
-            .take(BODY_LIMIT + 1)
+            .take(limit + 1)
             .read_to_end(&mut bytes)
             .map_err(|e| Error::Transport(e.to_string()))?;
         if !self.alive.load(Ordering::Acquire) {
             return Err(Error::Stale);
         }
-        if bytes.len() as u64 > BODY_LIMIT {
+        if bytes.len() as u64 > limit {
             return Err(Error::Oversized);
         }
         if status != 200 {
@@ -1443,6 +1572,42 @@ impl ReadClient {
         ]);
         let mut response: CalendarRangeResponse = self.get("/api/calendar-events/range", &args)?;
         validate_calendar_range(&response, vault, launch, since, until, zone)?;
+        response.source_vault = vault.into();
+        response.launch_generation = self.launch_generation;
+        Ok(response)
+    }
+
+    /// Read an already verified index; 503 remains unavailable, never an empty month.
+    pub fn calendar_content(
+        &self,
+        vault: &str,
+        launch: &str,
+        since: &str,
+        until: &str,
+        zone: &str,
+    ) -> Result<CalendarContentResponse, Error> {
+        if range_dates(since, until).is_none()
+            || vault.len() > 1024
+            || launch.len() > 1024
+            || vault.contains('\0')
+            || launch.contains('\0')
+            || zone.is_empty()
+            || zone.len() > 128
+            || zone.chars().any(char::is_control)
+        {
+            return Err(Error::Config(
+                "calendar content requires a bounded scope, civil range and zone".into(),
+            ));
+        }
+        let mut args = vault_query(vault);
+        args.extend([
+            ("since", since.into()),
+            ("until", until.into()),
+            ("time_zone", zone.into()),
+        ]);
+        let mut response: CalendarContentResponse =
+            self.get_bounded("/api/calendar-activity/range", &args, None, 512 * 1024)?;
+        validate_calendar_content(&response, vault, launch, since, until, zone)?;
         response.source_vault = vault.into();
         response.launch_generation = self.launch_generation;
         Ok(response)
@@ -4851,6 +5016,173 @@ mod tests {
             .alive
             .store(false, std::sync::atomic::Ordering::Release);
         assert!(matches!(client.calendar_events(""), Err(Error::Stale)));
+    }
+    fn content_fixture() -> Value {
+        serde_json::json!({"vault":"work", "since":"2026-11-01", "until":"2026-11-01", "time_zone":"UTC", "today":"2026-11-17",
+            "days":[{"date":"2026-11-01", "task_count":1, "tasks":[{"note_id":2,"file_kind":"note","line":1,"text":"Complete", "text_truncated":false,
+                "state":"DONE","done":true,"priority":"A","scheduled":"2026-11-01","due":"2026-11-01"}],
+                "note_count":1,"notes":[{"note_id":9,"file_kind":"note","title":"Title", "title_truncated":false}]}]})
+    }
+    #[test]
+    fn month_content_adapter_preserves_engine_order_completed_and_scope() {
+        let mut payload = content_fixture();
+        let mut second = payload["days"][0]["notes"][0].clone();
+        second["note_id"] = 1.into();
+        payload["days"][0]["notes"]
+            .as_array_mut()
+            .unwrap()
+            .push(second);
+        payload["days"][0]["note_count"] = 2.into();
+        let (client, worker) = mock(200, payload.to_string());
+        let r = client
+            .calendar_content("work", "host", "2026-11-01", "2026-11-01", "UTC")
+            .unwrap();
+        assert_eq!(r.source_vault, "work");
+        assert_eq!(r.launch_generation, client.launch_generation);
+        assert_eq!(
+            r.days[0]
+                .notes
+                .iter()
+                .map(|n| n.note_id)
+                .collect::<Vec<_>>(),
+            vec![9, 1]
+        );
+        assert!(r.days[0].tasks[0].done);
+        assert_eq!(r.today, "2026-11-17");
+        let req = worker.join().unwrap();
+        assert!(req.contains("/api/calendar-activity/range?"));
+        assert!(req.contains("vault=work"));
+    }
+    #[test]
+    fn month_content_rejects_unknown_coverage_counts_labels_and_membership() {
+        let original = content_fixture();
+        let mut cases = vec![];
+        for (key, value) in [
+            ("vault", "foreign"),
+            ("since", "2026-10-31"),
+            ("time_zone", "Asia/Tokyo"),
+            ("today", "2026-02-30"),
+        ] {
+            let mut bad = original.clone();
+            bad[key] = value.into();
+            cases.push(bad);
+        }
+        let mut bad = original.clone();
+        bad["days"] = serde_json::json!([]);
+        cases.push(bad);
+        for field in ["task_count", "note_count"] {
+            let mut bad = original.clone();
+            bad["days"][0][field] = 16385.into();
+            cases.push(bad);
+        }
+        let mut bad = original.clone();
+        bad["days"][0]["tasks"][0]["text"] = "x".repeat(257).into();
+        cases.push(bad);
+        let mut bad = original.clone();
+        bad["days"][0]["tasks"][0]["text_truncated"] = true.into();
+        cases.push(bad);
+        let mut bad = original.clone();
+        bad["days"][0]["tasks"][0]["scheduled"] = "2026-11-02".into();
+        bad["days"][0]["tasks"][0]["due"] = "".into();
+        cases.push(bad);
+        let mut bad = original.clone();
+        bad["days"][0]["tasks"][0]["done"] = false.into();
+        cases.push(bad);
+        let mut bad = original.clone();
+        let duplicate = bad["days"][0]["tasks"][0].clone();
+        bad["days"][0]["tasks"]
+            .as_array_mut()
+            .unwrap()
+            .push(duplicate);
+        bad["days"][0]["task_count"] = 2.into();
+        cases.push(bad);
+        let mut bad = original.clone();
+        let duplicate = bad["days"][0]["notes"][0].clone();
+        bad["days"][0]["notes"]
+            .as_array_mut()
+            .unwrap()
+            .push(duplicate);
+        bad["days"][0]["note_count"] = 2.into();
+        cases.push(bad);
+        for bad in cases {
+            let r: CalendarContentResponse = serde_json::from_value(bad).unwrap();
+            assert!(
+                validate_calendar_content(&r, "work", "host", "2026-11-01", "2026-11-01", "UTC")
+                    .is_err()
+            );
+        }
+        let mut good = original.clone();
+        good["days"][0]["tasks"][0]["text"] = "x…".into();
+        good["days"][0]["tasks"][0]["text_truncated"] = true.into();
+        let r = serde_json::from_value(good).unwrap();
+        assert!(
+            validate_calendar_content(&r, "work", "host", "2026-11-01", "2026-11-01", "UTC")
+                .is_ok()
+        );
+    }
+    #[test]
+    fn month_content_preserves_impossible_optional_date_without_losing_valid_bucket() {
+        let mut payload = content_fixture();
+        payload["since"] = "2024-02-29".into();
+        payload["until"] = "2024-02-29".into();
+        payload["days"][0]["date"] = "2024-02-29".into();
+        payload["days"][0]["tasks"][0]["scheduled"] = "2024-02-29".into();
+        payload["days"][0]["tasks"][0]["due"] = "2024-02-30".into();
+        let mut other = payload["days"][0]["tasks"][0].clone();
+        other["line"] = 2.into();
+        other["due"] = "2024-03-01".into();
+        payload["days"][0]["tasks"]
+            .as_array_mut()
+            .unwrap()
+            .push(other);
+        payload["days"][0]["task_count"] = 2.into();
+        let (client, worker) = mock(200, payload.to_string());
+        let result = client
+            .calendar_content("work", "host", "2024-02-29", "2024-02-29", "UTC")
+            .unwrap();
+        worker.join().unwrap();
+        assert_eq!(result.days[0].task_count, 2);
+        assert_eq!(result.days[0].tasks[0].due, "2024-02-30");
+        assert_eq!(result.days[0].tasks[1].due, "2024-03-01");
+        assert_eq!(result.days[0].notes.len(), 1);
+        for invalid in ["2024-2-30", "２０２４-02-30", "2024-02-30\n", "2024/02/30"] {
+            let mut bad = payload.clone();
+            bad["days"][0]["tasks"][0]["due"] = invalid.into();
+            let response = serde_json::from_value(bad).unwrap();
+            assert!(
+                validate_calendar_content(
+                    &response,
+                    "work",
+                    "host",
+                    "2024-02-29",
+                    "2024-02-29",
+                    "UTC"
+                )
+                .is_err()
+            );
+        }
+    }
+    #[test]
+    fn month_content_unready_and_foreign_alias_do_not_become_empty_success() {
+        for status in [400, 500, 503] {
+            let (client, worker) = mock(status, "{}");
+            assert!(
+                matches!(client.calendar_content("work","host","2026-11-01","2026-11-01","UTC"),Err(Error::Http{status:s,..}) if s==status)
+            );
+            worker.join().unwrap();
+        }
+        for (request, ok) in [("", true), ("host", true), ("foreign", false)] {
+            let mut payload = content_fixture();
+            payload["vault"] = "".into();
+            let (client, worker) = mock(200, payload.to_string());
+            assert_eq!(
+                client
+                    .calendar_content(request, "host", "2026-11-01", "2026-11-01", "UTC")
+                    .is_ok(),
+                ok
+            );
+            worker.join().unwrap();
+        }
     }
     fn range_fixture() -> Value {
         serde_json::json!({"vault":"work","since":"2026-11-01","until":"2026-11-02","time_zone":"UTC",

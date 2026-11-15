@@ -3,6 +3,7 @@ package calendarevent
 import (
 	_ "embed"
 	"strings"
+	"time"
 )
 
 // Keep the accepted identifiers independent of host-only zoneinfo files. The
@@ -21,3 +22,15 @@ var eventZones = func() map[string]bool {
 	}
 	return zones
 }()
+
+// DisplayLocation validates the explicit display-zone contract shared by calendar projections.
+func DisplayLocation(zone string) (*time.Location, error) {
+	if len(zone) > 128 || !eventZones[zone] {
+		return nil, invalid("time_zone must be a known explicit IANA identifier (maximum 128 bytes)")
+	}
+	loc, err := time.LoadLocation(zone)
+	if err != nil {
+		return nil, invalid("unknown IANA time_zone %q", zone)
+	}
+	return loc, nil
+}
