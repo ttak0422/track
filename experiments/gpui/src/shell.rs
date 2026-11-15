@@ -77,6 +77,13 @@ struct ReadingPositions {
 }
 
 impl Workspace {
+    pub(crate) fn pause_reader_for_overlay(&mut self) {
+        self.cancel_position_resume();
+        if let Some(anchors) = &self.shell.positions.anchors {
+            anchors.cancel_after_layout();
+        }
+        self.shell.pending_fragment = None;
+    }
     pub(crate) fn suspend_host_reader_actions(&mut self) {
         self.cancel_position_resume();
         if let Some(anchors) = &self.shell.positions.anchors {
@@ -2336,6 +2343,9 @@ impl Workspace {
         cx.notify();
     }
     pub(crate) fn workspace_shortcut(&mut self, save: bool, cx: &mut Context<Self>) {
+        if self.enlarged_image_open() {
+            return;
+        }
         if self.tag_page.is_some()
             || self.shell.search_open
             || self.search.read(cx).is_composing()
@@ -2491,6 +2501,9 @@ impl Workspace {
         }
     }
     fn dismiss_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.enlarged_image_open() {
+            return;
+        }
         if self.search.read(cx).is_composing() {
             return;
         }
@@ -2508,6 +2521,9 @@ impl Workspace {
         cx.notify();
     }
     fn step_search_result(&mut self, forward: bool, cx: &mut Context<Self>) {
+        if self.enlarged_image_open() {
+            return;
+        }
         if !self.shell.search_open || self.search.read(cx).is_composing() {
             return;
         }
@@ -2523,6 +2539,9 @@ impl Workspace {
         cx.notify();
     }
     fn open_search_result(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.enlarged_image_open() {
+            return;
+        }
         if !self.shell.search_open || self.search.read(cx).is_composing() {
             return;
         }
@@ -2550,6 +2569,7 @@ impl Workspace {
 
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.sync_enlarged_image(window, cx);
         self.sync_creation_journal(cx);
         if self.shell.reader_keys.as_ref().is_some_and(|owner| {
             !self.reader_key_owner_current(owner, window, cx)
@@ -2606,6 +2626,7 @@ impl Render for Workspace {
         let plain_displayed = external_displayed.clone();
         let plain_weak = cx.entity().downgrade();
         let link_callbacks = markdown::LinkCallbacks {
+            enlarge: self.enlarge_callback(cx),
             plain_click: Some(std::rc::Rc::new(move |index, event, window, cx| {
                 if let Some(source) = &plain_source {
                     let _ = plain_weak.update(cx, |this, cx| {
@@ -3833,7 +3854,7 @@ impl Render for Workspace {
                 this.shell.positions.interaction = this.shell.positions.interaction.wrapping_add(1);
             }))
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
-                if this.creation_open() {
+                if this.enlarged_image_open() || this.creation_open() {
                     cx.stop_propagation();
                     return;
                 }
@@ -4183,6 +4204,9 @@ impl Render for Workspace {
             })
             .when(self.creation_open(), |root| {
                 root.child(self.render_creation(dark, cx))
+            })
+            .when(self.enlarged_image_open(), |root| {
+                root.child(self.render_enlarged_image(window, cx))
             })
     }
 }

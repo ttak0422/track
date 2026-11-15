@@ -1293,3 +1293,24 @@ fixture hashes stayed unchanged and both owned ports closed. Rust tests: 680
 passed, 7 ignored; formatting, native build and help-site generation passed.
 Independent final focus review found no P1/P2 issue. Normal vault writes remain
 disabled, and full IME composition remains unverified.
+
+## Raster enlargement
+
+Native macOS pointer smoke on 2026-11-15 used two generated geometric PNGs in a
+new isolated read-only fixture. Landscape and portrait overlays retained the
+whole red border and square grid proportions. Content click and wheel left the
+first overlay and background unchanged. Close, Escape and backdrop dismissal
+worked; the corrected build retained the bottom-of-reader position after
+portrait Escape/backdrop dismissal. Native history items were disabled, and
+Quit from the open overlay exited with both owned ports closed. All 12 canonical
+body/sidecar/asset hashes stayed unchanged.
+
+Review caught overly broad Quit blocking, editor-follow continuing behind the
+modal and removal of Enlarge rows changing reader height; all were corrected
+before publication. The final diff passed independent P1/P2 review. Rust tests:
+685 passed, 7 ignored; formatting and native build passed. Source/allocation,
+admission, fit and Quit-gating models are covered. Reuse of the accepted image
+Arc and absence of new read/decode calls were source-reviewed, not measured with
+a live request counter. JPEG, resize/small-window, full keyboard/AX, source-change
+and IME/dirty/recovery combinations still need native coverage. Ordinary vault
+writes remain disabled.

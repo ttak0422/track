@@ -484,3 +484,7 @@ excluded. Home/Tag/Graph boundary and key/focus models are covered. Native menu
 Home/reader return, full-graph Back, boundaries and search exclusion were verified;
 bracket delivery with the active IME, Tag/About and interrupted flows remain
 unverified. Reload is excluded.
+
+## Raster enlargement candidate
+
+Explicit read-only enlargement of already decoded current-reader standalone PNG/JPEG images is implemented with exact source/block/allocation guards and one modal owner. Aspect-fit and identity/admission models pass on macOS. Native PNG landscape/portrait fit, content click, wheel isolation, dismissal, bottom-position retention and open-overlay Quit were verified. JPEG, resize, full keyboard/AX, source changes and IME combinations remain unverified. No new formats, fetches, zoom/pan, clipboard, persistence or vault writes.

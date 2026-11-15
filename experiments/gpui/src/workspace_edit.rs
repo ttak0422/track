@@ -47,6 +47,9 @@ pub enum Transition {
     CreateNote,
     Quit,
 }
+fn image_overlay_blocks_transition(open: bool, intent: &Transition) -> bool {
+    open && !matches!(intent, Transition::Quit)
+}
 fn acknowledge_saved_transition(intent: &mut Transition) {
     if let Transition::InternalLink(link) = intent {
         link.allow_epoch_advance = true;
@@ -337,6 +340,9 @@ fn fixture_note(root: &Path, path: &Path) -> bool {
 impl Workspace {
     /// true means caller must stop before changing any navigation state.
     pub(crate) fn guard_transition(&mut self, intent: Transition, cx: &mut Context<Self>) -> bool {
+        if image_overlay_blocks_transition(self.enlarged_image_open(), &intent) {
+            return true;
+        }
         if self.creation_retention_needed() && !self.editing_ui.creation.open {
             self.show_retained_creation(cx);
             return true;
@@ -2251,5 +2257,23 @@ mod shortcut_tests {
         assert!(ui.shortcut_blocked(false));
         ui.mode_menu = false;
         assert!(!ui.shortcut_blocked(false));
+    }
+}
+
+#[cfg(test)]
+mod image_overlay_transition_tests {
+    use super::*;
+    #[test]
+    fn image_overlay_preserves_guarded_quit_but_blocks_background_navigation() {
+        assert!(!image_overlay_blocks_transition(true, &Transition::Quit));
+        for intent in [
+            Transition::Home,
+            Transition::Reload,
+            Transition::FullGraph,
+            Transition::CreateNote,
+        ] {
+            assert!(image_overlay_blocks_transition(true, &intent));
+            assert!(!image_overlay_blocks_transition(false, &intent));
+        }
     }
 }

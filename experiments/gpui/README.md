@@ -977,4 +977,8 @@ Home, tag pages and full graph. Unavailable history directions are disabled.
 Existing dialogs, composition and save/recovery guards still apply; a dirty note
 uses the normal navigation decision. About and background windows do not route
 these commands to another workspace. Reader focus is not required. Reload is not
-part of this change. Native menu/keyboard verification remains pending.
+part of this change. Native pointer menu checks passed; keyboard/IME coverage remains incomplete.
+
+## Enlarge decoded reader images
+
+Successfully decoded standalone local PNG/JPEG images have an explicit Enlarge control. The window-local overlay reuses the same decoded pixels, fits without upscaling, and closes with Escape, backdrop or Close. It adds no read, decode, history, clipboard or write operation. Competing input/recovery owners block admission; stale sources close the overlay. Native PNG fit and pointer dismissal, bottom-position retention and Quit were checked. JPEG, resize, keyboard/accessibility and IME validation remain incomplete.

@@ -157,6 +157,7 @@ pub fn with_resolved_titles(
 /// Shell supplies verified internal or explicit HTTP(S) links. Others stay inert.
 #[derive(Clone)]
 pub struct LinkCallbacks {
+    pub enlarge: Option<Rc<dyn Fn(usize, &mut Window, &mut App)>>,
     pub plain_click: Option<Rc<dyn Fn(usize, &gpui::ClickEvent, &mut Window, &mut App)>>,
     pub resolved: Rc<dyn Fn(&LinkTarget) -> bool>,
     pub activate: Rc<dyn Fn(&Link, &mut Window, &mut App)>,
@@ -1909,6 +1910,21 @@ fn render_elements(
                         .max_w_full()
                         .max_h(px(480.)),
                 )
+                .child(
+                    div()
+                        .id(SharedString::from(format!("enlarge-image-{index}")))
+                        .text_size(px(12.))
+                        .child("Enlarge")
+                        .when_some(
+                            callbacks.and_then(|callbacks| callbacks.enlarge.clone()),
+                            |control, enlarge| {
+                                control.cursor_pointer().on_click(move |_, window, cx| {
+                                    enlarge(index, window, cx);
+                                    cx.stop_propagation();
+                                })
+                            },
+                        ),
+                )
             } else {
                 row
             };
@@ -3049,6 +3065,7 @@ mod tests {
         assert!(pending.iter().filter(|span| span.style.unresolved).count() >= 2);
         assert!(pending.iter().all(|span| !span.style.link));
         let callbacks = LinkCallbacks {
+            enlarge: None,
             plain_click: None,
             resolved: Rc::new(|_| true),
             activate: Rc::new(|_, _, _| {}),
@@ -3752,6 +3769,7 @@ mod footnote_navigation_tests {
         let cell = &parsed[0].table.as_ref().unwrap().rows[1][0];
         assert!(footnote_link_valid(&parsed, &cell.links[0]));
         let callbacks = LinkCallbacks {
+            enlarge: None,
             plain_click: None,
             resolved: Rc::new(|t| matches!(t, LinkTarget::Footnote { .. })),
             activate: Rc::new(|_, _, _| {}),

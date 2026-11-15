@@ -108,7 +108,8 @@ impl Workspace {
         allow_search: bool,
         cx: &App,
     ) -> bool {
-        self.search.read(cx).is_composing()
+        self.enlarged_image_open()
+            || self.search.read(cx).is_composing()
             || self.shell.calendar_zone.is_composing(cx)
             || surface_blocks(
                 self.shell.search_open,

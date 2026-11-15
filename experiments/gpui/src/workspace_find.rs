@@ -64,7 +64,8 @@ fn scroll_is_current(
 }
 impl Workspace {
     pub(crate) fn find_available(&self) -> bool {
-        !self.handoff_active()
+        !self.enlarged_image_open()
+            && !self.handoff_active()
             && !self.includes_preview_active()
             && !self.full_graph_active()
             && !self.shell.home
@@ -244,6 +245,9 @@ impl Workspace {
         cx.notify();
     }
     pub(crate) fn close_find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.enlarged_image_open() {
+            return;
+        }
         if self
             .shell
             .find

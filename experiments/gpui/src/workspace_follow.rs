@@ -99,7 +99,7 @@ impl Workspace {
     }
     pub(crate) fn follow_safe(&self, cx: &App) -> bool {
         FollowGate {
-            edit_busy: !self.editing_ui.follow_safe(),
+            edit_busy: self.enlarged_image_open() || !self.editing_ui.follow_safe(),
             handoff: self.handoff_active(),
             rendered_preview: self.includes_preview_active(),
             graph: self.full_graph_active(),
