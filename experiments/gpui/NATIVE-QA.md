@@ -1197,3 +1197,26 @@ closed, and all 12 canonical fixture files retained their baseline hashes.
 Rapid/delayed/failing native reads, scope/owner interruption, keyboard, narrow
 layout and actual IME remain unverified. Rust tests: 658 passed, 7 ignored;
 formatting, native build and help-site generation passed.
+
+### Typed property internal links
+
+- Model checks cover exact types/up suppression, duplicate order, malformed props,
+  property-only targets, heading/unsupported fragments, URI no-external dispatch
+  and stale source/row/verification callbacks.
+- Pending native checks: property-only note and heading clicks, Back to source,
+  plain up, repeated/Unicode/long values wrapping, unresolved inert rows, source
+  replacement and dirty/dialog/composition/quit guards. No GUI/IME/keyboard or
+  accessibility outcome is claimed yet; ordinary vault writes remain disabled.
+
+Native macOS pointer smoke on 2026-11-15 used an isolated read-only fixture
+whose source body contained no links. Its metadata-only target opened the expected
+note, and Back returned to the source. A heading target opened the same note with
+its heading visible; the short body fit the viewport, so exact fragment scrolling
+was not established. Duplicate RELATED values retained their order. A missing
+link and plain URL each remained inert when clicked. A plain string UP remained
+visible; a child's typed link UP appeared as its parent breadcrumb without a
+duplicate property. Cmd-Q exited, both owned ports closed, and all 12 canonical
+fixture files retained their baseline hashes. Rust tests: 664 passed, 7 ignored;
+formatting, native build and help-site generation passed. Narrow/Unicode layout,
+source replacement and dirty/dialog interruptions, keyboard/accessibility and
+actual IME remain unverified. Ordinary vault editing remains disabled.

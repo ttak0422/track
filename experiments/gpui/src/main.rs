@@ -30,6 +30,7 @@ mod native_window;
 mod navigation;
 mod note_creation;
 mod note_metadata;
+mod note_properties;
 mod numeric_chart;
 mod numeric_chart_view;
 mod query_view;

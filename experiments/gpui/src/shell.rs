@@ -743,6 +743,7 @@ impl Workspace {
 
 struct LinkResolutionCache {
     source: LinkSource,
+    properties: std::rc::Rc<crate::note_properties::Projection>,
     pending: bool,
     deferred_targets: usize,
     canceled: std::sync::Arc<std::sync::atomic::AtomicBool>,
@@ -809,6 +810,28 @@ fn internal_terms(blocks: &[markdown::Block]) -> Vec<String> {
             }
         }
     }
+    terms.into_iter().collect()
+}
+fn property_callback_current(
+    source: &LinkSource,
+    current: Option<&LinkSource>,
+    property: &crate::note_properties::Property,
+    props: &serde_json::Value,
+    verified: bool,
+) -> bool {
+    verified && current == Some(source) && property.current(props)
+}
+fn property_internal_terms(
+    blocks: &[markdown::Block],
+    properties: &crate::note_properties::Projection,
+) -> Vec<String> {
+    let mut terms: std::collections::BTreeSet<_> = internal_terms(blocks).into_iter().collect();
+    terms.extend(
+        properties
+            .rows
+            .iter()
+            .filter_map(|row| row.target.as_ref().and_then(markdown::resolve_term)),
+    );
     terms.into_iter().collect()
 }
 fn has_authored_fragment(target: &markdown::LinkTarget) -> bool {
@@ -1468,15 +1491,18 @@ impl Workspace {
             self.shell.links = None;
             return;
         };
+        let properties = std::rc::Rc::new(crate::note_properties::project(
+            &self.current_note.as_ref().unwrap().props,
+        ));
         if self
             .shell
             .links
             .as_ref()
-            .is_some_and(|cache| cache.source == source)
+            .is_some_and(|cache| cache.source == source && cache.properties == properties)
         {
             return;
         }
-        let mut terms = internal_terms(&self.content);
+        let mut terms = property_internal_terms(&self.content, &properties);
         let mut warnings = Vec::new();
         let deferred_targets = terms.len().saturating_sub(128);
         if terms.len() > 128 {
@@ -1491,6 +1517,7 @@ impl Workspace {
         }
         self.shell.links = Some(LinkResolutionCache {
             source: source.clone(),
+            properties: properties.clone(),
             pending: !terms.is_empty(),
             deferred_targets,
             canceled: Default::default(),
@@ -1556,7 +1583,7 @@ impl Workspace {
                 let Some(cache) = &mut this.shell.links else {
                     return;
                 };
-                if cache.source != source {
+                if cache.source != source || !std::rc::Rc::ptr_eq(&cache.properties, &properties) {
                     return;
                 }
                 cache.pending = false;
@@ -1572,6 +1599,30 @@ impl Workspace {
             });
         })
         .detach();
+    }
+    fn property_link_verified(
+        &self,
+        property: &crate::note_properties::Property,
+        source: &LinkSource,
+    ) -> bool {
+        let verified = self.shell.links.as_ref().is_some_and(|cache| {
+            cache.source == *source
+                && !cache.pending
+                && property
+                    .target
+                    .as_ref()
+                    .and_then(markdown::resolve_term)
+                    .is_some_and(|term| cache.resolved.contains_key(&term))
+        });
+        self.current_note.as_ref().is_some_and(|note| {
+            property_callback_current(
+                source,
+                self.current_link_source().as_ref(),
+                property,
+                &note.props,
+                verified,
+            )
+        })
     }
     fn activate_internal_target(
         &mut self,
@@ -3041,39 +3092,42 @@ impl Render for Workspace {
             )
         });
         let mut aside = Some(aside);
-        let metadata: Vec<(String, String)> = self
-            .current_note
+        let property_projection = self
+            .shell
+            .links
             .as_ref()
-            .map(|body| {
-                let mut fields: Vec<_> = body
-                    .props
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|prop| {
-                        let key = prop.get("key")?.as_str()?;
-                        if key == "up" {
-                            return None;
-                        }
-                        Some((key.to_uppercase(), prop.get("value")?.as_str()?.to_owned()))
-                    })
-                    .collect();
-                if let Some(created) = body.note.additional.get("created").and_then(|v| v.as_str())
-                {
-                    fields.push(("CREATED".into(), created.into()));
-                }
-                if let Some(updated) = body
-                    .note
-                    .additional
-                    .get("updated")
-                    .and_then(|v| v.as_i64())
-                    .and_then(display_date)
-                {
-                    fields.push(("UPDATED".into(), updated));
-                }
-                fields
-            })
-            .unwrap_or_default();
+            .filter(|cache| self.current_link_source().as_ref() == Some(&cache.source))
+            .map(|cache| cache.properties.clone())
+            .unwrap_or_else(|| {
+                std::rc::Rc::new(crate::note_properties::project(
+                    &self
+                        .current_note
+                        .as_ref()
+                        .map(|note| &note.props)
+                        .unwrap_or(&serde_json::Value::Null),
+                ))
+            });
+        let property_source = self.current_link_source();
+        let mut metadata: Vec<(String, String, Option<usize>)> = property_projection
+            .rows
+            .iter()
+            .enumerate()
+            .map(|(index, row)| (row.key.to_uppercase(), row.value.clone(), Some(index)))
+            .collect();
+        if let Some(body) = &self.current_note {
+            if let Some(created) = body.note.additional.get("created").and_then(|v| v.as_str()) {
+                metadata.push(("CREATED".into(), created.into(), None));
+            }
+            if let Some(updated) = body
+                .note
+                .additional
+                .get("updated")
+                .and_then(|v| v.as_i64())
+                .and_then(display_date)
+            {
+                metadata.push(("UPDATED".into(), updated, None));
+            }
+        }
         let trail_result = reader_relations::entries(self.current_related.get("trail"));
         let trail_error = trail_result.as_ref().err().copied();
         let trail = trail_result.ok().flatten().unwrap_or_default().to_vec();
@@ -3151,39 +3205,74 @@ impl Render for Workspace {
                         )
                     })
                     .when(!metadata.is_empty(), |reader| {
-                        reader.child(div().flex().gap(px(28.)).mb(px(36.)).children(
-                            metadata.into_iter().map(|(key, value)| {
-                                div()
-                                    .child(
-                                        div()
-                                            .font_family("monospace")
-                                            .text_size(px(11.))
-                                            .text_color(rgb(p.muted))
-                                            .child(key),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_size(px(13.))
-                                            .text_color(rgb(p.muted))
-                                            .child(value),
-                                    )
-                            }),
+                        reader.child(div().flex().flex_wrap().gap(px(28.)).mb(px(36.)).children(
+                            metadata.into_iter().enumerate().map(
+                                |(index, (key, value, property_index))| {
+                                    let verified = property_index
+                                        .and_then(|i| property_projection.rows.get(i))
+                                        .zip(property_source.as_ref())
+                                        .is_some_and(|(row, source)| {
+                                            self.footnote_reader_available(cx)
+                                                && self.property_link_verified(row, source)
+                                        });
+                                    let captured = property_projection.clone();
+                                    let source = property_source.clone();
+                                    let value = div()
+                                        .id(("typed-property", index))
+                                        .min_w_0()
+                                        .max_w_full()
+                                        .text_size(px(13.))
+                                        .text_color(rgb(if verified { p.mark } else { p.muted }))
+                                        .child(metadata_text(&value))
+                                        .when(verified, |value| {
+                                            value.cursor_pointer().on_click(cx.listener(
+                                                move |this, _, _, cx| {
+                                                    let Some(row) = property_index
+                                                        .and_then(|i| captured.rows.get(i))
+                                                    else {
+                                                        return;
+                                                    };
+                                                    let Some(source) = &source else {
+                                                        return;
+                                                    };
+                                                    if this.footnote_reader_available(cx)
+                                                        && this.property_link_verified(row, source)
+                                                    {
+                                                        if let Some(target) = &row.target {
+                                                            this.activate_internal_target(
+                                                                target, source, cx,
+                                                            );
+                                                        }
+                                                    }
+                                                },
+                                            ))
+                                        });
+                                    div()
+                                        .min_w_0()
+                                        .max_w_full()
+                                        .child(
+                                            div()
+                                                .font_family("monospace")
+                                                .text_size(px(11.))
+                                                .text_color(rgb(p.muted))
+                                                .child(metadata_text(&key)),
+                                        )
+                                        .child(value)
+                                },
+                            ),
                         ))
                     })
                     .when(
-                        self.current_note.is_some()
-                            && self
-                                .current_note
-                                .as_ref()
-                                .is_some_and(|note| note.props.is_null())
-                            && trail.is_empty(),
+                        self.current_note.is_some() && property_projection.unavailable,
                         |reader| {
                             reader.child(
                                 div()
                                     .text_size(px(11.))
                                     .text_color(rgb(p.muted))
                                     .mb_6()
-                                    .child("Additional metadata is unavailable in this response."),
+                                    .child(
+                                        "Some additional metadata is unavailable in this response.",
+                                    ),
                             )
                         },
                     )
@@ -4118,6 +4207,7 @@ mod internal_link_tests {
         let raw = markdown::parse("[[id:123]] tail");
         let mut cache = LinkResolutionCache {
             source: source.clone(),
+            properties: Default::default(),
             pending: true,
             deferred_targets: 0,
             canceled: Default::default(),
@@ -4722,5 +4812,85 @@ mod footnote_return_tests {
         shell.footnote_return = Some(ticket.clone());
         shell.detach_reader_scroll(&ticket.tab);
         assert!(shell.footnote_return.is_none()); // revisiting the note cannot revive it
+    }
+}
+
+#[cfg(test)]
+mod typed_property_link_tests {
+    use super::*;
+    use serde_json::json;
+    #[test]
+    fn metadata_only_targets_share_bounded_body_resolution_without_duplicates() {
+        let properties = crate::note_properties::project(&json!([
+            {"key":"related","value":"OnlyMetadata#Detail","type":"link","line":1},
+            {"key":"related","value":"OnlyMetadata","type":"link","line":2},
+            {"key":"plain","value":"NotATarget","type":"string","line":3},
+            {"key":"up","value":"HiddenParent","type":"link","line":4}
+        ]));
+        assert_eq!(
+            property_internal_terms(&markdown::parse("[[Body]]"), &properties),
+            ["Body", "OnlyMetadata"]
+        );
+        assert_eq!(property_internal_terms(&[], &properties), ["OnlyMetadata"]);
+    }
+    #[test]
+    fn property_callbacks_recheck_exact_source_row_and_verification() {
+        let source = LinkSource {
+            note: live::NoteKey {
+                vault: "work".into(),
+                note_id: 7,
+            },
+            etag: "a".into(),
+            storage_generation: 2,
+            launch_generation: 3,
+            request: 4,
+        };
+        let props = json!([{"key":"related","value":"file:///tmp/name","type":"link","line":1}]);
+        let projection = crate::note_properties::project(&props);
+        let property = &projection.rows[0];
+        assert!(!property_callback_current(
+            &source,
+            Some(&source),
+            property,
+            &props,
+            false
+        ));
+        assert!(property_callback_current(
+            &source,
+            Some(&source),
+            property,
+            &props,
+            true
+        ));
+        for field in 0..6 {
+            let mut current = source.clone();
+            match field {
+                0 => current.note.vault = "other".into(),
+                1 => current.note.note_id += 1,
+                2 => current.etag.push('b'),
+                3 => current.storage_generation += 1,
+                4 => current.launch_generation += 1,
+                _ => current.request += 1,
+            }
+            assert!(!property_callback_current(
+                &source,
+                Some(&current),
+                property,
+                &props,
+                true
+            ));
+        }
+        assert!(!property_callback_current(
+            &source, None, property, &props, true
+        ));
+        let mut changed = props.clone();
+        changed[0]["value"] = json!("Different");
+        assert!(!property_callback_current(
+            &source,
+            Some(&source),
+            property,
+            &changed,
+            true
+        ));
     }
 }

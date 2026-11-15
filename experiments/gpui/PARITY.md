@@ -433,3 +433,16 @@ formatting and native debug build pass. A seeded post-intent process-exit fixtur
 verified native receipt restore, blocked dismissal/quit, retained close, New
 reopening without retry, normal quit and second-launch restore. This is not a
 live lost-response POST or dirty/IME combination smoke; see NATIVE-QA.md.
+
+### Typed property internal links
+
+Typed projection preserves duplicate order and literal labels; only exact `link`
+properties use the source-qualified bounded resolver, including metadata-only
+targets. Only exact `up` + `link` is suppressed. Verified clicks recheck source,
+revision and row, then use existing guarded navigation/heading flow. Malformed
+metadata is reported, not turned into targets. URI-like values never externally
+open. The 128-target bound remains shared with body links. Hover previews, full
+metadata styling and block fragments remain unsupported. Native pointer checks cover metadata-only navigation, Back, duplicate ordering,
+plain versus typed up and inert missing/plain URL values. Exact heading scrolling,
+interrupted flows, layout, IME and keyboard/accessibility validation remain pending;
+projection/lookup/stale-callback models are covered.

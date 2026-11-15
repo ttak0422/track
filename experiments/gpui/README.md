@@ -932,3 +932,14 @@ remain open. Normal-vault editing stays disabled.
 
 The durable-receipt increment passes 642 native tests (7 ignored) and formatting;
 its final build and receipt-specific GUI checks are not yet confirmed.
+
+### Native typed property links
+
+Properties with the exact `link` type can open a verified internal note, including
+a supported heading fragment. Values remain literal labels; repeated values keep
+their order. Only `up` properties of type `link` are hidden; plain `up` stays visible.
+Pending, missing, ambiguous or failed targets remain readable but inactive. URI-like
+values are internal lookups, never browser/file opens. Property-only targets share
+the reader's existing 128-distinct-target lookup limit. Unsupported fragments stay
+inactive. No hover preview, automatic title replacement, full metadata styling
+parity or block-fragment navigation is provided. No note writes are added.
