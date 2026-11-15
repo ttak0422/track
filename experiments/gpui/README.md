@@ -887,3 +887,14 @@ are rejected rather than opened from the filesystem. The limits are 5000 files,
 24 MiB wire JSON, 16 MiB decoded content and 2 MiB per Markdown file, with further
 native parsing bounds. Image bytes are validated for size but not rendered.
 Native clipboard, focus, keyboard/IME and accessibility QA remains pending.
+
+## Read-only tag pages
+
+Click an accepted live note tag to open a dedicated page, not a search. It lists
+launch-vault notes with that exact tag or descendants, case-insensitively, in
+engine order. Partial/cached responses remain qualified; results are virtualized
+without a search-result cap. The page participates in Back/Forward and Reload
+but is not a tab. Existing tabs remain available; Cmd-W on the tag page does
+nothing. Fixture sessions may retain bounded tag history while still restoring
+to safe Home. Ordinary persistence and editing remain disabled. Offline tag
+listing and native layout/interaction acceptance remain incomplete.

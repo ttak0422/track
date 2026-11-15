@@ -109,6 +109,7 @@ struct Entry {
 enum Kind {
     Home {},
     Graph {},
+    Tag { tag: String, scope: String },
     Note { vault: String, note_id: i64 },
 }
 
@@ -116,6 +117,10 @@ fn encode_kind(key: &TabKey) -> Kind {
     match key {
         TabKey::Home => Kind::Home {},
         TabKey::Graph => Kind::Graph {},
+        TabKey::Tag { tag, scope } => Kind::Tag {
+            tag: tag.clone(),
+            scope: scope.clone(),
+        },
         TabKey::Note { vault, note_id } => Kind::Note {
             vault: vault.clone(),
             note_id: *note_id,
@@ -315,20 +320,27 @@ impl SessionStore {
             }
             let s: Snapshot = serde_json::from_slice(bytes).map_err(err)?;
             if s.owner != OWNER
-                || !matches!(s.version, 1 | 2 | 3 | 4)
+                || !matches!(s.version, 1 | 2 | 3 | 4 | 5)
                 || s.binding != store.binding
                 || s.revision == 0
             {
                 return Err(err("schema or fixture/registry binding mismatch"));
             }
+            if s.version < 5
+                && s.history
+                    .as_ref()
+                    .is_some_and(|h| h.routes.iter().any(|r| matches!(r, Kind::Tag { .. })))
+            {
+                return Err(err("tag page history requires version 5"));
+            }
             store.restored_history = match (s.version, s.history) {
                 (1, None) => None,
-                (2 | 3 | 4, Some(history)) => Some(store.decode_history(history)?),
+                (2 | 3 | 4 | 5, Some(history)) => Some(store.decode_history(history)?),
                 _ => return Err(err("invalid history schema")),
             };
             store.restored_scope = match (s.version, s.working_scope) {
                 (1 | 2, None) => None,
-                (3 | 4, Some(scope)) => {
+                (3 | 4 | 5, Some(scope)) => {
                     store.validate_scope(&scope)?;
                     Some(scope)
                 }
@@ -373,6 +385,9 @@ impl SessionStore {
         match kind {
             Kind::Home {} => Ok(TabKey::Home),
             Kind::Graph {} => Ok(TabKey::Graph),
+            Kind::Tag { tag, scope } if TabKey::valid_tag_route(&tag, &scope) => {
+                Ok(TabKey::Tag { tag, scope })
+            }
             Kind::Note { vault, note_id }
                 if note_id > 0
                     && vault.len() <= 1024
@@ -467,6 +482,9 @@ impl SessionStore {
                     return Err(err("invalid title hint"));
                 }
                 let key = self.decode_kind(entry.kind)?;
+                if matches!(key, TabKey::Tag { .. }) {
+                    return Err(err("tag page cannot be a persistent tab"));
+                }
                 if !seen.insert(key.clone()) {
                     return Err(err("duplicate tab identity"));
                 }
@@ -510,14 +528,7 @@ impl SessionStore {
             .iter()
             .map(|t| Entry {
                 title: t.title.clone(),
-                kind: match &t.key {
-                    TabKey::Home => Kind::Home {},
-                    TabKey::Graph => Kind::Graph {},
-                    TabKey::Note { vault, note_id } => Kind::Note {
-                        vault: vault.clone(),
-                        note_id: *note_id,
-                    },
-                },
+                kind: encode_kind(&t.key),
             })
             .collect();
         // Validate exactly the same bounds and identity policy in both directions.
@@ -540,7 +551,16 @@ impl SessionStore {
         self.validate_positions(&positions, tabs)?;
         let bytes = serde_json::to_vec(&Snapshot {
             owner: OWNER.into(),
-            version: 4,
+            // Version 5 adds page-only tag history. Keep non-tag saves compatible.
+            version: if history
+                .routes
+                .iter()
+                .any(|r| matches!(r, TabKey::Tag { .. }))
+            {
+                5
+            } else {
+                4
+            },
             binding: self.binding.clone(),
             revision,
             tabs: entries,
@@ -710,6 +730,99 @@ mod tests {
             },
         ]
     }
+    #[test]
+    fn tag_history_v5_roundtrip_preserves_tabs_and_rejects_legacy_reinterpretation() {
+        let f = Fixture::new();
+        let (mut store, _) = f.open().unwrap();
+        let mut history = crate::navigation::History::default();
+        let tag = TabKey::Tag {
+            tag: "ος/日本語 a".into(),
+            scope: "".into(),
+        };
+        history.record(Some(tag.clone()));
+        store
+            .save_with_history(&tabs(), &history.snapshot())
+            .unwrap();
+        drop(store);
+        let original = std::fs::read(f.state()).unwrap();
+        let (store, restored_tabs) = f.open().unwrap();
+        assert_eq!(restored_tabs, tabs());
+        assert_eq!(store.restored_history, Some(history.snapshot()));
+        let safe =
+            crate::navigation::History::restore_home(store.restored_history.clone().unwrap())
+                .unwrap();
+        assert_eq!(safe.current(), Some(&TabKey::Home));
+        assert_eq!(safe.peek(false).unwrap().route, Some(tag));
+        drop(store);
+        let value: serde_json::Value = serde_json::from_slice(&original).unwrap();
+        assert_eq!(value["version"], 5);
+        for version in [2, 3, 4] {
+            let mut old = value.clone();
+            old["version"] = version.into();
+            if version < 4 {
+                old.as_object_mut().unwrap().remove("reading_positions");
+            }
+            if version < 3 {
+                old.as_object_mut().unwrap().remove("working_scope");
+            }
+            let bytes = serde_json::to_vec(&old).unwrap();
+            f.replace(&bytes);
+            assert!(f.open().is_err());
+            assert_eq!(std::fs::read(f.state()).unwrap(), bytes);
+        }
+        for invalid in [
+            serde_json::json!({"type":"Tag","tag":"a","scope":"one"}),
+            serde_json::json!({"type":"Tag","tag":"","scope":""}),
+            serde_json::json!({"type":"Tag","tag":"a/","scope":""}),
+            serde_json::json!({"type":"Tag","tag":"A","scope":""}),
+            serde_json::json!({"type":"Tag","tag":"a".repeat(crate::tabs::TAG_MAX_BYTES + 1),"scope":""}),
+            serde_json::json!({"type":"Unknown","tag":"a","scope":""}),
+            serde_json::json!({"type":"Tag","tag":"a","scope":"","extra":true}),
+        ] {
+            let mut bad = value.clone();
+            bad["history"]["routes"][1] = invalid;
+            let bytes = serde_json::to_vec(&bad).unwrap();
+            f.replace(&bytes);
+            assert!(f.open().is_err());
+            assert_eq!(std::fs::read(f.state()).unwrap(), bytes);
+        }
+        let mut bad = value;
+        bad["tabs"][0]["kind"] = serde_json::json!({"type":"Tag","tag":"a","scope":""});
+        f.replace(&serde_json::to_vec(&bad).unwrap());
+        assert!(f.open().is_err());
+    }
+
+    #[test]
+    fn tag_cannot_be_saved_as_tab_and_bad_history_leaves_snapshot_untouched() {
+        let f = Fixture::new();
+        let (mut store, _) = f.open().unwrap();
+        store.save(&tabs()).unwrap();
+        let original = std::fs::read(f.state()).unwrap();
+        let tag = TabKey::Tag {
+            tag: "a".into(),
+            scope: "".into(),
+        };
+        assert!(
+            store
+                .save(&[Tab {
+                    key: tag,
+                    title: "tag".into()
+                }])
+                .is_err()
+        );
+        for (tag, scope) in [("a", "one"), ("", ""), ("a/", ""), ("A", "")] {
+            let invalid = crate::navigation::Snapshot {
+                routes: vec![TabKey::Tag {
+                    tag: tag.into(),
+                    scope: scope.into(),
+                }],
+                cursor: 0,
+            };
+            assert!(store.save_with_history(&tabs(), &invalid).is_err());
+        }
+        assert_eq!(std::fs::read(f.state()).unwrap(), original);
+    }
+
     #[test]
     fn scope_v3_roundtrip_and_invalid_snapshots_preserve_bytes() {
         let f = Fixture::new();

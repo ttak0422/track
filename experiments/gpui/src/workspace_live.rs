@@ -105,7 +105,7 @@ impl Workspace {
 
     /// A newer epoch invalidates all previously displayed body/graph data, not just
     /// requests whose before/after probes straddle the transition.
-    fn observe_storage(&mut self, state: &live::Storage, cx: &mut Context<Self>) {
+    pub(crate) fn observe_storage(&mut self, state: &live::Storage, cx: &mut Context<Self>) {
         if epoch_changed(self.accepted_storage_generation, state.generation) {
             self.editor_environment_changed("Storage generation changed.");
             self.request += 1;
@@ -265,6 +265,10 @@ impl Workspace {
     }
 
     pub fn load_live_notes(&mut self, cx: &mut Context<Self>) {
+        if let Some(page) = &self.tag_page {
+            self.open_tag_page(page.tag.clone(), page.scope.clone(), cx);
+            return;
+        }
         if self.guard_transition(workspace_edit::Transition::Reload, cx) {
             return;
         }
@@ -443,6 +447,13 @@ impl Workspace {
         let Some(note) = self.search_results.get(index).cloned() else {
             return;
         };
+        if self.tag_page.is_some() {
+            // This callback belongs to Search, not the obscured tag page.
+            if self.tag_search_result_blocked(cx) {
+                return;
+            }
+            self.shell.search_open = false;
+        }
         if self.guard_transition(workspace_edit::Transition::Note(note.key()), cx) {
             return;
         }
@@ -538,6 +549,7 @@ impl Workspace {
         if self.guard_transition(workspace_edit::Transition::Note(key.clone()), cx) {
             return;
         }
+        self.tag_page = None;
         self.shell.home = false;
         self.shell.search_open = false;
         self.search.update(cx, |search, cx| search.clear(cx));

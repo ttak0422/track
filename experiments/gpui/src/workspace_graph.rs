@@ -30,14 +30,17 @@ impl Workspace {
             .update(cx, |v, cx| v.set_graph(graph::Graph::default(), cx));
     }
     pub(crate) fn full_graph_active(&self) -> bool {
-        self.tabs
-            .active()
-            .is_some_and(|t| t.key == tabs::TabKey::Graph)
+        self.tag_page.is_none()
+            && self
+                .tabs
+                .active()
+                .is_some_and(|t| t.key == tabs::TabKey::Graph)
     }
     pub(crate) fn open_full_graph(&mut self, cx: &mut Context<Self>) {
         if self.guard_transition(workspace_edit::Transition::FullGraph, cx) {
             return;
         }
+        self.tag_page = None;
         self.tabs.open_graph();
         self.history.record(Some(tabs::TabKey::Graph));
         self.session_ui

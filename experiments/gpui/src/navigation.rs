@@ -49,6 +49,9 @@ impl History {
         if snapshot.routes.is_empty()
             || snapshot.routes.len() > LIMIT
             || snapshot.cursor >= snapshot.routes.len()
+            || snapshot.routes.iter().any(
+                |r| matches!(r, TabKey::Tag { tag, scope } if !TabKey::valid_tag_route(tag, scope)),
+            )
         {
             return None;
         }
@@ -74,6 +77,9 @@ impl History {
     /// Startup may still choose its configured Home. An accepted empty Home is
     /// instead a real route, even though closing the last tab left no tab entry.
     pub fn reload_route(&self, tabs: &crate::tabs::Tabs) -> Option<TabKey> {
+        if matches!(self.current(), Some(TabKey::Tag { .. })) {
+            return self.current().cloned();
+        }
         tabs.active().map(|t| t.key.clone()).or_else(|| {
             (self.revision != 0)
                 .then(|| self.entries[self.cursor].clone())
@@ -81,7 +87,15 @@ impl History {
         })
     }
 
+    pub fn current(&self) -> Option<&TabKey> {
+        self.entries[self.cursor].as_ref()
+    }
+
     pub fn record(&mut self, route: Option<TabKey>) {
+        if matches!(&route, Some(TabKey::Tag { tag, scope }) if !TabKey::valid_tag_route(tag, scope))
+        {
+            return;
+        }
         let route = Some(route.unwrap_or(TabKey::Home));
         if self.entries[self.cursor] == route {
             return;
@@ -129,6 +143,55 @@ mod tests {
             note_id,
         })
     }
+    #[test]
+    fn tag_page_history_keeps_retained_tabs_and_safe_home_restore() {
+        let mut tabs = crate::tabs::Tabs::default();
+        let a = tabs.open_note("one", 7, "A");
+        let tag = TabKey::Tag {
+            tag: "a/b".into(),
+            scope: "".into(),
+        };
+        let mut h = History::default();
+        h.record(Some(a.clone()));
+        h.record(Some(tag.clone()));
+        assert_eq!(h.reload_route(&tabs), Some(tag.clone()));
+        assert_eq!(tabs.active().unwrap().key, a);
+        let b = tabs.open_note("two", 7, "B");
+        h.record(Some(b.clone()));
+        let back = h.peek(false).unwrap();
+        assert_eq!(back.route, Some(tag.clone()));
+        // Merely obtaining a pending transition must not move the cursor.
+        assert_eq!(h.current(), Some(&b));
+        assert!(h.commit(&back));
+        assert_eq!(h.reload_route(&tabs), Some(tag.clone()));
+        assert!(h.commit(&h.peek(false).unwrap()));
+        assert_eq!(h.current(), Some(&a));
+        assert!(h.commit(&h.peek(true).unwrap()));
+        assert_eq!(h.current(), Some(&tag));
+        let restored = History::restore_home(h.snapshot()).unwrap();
+        assert_eq!(restored.current(), Some(&TabKey::Home));
+        assert_eq!(restored.peek(false).unwrap().route, Some(tag));
+    }
+
+    #[test]
+    fn invalid_tag_history_fails_closed_without_moving_cursor() {
+        let mut h = History::default();
+        let original = h.clone();
+        let invalid = TabKey::Tag {
+            tag: "a".into(),
+            scope: "other".into(),
+        };
+        h.record(Some(invalid.clone()));
+        assert_eq!(h, original);
+        assert!(
+            History::restore_home(Snapshot {
+                routes: vec![invalid],
+                cursor: 0
+            })
+            .is_none()
+        );
+    }
+
     #[test]
     fn boundaries_branching_and_duplicate_refresh() {
         let mut h = History::default();

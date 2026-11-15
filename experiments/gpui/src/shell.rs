@@ -1723,6 +1723,7 @@ impl Workspace {
             return false;
         };
         match route {
+            tabs::TabKey::Tag { tag, scope } => self.open_tag_page(tag, scope, cx),
             tabs::TabKey::Home => self.show_empty_home(),
             tabs::TabKey::Graph => self.open_full_graph(cx),
             tabs::TabKey::Note { vault, note_id } => {
@@ -1745,6 +1746,23 @@ impl Workspace {
         true
     }
     pub(crate) fn navigate_history(&mut self, forward: bool, cx: &mut Context<Self>) {
+        // Invalid input is an ephemeral error page, never a serialized route.
+        // Back returns to its source without skipping that history entry.
+        if self
+            .tag_page
+            .as_ref()
+            .is_some_and(|p| !tabs::TabKey::valid_tag_route(&p.tag, &p.scope))
+        {
+            if !forward {
+                if self.tag_routing_blocked(cx) {
+                    return;
+                }
+                let route = self.history.current().cloned();
+                self.restore_reload_route(route, cx);
+                cx.notify();
+            }
+            return;
+        }
         if let Some(ticket) = self.history.peek(forward) {
             self.replay_history(ticket, cx);
         }
@@ -1785,6 +1803,7 @@ impl Workspace {
                     self.select(i, cx);
                 }
             }
+            Some(tabs::TabKey::Tag { tag, scope }) => self.open_tag_page(tag, scope, cx),
             Some(tabs::TabKey::Graph) => self.open_full_graph(cx),
             _ => {
                 // History Home is the literal destination, not today's configured note.
@@ -1808,7 +1827,11 @@ impl Workspace {
     ) {
         // An already-active tab is a focus click, not a navigation/reload request.
         // Check before the dirty gate so it cannot capture a spurious leave intent.
-        if !tab_activation_needed(&self.tabs, &key, load_current_after_close) {
+        if !tab_activation_needed(
+            &self.tabs,
+            &key,
+            load_current_after_close || self.tag_page.is_some(),
+        ) {
             return;
         }
         if self.guard_transition(workspace_edit::Transition::ActivateTab(key.clone()), cx) {
@@ -1828,7 +1851,9 @@ impl Workspace {
         }
         self.shell.tab_menu = false;
         self.shell.search_open = false;
+        self.tag_page = None;
         match key {
+            tabs::TabKey::Tag { .. } => return, // pages never occur in Tabs
             tabs::TabKey::Home => self.open_home(cx),
             tabs::TabKey::Graph => self.open_full_graph(cx),
             tabs::TabKey::Note { vault, note_id } => {
@@ -1855,7 +1880,8 @@ impl Workspace {
         cx.notify();
     }
     pub(crate) fn workspace_shortcut(&mut self, save: bool, cx: &mut Context<Self>) {
-        if self.shell.search_open
+        if self.tag_page.is_some()
+            || self.shell.search_open
             || self.search.read(cx).is_composing()
             || self.shell.calendar_zone.is_composing(cx)
             || self.shell.vault_menu
@@ -1885,7 +1911,8 @@ impl Workspace {
         if self.tabs.get(key).is_none() {
             return;
         }
-        let was_active = self.tabs.active().is_some_and(|tab| &tab.key == key);
+        let was_active =
+            self.tag_page.is_none() && self.tabs.active().is_some_and(|tab| &tab.key == key);
         if was_active
             && self.guard_transition(workspace_edit::Transition::CloseTab(key.clone()), cx)
         {
@@ -1944,6 +1971,7 @@ impl Workspace {
             .map(|(index, _)| index)
     }
     fn show_empty_home(&mut self) {
+        self.tag_page = None;
         self.history.record(Some(tabs::TabKey::Home));
         self.request += 1;
         self.graph_request += 1;
@@ -2233,11 +2261,16 @@ impl Render for Workspace {
             graph.set_overview(full_graph_active, cx);
         });
         let title = self
-            .current_note
+            .tag_page
             .as_ref()
-            .map(|body| body.note.title.clone())
-            .or_else(|| note.as_ref().map(|n| n.title.clone()))
-            .or_else(|| self.tabs.active().map(|tab| tab.title.clone()))
+            .map(|page| format!("#{}", page.tag))
+            .or_else(|| {
+                self.current_note
+                    .as_ref()
+                    .map(|body| body.note.title.clone())
+                    .or_else(|| note.as_ref().map(|n| n.title.clone()))
+                    .or_else(|| self.tabs.active().map(|tab| tab.title.clone()))
+            })
             .unwrap_or_default();
         let reader_focus = self
             .shell
@@ -2245,10 +2278,18 @@ impl Render for Workspace {
             .get_or_insert_with(|| cx.focus_handle())
             .clone();
         let reader_key = self
-            .tabs
-            .active()
-            .map(|tab| tab.key.clone())
-            .unwrap_or(tabs::TabKey::Home);
+            .tag_page
+            .as_ref()
+            .map(|page| tabs::TabKey::Tag {
+                tag: page.tag.clone(),
+                scope: page.scope.clone(),
+            })
+            .unwrap_or_else(|| {
+                self.tabs
+                    .active()
+                    .map(|tab| tab.key.clone())
+                    .unwrap_or(tabs::TabKey::Home)
+            });
         let task_inspector = self.note_tasks_inspector(cx);
         let includes_inspector = self.includes_inspector(cx);
         let children_relations = self.relation_section("children", cx);
@@ -2262,12 +2303,15 @@ impl Render for Workspace {
                 .map(|note| note.tags.as_slice())
                 .unwrap_or_default(),
         );
-        let reader_scroll = self
-            .shell
-            .reader_scrolls
-            .entry(reader_key.clone())
-            .or_default()
-            .clone();
+        let reader_scroll = if self.tag_page.is_some() {
+            gpui::ScrollHandle::new() // no note scroll or retained per-tag reader allocation
+        } else {
+            self.shell
+                .reader_scrolls
+                .entry(reader_key.clone())
+                .or_default()
+                .clone()
+        };
         self.sync_find(reader_key.clone(), &reader_scroll, dark, window, cx);
         let code_controls = self.code_controls(&reader_scroll, cx);
         let content_ready = self.current_note.is_some() || !self.content.is_empty();
@@ -2291,23 +2335,30 @@ impl Render for Workspace {
             "{headings:?}:{:?}",
             markdown::footnote_targets(&self.content)
         );
-        let anchor_entry = self
-            .shell
-            .heading_anchors
-            .entry(reader_key.clone())
-            .or_insert_with(|| {
-                (
-                    outline_signature.clone(),
+        let heading_anchors = if self.tag_page.is_some() {
+            std::rc::Rc::new(markdown::HeadingAnchors::new(&self.content, &reader_scroll))
+        } else {
+            let anchor_entry = self
+                .shell
+                .heading_anchors
+                .entry(reader_key.clone())
+                .or_insert_with(|| {
+                    (
+                        outline_signature.clone(),
+                        std::rc::Rc::new(markdown::HeadingAnchors::new(
+                            &self.content,
+                            &reader_scroll,
+                        )),
+                    )
+                });
+            if anchor_entry.0 != outline_signature {
+                *anchor_entry = (
+                    outline_signature,
                     std::rc::Rc::new(markdown::HeadingAnchors::new(&self.content, &reader_scroll)),
-                )
-            });
-        if anchor_entry.0 != outline_signature {
-            *anchor_entry = (
-                outline_signature,
-                std::rc::Rc::new(markdown::HeadingAnchors::new(&self.content, &reader_scroll)),
-            );
-        }
-        let heading_anchors = anchor_entry.1.clone();
+                );
+            }
+            anchor_entry.1.clone()
+        };
         self.schedule_fragment_scroll(heading_anchors.clone(), reader_scroll.clone(), window, cx);
         for entry in &mut headings {
             entry.title = displayed_content[entry.block_index].text.clone();
@@ -2596,9 +2647,10 @@ impl Render for Workspace {
                 rail_button("reload", "reload", p, false)
                     .on_click(cx.listener(|this, _, _, cx| this.load_notes(cx))),
             )
-            .when(self.editing_ui.enabled() && !full_graph_active, |rail| {
-                rail.child(self.render_edit_controls(cx))
-            })
+            .when(
+                self.editing_ui.enabled() && !full_graph_active && self.tag_page.is_none(),
+                |rail| rail.child(self.render_edit_controls(cx)),
+            )
             .child(div().w(px(24.)).h(px(1.)).my_1().bg(rgb(p.line)))
             .child(
                 rail_button("theme", "theme", p, false).on_click(cx.listener(
@@ -2630,10 +2682,18 @@ impl Render for Workspace {
             .text_color(rgb(p.muted))
             .when(!note_labels.tags.is_empty(), |aside| {
                 aside.child(div().mb_8().child(label("TAGS", p)).children(
-                    note_labels.tags.iter().map(|tag| {
-                        metadata_text(&format!("#{tag}"))
+                    note_labels.tags.iter().enumerate().map(|(index, tag)| {
+                        let source = self.current_link_source();
+                        let tag = tag.clone();
+                        div()
+                            .id(("reader-tag", index))
                             .mb_2()
                             .text_color(rgb(p.ink))
+                            .cursor_pointer()
+                            .child(metadata_text(&format!("#{tag}")))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.activate_reader_tag(source.as_ref(), &tag, cx);
+                            }))
                     }),
                 ))
             })
@@ -3327,12 +3387,15 @@ impl Render for Workspace {
                         ),
                 )
             })
+            .when(self.tag_page.is_some(), |root| {
+                root.child(self.render_tag_page(p.ink, p.muted, p.line, cx))
+            })
             .when(home, |root| root.child(home_view))
             .when(full_graph_active, |root| {
                 root.child(self.render_full_graph(cx))
             })
             .when(
-                !home && !full_graph_active && !self.editing_ui.active(),
+                !home && !full_graph_active && self.tag_page.is_none() && !self.editing_ui.active(),
                 |root| {
                     root.child(
                         div()

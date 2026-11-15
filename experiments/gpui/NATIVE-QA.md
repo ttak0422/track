@@ -979,3 +979,19 @@ unit tests passed (590 passed, 7 ignored); the macOS build passed. GUI light/dar
 narrow viewport and long unbroken Unicode label wrapping were not exercised for
 this increment. These checks remain open, as does real IME composition. Ordinary
 vault editing remains disabled.
+
+## 2026-11-15: dedicated tag-page implementation checks
+
+Cloud implementation and independent source review added a dedicated read-only
+launch-vault tag page, separate from the tab strip and search. Model tests cover
+literal descendant/case matching, contextual Unicode casing, more than 50
+matches in source order, stale source/response/row rejection, interaction-owner
+admission, page-only history, and fixture schema 1–5 migration. A review found
+and corrected storage-generation refresh becoming permanently stale: stable
+new response generations are now adopted only after the original request and
+launch identity still match, then row tickets are rebound.
+
+macOS build and full Rust suite passed: 602 passed, 7 ignored. Formatting and
+whitespace checks passed. No new GUI acceptance is claimed: note-to-tag-to-note
+Back/Forward, Reload, retained-tab interaction, long tag/title layout and actual
+IME remain pending. Ordinary vault editing stays disabled.

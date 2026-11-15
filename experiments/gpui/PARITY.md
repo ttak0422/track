@@ -17,6 +17,7 @@ of support. Use disposable fixture vaults, never a configured personal vault, fo
 | Session-only working-vault scope selection | [x] | [ ] | `shell.rs`; existing tabs/Home/federated search remain unchanged |
 | Persistent vault scope and workspace preferences | [ ] | [ ] | Fixture-only working scope implemented; ordinary persistence and other preferences remain open |
 | Note body, tags, flags, hierarchy and backlinks | [ ] | [ ] | Accepted-source tags and typed read-only DEPRECATED/CONFIDENTIAL badges implemented; unknown flags remain literal neutral labels. Full visual/hierarchy parity and native narrow-label QA remain open. |
+| Dedicated read-only launch-vault tag page | [x] | [ ] | `workspace_tags.rs`; literal hierarchical matching, virtualized full listing, page-only history and schema 5 fixture support; native GUI pending |
 | In-memory vault-qualified tabs and close/overflow navigation | [x] | [ ] | `tabs.rs`, `shell.rs`; model tests, native QA pending |
 | Bounded in-memory Home/Graph/note Back/Forward | [x] | [ ] | `navigation.rs`, `shell.rs`; 100 routes, dirty-gated tickets and fixture lifecycle tests; native shortcuts/IME pending |
 | Persistent tabs, history and floating previews | [ ] | [ ] | `components/tabs`, `components/preview` |

@@ -52,6 +52,7 @@ mod workspace_live;
 mod workspace_note_tasks;
 mod workspace_preview;
 mod workspace_session;
+mod workspace_tags;
 use backend::{Backend, Note, Snapshot};
 actions!(
     native_workspace,
@@ -119,6 +120,7 @@ struct Workspace {
     editing_ui: workspace_edit::EditingUi,
     tabs: tabs::Tabs,
     history: navigation::History,
+    tag_page: Option<workspace_tags::Page>,
     session_ui: workspace_session::SessionUi,
     event_awareness: event_awareness::State,
     follow: workspace_follow::FollowUi,
@@ -212,6 +214,10 @@ impl Workspace {
     }
 
     fn load_notes(&mut self, cx: &mut Context<Self>) {
+        if let Some(page) = &self.tag_page {
+            self.open_tag_page(page.tag.clone(), page.scope.clone(), cx);
+            return;
+        }
         if self.guard_transition(workspace_edit::Transition::Reload, cx) {
             return;
         }
@@ -295,6 +301,7 @@ impl Workspace {
         if self.guard_transition(intent, cx) {
             return;
         }
+        self.tag_page = None;
         let note = &self.snapshot.notes[index];
         if !self.shell.home || self.configured_home_index() == Some(index) {
             let vault = self
@@ -690,6 +697,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         editing_ui: workspace_edit::EditingUi::new(developer_fixture),
                         tabs: tabs::Tabs::default(),
                         history: navigation::History::default(),
+                        tag_page: None,
                         session_ui,
                         event_awareness: Default::default(),
                         follow: Default::default(),

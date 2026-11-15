@@ -36,6 +36,7 @@ pub enum Transition {
     ActivateTab(tabs::TabKey),
     CloseTab(tabs::TabKey),
     Home,
+    Tag { tag: String, scope: String },
     History(navigation::Ticket),
     Reload,
     Graph,
@@ -239,6 +240,9 @@ impl EditingUi {
             || self.mode_menu
             || input_busy
     }
+    pub(crate) fn tag_owner_busy(&self) -> bool {
+        self.mode_menu || self.inspecting
+    }
     pub fn has_pending(&self) -> bool {
         self.pending.is_some()
     }
@@ -323,6 +327,9 @@ fn fixture_note(root: &Path, path: &Path) -> bool {
 impl Workspace {
     /// true means caller must stop before changing any navigation state.
     pub(crate) fn guard_transition(&mut self, intent: Transition, cx: &mut Context<Self>) -> bool {
+        if self.tag_transition_blocked(&intent, cx) {
+            return true;
+        }
         if !self.follow.routing {
             self.stop_editor_follow();
         }
@@ -422,6 +429,7 @@ impl Workspace {
             Transition::ActivateTab(key) => self.activate_tab(key, cx),
             Transition::CloseTab(key) => self.close_tab(&key, cx),
             Transition::Home => self.open_home(cx),
+            Transition::Tag { tag, scope } => self.open_tag_page(tag, scope, cx),
             Transition::History(ticket) => self.replay_history(ticket, cx),
             Transition::Reload => self.load_notes(cx),
             Transition::Graph => self.load_graph(cx),
@@ -1484,6 +1492,10 @@ mod tests {
     fn unified_gate_blocks_repeated_destinations_and_protects_dirty_saving_and_ime() {
         let intents = [
             Transition::Home,
+            Transition::Tag {
+                tag: "a/b".into(),
+                scope: String::new(),
+            },
             Transition::Reload,
             Transition::Graph,
             Transition::FullGraph,

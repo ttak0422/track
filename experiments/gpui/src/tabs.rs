@@ -1,6 +1,9 @@
 //! Reader tab model. No editor state or implicit I/O; optional persistence is external.
 //! Entries are kept in presentation/MRU order: the active tab is always first.
 
+/// Maximum UTF-8 bytes retained in a literal tag history route.
+pub const TAG_MAX_BYTES: usize = 4096;
+
 pub const ACTIVE_WIDTH: u32 = 336;
 pub const INACTIVE_WIDTH: u32 = 168;
 pub const OVERFLOW_WIDTH: u32 = 44;
@@ -9,7 +12,27 @@ pub const OVERFLOW_WIDTH: u32 = 44;
 pub enum TabKey {
     Home,
     Graph,
-    Note { vault: String, note_id: i64 },
+    /// A page route only: never an entry in the persistent tab strip.
+    Tag {
+        tag: String,
+        scope: String,
+    },
+    Note {
+        vault: String,
+        note_id: i64,
+    },
+}
+
+impl TabKey {
+    /// Tag pages use the launch listing only. Require canonical stored identity;
+    /// do not reinterpret malformed snapshots by normalizing on restore.
+    pub fn valid_tag_route(tag: &str, scope: &str) -> bool {
+        scope.is_empty()
+            && !tag.is_empty()
+            && tag.len() <= TAG_MAX_BYTES
+            && !tag.ends_with('/')
+            && tag.to_lowercase() == tag
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -39,7 +62,12 @@ impl TabLayout {
 impl Tabs {
     /// Entries have already passed the session schema and registry validator.
     pub(crate) fn restore(entries: Vec<Tab>) -> Self {
-        Self { entries }
+        Self {
+            entries: entries
+                .into_iter()
+                .filter(|t| !matches!(t.key, TabKey::Tag { .. }))
+                .collect(),
+        }
     }
 
     pub fn entries(&self) -> &[Tab] {
@@ -158,6 +186,28 @@ impl Tabs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tag_page_is_not_a_tab_and_literal_identity_is_bounded() {
+        let tag = TabKey::Tag {
+            tag: "日本語/a b".into(),
+            scope: "".into(),
+        };
+        let mut tabs = Tabs::restore(vec![Tab {
+            key: tag.clone(),
+            title: "tag".into(),
+        }]);
+        assert!(tabs.entries().is_empty());
+        assert!(!tabs.activate(&tag));
+        assert!(!tabs.close(&tag));
+        assert!(TabKey::valid_tag_route("日本語/a b", ""));
+        assert!(TabKey::valid_tag_route("ος", ""));
+        for invalid in ["", "/", "a/", "A", "ΟΣ"] {
+            assert!(!TabKey::valid_tag_route(invalid, ""));
+        }
+        assert!(!TabKey::valid_tag_route("a", "one"));
+        assert!(!TabKey::valid_tag_route(&"x".repeat(TAG_MAX_BYTES + 1), ""));
+    }
 
     #[test]
     fn graph_is_unique_and_closes_to_note_without_note_identity() {
