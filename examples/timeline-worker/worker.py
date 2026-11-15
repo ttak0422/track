@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Explicit, finite timeline worker demonstration; no dispatcher or arbitrary jobs."""
 import argparse
+import copy
 import datetime
 import json
 import os
@@ -112,8 +113,16 @@ class Demo:
         self.steps, self.interval, self.pause_timeout = steps, interval, pause_timeout
         self.done, self.paused, self.paused_since = 0, False, None
         self.events = []
+        self.accepted_task = None
+
+    def check_task(self, snapshot):
+        current = next((task for task in snapshot["tasks"] if task["id"] == self.task_id), None)
+        if current != self.accepted_task:
+            raise WorkerError("Task changed outside this worker; manual reconciliation required")
+        return current
 
     def write(self, snapshot, kind, payload):
+        self.check_task(snapshot)
         updated = self.client.apply(snapshot, kind, payload)
         # A timeout retry can return a later snapshot: use the actual source event,
         # not the latest revision, as provenance for this worker's report.
@@ -121,12 +130,18 @@ class Demo:
                            if event["event_id"] == self.client.last_event_id
                            and event["source"] == self.client.owner
                            and event["sequence"] not in self.events)
+        if kind == "task.upsert":
+            # An identical retry may return a newer snapshot. Take the accepted
+            # value from our own event, never silently adopt another writer's task.
+            event = next(event for event in updated["events"]
+                         if event["event_id"] == self.client.last_event_id
+                         and event["source"] == self.client.owner)
+            self.accepted_task = copy.deepcopy(event["payload"])
+        self.check_task(updated)
         return updated
 
     def task(self, snapshot, status):
-        current = next((task for task in snapshot["tasks"] if task["id"] == self.task_id), None)
-        if current is not None and current.get("owner") != self.client.owner:
-            raise WorkerError("Task ownership changed; refusing to overwrite it")
+        current = self.check_task(snapshot)
         task = dict(current or {"id": self.task_id, "title": "Finite local demo",
                                "owner": self.client.owner, "weight": 1, "mode": "serial"})
         task.update(status=status, done_minutes=self.done * self.interval / 60,
@@ -134,6 +149,7 @@ class Demo:
         return self.write(snapshot, "task.upsert", task)
 
     def controls(self, snapshot):
+        self.check_task(snapshot)
         for control in list(snapshot["controls"]):
             if control["task_id"] != self.task_id or control["owner"] != self.client.owner:
                 continue
