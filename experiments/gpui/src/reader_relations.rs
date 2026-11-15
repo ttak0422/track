@@ -80,6 +80,19 @@ impl Pages {
         }
     }
 }
+/// LinkSource's request is stamped at observation time; require acceptance separately.
+pub(crate) fn accepted(
+    source: &LinkSource,
+    accepted_request: Option<u64>,
+    route_current: bool,
+    storage_ready: bool,
+) -> bool {
+    accepted_request == Some(source.request) && route_current && storage_ready
+}
+pub(crate) fn scope_current(captured: u64, current: u64) -> bool {
+    captured == current
+}
+
 pub(crate) fn allows(
     source: &LinkSource,
     current: Option<&LinkSource>,
@@ -114,6 +127,38 @@ mod tests {
     }
     fn row(id: i64) -> Value {
         serde_json::json!({"note_id":id,"title":format!("note{id}"),"flags":["PIN"]})
+    }
+    #[test]
+    fn retained_relations_do_not_gain_reload_or_scope_authority() {
+        let old = source();
+        let mut reloading = old.clone();
+        reloading.request += 1; // same old note/etag, stamped with new request
+        assert!(!accepted(&reloading, Some(old.request), true, true));
+        assert!(!accepted(&reloading, None, true, true));
+        assert!(!accepted(&reloading, Some(reloading.request), false, true));
+        assert!(!accepted(&reloading, Some(reloading.request), true, false));
+        assert!(!scope_current(7, 8));
+        assert!(!scope_current(7, 9)); // scope changed away and back
+        // A freshly accepted response and freshly rendered scope remain usable.
+        assert!(accepted(&reloading, Some(reloading.request), true, true));
+        assert!(scope_current(9, 9));
+        let rows = serde_json::json!([row(2)]);
+        assert!(!allows(
+            &old,
+            Some(&reloading),
+            Some(&rows),
+            0,
+            &row(2),
+            true
+        ));
+        assert!(allows(
+            &reloading,
+            Some(&reloading),
+            Some(&rows),
+            0,
+            &row(2),
+            true
+        ));
     }
     #[test]
     fn relation_partial_or_cached_reads_never_claim_complete_counts() {

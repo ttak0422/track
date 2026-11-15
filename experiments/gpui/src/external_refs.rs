@@ -51,6 +51,20 @@ impl ExternalReferences {
     }
 }
 
+/// Match the displayed (valid-entry) ordinal without cloning the whole projection.
+pub(crate) fn contains_at(
+    related: &BTreeMap<String, Value>,
+    index: usize,
+    captured: &Reference,
+) -> bool {
+    related
+        .get("external")
+        .and_then(Value::as_array)
+        .and_then(|entries| entries.iter().filter_map(parse_reference).nth(index))
+        .as_ref()
+        == Some(captured)
+}
+
 fn parse_reference(entry: &Value) -> Option<Reference> {
     // No inherited scope: an external link must explicitly identify its vault.
     Some(Reference {
@@ -85,6 +99,26 @@ mod tests {
         ExternalReferences::from_related(&serde_json::from_value(value).unwrap())
     }
 
+    #[test]
+    fn external_click_revalidates_filtered_ordinal_and_exact_destination() {
+        let mut related = serde_json::from_value(json!({"external":[
+            {"note_id":0}, {"vault":"foreign","note_id":2,"title":"Same"},
+            {"vault":"","note_id":2,"title":"Same"}
+        ]}))
+        .unwrap();
+        let projection = ExternalReferences::from_related(&related);
+        assert!(contains_at(&related, 0, &projection.references[0]));
+        assert!(contains_at(&related, 1, &projection.references[1]));
+        assert!(!contains_at(&related, 0, &projection.references[1]));
+        related.insert(
+            "external".into(),
+            json!([
+                {"vault":"","note_id":2,"title":"Same"}
+            ]),
+        );
+        assert!(!contains_at(&related, 0, &projection.references[0]));
+        assert!(!contains_at(&related, 1, &projection.references[1]));
+    }
     #[test]
     fn absent_and_empty_lists_have_no_section() {
         for value in [json!({}), json!({"external":[],"unavailable":[]})] {

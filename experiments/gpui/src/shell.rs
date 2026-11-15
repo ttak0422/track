@@ -2392,6 +2392,7 @@ fn reference_row(
     inherited_vault: Option<&str>,
     id: (&'static str, usize),
     source: Option<LinkSource>,
+    scope_revision: u64,
     section: &'static str,
     cx: &mut Context<Workspace>,
 ) -> Option<Stateful<Div>> {
@@ -2403,18 +2404,15 @@ fn reference_row(
     let captured = value.clone();
     Some(div().id(id).py_1().child(title).when_some(key, |row, key| {
         row.cursor_pointer()
-            .on_click(cx.listener(move |this, _, _, cx| {
+            .on_click(cx.listener(move |this, _, window, cx| {
                 if source.as_ref().is_some_and(|source| {
                     reader_relations::allows(
                         source,
-                        this.current_link_source().as_ref(),
+                        this.relation_source().as_ref(),
                         this.current_related.get(section),
                         id.1,
                         &captured,
-                        this.find_available()
-                            && this.read_error.is_none()
-                            && !this.quit_session.is_closing()
-                            && this.quit_session.failure().is_none(),
+                        this.relation_control_available(scope_revision, window, cx),
                     )
                 }) {
                     this.open_live_key(key.clone(), cx);
@@ -2810,9 +2808,45 @@ impl Workspace {
             .and_then(|cache| cache.displayed_for(self.current_link_source().as_ref()))
             .unwrap_or_else(|| std::rc::Rc::new(self.content.clone()))
     }
+    // A retained body during Reload is not a newly accepted relation snapshot.
+    fn relation_source(&self) -> Option<LinkSource> {
+        let source = self.current_link_source()?;
+        let route = self.current_note_request.as_ref()?;
+        let storage = self.live.as_ref()?.initial_storage.as_ref()?;
+        let route_current = route.note_id == source.note.note_id
+            && self.gallery_scope(&route.vault).is_some_and(|vault| {
+                self.gallery_scope(&source.note.vault).as_ref() == Some(&vault)
+            })
+            && self.tabs.active().is_some_and(|tab| {
+                tab.key
+                    == tabs::TabKey::Note {
+                        vault: route.vault.clone(),
+                        note_id: route.note_id,
+                    }
+            });
+        reader_relations::accepted(
+            &source,
+            self.shell.accepted_title_request,
+            route_current,
+            storage.phase == "ready" && storage.generation == source.storage_generation,
+        )
+        .then_some(source)
+    }
+    fn relation_control_available(&self, scope: u64, window: &Window, cx: &App) -> bool {
+        window.is_window_active()
+            && reader_relations::scope_current(scope, self.shell.scope_revision)
+            && self.find_available()
+            && !self.reader_preview_routing_blocked(cx)
+            && !self.reader_selection_dragging()
+            && !self.shell.find.is_composing(cx)
+            && self.read_error.is_none()
+            && !self.quit_session.is_closing()
+            && self.quit_session.failure().is_none()
+    }
     fn relation_section(&mut self, section: &'static str, cx: &mut Context<Self>) -> Div {
         let mut view = div().text_size(px(12.));
-        let source = self.current_link_source();
+        let source = self.relation_source();
+        let scope_revision = self.shell.scope_revision;
         let requested = self.shell.relation_pages.current(source.as_ref(), section);
         let rows = match reader_relations::entries(self.current_related.get(section)) {
             Ok(None) => return view,
@@ -2844,12 +2878,9 @@ impl Workspace {
                         .id(gpui::SharedString::from(format!("{section}-{label}")))
                         .cursor_pointer()
                         .child(label)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            if this.current_link_source().as_ref() == Some(&captured)
-                                && this.find_available()
-                                && this.read_error.is_none()
-                                && !this.quit_session.is_closing()
-                                && this.quit_session.failure().is_none()
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            if this.relation_source().as_ref() == Some(&captured)
+                                && this.relation_control_available(scope_revision, window, cx)
                             {
                                 this.shell.relation_pages.set(&captured, section, target);
                                 cx.notify();
@@ -2880,6 +2911,7 @@ impl Workspace {
                         index,
                     ),
                     source.clone(),
+                    scope_revision,
                     section,
                     cx,
                 )
@@ -4915,7 +4947,8 @@ impl Render for Workspace {
         // Derive only from the accepted response; no additional reads or cache.
         let external =
             crate::external_refs::ExternalReferences::from_related(&self.current_related);
-        let external_source = self.current_link_source();
+        let external_source = self.relation_source();
+        let external_scope = self.shell.scope_revision;
         let aside = aside.when(external.visible(), |aside| {
             aside.child(
                 div()
@@ -4940,9 +4973,18 @@ impl Render for Workspace {
                                 ))
                                 .when_some(external_source.clone(), |row, source| {
                                     row.cursor_pointer().on_click(cx.listener(
-                                        move |this, _, _, cx| {
-                                            // Reject a click from a previous note/session/storage render.
-                                            if this.current_link_source().as_ref() == Some(&source)
+                                        move |this, _, window, cx| {
+                                            if this.relation_source().as_ref() == Some(&source)
+                                                && this.relation_control_available(
+                                                    external_scope,
+                                                    window,
+                                                    cx,
+                                                )
+                                                && crate::external_refs::contains_at(
+                                                    &this.current_related,
+                                                    index,
+                                                    &reference,
+                                                )
                                             {
                                                 this.open_live_key(reference.key.clone(), cx);
                                             }
@@ -5059,7 +5101,8 @@ impl Render for Workspace {
                                         entry,
                                         reference_vault.as_deref(),
                                         ("breadcrumb-reference", index),
-                                        self.current_link_source(),
+                                        self.relation_source(),
+                                        self.shell.scope_revision,
                                         "trail",
                                         cx,
                                     )
