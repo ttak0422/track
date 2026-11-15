@@ -560,3 +560,11 @@ uses normal guarded navigation. Partial data, invalid dates, and per-section row
 limits are explicit. Full Calendar, other week starts, events, task mutation and
 persistence are not provided. Existing strict dated-task wire validation remains
 unchanged; unsupported wire states are reported as errors.
+
+Local PDF inspector: explicit macOS-only standalone image-style local attachments,
+one selected page/document, source-qualified owned reads, bounded cancellable
+helper. Original reader/Find/Copy MD source stays intact. Fixed resolution fits
+viewport; PDF fences, inline embeds, text/search/forms/actions and persistent
+cache remain unsupported. Isolated Japanese/Latin page navigation, encrypted
+rejection, Close and Home/tab return passed; cross-vault races, resize stress
+and accessibility remain unverified.

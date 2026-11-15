@@ -1,5 +1,7 @@
 mod inline_viewspec;
 mod pdf_probe;
+mod reader_pdf;
+mod workspace_pdf;
 use gpui::{
     App, Application, Bounds, Context, KeyBinding, Menu, MenuItem, Window, WindowBounds,
     WindowOptions, actions, div, prelude::*, px, rgb, size, uniform_list,
@@ -152,6 +154,7 @@ struct Workspace {
     event_awareness: event_awareness::State,
     follow: workspace_follow::FollowUi,
     reader_images: workspace_images::State,
+    reader_pdf: Option<workspace_pdf::State>,
     snapshot: Snapshot,
     selected: Option<usize>,
     rendered_rows: usize,
@@ -766,6 +769,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         event_awareness: Default::default(),
                         follow: Default::default(),
                         reader_images: Default::default(),
+                        reader_pdf: None,
                         selected: (!snapshot.notes.is_empty()).then_some(0),
                         snapshot,
                         rendered_rows: 0,

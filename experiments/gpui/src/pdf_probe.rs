@@ -1,4 +1,4 @@
-//! Unwired feasibility contract. No asset fetch, UI, cache, or document actions.
+//! Bounded inert PDF raster helper. No asset fetch, cache, or document actions.
 use std::time::{Duration, Instant};
 static WORKER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 struct Permit;

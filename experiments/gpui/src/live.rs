@@ -1420,6 +1420,73 @@ impl ReadClient {
         Ok(decoded)
     }
 
+    /// Explicit bounded PDF bytes from the owned engine. Never a URL or local
+    /// filesystem open; physical asset containment remains the engine contract.
+    pub(crate) fn pdf_asset(&self, reference: &str, vault: &str) -> Result<Vec<u8>, Error> {
+        let name = crate::reader_pdf::asset_name(reference).map_err(Error::Config)?;
+        if vault.len() > 1024 || vault.contains('\0') {
+            return Err(Error::Config(
+                "PDF requires an exact canonical vault".into(),
+            ));
+        }
+        let origin = reqwest::Url::parse(&self.origin).map_err(|e| Error::Config(e.to_string()))?;
+        if origin.scheme() != "http"
+            || origin.host_str() != Some("127.0.0.1")
+            || !origin.username().is_empty()
+            || origin.password().is_some()
+            || origin.path() != "/"
+            || origin.query().is_some()
+            || origin.fragment().is_some()
+        {
+            return Err(Error::Config(
+                "PDF origin must be the owned loopback server".into(),
+            ));
+        }
+        if !self.alive.load(Ordering::Acquire) {
+            return Err(Error::Stale);
+        }
+        let mut response = self
+            .http
+            .get(format!("{}/api/asset", self.origin))
+            .query(&[("vault", vault), ("name", name)])
+            .header("Cache-Control", "no-cache, no-store")
+            .timeout(Duration::from_secs(3))
+            .send()
+            .map_err(|e| Error::Transport(e.to_string()))?;
+        if response.status().as_u16() != 200 {
+            return Err(Error::Shape("PDF asset unavailable".into()));
+        }
+        let mime = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .split(';')
+            .next()
+            .unwrap_or("")
+            .trim();
+        if !mime.eq_ignore_ascii_case("application/pdf") {
+            return Err(Error::Shape("PDF content type rejected".into()));
+        }
+        if response
+            .content_length()
+            .is_some_and(|n| n > crate::pdf_probe::MAX_INPUT as u64)
+        {
+            return Err(Error::Oversized);
+        }
+        let mut bytes = Vec::new();
+        (&mut response)
+            .take(crate::pdf_probe::MAX_INPUT as u64 + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|e| Error::Transport(e.to_string()))?;
+        if !self.alive.load(Ordering::Acquire) {
+            return Err(Error::Stale);
+        }
+        crate::pdf_probe::admit(&bytes, 1, crate::pdf_probe::MAX_EDGE)
+            .map_err(|e| Error::Shape(e.into()))?;
+        Ok(bytes)
+    }
+
     /// The caller supplies the parsed target without label or anchor suffix.
     /// Do not interpret ID-shaped/numeric terms or vault prefixes in this client.
     pub fn resolve(&self, term: &str, source_vault: &str) -> Result<Resolution, Error> {
@@ -4249,6 +4316,65 @@ mod tests {
             client.included_notes("", "host"),
             Err(Error::Stale)
         ));
+    }
+    #[test]
+    fn pdf_transport_is_local_bounded_and_source_qualified() {
+        use std::io::Write;
+        for (status, mime, length, body, ok) in [
+            (200, "application/pdf", 8, b"%PDF-1.7".as_slice(), true),
+            (302, "application/pdf", 8, b"%PDF-1.7".as_slice(), false),
+            (200, "text/plain", 8, b"%PDF-1.7".as_slice(), false),
+            (200, "application/pdf", 8, b"not PDF!".as_slice(), false),
+            (
+                200,
+                "application/pdf",
+                crate::pdf_probe::MAX_INPUT + 1,
+                b"".as_slice(),
+                false,
+            ),
+        ] {
+            let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+            let origin = format!("http://{}", listener.local_addr().unwrap());
+            let worker = thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(2)))
+                    .unwrap();
+                let mut request = Vec::new();
+                while !request.ends_with(b"\r\n\r\n") {
+                    let mut b = [0];
+                    stream.read_exact(&mut b).unwrap();
+                    request.push(b[0]);
+                }
+                write!(stream,"HTTP/1.1 {status} Test\r\nContent-Type: {mime}\r\nLocation: http://127.0.0.1:1/forbidden\r\nContent-Length: {length}\r\nConnection: close\r\n\r\n").unwrap();
+                let _ = stream.write_all(body);
+                String::from_utf8(request).unwrap()
+            });
+            let client = ReadClient {
+                creation_store: Default::default(),
+                creation_fixture: None,
+                http: reqwest::blocking::Client::builder()
+                    .no_proxy()
+                    .redirect(reqwest::redirect::Policy::none())
+                    .timeout(Duration::from_secs(2))
+                    .build()
+                    .unwrap(),
+                origin,
+                alive: Arc::new(AtomicBool::new(true)),
+                launch_generation: 1,
+            };
+
+            assert!(
+                client
+                    .pdf_asset("https://example.com/a.pdf", "work")
+                    .is_err()
+            );
+            assert_eq!(client.pdf_asset("assets/a.pdf", "").is_ok(), ok);
+            let request = worker.join().unwrap();
+            assert!(request.contains("GET /api/asset?"));
+            assert!(request.contains("vault=&"));
+            assert!(request.contains("name=a.pdf"));
+        }
     }
     #[test]
     fn raster_transport_scopes_bytes_and_never_follows_redirects() {

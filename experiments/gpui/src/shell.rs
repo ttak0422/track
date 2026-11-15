@@ -3763,6 +3763,7 @@ impl Render for Workspace {
             WindowAppearance::Dark | WindowAppearance::VibrantDark
         ));
         let p = Palette::new(dark);
+        self.sync_pdf();
         self.reset_stale_handoff();
         if self.handoff_active() {
             return self.render_handoff(dark, (p.paper, p.ink, p.line), cx);
@@ -4545,6 +4546,9 @@ impl Render for Workspace {
                 ))
             });
         let aside = aside
+            .when_some(self.pdf_inspector(window, cx), |aside, pdf| {
+                aside.child(pdf)
+            })
             .child(journal_day)
             .child(children_relations)
             .child(backlink_relations);

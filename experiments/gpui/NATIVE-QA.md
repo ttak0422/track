@@ -1567,3 +1567,32 @@ pixels and a 5-second parent deadline; a 3-second CPU limit is secondary. This i
 process isolation, not an OS security sandbox or a hard resident-memory limit.
 PDF links, scripts, forms, annotations, external assets and session state are not
 executed or interpreted by this helper. Interactive reader acceptance is pending.
+
+## Local PDF inspector candidate (pending)
+
+Use isolated CLI-imported local portrait/landscape/Japanese PDF assets and an
+accepted note with standalone image-style references. Check explicit load,
+Previous/Next endpoints and accepted counters, pending previous page identity,
+resize aspect fit, corrupt/encrypted/oversize/missing errors, same filename in
+another vault, rapid scope/tab changes and close during render. Reader passage,
+Find/input ownership and normal Back must remain unchanged. Compare canonical
+note/metadata/asset hashes; no ordinary session or PDF-cache writes are allowed.
+
+### Local PDF inspector validation (2026-11-15)
+
+- Isolated markerless fixture: explicit local Load rendered Japanese landscape
+  page 1 and red page 2; Previous restored page 1. Pending state retained the old
+  accepted counter, and endpoint controls were disabled. Portrait single-page
+  output preserved its ratio; rail scrolling reached its controls without moving
+  the source reader. Encrypted input returned a nonfatal rejection.
+- Close after Load removed the image; Home navigation and tab return did not
+  restore stale PDF state. Original source remained literal and unchanged.
+- Native QA found empty canonical launch-vault names were rejected by the new
+  transport. Explicit empty `vault` queries now remain source-qualified, matching
+  the owned engine registry contract, and have a regression test.
+- Independent review found retained-body admission during Reload. Identity now
+  requires the accepted request, exact current note, and ready storage generation.
+- All 13 fixture note/sidecar/asset hashes remained unchanged; owned ports closed
+  after Quit. No ordinary vault was opened or written.
+- Cross-vault/native reload races, resize stress, accessibility and actual IME
+  composition were not verified. No claim of full PDF embed parity is made.
