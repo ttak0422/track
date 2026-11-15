@@ -1,3 +1,5 @@
+local host_vim = vim
+local host_client = package.loaded["track.client"]
 package.path = './lua/?.lua;' .. package.path
 local jobs, scheduled, payloads = {}, {}, {}
 vim = {
@@ -11,9 +13,9 @@ vim = {
    end,
 }
 package.loaded['track.client'] = {bin = function() return '/bin/track' end}
-local timeline = require('track.timeline').new('/vault/note/123.md')
-local function finish(job, code, data)
-   job.callback({code = code, signal = 0, stdout = data, stderr = 'failed'})
+local timeline = dofile('lua/track/timeline.lua').new('/vault/note/123.md')
+local function finish(job, code, data, stderr, signal)
+   job.callback({code = code, signal = signal or 0, stdout = data, stderr = stderr == nil and 'failed' or stderr})
    while #scheduled > 0 do table.remove(scheduled, 1)() end
 end
 local called = 0
@@ -41,4 +43,28 @@ timeline.refresh(callback)
 timeline.cancel()
 finish(jobs[5], 0, 'good')
 assert(called == 3)
+-- Track writes structured CLI failures to stdout, not stderr.
+payloads.failure = {error = 'timeline note not found'}
+timeline.refresh(callback)
+finish(jobs[#jobs], 1, 'failure', 'less specific stderr')
+assert(timeline.error == 'Timeline read failed: timeline note not found')
+assert(timeline.snapshot == payloads.good and not timeline.loading)
+timeline.refresh(callback)
+finish(jobs[#jobs], 1, 'not JSON', 'executable failed')
+assert(timeline.error == 'Timeline read failed: executable failed')
+payloads.bad_error = {error = {message = 'not a string'}}
+timeline.refresh(callback)
+finish(jobs[#jobs], 2, 'bad_error', '')
+assert(timeline.error == 'Timeline read failed: exit code 2')
+payloads.empty_error = {error = '   '}
+timeline.refresh(callback)
+finish(jobs[#jobs], 0, 'empty_error', '  ', 15)
+assert(timeline.error == 'Timeline read failed: exit code 0, signal 15')
+payloads.long_error = {error = string.rep('x', 1024)}
+timeline.refresh(callback)
+finish(jobs[#jobs], 1, 'long_error', '')
+assert(timeline.error == 'Timeline read failed: ' .. string.rep('x', 512))
+assert(timeline.snapshot == payloads.good)
 print('timeline adapter tests passed')
+vim = host_vim
+package.loaded['track.client'] = host_client

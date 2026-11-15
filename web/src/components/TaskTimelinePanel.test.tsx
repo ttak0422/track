@@ -81,6 +81,33 @@ describe("TaskTimelinePanel", () => {
     queryClient.clear();
   });
 
+  it.each([
+    { partial: true, cache_used: false },
+    { partial: false, cache_used: true },
+    { partial: true, cache_used: true },
+  ])("warns on a successful degraded read (%j) while retaining tasks and progress", async state => {
+    vi.mocked(getTaskTimeline).mockResolvedValue({ ...snapshot, read_state: { ...state, checked_at: 1, issues: [] } });
+    const queryClient = client();
+    render(<QueryClientProvider client={queryClient}><TaskTimelinePanel noteID="1" /></QueryClientProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "Task timeline" }));
+    expect(await screen.findByText(/Tasks and progress may be incomplete or stale/)).toBeTruthy();
+    expect(screen.getByText(/Saved tasks: 1 done/)).toBeTruthy();
+    expect(screen.getByRole("list", { name: "Current tasks" })).toHaveTextContent("Parent");
+    expect(screen.queryByRole("alert")).toBeNull();
+    queryClient.clear();
+  });
+
+  it("does not present an incomplete empty snapshot as proof of no tasks", () => {
+    render(<TimelineSnapshotView timeline={{ ...snapshot, items: [], read_state: { partial: true, cache_used: false, checked_at: 1, issues: [] } }} />);
+    expect(screen.getByText("No tasks available in this snapshot.")).toBeTruthy();
+    expect(screen.queryByText("No tasks in this note.")).toBeNull();
+  });
+
+  it("does not warn for a complete fresh read", () => {
+    render(<TimelineSnapshotView timeline={{ ...snapshot, read_state: { partial: false, cache_used: false, checked_at: 1, issues: [] } }} />);
+    expect(screen.queryByText(/Tasks and progress may be incomplete or stale/)).toBeNull();
+  });
+
   it("keeps append order and historical entries separate from current line identities", () => {
     render(<TimelineSnapshotView timeline={snapshot} />);
     const history = screen.getByRole("list", { name: "Recorded transitions" });
