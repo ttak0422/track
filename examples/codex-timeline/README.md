@@ -47,7 +47,7 @@ original Codex execution times: this JSONL schema carries no source timestamps.
 No model-generated summary is collected.
 
 No source text is printed in import errors. Unknown event/item types are
-ignored. Recognized malformed envelopes stop the importer. Generic task titles and
+ignored, including configuration-warning error items outside a turn. Recognized malformed envelopes stop the importer. Generic task titles and
 fixed metadata are deliberate: this is not an automatically generated narrative report.
 
 There are no inferred per-step identities, priorities, weights, estimates, or effort
@@ -92,10 +92,15 @@ describes the JSONL lifecycle and item events. This adapter's fixtures use the o
 [`ThreadEvent` schema](https://github.com/openai/codex/blob/b016cd18472588606c04af565528c4cd6746a41f/sdk/typescript/src/events.ts)
 and [`TodoListItem` / typed item schemas](https://github.com/openai/codex/blob/b016cd18472588606c04af565528c4cd6746a41f/sdk/typescript/src/items.ts)
 at revision `b016cd18472588606c04af565528c4cd6746a41f` (2026-11-15).
+The pinned [Rust exec event schema](https://github.com/openai/codex/blob/b016cd18472588606c04af565528c4cd6746a41f/codex-rs/exec/src/exec_events.rs)
+also defines `declined` for command executions; this is counted as declined, never
+as successful execution. File changes and MCP calls do not accept that status.
 A plan item has a list-level ID and `items` with `text` and `completed`; turn lifecycle
 events have no turn ID. The
-[Rust event processor](https://github.com/openai/codex/blob/main/codex-rs/exec/src/event_processor_with_jsonl_output.rs)
+[Rust event processor](https://github.com/openai/codex/blob/b016cd18472588606c04af565528c4cd6746a41f/codex-rs/exec/src/event_processor_with_jsonl_output.rs)
 maps plan states to completion booleans and closes the todo list when the turn ends.
+It can emit configuration-warning error items before `turn.started`; these are ignored
+without copying their text, while allowlisted work items still require an active turn.
 
 This is a narrow schema compatibility target, not a promise of compatibility with all
 Codex versions. Additive unknown events are ignored; changed recognized schemas fail
@@ -115,3 +120,7 @@ replay, conflicting reuse, external-edit protection, concurrent independent impo
 metadata-only report provenance, repeated item completion, multiple turns, incomplete/failing
 streams and exclusion of sensitive sentinel strings. Without `TRACK_TEST_BIN`, real
 CLI tests are explicitly skipped.
+
+Contention tests allow a bounded conflict stop, then replay the identical fixture/run
+once other writers finish. A deterministic regression forces retry exhaustion and
+checks that exact replay completes without duplicating records or reports.

@@ -162,6 +162,57 @@ class IntegrationTests(unittest.TestCase):
             self.run_fixture(fixture())
         self.assertEqual(self.client.read(), before)
 
+    def test_warning_before_turn_and_declined_command(self):
+        warning = {"type": "item.completed", "item": {"id": "warning", "type": "error", "message": "PRIVATE_WARNING"}}
+        declined = {"type": "item.completed", "item": {"id": "command", "type": "command_execution", "status": "declined", "command": "PRIVATE_COMMAND"}}
+        events = [fixture()[0], warning, fixture()[1], declined, fixture()[-1]]
+        self.run_fixture(events)
+        first = self.client.read()
+        self.assertTrue(all(task["status"] == "done" for task in first["tasks"]))
+        self.assertIn('"command_execution:declined": 1', first["tasks"][1]["detail"])
+        self.assertNotIn("PRIVATE_", json.dumps(first))
+        self.assertFalse(first["controls"])
+        self.run_fixture(events)
+        self.assertEqual(self.client.read(), first)
+
+    def test_declined_is_not_accepted_for_file_or_mcp(self):
+        for kind in ("file_change", "mcp_tool_call"):
+            events = fixture()[:2] + [{"type": "item.completed", "item": {"id": "bad", "type": kind, "status": "declined"}}]
+            with self.assertRaisesRegex(ImportError, "Unsupported typed item status"):
+                self.run_fixture(events, run=kind)
+
+    def test_allowlisted_item_before_turn_still_rejected(self):
+        events = [fixture()[0], {"type": "item.completed", "item": {"id": "command", "type": "command_execution", "status": "completed"}}]
+        with self.assertRaisesRegex(ImportError, "outside an active turn"):
+            self.run_fixture(events)
+
+    def test_conflict_retry_bound_then_exact_recovery(self):
+        original = self.client.apply
+        attempts = 0
+        def competing_write(request):
+            nonlocal attempts
+            # Allow the two initial run records, then force every bounded attempt
+            # for the first turn record to conflict with an unrelated task writer.
+            if request["event_id"].endswith("-turn"):
+                attempts += 1
+                snapshot = self.client.read()
+                original({"source": "other", "event_id": "race-" + str(attempts),
+                          "expected_revision": snapshot["revision"], "kind": "task.upsert",
+                          "payload": {"id": "other-task", "title": "Unrelated", "status": "active"}})
+            return original(request)
+        with patch.object(self.client, "apply", side_effect=competing_write):
+            with self.assertRaisesRegex(ImportError, "Conflict retry bound reached"):
+                self.run_fixture()
+        self.assertEqual(attempts, 4)
+        self.run_fixture()
+        recovered = self.client.read()
+        imported = [task for task in recovered["tasks"] if task["id"] != "other-task"]
+        self.assertEqual(len(imported), 2)
+        self.assertTrue(all(task["status"] == "done" for task in imported))
+        self.assertEqual(len(recovered["reports"]), 1)
+        self.run_fixture()
+        self.assertEqual(self.client.read(), recovered)
+
     def test_two_distinct_importers_concurrently(self):
         processes = []
         for run_id in ("left", "right"):
@@ -175,9 +226,19 @@ class IntegrationTests(unittest.TestCase):
                 process.stdin.write(stream(fixture()).getvalue())
                 process.stdin.close()
                 process.stdin = None
+            failed = []
             for process in processes:
                 out, err = process.communicate(timeout=20)
-                self.assertEqual(process.returncode, 0, err)
+                if process.returncode:
+                    self.assertEqual(process.returncode, 1, err)
+                    self.assertIn("Import stopped", err)
+                    failed.append(process.args)
+            # Bounded contention may stop an importer. Once competing writers
+            # finish, recover by replaying the exact same stream and run identity.
+            for args in failed:
+                replay = subprocess.run(args, input=stream(fixture()).getvalue(),
+                                        capture_output=True, text=True, timeout=20)
+                self.assertEqual(replay.returncode, 0, replay.stderr)
         finally:
             for process in processes:
                 if process.poll() is None:
