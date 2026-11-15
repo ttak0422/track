@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { applyAgentRequest, getAgentProject, listAgentProjects } from "./agentTimeline";
+import { applyAgentRequest, getAgentProject, listAgentProjects, projectNoteID } from "./agentTimeline";
 
 const request = { source: "web", event_id: "event-1", expected_revision: 0, kind: "project.create", payload: { title: "Project", mode: "serial" } };
 const saved = { schema_version: 1, project_id: "p", title: "Project", revision: 1, mode: "serial", progress: { fraction: 0 }, tasks: [], reports: [], discussions: [], controls: [],
@@ -48,6 +48,20 @@ describe("agent timeline API", () => {
     expect(data.projects[0].note_id).toBe("work~42");
     expect(data.projects[0].project_id).toBe("p");
     expect(data.projects[1]).not.toHaveProperty("note_id");
+  });
+
+  it("rejects an int64 linked note before rounded JSON numbers become strings", async () => {
+    const body = JSON.stringify({ ...saved, note_id: "unsafe" }).replace('"unsafe"', '9007199254740993');
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(body)));
+    await expect(getAgentProject("work", "p")).rejects.toThrow("safe browser numeric precision");
+  });
+  it("rejects unsafe linked notes in project summaries too", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response('{"projects":[{"note_id":9007199254740993}]}')));
+    await expect(listAgentProjects("work")).rejects.toThrow("safe browser numeric precision");
+  });
+  it("rejects lossless unsafe string links rather than rounding them into mutation numbers", () => {
+    expect(() => projectNoteID("work~9007199254740993")).toThrow("safe browser numeric precision");
+    expect(projectNoteID("work~123")).toBe(123);
   });
 
 });
