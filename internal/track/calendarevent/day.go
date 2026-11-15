@@ -79,32 +79,41 @@ func civilDayInterval(civil time.Time, loc *time.Location) (time.Time, time.Time
 }
 
 func civilDayIntervalContext(ctx context.Context, civil time.Time, loc *time.Location) (time.Time, time.Time, error) {
+	starts, ends, err := civilDaysIntervalContext(ctx, civil, loc, 1)
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	return starts[0], ends[0], nil
+}
+
+// Traverse zone history once for a bounded contiguous range, retaining the day contract.
+func civilDaysIntervalContext(ctx context.Context, civil time.Time, loc *time.Location, days int) ([]time.Time, []time.Time, error) {
 	deadline := time.Now().Add(2 * time.Second)
 	const offsetBound = time.Duration(1<<31) * time.Second
 	const maxTransitions = 65536
-	limit := civil.AddDate(0, 0, 1)
+	limit := civil.AddDate(0, 0, days)
 	cursor, stop := civil.Add(-offsetBound), limit.Add(offsetBound)
-	var start, end time.Time
-	found := false
+	starts, ends := make([]time.Time, days), make([]time.Time, days)
+	found := make([]bool, days)
 	fallbackSeconds := 0
 	steps := 0
 	for count := 0; cursor.Before(stop); count++ {
 		if steps%1024 == 0 {
 			if err := ctx.Err(); err != nil {
-				return time.Time{}, time.Time{}, err
+				return nil, nil, err
 			}
 			if time.Now().After(deadline) {
-				return time.Time{}, time.Time{}, invalid("unsupported civil day: time-zone traversal time budget exceeded")
+				return nil, nil, invalid("unsupported civil day: time-zone traversal time budget exceeded")
 			}
 		}
 		steps++
 		if count >= maxTransitions {
-			return time.Time{}, time.Time{}, invalid("unsupported civil day: too many time-zone transitions")
+			return nil, nil, invalid("unsupported civil day: too many time-zone transitions")
 		}
 		local := cursor.In(loc)
 		_, offset := local.Zone()
 		if int64(offset) < -1<<31 || int64(offset) > 1<<31-1 {
-			return time.Time{}, time.Time{}, invalid("unsupported civil day: time-zone offset outside TZif bounds")
+			return nil, nil, invalid("unsupported civil day: time-zone offset outside TZif bounds")
 		}
 		_, next := local.ZoneBounds()
 		if next.IsZero() || next.After(stop) {
@@ -117,37 +126,44 @@ func civilDayIntervalContext(ctx context.Context, civil time.Time, loc *time.Loc
 			// if this exceptional path exceeds its explicit resource budget.
 			fallbackSeconds++
 			if fallbackSeconds > 4_000_000 {
-				return time.Time{}, time.Time{}, invalid("unsupported civil day: time-zone bounds budget exceeded")
+				return nil, nil, invalid("unsupported civil day: time-zone bounds budget exceeded")
 			}
 			count-- // The separate fallback budget bounds these iterations.
 			next = cursor.Add(time.Second)
 		}
-		lo := civil.Add(-time.Duration(offset) * time.Second)
-		hi := limit.Add(-time.Duration(offset) * time.Second)
-		if lo.Before(cursor) {
-			lo = cursor
-		}
-		if hi.After(next) {
-			hi = next
-		}
-		if lo.Before(hi) {
-			if found && !lo.Equal(end) {
-				return time.Time{}, time.Time{}, invalid("unsupported civil day: disconnected time-zone intervals")
+		if cursor.Before(limit.Add(-time.Duration(offset)*time.Second)) && next.After(civil.Add(-time.Duration(offset)*time.Second)) {
+			for i := 0; i < days; i++ {
+				date := civil.AddDate(0, 0, i)
+				lo := date.Add(-time.Duration(offset) * time.Second)
+				hi := date.AddDate(0, 0, 1).Add(-time.Duration(offset) * time.Second)
+				if lo.Before(cursor) {
+					lo = cursor
+				}
+				if hi.After(next) {
+					hi = next
+				}
+				if lo.Before(hi) {
+					if found[i] && !lo.Equal(ends[i]) {
+						return nil, nil, invalid("unsupported civil day: disconnected time-zone intervals")
+					}
+					if !found[i] {
+						starts[i] = lo
+						found[i] = true
+					}
+					ends[i] = hi
+				}
 			}
-			if !found {
-				start = lo
-				found = true
-			}
-			end = hi
 		}
 		cursor = next
 	}
-	if !found {
-		return time.Time{}, time.Time{}, invalid("nonexistent civil day in %s", loc)
+	for i := range starts {
+		if !found[i] {
+			return nil, nil, invalid("nonexistent civil day in %s", loc)
+		}
+		starts[i], ends[i] = starts[i].UTC(), ends[i].UTC()
+		if starts[i].Year() < 1 || ends[i].Year() > 9999 {
+			return nil, nil, invalid("unsupported civil day: boundaries outside RFC3339 years")
+		}
 	}
-	start, end = start.UTC(), end.UTC()
-	if start.Year() < 1 || end.Year() > 9999 {
-		return time.Time{}, time.Time{}, invalid("unsupported civil day: boundaries outside RFC3339 years")
-	}
-	return start, end, nil
+	return starts, ends, nil
 }

@@ -2,6 +2,7 @@ package calendarevent
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -151,6 +152,13 @@ func List(cfg *config.Config, includeDeleted bool) ([]Event, error) {
 
 // A positive limit bounds source records, including trash, before projection.
 func list(cfg *config.Config, includeDeleted bool, limit int) ([]Event, error) {
+	return listContext(context.Background(), cfg, includeDeleted, limit)
+}
+
+func listContext(ctx context.Context, cfg *config.Config, includeDeleted bool, limit int) ([]Event, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	result := []Event{}
 	var root *os.Root
 	var err error
@@ -184,6 +192,9 @@ func list(cfg *config.Config, includeDeleted bool, limit int) ([]Event, error) {
 	} else {
 		// Do not retain an unbounded directory listing for the bounded day API.
 		for {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
 			batch, readErr := dir.ReadDir(128)
 			if readErr != nil && !errors.Is(readErr, io.EOF) {
 				return nil, readErr
@@ -202,6 +213,9 @@ func list(cfg *config.Config, includeDeleted bool, limit int) ([]Event, error) {
 		}
 	}
 	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if !strings.HasSuffix(entry.Name(), ".json") {
 			continue
 		}

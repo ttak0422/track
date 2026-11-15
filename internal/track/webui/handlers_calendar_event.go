@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ttak0422/track/internal/track/config"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/ttak0422/track/internal/track/calendarevent"
 )
@@ -100,4 +102,65 @@ func (s *Server) handleCalendarEventsDay(v *vaultView, w http.ResponseWriter, r 
 		Vault string `json:"vault"`
 		calendarevent.DayProjection
 	}{Vault: v.label, DayProjection: day})
+}
+
+func (s *Server) handleCalendarEventsRange(v *vaultView, w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, fmt.Errorf("method %s not allowed", r.Method), http.StatusMethodNotAllowed)
+		return
+	}
+	query := r.URL.Query()
+	if query.Has("deleted") {
+		writeError(w, errors.New("deleted is not supported for range projection"), http.StatusBadRequest)
+		return
+	}
+	projection, err := calendarevent.RangeContext(r.Context(), v.cfg, query.Get("since"), query.Get("until"), query.Get("time_zone"))
+	if err != nil {
+		eventError(w, err)
+		return
+	}
+	writeJSON(w, struct {
+		Vault string `json:"vault"`
+		calendarevent.RangeProjection
+	}{Vault: v.label, RangeProjection: projection})
+}
+
+func calendarProjectionPath(path string) bool {
+	return path == "/api/calendar-events/day" || path == "/api/calendar-events/range"
+}
+
+// Range reads canonical event files only: resolving a vault must not open or refresh an index.
+func (s *Server) handleCalendarEventsRangeRequest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, fmt.Errorf("method %s not allowed", r.Method), http.StatusMethodNotAllowed)
+		return
+	}
+	name := strings.TrimSpace(r.URL.Query().Get("vault"))
+	v := s.active
+	if name != "" && name != s.active.name {
+		path, known := s.active.cfg.Vaults[name]
+		if !known {
+			writeError(w, fmt.Errorf("vault %q is not registered", name), http.StatusBadRequest)
+			return
+		}
+		if cached, ok := s.cachedView(name); ok && !cached.cfg.Provisional {
+			v = cached
+		} else {
+			cfg, err := config.LoadBounded(r.Context(), path, true)
+			if err != nil {
+				writeError(w, err, http.StatusBadRequest)
+				return
+			}
+			v = &vaultView{name: name, label: name, cfg: cfg}
+		}
+	}
+	if v.cfg.Provisional {
+		writeError(w, errors.New("storage is not ready for calendar projection"), http.StatusServiceUnavailable)
+		return
+	}
+	if err := v.cfg.ValidateLinkFormat(); err != nil {
+		writeError(w, err, http.StatusConflict)
+		return
+	}
+	s.handleCalendarEventsRange(v, w, r)
 }

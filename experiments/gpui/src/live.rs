@@ -462,6 +462,100 @@ pub struct CalendarDayEventsResponse {
     pub diagnostics: Fields,
 }
 
+/// Bounded engine-projected range preview; membership is never recomputed locally.
+#[derive(Clone, Debug, Deserialize)]
+pub struct CalendarRangePreview {
+    pub id: String,
+    pub revision: u64,
+    pub title: String,
+    pub status: String,
+}
+#[derive(Clone, Debug, Deserialize)]
+pub struct CalendarRangeDay {
+    pub date: String,
+    pub count: u64,
+    pub previews: Vec<CalendarRangePreview>,
+}
+#[derive(Clone, Debug, Deserialize)]
+pub struct CalendarRangeResponse {
+    pub vault: String,
+    pub since: String,
+    pub until: String,
+    pub time_zone: String,
+    pub days: Vec<CalendarRangeDay>,
+    #[serde(skip)]
+    pub source_vault: String,
+    #[serde(skip)]
+    pub launch_generation: u64,
+    #[serde(flatten)]
+    pub diagnostics: Fields,
+}
+fn range_dates(since: &str, until: &str) -> Option<Vec<String>> {
+    if !event_date_valid(since) || !event_date_valid(until) || since > until {
+        return None;
+    }
+    let mut days = vec![since.to_owned()];
+    while days.last()?.as_str() != until {
+        if days.len() >= 42 {
+            return None;
+        }
+        days.push(crate::workspace_activity::adjacent_day(days.last()?, true)?);
+    }
+    Some(days)
+}
+pub(crate) fn calendar_range_vault_matches(requested: &str, wire: &str, launch: &str) -> bool {
+    if requested.is_empty() || requested == launch {
+        wire.is_empty() || wire == launch
+    } else {
+        wire == requested
+    }
+}
+fn validate_calendar_range(
+    value: &CalendarRangeResponse,
+    vault: &str,
+    launch: &str,
+    since: &str,
+    until: &str,
+    zone: &str,
+) -> Result<(), Error> {
+    let days =
+        range_dates(since, until).ok_or_else(|| Error::Shape("invalid calendar range".into()))?;
+    if value.vault.len() > 1024
+        || value.vault.contains('\0')
+        || !calendar_range_vault_matches(vault, &value.vault, launch)
+        || value.since != since
+        || value.until != until
+        || value.time_zone != zone
+        || value.days.len() != days.len()
+    {
+        return Err(Error::Shape(
+            "calendar range identity or date coverage mismatch".into(),
+        ));
+    }
+    for (row, date) in value.days.iter().zip(days) {
+        let mut ids = std::collections::HashSet::new();
+        if row.date != date
+            || row.count > 4096
+            || row.previews.len() != (row.count as usize).min(3)
+            || row.previews.iter().any(|p| {
+                !event_id_valid(&p.id)
+                    || !ids.insert(&p.id)
+                    || p.revision == 0
+                    || p.revision > i64::MAX as u64
+                    || p.title.trim().is_empty()
+                    || p.title.len() > 500
+                    || p.title.chars().any(char::is_control)
+                    || !matches!(p.status.as_str(), "confirmed" | "cancelled")
+            })
+        {
+            return Err(Error::Shape(
+                "invalid calendar range preview or count".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
 // Validate the explicit UTC boundary contract with civil arithmetic, not a local
 // timezone conversion or interpretation of the stored event timestamps.
 fn utc_day_bounds(date: &str) -> Option<(String, String)> {
@@ -1317,6 +1411,41 @@ impl ReadClient {
         result.source_vault = vault.into();
         result.launch_generation = self.launch_generation;
         Ok(result)
+    }
+
+    /// One bounded read, never 42 separate day requests or a local timezone fallback.
+    pub fn calendar_range(
+        &self,
+        vault: &str,
+        launch: &str,
+        since: &str,
+        until: &str,
+        zone: &str,
+    ) -> Result<CalendarRangeResponse, Error> {
+        if launch.len() > 1024
+            || launch.contains('\0')
+            || range_dates(since, until).is_none()
+            || vault.len() > 1024
+            || vault.contains('\0')
+            || zone.is_empty()
+            || zone.len() > 128
+            || zone.chars().any(char::is_control)
+        {
+            return Err(Error::Config(
+                "calendar range requires <=42 civil dates, a vault and a display zone".into(),
+            ));
+        }
+        let mut args = vault_query(vault);
+        args.extend([
+            ("since", since.into()),
+            ("until", until.into()),
+            ("time_zone", zone.into()),
+        ]);
+        let mut response: CalendarRangeResponse = self.get("/api/calendar-events/range", &args)?;
+        validate_calendar_range(&response, vault, launch, since, until, zone)?;
+        response.source_vault = vault.into();
+        response.launch_generation = self.launch_generation;
+        Ok(response)
     }
 
     /// Fetch a raster from the owned engine only. Lexical validation cannot prove
@@ -4722,6 +4851,132 @@ mod tests {
             .alive
             .store(false, std::sync::atomic::Ordering::Release);
         assert!(matches!(client.calendar_events(""), Err(Error::Stale)));
+    }
+    fn range_fixture() -> Value {
+        serde_json::json!({"vault":"work","since":"2026-11-01","until":"2026-11-02","time_zone":"UTC",
+            "days":[{"date":"2026-11-01","count":0,"previews":[]},{"date":"2026-11-02","count":1,"previews":[
+                {"id":"00000000-0000-4000-8000-000000000001","revision":1,"title":"Meeting","status":"cancelled"}]}]})
+    }
+    #[test]
+    fn range_adapter_accepts_only_verified_launch_alias_for_empty_wire_label() {
+        for requested in ["", "host"] {
+            let mut payload = range_fixture();
+            payload["vault"] = "".into();
+            let (client, worker) = mock(200, payload.to_string());
+            let result = client
+                .calendar_range(requested, "host", "2026-11-01", "2026-11-02", "UTC")
+                .unwrap();
+            assert_eq!(result.source_vault, requested);
+            assert!(result.vault.is_empty());
+            worker.join().unwrap();
+        }
+        for (requested, wire) in [
+            ("foreign", ""),
+            ("unknown", ""),
+            ("", "foreign"),
+            ("host", "foreign"),
+        ] {
+            let mut payload = range_fixture();
+            payload["vault"] = wire.into();
+            let (client, worker) = mock(200, payload.to_string());
+            assert!(matches!(
+                client.calendar_range(requested, "host", "2026-11-01", "2026-11-02", "UTC"),
+                Err(Error::Shape(_))
+            ));
+            worker.join().unwrap();
+        }
+    }
+    #[test]
+    fn range_adapter_preserves_engine_membership_and_exact_scoped_query() {
+        let (client, worker) = mock(200, range_fixture().to_string());
+        let result = client
+            .calendar_range("work", "host", "2026-11-01", "2026-11-02", "UTC")
+            .unwrap();
+        assert_eq!(result.days[0].count, 0);
+        assert_eq!(result.days[1].previews[0].status, "cancelled");
+        assert_eq!(result.source_vault, "work");
+        assert_eq!(result.launch_generation, client.launch_generation);
+        let request = worker.join().unwrap();
+        for part in [
+            "/api/calendar-events/range?",
+            "vault=work",
+            "since=2026-11-01",
+            "until=2026-11-02",
+            "time_zone=UTC",
+        ] {
+            assert!(request.contains(part), "{request}");
+        }
+    }
+    #[test]
+    fn range_adapter_rejects_incomplete_duplicate_oversized_and_mismatched_wire() {
+        let original = range_fixture();
+        let mut cases = vec![];
+        for (key, value) in [
+            ("vault", "foreign"),
+            ("time_zone", "Asia/Tokyo"),
+            ("since", "2026-10-31"),
+        ] {
+            let mut bad = original.clone();
+            bad[key] = value.into();
+            cases.push(bad);
+        }
+        let mut bad = original.clone();
+        bad["days"].as_array_mut().unwrap().pop();
+        cases.push(bad);
+        let mut bad = original.clone();
+        bad["days"][1]["date"] = "2026-11-01".into();
+        cases.push(bad);
+        let mut bad = original.clone();
+        bad["days"][1]["count"] = 4097.into();
+        cases.push(bad);
+        let mut bad = original.clone();
+        bad["days"][1]["count"] = 0.into();
+        cases.push(bad);
+        let mut bad = original.clone();
+        bad["days"][1]["previews"][0]["title"] = "あ".repeat(167).into();
+        cases.push(bad);
+        let mut bad = original.clone();
+        bad["days"][1]["previews"][0]["revision"] = 0.into();
+        cases.push(bad);
+        let mut bad = original.clone();
+        bad["days"][1]["previews"][0]["status"] = "deleted".into();
+        cases.push(bad);
+        let mut bad = original.clone();
+        let entry = bad["days"][1]["previews"][0].clone();
+        bad["days"][1]["count"] = 2.into();
+        bad["days"][1]["previews"]
+            .as_array_mut()
+            .unwrap()
+            .push(entry);
+        cases.push(bad);
+        for bad in cases {
+            let response: CalendarRangeResponse = serde_json::from_value(bad).unwrap();
+            assert!(
+                validate_calendar_range(
+                    &response,
+                    "work",
+                    "host",
+                    "2026-11-01",
+                    "2026-11-02",
+                    "UTC"
+                )
+                .is_err()
+            );
+        }
+        assert_eq!(range_dates("2024-02-28", "2024-03-01").unwrap().len(), 3);
+        assert_eq!(range_dates("2026-01-01", "2026-02-11").unwrap().len(), 42);
+        assert!(range_dates("2026-01-01", "2026-02-12").is_none());
+        assert!(range_dates("2026-02-02", "2026-02-01").is_none());
+    }
+    #[test]
+    fn range_api_failure_is_not_a_zero_event_snapshot() {
+        for status in [400, 404, 500, 503] {
+            let (client, worker) = mock(status, "{}");
+            assert!(
+                matches!(client.calendar_range("work","host","2026-11-01","2026-11-02","UTC"),Err(Error::Http{status:s,..}) if s==status)
+            );
+            worker.join().unwrap();
+        }
     }
     fn calendar_day_fixture() -> Value {
         serde_json::json!({"vault":"work", "date":"2026-11-01", "time_zone":"UTC",

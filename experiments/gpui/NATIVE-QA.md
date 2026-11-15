@@ -1749,3 +1749,18 @@ kept the full grid and day labels clear. All 20 canonical hashes stayed unchange
 and both owned listeners closed. Previous-month, dirty/IME, rapid response races,
 exact GET counts, accessibility and interrupted-save scenarios remain unverified
 natively; ordinary vault editing stays disabled.
+
+## Calendar month event previews (candidate)
+
+On 2026-11-15, an isolated two-vault fixture verified four host events on a
+zero-note-activity date: three title previews, a cancelled label, and a +1
+indicator. Changing UTC to Asia/Tokyo hid the old month result until Apply;
+selecting the date showed all four events in the corresponding day details.
+An initial cold foreign-scope request exposed a dependency on provisional peer
+index state. After separating canonical range reads from peer index startup and
+strictly revalidating provisional configuration, the rebuilt app loaded the
+foreign month on its first Calendar opening without Apply/retry. Switching to
+the launch scope showed its four events without foreign previews. All 23 canonical
+fixture file hashes remained unchanged and both owned listeners closed on Quit.
+Real IME, native DST transitions and rapid-response races are not verified by
+this pass. Normal vault editing remains disabled.

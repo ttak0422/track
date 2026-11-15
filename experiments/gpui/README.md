@@ -1048,8 +1048,8 @@ day selection because tasks/events can exist there. Missing counts in a partial
 response remain unknown. Read-only note actions keep their exact source vault.
 
 The page reuses the existing day-details display-zone control (UTC initially),
-request limits and stale-response checks. It does not add month-wide note/task/
-event snippets, journal creation, calendar editing, recurrence expansion or
+request limits and stale-response checks. It does not add month-wide note/task
+snippets, journal creation, calendar editing, recurrence expansion or
 external event links. Native layout/route QA for this addition remains pending.
 
 Calendar is a normal non-note tab with Back/Forward, Close and guarded Reload.
@@ -1059,3 +1059,32 @@ versions 1–6 remain readable, and older versions cannot contain Calendar route
 Startup still restores Home without fetching Calendar. Ordinary launches add no
 session writes. Existing metadata limits and abrupt-quit durability limitations
 remain unchanged.
+
+### Native Calendar month event previews
+
+The Calendar grid reads one bounded engine-projected event range for the visible
+month, independently of note activity. Each date shows its event count, the first
+three event titles in engine order, a **Cancelled:** label when applicable, and
+**+N events** for additional records. Titles are shortened in cells; select the
+day for full metadata. Preview rows do not open links or edit events; the whole
+cell continues to select that date. Deleted records are excluded by the engine.
+Monthly task and note-title snippets remain unimplemented.
+
+The month display-zone input starts at UTC and is session-only. Editing it hides
+old previews as unknown; choose **Apply / retry month events** for a new range.
+A selected day's existing details retain their own response zone until their
+separate Apply action or a new day selection. Loading, invalid zones, missing API,
+read failures and incomplete responses are unknown, never zero events. Zero is
+shown only for an accepted complete date bucket. Note-activity failure does not
+prevent event previews or day selection; its counts remain unknown.
+
+The native adapter requires all dates in order, at most 42 inclusive days,
+maximum three previews per day, bounded identities/titles and at most 4096 source
+events. It shares the existing two-request permit with day/weekly work, never
+makes one request per month cell and does not compute event timezone membership
+locally. Month, zone revision, scope, registry, request, launch and storage changes
+retire prior results. No vault writes, new session fields or external calls are
+added. Isolated native QA verified host event counts, cancelled labels, overflow,
+zone-change invalidation and day details. Cold foreign-scope loading and switching back to the launch vault were
+verified after separating canonical reads from peer index startup. Real IME and
+native DST transitions remain unverified.

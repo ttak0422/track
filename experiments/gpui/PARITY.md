@@ -625,8 +625,37 @@ registry, scope, request, launch and storage guards reject stale work.
 
 Calendar route persistence is fixture-only schema 7 (read versions 1–6 too),
 with safe Home startup; month/day/results are not saved. No ordinary writes or
-journal/event/task edits are enabled. Monthly three-item snippets, full-calendar
+journal/event/task edits are enabled. Monthly note/task snippets, full-calendar
 planning interactions and broader Calendar parity remain unimplemented. Isolated native
 zero-activity task/event display, vault scope, Search/task navigation, Back, Reload,
 Next/Current month and safe Home restart passed. Dirty/IME, rapid-response races
 and interrupted-save scenarios remain unverified natively.
+
+### Native Calendar month event previews
+
+The Calendar grid reads one bounded engine-projected event range for the visible
+month, independently of note activity. Each date shows its event count, the first
+three event titles in engine order, a **Cancelled:** label when applicable, and
+**+N events** for additional records. Titles are shortened in cells; select the
+day for full metadata. Preview rows do not open links or edit events; the whole
+cell continues to select that date. Deleted records are excluded by the engine.
+Monthly task and note-title snippets remain unimplemented.
+
+The month display-zone input starts at UTC and is session-only. Editing it hides
+old previews as unknown; choose **Apply / retry month events** for a new range.
+A selected day's existing details retain their own response zone until their
+separate Apply action or a new day selection. Loading, invalid zones, missing API,
+read failures and incomplete responses are unknown, never zero events. Zero is
+shown only for an accepted complete date bucket. Note-activity failure does not
+prevent event previews or day selection; its counts remain unknown.
+
+The native adapter requires all dates in order, at most 42 inclusive days,
+maximum three previews per day, bounded identities/titles and at most 4096 source
+events. It shares the existing two-request permit with day/weekly work, never
+makes one request per month cell and does not compute event timezone membership
+locally. Month, zone revision, scope, registry, request, launch and storage changes
+retire prior results. No vault writes, new session fields or external calls are
+added. Isolated native QA verified host event counts, cancelled labels, overflow,
+zone-change invalidation and day details. Cold foreign-scope loading and switching back to the launch vault were
+verified after separating canonical reads from peer index startup. Real IME and
+native DST transitions remain unverified.

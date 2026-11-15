@@ -558,7 +558,7 @@ func (b *Bootstrap) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errors.New(b.Status().Reason), http.StatusServiceUnavailable)
 		return
 	}
-	if r.URL.Path == "/api/calendar-events/day" && b.statusFor(r).ReadOnly {
+	if calendarProjectionPath(r.URL.Path) && b.statusFor(r).ReadOnly {
 		writeError(w, errors.New("storage is not ready for calendar projection"), http.StatusServiceUnavailable)
 		return
 	}
@@ -577,7 +577,7 @@ func (b *Bootstrap) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		response := &limitedResponse{ResponseRecorder: httptest.NewRecorder()}
 		srv.Handler().ServeHTTP(response, r)
 		status := b.statusFor(r)
-		if r.URL.Path == "/api/calendar-events/day" && status.ReadOnly {
+		if calendarProjectionPath(r.URL.Path) && status.ReadOnly {
 			writeError(w, errors.New("storage is not ready for calendar projection"), http.StatusServiceUnavailable)
 			return
 		}
@@ -731,6 +731,11 @@ func readOnlyPost(path string) bool {
 
 func (b *Bootstrap) statusFor(r *http.Request) StorageStatus {
 	status := b.Status()
+	// Range verifies canonical events and (when needed) config independently of peer indexes.
+	// Keep global startup/retirement readiness, but do not race a peer's derived-cache refresh.
+	if r.URL.Path == "/api/calendar-events/range" {
+		return status
+	}
 	name := r.URL.Query().Get("vault")
 	b.mu.Lock()
 	srv := b.server

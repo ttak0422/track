@@ -50,6 +50,15 @@ struct Identity {
     until: String,
 }
 impl Identity {
+    // An empty request explicitly selects the owned launch vault. Its wire
+    // label may remain empty even when discovery gives that vault a name.
+    // A named peer is never interchangeable with either launch alias.
+    fn range_vault_matches(&self, wire: &str) -> bool {
+        self.registry.as_ref().is_some_and(|(launch, names)| {
+            names.contains(launch) && live::calendar_range_vault_matches(&self.vault, wire, launch)
+        })
+    }
+
     fn accepts(
         &self,
         launch: Option<u64>,
@@ -72,12 +81,25 @@ pub(crate) struct ActivityState {
     result: Option<Result<live::ActivityResponse, String>>,
     hover: Option<String>,
     agenda: Option<AgendaState>,
+    month_events: Option<MonthEvents>,
+}
+struct MonthEvents {
+    serial: u64,
+    zone_revision: u64,
+    zone: String,
+    result: Option<Result<live::CalendarRangeResponse, String>>,
+}
+impl MonthEvents {
+    fn accepts(&self, serial: u64, revision: u64, zone: &str) -> bool {
+        self.serial == serial && self.zone_revision == revision && self.zone == zone
+    }
 }
 pub(crate) struct CalendarZone {
     launch: Option<u64>,
     accepted: String,
     draft: String,
     serial: u64,
+    revision: u64,
     input: Option<gpui::Entity<search_input::SearchInput>>,
 }
 impl Default for CalendarZone {
@@ -87,6 +109,7 @@ impl Default for CalendarZone {
             accepted: "UTC".into(),
             draft: "UTC".into(),
             serial: 0,
+            revision: 0,
             input: None,
         }
     }
@@ -104,6 +127,7 @@ impl CalendarZone {
     }
     fn edit(&mut self, text: String) {
         self.draft = text;
+        self.revision = self.revision.wrapping_add(1);
         self.advance();
     }
     fn accepts(&self, serial: u64, zone: &str) -> bool {
@@ -287,6 +311,164 @@ pub(crate) fn incomplete(fields: &std::collections::BTreeMap<String, serde_json:
     check(&serde_json::to_value(fields).unwrap_or_default())
 }
 impl Workspace {
+    fn month_events_current<'a>(&self, state: &'a ActivityState) -> Option<&'a MonthEvents> {
+        let events = state.month_events.as_ref()?;
+        (self.activity_identity_current(&state.identity)
+            && events.zone_revision == self.shell.calendar_zone.revision
+            && events.zone == self.shell.calendar_zone.draft)
+            .then_some(events)
+    }
+    fn month_events_notice(&self, state: &ActivityState) -> String {
+        match self.month_events_current(state) {
+            None => "Month events unknown: display zone changed; Apply to load.".into(),
+            Some(events) => match &events.result {
+                None => format!("Loading month events ({})…", events.zone),
+                Some(Err(error)) => format!(
+                    "Month events unavailable ({}): {error}. Counts are unknown, not zero.",
+                    events.zone
+                ),
+                Some(Ok(response)) if incomplete(&response.diagnostics) => {
+                    "Month events incomplete or cached; counts are unknown.".into()
+                }
+                Some(Ok(_)) => format!(
+                    "Month events ({}) · first 3 per day; cancelled events labelled. Titles shortened to fit; select the day for full details.",
+                    events.zone
+                ),
+            },
+        }
+    }
+    fn month_day_preview(&self, state: &ActivityState, date: &str) -> Div {
+        let mut view = div().flex().flex_col().gap_1().text_size(px(10.));
+        let row = self
+            .month_events_current(state)
+            .and_then(|events| events.result.as_ref())
+            .and_then(|result| result.as_ref().ok())
+            .filter(|r| !incomplete(&r.diagnostics))
+            .and_then(|r| r.days.iter().find(|day| day.date == date));
+        let Some(row) = row else {
+            return view.child("Events: unknown");
+        };
+        view = view.child(format!("{} events", row.count));
+        for preview in &row.previews {
+            let title: String = preview.title.chars().take(22).collect();
+            let suffix = if preview.title.chars().count() > 22 {
+                "…"
+            } else {
+                ""
+            };
+            view = view.child(div().h(px(18.)).overflow_hidden().child(format!(
+                "{}{}{}",
+                if preview.status == "cancelled" {
+                    "Cancelled: "
+                } else {
+                    ""
+                },
+                title,
+                suffix
+            )));
+        }
+        if row.count > row.previews.len() as u64 {
+            view = view.child(format!("+{} events", row.count - row.previews.len() as u64));
+        }
+        view
+    }
+    fn fetch_month_events(&mut self, identity: &Identity, explicit: bool, cx: &mut Context<Self>) {
+        if !matches!(identity.surface, Surface::Calendar(_))
+            || !self.activity_identity_current(identity)
+            || (explicit && !self.activity_selection_available(cx))
+        {
+            return;
+        }
+        let zone = self.shell.calendar_zone.draft.clone();
+        let revision = self.shell.calendar_zone.revision;
+        let serial = NEXT_AGENDA.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.shell.activity.as_mut().unwrap().month_events = Some(MonthEvents {
+            serial,
+            zone_revision: revision,
+            zone: zone.clone(),
+            result: None,
+        });
+        let Some(permit) = AgendaPermit::acquire() else {
+            self.shell
+                .activity
+                .as_mut()
+                .unwrap()
+                .month_events
+                .as_mut()
+                .unwrap()
+                .result = Some(Err(
+                "Earlier requests are still finishing; retry shortly.".into()
+            ));
+            cx.notify();
+            return;
+        };
+        let client = self.live.as_ref().unwrap().client();
+        let captured = identity.clone();
+        let requested = zone.clone();
+        let job = cx.background_executor().spawn(async move {
+            let _permit = permit;
+            let before = client.storage().map_err(|e| e.to_string())?;
+            if before.phase != "ready" || before.generation != captured.epoch {
+                return Err("Storage changed; reload workspace.".into());
+            }
+            let launch_name = captured
+                .registry
+                .as_ref()
+                .filter(|(launch, names)| names.contains(launch))
+                .map(|(launch, _)| launch.as_str())
+                .ok_or_else(|| "Calendar registry unavailable.".to_owned())?;
+            let response = client
+                .calendar_range(
+                    &captured.vault,
+                    launch_name,
+                    &captured.since,
+                    &captured.until,
+                    &requested,
+                )
+                .map_err(|e| e.to_string())?;
+            let after = client.storage().map_err(|e| e.to_string())?;
+            if after.phase != "ready"
+                || after.generation != captured.epoch
+                || response.launch_generation != captured.launch
+                || response.source_vault != captured.vault
+                || !captured.range_vault_matches(&response.vault)
+                || response.time_zone != requested
+                || response.since != captured.since
+                || response.until != captured.until
+            {
+                return Err("Calendar range source or storage became stale.".into());
+            }
+            Ok(response)
+        });
+        let identity = identity.clone();
+        cx.spawn(async move |this, cx| {
+            let result = job.await;
+            let _ = this.update(cx, |this, cx| {
+                if !this.activity_identity_current(&identity)
+                    || this.shell.calendar_zone.revision != revision
+                    || this.shell.calendar_zone.draft != zone
+                {
+                    return;
+                }
+                let Some(events) = this
+                    .shell
+                    .activity
+                    .as_mut()
+                    .and_then(|s| s.month_events.as_mut())
+                    .filter(|e| e.accepts(serial, revision, &zone))
+                else {
+                    return;
+                };
+                if result.as_ref().is_ok_and(|r| !incomplete(&r.diagnostics)) {
+                    this.shell.calendar_zone.accepted = zone;
+                }
+                events.result = Some(result);
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
     pub(crate) fn home_activity(&mut self, width: f32, dark: bool, cx: &mut Context<Self>) -> Div {
         self.activity_view(width, dark, false, cx)
     }
@@ -394,6 +576,7 @@ impl Workspace {
                 result: None,
                 hover: None,
                 agenda: None,
+                month_events: None,
             });
             let task_identity = identity.clone();
             let permit = AgendaPermit::acquire();
@@ -452,6 +635,16 @@ impl Workspace {
             })
             .detach();
         }
+        if month_view
+            && self
+                .shell
+                .activity
+                .as_ref()
+                .is_some_and(|s| s.month_events.is_none())
+            && self.shell.calendar_zone.draft == self.shell.calendar_zone.accepted
+        {
+            self.fetch_month_events(&identity, false, cx);
+        }
         let state = self.shell.activity.as_ref().unwrap();
         view = view.child(div().mb_2().child(if month_view {
             "Calendar · note activity"
@@ -480,31 +673,42 @@ impl Workspace {
                         })),
                 );
             }
-            view = view.child(controls).child("Counts show note activity only, not tasks or events. Select any day, including zero-count days.");
+            let captured = identity.clone();
+            view = view.child(controls).child("Note activity and event counts are separate. Select any day, including zero-note days.")
+                .child("Month event display zone · session only")
+                .children(self.shell.calendar_zone.input.clone())
+                .child(div().id("calendar-month-zone-apply").cursor_pointer().child("Apply / retry month events")
+                    .on_click(cx.listener(move |this, _, _, cx| this.fetch_month_events(&captured, true, cx))))
+                .child(self.month_events_notice(state));
         }
-        let Some(result) = &state.result else {
-            return view.child("Loading activity…");
-        };
-        let response = match result {
-            Ok(response) => response,
-            Err(error) => {
+        let response = match &state.result {
+            Some(Ok(response)) => Some(response),
+            result if month_view => {
+                let message = match result {
+                    Some(Err(error)) => {
+                        format!("Note activity unavailable: {error}. Counts are unknown.")
+                    }
+                    _ => "Loading note activity; counts are unknown.".into(),
+                };
+                view = view.child(message);
+                None
+            }
+            None => return view.child("Loading activity…"),
+            Some(Err(error)) => {
                 return view.child(format!("Activity unavailable: {error}")).child(
                     div()
                         .id("retry-activity")
                         .mt_2()
                         .cursor_pointer()
                         .child("Reload workspace")
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.load_notes(cx);
-                        })),
+                        .on_click(cx.listener(|this, _, _, cx| this.load_notes(cx))),
                 );
             }
         };
-        let partial = incomplete(&response.diagnostics);
+        let partial = response.is_none_or(|r| incomplete(&r.diagnostics));
         let counts: std::collections::HashMap<_, _> = response
-            .activity
-            .counts
-            .iter()
+            .into_iter()
+            .flat_map(|r| r.activity.counts.iter())
             .map(|c| (c.date.as_str(), c.count))
             .collect();
         if let Some(month) = &month {
@@ -526,7 +730,7 @@ impl Workspace {
                 for day in week {
                     let cell = div()
                         .w(px(cell_width))
-                        .h(px(62.))
+                        .h(px(156.))
                         .p_1()
                         .border_1()
                         .border_color(rgb(if dark { 0x414848 } else { 0xd8d8d2 }));
@@ -554,7 +758,8 @@ impl Workspace {
                                     ""
                                 }
                             ))
-                            .child(format!("{label} notes"));
+                            .child(format!("{label} notes"))
+                            .child(self.month_day_preview(state, date));
                         active = active.on_click(cx.listener(move |this, _, _, cx| {
                             this.select_activity_day(captured.clone(), clicked.clone(), cx);
                         }));
@@ -567,9 +772,10 @@ impl Workspace {
             }
             return view.child(grid)
                 .when(partial, |view| view.child("Incomplete or cached activity: missing counts are unknown."))
-                .child("Read-only day details below. Month-wide snippets and journal creation are not implemented.")
+                .child("Read-only day details below. Month note/task snippets and journal creation are not implemented.")
                 .child(self.activity_agenda(cx)).child(self.activity_tasks(cx)).child(self.activity_events(cx));
         }
+        let response = response.expect("Home returned above without an accepted activity response");
         // Missing buckets are zero only for complete responses, never partial ones.
         let colors = if dark {
             [0x303638, 0x623b33, 0x945040, 0xc66850, 0xf4785e]
@@ -669,6 +875,57 @@ impl Workspace {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn month_range_launch_alias_does_not_rebind_foreign_scope() {
+        let mut identity = Identity {
+            surface: Surface::Calendar(1),
+            registry: Some(("host".into(), vec!["foreign".into(), "host".into()])),
+            launch: 1,
+            epoch: 2,
+            request: 3,
+            scope_revision: 4,
+            vault: String::new(),
+            since: "2026-11-01".into(),
+            until: "2026-11-30".into(),
+        };
+        assert!(identity.range_vault_matches(""));
+        assert!(identity.range_vault_matches("host"));
+        assert!(!identity.range_vault_matches("foreign"));
+        assert!(!identity.range_vault_matches("unknown"));
+        identity.vault = "foreign".into();
+        assert!(identity.range_vault_matches("foreign"));
+        assert!(!identity.range_vault_matches(""));
+        assert!(!identity.range_vault_matches("host"));
+        identity.vault = "host".into();
+        assert!(identity.range_vault_matches("host"));
+        assert!(identity.range_vault_matches(""));
+        identity.vault.clear();
+        identity.registry = None;
+        assert!(!identity.range_vault_matches(""));
+        identity.registry = Some(("host".into(), vec!["foreign".into()]));
+        assert!(!identity.range_vault_matches("host"));
+        identity.registry = Some((String::new(), vec![String::new()]));
+        assert!(identity.range_vault_matches(""));
+        assert!(!identity.range_vault_matches("host"));
+    }
+    #[test]
+    fn month_zone_ticket_rejects_edit_aba_retry_and_day_selection_does_not_invalidate() {
+        let mut zone = CalendarZone::default();
+        let result = MonthEvents {
+            serial: 7,
+            zone_revision: zone.revision,
+            zone: "UTC".into(),
+            result: None,
+        };
+        zone.advance(); // selecting a day changes its serial only
+        assert!(result.accepts(7, zone.revision, &zone.draft));
+        zone.edit("Asia/Tokyo".into());
+        zone.edit("UTC".into());
+        assert!(!result.accepts(7, zone.revision, &zone.draft));
+        assert!(!result.accepts(8, 0, "UTC"));
+        assert!(!result.accepts(7, 0, "Asia/Tokyo"));
+        assert!(result.result.is_none()); // pending never represents zero events
+    }
     #[test]
     fn home_and_calendar_callbacks_cannot_cross_surfaces_or_month_aba() {
         assert!(Surface::Home.accepts(true, false, 4));
@@ -1357,7 +1614,9 @@ impl Workspace {
         };
         view = view
             .child("Display zone · session only (default UTC)")
-            .children(self.shell.calendar_zone.input.clone())
+            .when(matches!(state.identity.surface, Surface::Home), |view| {
+                view.children(self.shell.calendar_zone.input.clone())
+            })
             .child(
                 div()
                     .id("calendar-zone-apply")
