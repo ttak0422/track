@@ -1,3 +1,4 @@
+local host_vim = vim
 package.path = './lua/?.lua;' .. package.path
 local jobs, scheduled, payloads = {}, {}, {}
 vim = {
@@ -42,3 +43,5 @@ timeline.cancel()
 finish(jobs[5], 0, 'good')
 assert(called == 3)
 print('timeline adapter tests passed')
+
+vim = host_vim

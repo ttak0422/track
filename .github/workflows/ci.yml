@@ -91,6 +91,13 @@ jobs:
       - name: Web tests
         run: nix develop --command bash -euo pipefail -c 'cd web && npm ci && npm test'
 
+      - name: Neovim timeline adapter tests
+        timeout-minutes: 2
+        run: |
+          nix run .#test-nvim -- --headless -u NONE -i NONE -n -l tests/timeline.lua
+          nix run .#test-nvim -- --headless -u NONE -i NONE -n -l tests/agent_timeline.lua
+          nix run .#test-nvim -- --headless -u NONE -i NONE -n -l tests/timeline_view.lua
+
       - name: Neovim backup command E2E
         timeout-minutes: 2
         run: nix run .#test-nvim -- --headless -u NONE -i NONE -l scripts/e2e/nvim_backup.lua
