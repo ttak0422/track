@@ -788,7 +788,10 @@ impl Workspace {
                                 );
                             }
                         }
-                        this.content = markdown::parse_reader(&response.note.body);
+                        this.content = markdown::parse_accepted_reader(
+                            &response.note.body,
+                            response.note.note.additional.get("tasks"),
+                        );
                         this.partial_read =
                             response.note.read_only || partial(&response.related_and_diagnostics);
                         if !this.following_read(request) && !this.shell.home {

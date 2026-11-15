@@ -710,3 +710,40 @@ on Back. This differs from automatic day-cell journal navigation. Isolated nativ
 exclusion, selected-day Back restoration, missing feedback and foreign scope.
 Interrupted lookup flows, mid-read mutation and real IME remain unverified
 natively.
+
+### Read-only rich task lists
+
+Accepted host-note task lists with doing (`[/]`), waiting (`[?]`), cancelled
+(`[-]`), priority, scheduled or due metadata appear as STATE / TASK / SCHED / DUE
+rows. Nested tasks keep their indentation; text styling, internal links,
+priority and ordinary text remain in the task cell. Dates and state come from
+the task metadata accepted with that exact note body. No extra request, checkbox
+mutation, task editing or date picker is added.
+
+This first slice preserves source order: view-only sorting is not implemented.
+It admits only pure unordered task lists with one-line task paragraphs, complete
+source-line correspondence and at most 256 projected rows per document (nesting
+up to eight levels). Plain `[ ]` / `[x]` lists, completion-stamp-only lists,
+mixed or unknown-marker lists, multiline/multiple-paragraph items, ordered lists,
+unsupported cell content and missing/invalidated metadata retain ordinary source
+rendering. Included excerpts, snapshots and query output are not projected.
+
+Rows keep the original reader block indices and block IDs. Find and links use
+the displayed table cells, not hidden source paragraphs; Copy MD still uses the
+unchanged authored body. Partial text selection in tables remains unsupported,
+as with existing native tables. Save-side metadata invalidation falls back to
+source rendering until a fresh accepted read. Native layout, Find/link geometry,
+clipboard and interruption validation for these rich rows is pending.
+
+Rich-list admission additionally requires exact authored text and metadata correspondence.
+Only unique trailing standalone `[#A]`, `[sched:YYYY-MM-DD]` and
+`[due:YYYY-MM-DD]` tokens are projected. Progress cookies (`[3/5]`, `[50%]`),
+repeat/completion tokens, block IDs, code spans, ambiguous or duplicate tokens,
+and any mismatching item keep the entire list in its original reader form.
+This conservative fallback preserves progress and links rather than silently
+dropping notation not represented by the task listing metadata.
+
+Host-context-dependent Markdown reference links (including collapsed and shortcut
+forms), footnotes and non-inline parser links also keep the whole list in its
+original reader form. Inline Markdown and wiki links remain eligible; the table
+never reparses a resolved host reference without its definition.

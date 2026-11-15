@@ -1820,3 +1820,26 @@ opened the foreign daily journal despite its equal numeric ID. All 28 canonical
 hashes remained unchanged and both owned listeners closed on Quit. Real IME,
 rapid interleaved requests and mid-read file changes remain unverified natively;
 ordinary-vault editing remains disabled.
+
+## Rich task list projection: cloud verification
+
+Read-only host-task rows preserve original block positions and source order.
+Independent source review found and resolved metadata substitution and lost
+host-reference context; unsupported progress/repeat/completion notation and
+context-dependent links retain the whole source list.
+
+- Final `cargo fmt --check` and `git diff --check` passed.
+- A temporary isolated harness extracted the actual parser/admission functions
+  without modification. Six tests passed with Rust 1.100 and the locked
+  pulldown-cmark 0.13.6: CRLF/Unicode, nested line/depth, metadata mismatches,
+  progress/ambiguous-token fallback, host reference/footnote fallback and mixed
+  or multiline lists. This does not exercise GPUI rendering, row projection,
+  Find geometry or clipboard behavior.
+- The earlier pre-review candidate passed 843 full Rust tests (7 ignored) on
+  macOS. That result is not validation of the subsequent review corrections.
+- Final full Rust tests could not start in cloud because the pinned local GPUI
+  source dependency is not materialized. Nix is unavailable, so the required
+  help-site build/rendered-page inspection was not rerun for this increment.
+- Final native layout, Find/link/anchor/Back, Copy MD and interruption checks
+  remain pending. Isolated fixtures are prepared; no GUI acceptance is claimed.
+  Real IME remains unverified. Normal-vault editing stays disabled.

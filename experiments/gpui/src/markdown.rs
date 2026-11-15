@@ -433,8 +433,11 @@ impl Cell {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Table {
     pub alignments: Vec<Alignment>,
-    /// First row is the header.
+    /// First row is a header only when `header` is true.
     pub rows: Vec<Vec<Cell>>,
+    pub header: bool,
+    /// Original one-based authored task line, never a mutable task identity.
+    pub task_line: Option<u64>,
 }
 
 /// A native-reader anchor, not a promise of reference-renderer URL slug parity.
@@ -1431,6 +1434,8 @@ fn blocks(
                 table: Some(Table {
                     alignments: alignments.clone(),
                     rows,
+                    header: true,
+                    task_line: None,
                 }),
             });
             return;
@@ -1610,21 +1615,671 @@ pub fn parse(source: &str) -> Vec<Block> {
 pub fn parse_reader(source: &str) -> Vec<Block> {
     parse_mode(source, true)
 }
+/// Accepted body and task metadata from one successful note GET only.
+/// Invalid or missing metadata keeps the original reader model.
+pub fn parse_accepted_reader(
+    source: &str,
+    task_metadata: Option<&serde_json::Value>,
+) -> Vec<Block> {
+    let Ok(tasks) = crate::live::note_tasks(task_metadata) else {
+        return parse_reader(source);
+    };
+    parse_mode_tasks(source, true, Some(&tasks))
+}
 fn parse_mode(source: &str, authored: bool) -> Vec<Block> {
+    parse_mode_tasks(source, authored, None)
+}
+fn parse_mode_tasks(
+    source: &str,
+    authored: bool,
+    tasks: Option<&[crate::live::NoteTask]>,
+) -> Vec<Block> {
     let options = Options::ENABLE_TABLES
         | Options::ENABLE_TASKLISTS
         | Options::ENABLE_STRIKETHROUGH
         | Options::ENABLE_FOOTNOTES;
     let tree = nodes(&mut Parser::new_ext(source, options).into_offset_iter());
+    let rich = tasks
+        .map(|tasks| rich_task_lists(source, tasks))
+        .unwrap_or_default();
     let mut result = Vec::new();
     let mut end = 0;
     for node in &tree {
         fallback(&source[end..node.range.start], &mut result);
+        let start = result.len();
         blocks(node, source, 0, false, &mut result, authored);
+        if let Some(list) = rich.iter().find(|list| list.range == node.range) {
+            if let Some(projected) = project_task_rows(&result[start..], list, tasks.unwrap()) {
+                result.truncate(start);
+                result.extend(projected);
+            }
+        }
         end = node.range.end;
     }
     fallback(&source[end..], &mut result);
     result
+}
+
+/// An exact authored-list mapping. It carries no new task or navigation authority.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RichTaskRow {
+    pub line: u64,
+    pub depth: usize,
+    pub task_index: usize,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RichTaskList {
+    pub range: Range<usize>,
+    pub rows: Vec<RichTaskRow>,
+}
+fn authored_task_marker(line: &str) -> Option<&'static str> {
+    let line = line.trim_start_matches([' ', '\t']);
+    let tail = line
+        .strip_prefix("- ")
+        .or_else(|| line.strip_prefix("* "))
+        .or_else(|| line.strip_prefix("+ "))?
+        .trim_start();
+    let (marker, rest) = tail.split_once(']')?;
+    if !rest.is_empty() && !rest.starts_with(char::is_whitespace) {
+        return None;
+    }
+    match marker {
+        "[ " => Some("TODO"),
+        "[x" | "[X" => Some("DONE"),
+        "[/" => Some("DOING"),
+        "[?" => Some("WAITING"),
+        "[-" => Some("CANCELLED"),
+        _ => None,
+    }
+}
+// Deliberately narrower than the engine grammar: unique trailing metadata tokens
+// only. Anything that could hide progress, completion, repeat or authored markup
+// keeps the entire original list instead of reconstructing uncertain content.
+fn task_source_matches(line: &str, task: &crate::live::NoteTask) -> bool {
+    let Some((_, rest)) = line.split_once(']') else {
+        return false;
+    };
+    let mut words: Vec<&str> = rest.split_whitespace().collect();
+    let mut body = rest.trim();
+    let (mut priority, mut scheduled, mut due) = ("", "", "");
+    let date = |s: &str| {
+        s.len() == 10
+            && s.bytes().enumerate().all(|(i, b)| {
+                if i == 4 || i == 7 {
+                    b == b'-'
+                } else {
+                    b.is_ascii_digit()
+                }
+            })
+    };
+    while let Some(&word) = words.last() {
+        let field = if let Some(value) = word.strip_prefix("[#").and_then(|s| s.strip_suffix(']')) {
+            if value.len() != 1 || !value.as_bytes()[0].is_ascii_uppercase() || !priority.is_empty()
+            {
+                return false;
+            }
+            priority = value;
+            true
+        } else if let Some(value) = word
+            .strip_prefix("[sched:")
+            .and_then(|s| s.strip_suffix(']'))
+        {
+            if !date(value) || !scheduled.is_empty() {
+                return false;
+            }
+            scheduled = value;
+            true
+        } else if let Some(value) = word.strip_prefix("[due:").and_then(|s| s.strip_suffix(']')) {
+            if !date(value) || !due.is_empty() {
+                return false;
+            }
+            due = value;
+            true
+        } else {
+            false
+        };
+        if !field {
+            break;
+        }
+        words.pop();
+        let Some(prefix) = body.strip_suffix(word) else {
+            return false;
+        };
+        body = prefix.trim_end();
+    }
+    let text = words.join(" ");
+    if !task.completed.is_empty()
+        || text.contains('`')
+        || text.contains('\\')
+        || text.split_whitespace().any(|s| s.starts_with('^'))
+        || ["[#", "[sched:", "[due:", "[done:", "[rpt:"]
+            .iter()
+            .any(|s| text.contains(s))
+        || text
+            .as_bytes()
+            .windows(2)
+            .any(|w| w[0] == b'[' && w[1].is_ascii_digit())
+    {
+        return false;
+    }
+    // Tokens inside an unfinished link label cannot become metadata. Balanced
+    // wiki/Markdown labels remain eligible; no label/target reconstruction occurs.
+    let mut brackets = 0usize;
+    let mut parens = 0usize;
+    for c in text.chars() {
+        if c == '(' {
+            parens += 1;
+        }
+        if c == ')' {
+            let Some(n) = parens.checked_sub(1) else {
+                return false;
+            };
+            parens = n;
+        }
+        if c == '[' {
+            brackets += 1;
+        }
+        if c == ']' {
+            let Some(n) = brackets.checked_sub(1) else {
+                return false;
+            };
+            brackets = n;
+        }
+    }
+    brackets == 0
+        && parens == 0
+        && body == text
+        && text == task.text
+        && priority == task.priority
+        && scheduled == task.scheduled
+        && due == task.due
+}
+// The task cell is parsed independently. Never discard host-level reference
+// definitions or footnote ownership by projecting a context-dependent subtree.
+fn task_needs_host_context(node: &Node<'_>) -> bool {
+    matches!(&node.event, Event::FootnoteReference(_))
+        || matches!(&node.event, Event::Start(Tag::Link { link_type, .. })
+            if *link_type != pulldown_cmark::LinkType::Inline)
+        || node.children.iter().any(task_needs_host_context)
+}
+fn collect_rich_task_rows(
+    node: &Node<'_>,
+    source: &str,
+    tasks: &[crate::live::NoteTask],
+    depth: usize,
+    rows: &mut Vec<RichTaskRow>,
+) -> Option<()> {
+    if depth > 8
+        || !matches!(node.event, Event::Start(Tag::List(None)))
+        || task_needs_host_context(node)
+    {
+        return None;
+    }
+    for item in &node.children {
+        if !matches!(item.event, Event::Start(Tag::Item)) || rows.len() >= 256 {
+            return None;
+        }
+        let raw = source.get(item.range.clone())?;
+        let state = authored_task_marker(raw.lines().next()?)?;
+        let line = source[..item.range.start]
+            .bytes()
+            .filter(|b| *b == b'\n')
+            .count() as u64
+            + 1;
+        let task_index = tasks.binary_search_by_key(&line, |t| t.line).ok()?;
+        if tasks[task_index].state != state
+            || !task_source_matches(raw.lines().next()?, &tasks[task_index])
+        {
+            return None;
+        }
+        rows.push(RichTaskRow {
+            line,
+            depth,
+            task_index,
+        });
+        let mut paragraphs = 0;
+        for child in &item.children {
+            match &child.event {
+                Event::Start(Tag::List(None)) => {
+                    collect_rich_task_rows(child, source, tasks, depth + 1, rows)?
+                }
+                Event::Start(Tag::Paragraph) => {
+                    paragraphs += 1;
+                    if paragraphs > 1
+                        || source
+                            .get(child.range.clone())?
+                            .trim_end_matches(['\r', '\n'])
+                            .contains('\n')
+                    {
+                        return None;
+                    }
+                }
+                Event::SoftBreak | Event::HardBreak => return None,
+                Event::Start(
+                    Tag::CodeBlock(_)
+                    | Tag::BlockQuote(_)
+                    | Tag::Table(_)
+                    | Tag::Heading { .. }
+                    | Tag::List(Some(_)),
+                ) => return None,
+                _ => {}
+            }
+        }
+    }
+    Some(())
+}
+/// Host-only admission after live::note_tasks validation. Private to this parser;
+/// fields are authoritative metadata from the same accepted body, not reparsed task grammar.
+fn rich_task_lists(source: &str, tasks: &[crate::live::NoteTask]) -> Vec<RichTaskList> {
+    if tasks.len() > 4096
+        || tasks.windows(2).any(|w| w[0].line >= w[1].line)
+        || tasks.iter().any(|t| {
+            t.line == 0
+                || !matches!(
+                    t.state.as_str(),
+                    "TODO" | "DOING" | "WAITING" | "DONE" | "CANCELLED"
+                )
+                || t.done != matches!(t.state.as_str(), "DONE" | "CANCELLED")
+        })
+    {
+        return vec![];
+    }
+    let options = Options::ENABLE_TABLES
+        | Options::ENABLE_TASKLISTS
+        | Options::ENABLE_STRIKETHROUGH
+        | Options::ENABLE_FOOTNOTES;
+    let tree = nodes(&mut Parser::new_ext(source, options).into_offset_iter());
+    let mut admitted = vec![];
+    let mut total = 0;
+    for node in &tree {
+        let mut rows = vec![];
+        if collect_rich_task_rows(node, source, tasks, 0, &mut rows).is_none() || rows.is_empty() {
+            continue;
+        }
+        let first = source[..node.range.start]
+            .bytes()
+            .filter(|b| *b == b'\n')
+            .count() as u64
+            + 1;
+        let last = source[..node.range.end.saturating_sub(1)]
+            .bytes()
+            .filter(|b| *b == b'\n')
+            .count() as u64
+            + 1;
+        if tasks
+            .iter()
+            .filter(|t| t.line >= first && t.line <= last)
+            .count()
+            != rows.len()
+            || total + rows.len() > 256
+        {
+            continue;
+        }
+        if !rows.iter().any(|r| {
+            let task = &tasks[r.task_index];
+            matches!(task.state.as_str(), "DOING" | "WAITING" | "CANCELLED")
+                || !task.priority.is_empty()
+                || !task.scheduled.is_empty()
+                || !task.due.is_empty()
+        }) {
+            continue;
+        }
+        total += rows.len();
+        admitted.push(RichTaskList {
+            range: node.range.clone(),
+            rows,
+        });
+    }
+    admitted
+}
+
+#[cfg(test)]
+mod rich_task_mapping_tests {
+    use super::*;
+    fn tasks(items: serde_json::Value) -> Vec<crate::live::NoteTask> {
+        crate::live::note_tasks(Some(&serde_json::json!({"items":items}))).unwrap()
+    }
+    #[test]
+    fn exact_lines_and_hierarchy_keep_duplicate_text_distinct() {
+        let source = "Before\n\n- [ ] same\n  - [/] same\n- [?] later\n\nAfter\n";
+        let tasks = tasks(serde_json::json!([
+            {"line":3,"state":"TODO","done":false,"text":"same"},
+            {"line":4,"state":"DOING","done":false,"text":"same"},
+            {"line":5,"state":"WAITING","done":false,"text":"later"}]));
+        let lists = rich_task_lists(source, &tasks);
+        assert_eq!(lists.len(), 1);
+        assert_eq!(
+            lists[0]
+                .rows
+                .iter()
+                .map(|r| (r.line, r.depth))
+                .collect::<Vec<_>>(),
+            vec![(3, 0), (4, 1), (5, 0)]
+        );
+        assert!(source[lists[0].range.clone()].starts_with("- [ ] same"));
+        assert!(rich_task_lists(source, &tasks[..2]).is_empty());
+    }
+    #[test]
+    fn projected_cells_preserve_block_indices_unicode_links_and_only_visible_find_hits() {
+        let source = "# Before\r\n\r\n- [/] **日本語** 2/5 [[Other|target]] [#A] [sched:2026-11-17] [due:2026-11-18]\r\n  - [?] same\r\n- [-] same\r\n\r\n# After\r\n";
+        let metadata = serde_json::json!({"items":[
+            {"line":3,"state":"DOING","done":false,"text":"**日本語** 2/5 [[Other|target]]","priority":"A","scheduled":"2026-11-17","due":"2026-11-18"},
+            {"line":4,"state":"WAITING","done":false,"text":"same"},
+            {"line":5,"state":"CANCELLED","done":true,"text":"same"}]});
+        let original = parse_reader(source);
+        let display = parse_accepted_reader(source, Some(&metadata));
+        assert_eq!(original.len(), display.len());
+        assert_eq!(outline(&original), outline(&display));
+        for (a, b) in original.iter().zip(&display) {
+            assert_eq!(a.block_id, b.block_id);
+        }
+        let first = display
+            .iter()
+            .position(|b| b.table.as_ref().is_some_and(|t| t.task_line == Some(3)))
+            .unwrap();
+        let table = display[first].table.as_ref().unwrap();
+        assert!(table.header);
+        assert_eq!(table.rows.len(), 2);
+        assert_eq!(table.rows[1][1].text, "[A] 日本語 2/5 target");
+        assert_eq!(table.rows[1][1].links.len(), 1);
+        let link = &table.rows[1][1].links[0];
+        assert_eq!(&table.rows[1][1].text[link.range.clone()], "target");
+        assert!(
+            display[first + 1]
+                .table
+                .as_ref()
+                .is_some_and(|t| !t.header && t.task_line == Some(4))
+        );
+        assert!(
+            display[first + 1].table.as_ref().unwrap().rows[0][1]
+                .text
+                .starts_with("  ")
+        );
+        let hits = crate::reader_find::search(&display, "日本語");
+        assert_eq!(hits.hits.len(), 1);
+        assert_eq!(
+            hits.hits[0].target,
+            crate::reader_find::Target::Cell {
+                block: first,
+                row: 1,
+                column: 1
+            }
+        );
+        assert!(crate::reader_find::search(&display, "[/]").hits.is_empty());
+        assert!(display[first].text.is_empty());
+        assert!(!crate::reader_selection::eligible(&display[first]));
+        // The accepted raw body is not rewritten; source Copy uses this unchanged string.
+        assert!(source.contains("- [/] **日本語**"));
+    }
+    #[test]
+    fn accepted_metadata_invalidation_and_excess_rows_restore_literal_model() {
+        let source = "- [/] first\n- [?] second\n";
+        let tasks = serde_json::json!({"items":[
+            {"line":1,"state":"DOING","done":false,"text":"first"},
+            {"line":2,"state":"WAITING","done":false,"text":"second"}]});
+        assert!(
+            parse_accepted_reader(source, Some(&tasks))
+                .iter()
+                .all(|b| b.table.is_some())
+        );
+        assert_eq!(
+            parse_accepted_reader(source, Some(&serde_json::Value::Null)),
+            parse_reader(source)
+        );
+        assert_eq!(parse_accepted_reader(source, None), parse_reader(source));
+        let mut duplicate = tasks.clone();
+        duplicate["items"][1]["line"] = 1.into();
+        assert_eq!(
+            parse_accepted_reader(source, Some(&duplicate)),
+            parse_reader(source)
+        );
+        let mut wrong = tasks.clone();
+        wrong["items"][0]["state"] = "TODO".into();
+        assert_eq!(
+            parse_accepted_reader(source, Some(&wrong)),
+            parse_reader(source)
+        );
+        // No projection is produced by the inert preview or ordinary parser.
+        assert!(parse(source).iter().all(|b| b.table.is_none()));
+    }
+    #[test]
+    fn source_semantic_mismatch_keeps_entire_original_list() {
+        let source =
+            "- [/] actual [[Safe|alias]] [#A] [sched:2026-11-17] [due:2026-11-18]\n- [?] second\n";
+        let good = serde_json::json!({"items":[
+            {"line":1,"state":"DOING","done":false,"text":"actual [[Safe|alias]]","priority":"A","scheduled":"2026-11-17","due":"2026-11-18"},
+            {"line":2,"state":"WAITING","done":false,"text":"second"}]});
+        assert!(
+            parse_accepted_reader(source, Some(&good))
+                .iter()
+                .all(|b| b.table.is_some())
+        );
+        for (field, value) in [
+            ("text", "different [[Other]]"),
+            ("text", "actual [[Other|alias]]"),
+            ("text", "actual [[Safe|other]]"),
+            ("text", "actual [alias](Other.md)"),
+            ("priority", ""),
+            ("priority", "B"),
+            ("scheduled", ""),
+            ("due", "2026-11-19"),
+            ("completed", "2026-11-17"),
+        ] {
+            let mut bad = good.clone();
+            bad["items"][0][field] = value.into();
+            assert_eq!(
+                parse_accepted_reader(source, Some(&bad)),
+                parse_reader(source),
+                "{field}: {value}"
+            );
+        }
+        let plain = "- [/] actual [[Safe]]\n";
+        let good = serde_json::json!({"items":[{"line":1,"state":"DOING","done":false,"text":"actual [[Safe]]"}]});
+        for field in ["priority", "scheduled", "due", "completed"] {
+            let mut bad = good.clone();
+            bad["items"][0][field] = if field == "priority" {
+                "A"
+            } else {
+                "2026-11-17"
+            }
+            .into();
+            assert_eq!(
+                parse_accepted_reader(plain, Some(&bad)),
+                parse_reader(plain)
+            );
+        }
+    }
+    #[test]
+    fn uncertain_tokens_never_drop_progress_or_rewrite_inline_markup() {
+        for suffix in [
+            "[3/5]",
+            "[50%]",
+            "[rpt:1w]",
+            "[done:2026-11-17]",
+            "^block",
+            "[#A] [#A]",
+            "[#A] [#B]",
+            "[due:2026-11-17] [due:2026-11-17]",
+            "`[#A]`",
+            "[label [#A]",
+            "[label](target [#A]",
+            "[sched:bad]",
+        ] {
+            let source = format!("- [/] work {suffix}\n- [?] second\n");
+            let metadata = serde_json::json!({"items":[{"line":1,"state":"DOING","done":false,"text":"work","priority":"A"},
+                {"line":2,"state":"WAITING","done":false,"text":"second"}]});
+            assert_eq!(
+                parse_accepted_reader(&source, Some(&metadata)),
+                parse_reader(&source),
+                "{suffix}"
+            );
+        }
+        for cookie in ["[3/5]", "[50%]", "[rpt:1w]"] {
+            let source = format!("- [/] work {cookie}\n");
+            let metadata = serde_json::json!({"items":[{"line":1,"state":"DOING","done":false,"text":"work"}]});
+            assert_eq!(
+                parse_accepted_reader(&source, Some(&metadata)),
+                parse_reader(&source)
+            );
+        }
+    }
+    #[test]
+    fn host_reference_and_footnote_context_keeps_entire_original_list() {
+        for (text, definition) in [
+            ("[Guide][g]", "[g]: ./Guide.md"),
+            ("[Guide][]", "[Guide]: ./Guide.md"),
+            ("[Guide]", "[Guide]: ./Guide.md"),
+            ("**[Guide][g]**", "[g]: ./Guide.md"),
+            ("Footnote[^g]", "[^g]: Definition"),
+        ] {
+            let source = format!("- [/] {text}\n- [?] second\n\n{definition}\n");
+            let metadata = serde_json::json!({"items":[
+                {"line":1,"state":"DOING","done":false,"text":text},
+                {"line":2,"state":"WAITING","done":false,"text":"second"}]});
+            let original = parse_reader(&source);
+            assert!(
+                original.iter().any(|block| !block.links.is_empty()),
+                "{text}"
+            );
+            assert_eq!(
+                parse_accepted_reader(&source, Some(&metadata)),
+                original,
+                "{text}"
+            );
+        }
+        // Self-contained inline links still use their exact authored destination.
+        let source = "- [/] [Guide](./Guide.md)\n";
+        let metadata = serde_json::json!({"items":[
+            {"line":1,"state":"DOING","done":false,"text":"[Guide](./Guide.md)"}]});
+        let display = parse_accepted_reader(source, Some(&metadata));
+        let cell = &display[0].table.as_ref().unwrap().rows[1][1];
+        assert_eq!(
+            cell.links[0].target,
+            LinkTarget::Markdown {
+                destination: "./Guide.md".into()
+            }
+        );
+    }
+    #[test]
+    fn mixed_unknown_multiline_and_plain_lists_remain_authored() {
+        let rich =
+            tasks(serde_json::json!([{ "line":1,"state":"DOING","done":false,"text":"same"}]));
+        for source in [
+            "- [/] same\n- ordinary\n",
+            "- [z] same\n",
+            "- [/] same\n  continuation\n",
+            "- [/] same\n\n  second paragraph\n",
+        ] {
+            assert!(rich_task_lists(source, &rich).is_empty(), "{source}");
+        }
+        let plain = tasks(
+            serde_json::json!([{ "line":1,"state":"DONE","done":true,"text":"done","completed":"2026-11-17"}]),
+        );
+        assert!(rich_task_lists("- [x] done\n", &plain).is_empty());
+        let mut rich = plain;
+        rich[0].completed.clear();
+        rich[0].priority = "A".into();
+        assert_eq!(rich_task_lists("- [x] done [#A]\n", &rich).len(), 1);
+        rich[0].done = false;
+        assert!(rich_task_lists("- [x] done\n", &rich).is_empty());
+    }
+}
+
+fn task_cell(task: &crate::live::NoteTask, depth: usize) -> Option<Cell> {
+    let parsed = parse_reader(&task.text);
+    let original = match parsed.as_slice() {
+        [block]
+            if block.kind == BlockKind::Paragraph
+                && block.table.is_none()
+                && block.image.is_none()
+                && block.indent == 0
+                && !block.quoted =>
+        {
+            Some(block)
+        }
+        [] if task.text.is_empty() => None,
+        _ => return None,
+    };
+    let mut cell = Cell::default();
+    cell.append(&"  ".repeat(depth), InlineStyle::default());
+    if !task.priority.is_empty() {
+        cell.append(&format!("[{}] ", task.priority), InlineStyle::default());
+    }
+    if let Some(block) = original {
+        let offset = cell.text.len();
+        cell.text.push_str(&block.text);
+        cell.spans
+            .extend(block.spans.iter().cloned().map(|mut span| {
+                span.range.start += offset;
+                span.range.end += offset;
+                span
+            }));
+        cell.links
+            .extend(block.links.iter().cloned().map(|mut link| {
+                link.range.start += offset;
+                link.range.end += offset;
+                link
+            }));
+    }
+    Some(cell)
+}
+fn project_task_rows(
+    original: &[Block],
+    list: &RichTaskList,
+    tasks: &[crate::live::NoteTask],
+) -> Option<Vec<Block>> {
+    if original.len() != list.rows.len() {
+        return None;
+    }
+    original
+        .iter()
+        .zip(&list.rows)
+        .enumerate()
+        .map(|(index, (block, row))| {
+            if block.kind != BlockKind::Paragraph
+                || block.table.is_some()
+                || block.image.is_some()
+                || block.quoted
+                || block.indent != row.depth + 1
+            {
+                return None;
+            }
+            let task = tasks.get(row.task_index)?;
+            let plain = |text: &str| Cell {
+                text: text.into(),
+                ..Cell::default()
+            };
+            let mut rows = vec![];
+            if index == 0 {
+                rows.push(
+                    ["STATE", "TASK", "SCHED", "DUE"]
+                        .into_iter()
+                        .map(plain)
+                        .collect(),
+                );
+            }
+            rows.push(vec![
+                plain(&task.state),
+                task_cell(task, row.depth)?,
+                plain(&task.scheduled),
+                plain(&task.due),
+            ]);
+            let mut projected = block.clone();
+            projected.kind = BlockKind::Table;
+            projected.text.clear();
+            projected.spans.clear();
+            projected.links.clear();
+            projected.marker = None;
+            projected.indent = 0;
+            projected.table = Some(Table {
+                alignments: vec![Alignment::Left; 4],
+                rows,
+                header: index == 0,
+                task_line: Some(row.line),
+            });
+            Some(projected)
+        })
+        .collect()
 }
 
 /// A separate inert document, with no host anchors, link cache or Find identity.
@@ -2244,7 +2899,11 @@ fn render_elements(
             }
             if let Some(table) = &block.table {
                 return row
-                    .mt(px(13.))
+                    .mt(px(if table.task_line.is_some() && !table.header {
+                        0.
+                    } else {
+                        13.
+                    }))
                     .child(render_table(
                         table,
                         theme,
@@ -3018,14 +3677,15 @@ fn render_table(
         .border_color(rgb(theme.line))
         .children(table.rows.iter().enumerate().map(|(index, cells)| {
             let mut row = div().w_full().min_w_0().flex();
-            if index == 0 {
+            if table.header && index == 0 {
                 row = row.bg(rgb(theme.soft));
             }
             row.children(cells.iter().enumerate().map(|(column, cell)| {
                 let mut view = div()
                     .flex_1()
                     .min_w_0()
-                    .p_2()
+                    .when(table.task_line.is_some(), |cell| cell.p_1())
+                    .when(table.task_line.is_none(), |cell| cell.p_2())
                     .border_b_1()
                     .border_r_1()
                     .border_color(rgb(theme.line));
@@ -3046,7 +3706,7 @@ fn render_table(
                     0,
                     theme,
                     false,
-                    index == 0,
+                    table.header && index == 0,
                     highlights
                         .get(&target)
                         .map(Vec::as_slice)
