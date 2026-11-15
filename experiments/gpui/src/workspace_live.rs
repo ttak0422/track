@@ -733,7 +733,7 @@ impl Workspace {
                                 );
                             }
                         }
-                        this.content = markdown::parse(&response.note.body);
+                        this.content = markdown::parse_reader(&response.note.body);
                         this.partial_read =
                             response.note.read_only || partial(&response.related_and_diagnostics);
                         this.current_note = Some(response.note.clone());

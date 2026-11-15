@@ -1347,3 +1347,26 @@ button or the feedback label changed width. The accepted note retains a fixed
 button footprint, with action-time guards disabling unavailable copies. The final
 Rust suite passed 690 tests, with 7 ignored; formatting and native build passed.
 Ordinary vault writes remain disabled.
+
+## Authored block links: native validation pending
+
+Verify same-note, cross-note and metadata `#^ID` links reach terminal paragraph/list anchors; repeated IDs choose first, case differs, missing target reports no jump. Check Unicode/emphasis/link prose, ordered/task indentation, Find offsets and code Copy remain correct; bare/invalid/code/table markers remain visible. Navigate/reload/resize/scroll/open another owner while a jump is queued; old callbacks must not move replacement readers. Check Back and canonical fixture hashes. Six new model tests; cloud diff-check passed, Rust/native/IME not run here.
+
+Native macOS block-link smoke on 2026-11-15 used two CLI-created disposable
+notes. Cross-note paragraph and tight-list jumps, first-duplicate selection,
+Back to the source and same-note paragraph reveal worked without further input.
+Paragraph/list markers were hidden while Unicode, emphasis, ordinary links,
+numbering and task indicators remained visible. A missing block retained the
+existing destination position and reported no fragment jump. Quit exited; both
+owned ports closed and all 10 canonical fixture hashes stayed unchanged.
+
+Independent review found a protected-link whitespace range issue and an extra
+unguarded frame inside the native ScrollAnchor API. Marker projection now refuses
+protected-range truncation; block navigation applies measured positions directly
+inside its guarded callback. The final Rust suite passed 697 tests with 7 ignored;
+formatting and native build passed. Full Find, metadata links, case-distinct and
+ordered/task activation, interrupted/resize, keyboard/accessibility and actual
+IME scenarios remain unverified natively. Arrival highlighting and centered
+placement are not implemented; current targets reveal at the reader top, clamped
+to available scroll extent. This is a bounded subset, not full block-link parity.
+Ordinary vault editing remains disabled.

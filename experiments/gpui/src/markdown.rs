@@ -21,6 +21,8 @@ pub enum BlockKind {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Block {
+    /// Authored current-reader block ID, never inferred from a heading/footnote.
+    pub block_id: Option<String>,
     pub kind: BlockKind,
     pub text: String,
     pub indent: usize,
@@ -220,12 +222,12 @@ pub fn is_local_fragment(target: &LinkTarget) -> bool {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FragmentError {
     MissingHeading(String),
-    UnsupportedBlock,
+    MissingBlock(String),
     InvalidFragment,
     UnsupportedDestination,
 }
 
-/// Match a verified reader heading fragment to this renderer's native anchor.
+/// Match a verified reader heading or authored block fragment to a native anchor.
 /// No I/O: the caller supplies the accepted destination document, retains its
 /// navigation generation, and scrolls only after that document has laid out.
 /// Missing headings are explicitly reported so the shell can use note-top fallback.
@@ -256,8 +258,14 @@ pub fn fragment_anchor(
     if text.is_empty() {
         return Ok(None);
     }
-    if text.starts_with('^') {
-        return Err(FragmentError::UnsupportedBlock);
+    if let Some(id) = text.strip_prefix('^') {
+        if !valid_block_id(id) {
+            return Err(FragmentError::InvalidFragment);
+        }
+        return authored_block_targets(blocks)
+            .contains_key(text)
+            .then(|| Some(text.to_owned()))
+            .ok_or_else(|| FragmentError::MissingBlock(id.into()));
     }
     let wanted = heading_fragment_slug(text);
     outline(blocks)
@@ -480,12 +488,17 @@ pub struct HeadingAnchors {
     entries: Vec<OutlineEntry>,
     targets: std::collections::HashMap<String, ScrollAnchor>,
     footnotes: std::collections::BTreeMap<String, (usize, ScrollAnchor)>,
+    authored: std::collections::BTreeMap<String, (usize, ScrollAnchor)>,
 }
 
 impl HeadingAnchors {
     pub fn new(blocks: &[Block], handle: &ScrollHandle) -> Self {
         Self {
             entries: outline(blocks),
+            authored: authored_block_targets(blocks)
+                .into_iter()
+                .map(|(id, index)| (id, (index, ScrollAnchor::for_handle(handle.clone()))))
+                .collect(),
             footnotes: footnote_targets(blocks)
                 .into_iter()
                 .map(|(label, index)| (label, (index, ScrollAnchor::for_handle(handle.clone()))))
@@ -508,7 +521,11 @@ impl HeadingAnchors {
     /// Call after the document has laid out. Supports nested article/aside layout.
     /// Request a frame with cx.notify() in the calling view after this returns true.
     pub fn scroll_to(&self, anchor: &str, window: &mut Window, cx: &mut App) -> bool {
-        let Some(target) = self.targets.get(anchor) else {
+        let Some(target) = self
+            .targets
+            .get(anchor)
+            .or_else(|| self.authored.get(anchor).map(|(_, anchor)| anchor))
+        else {
             return false;
         };
         target.scroll_to(window, cx);
@@ -1125,7 +1142,94 @@ fn task_state(item: &Node<'_>) -> Option<bool> {
     }
 }
 
-fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut Vec<Block>) {
+fn valid_block_id(id: &str) -> bool {
+    let mut bytes = id.bytes();
+    bytes.next().is_some_and(|b| b.is_ascii_alphanumeric())
+        && bytes.all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+fn terminal_marker(text: &str) -> Option<(usize, &str)> {
+    let text = text.trim_end();
+    let boundary = text.rfind(char::is_whitespace)?;
+    let start = boundary + text[boundary..].chars().next()?.len_utf8();
+    let id = text[start..].strip_prefix('^')?;
+    valid_block_id(id).then_some((start, id))
+}
+fn apply_authored_marker(block: &mut Block, last: Option<&Node<'_>>, source: &str) {
+    if block.kind != BlockKind::Paragraph || block.quoted || block.image.is_some() {
+        return;
+    }
+    let Some(last) = last.filter(|node| matches!(node.event, Event::Text(_))) else {
+        return;
+    };
+    let Some((_, authored)) = terminal_marker(&source[last.range.clone()]) else {
+        return;
+    };
+    let Some((start, id)) = terminal_marker(&block.text) else {
+        return;
+    };
+    if id != authored
+        || block.text[..start].trim().is_empty()
+        || block
+            .spans
+            .iter()
+            .any(|span| span.range.end > start && (span.style.code || span.style.link))
+        || block.links.iter().any(|link| link.range.end > start)
+    {
+        return;
+    }
+    let id = id.to_owned();
+    let cutoff = block.text[..start].trim_end().len();
+    // Whitespace may belong to a parsed link/code label, not to the marker.
+    // Keep the original prose rather than leave a range outside visible text.
+    if block.links.iter().any(|link| link.range.end > cutoff)
+        || block
+            .spans
+            .iter()
+            .any(|span| span.style.code && span.range.end > cutoff)
+    {
+        return;
+    }
+    block.text.truncate(cutoff);
+    for span in &mut block.spans {
+        span.range.end = span.range.end.min(cutoff);
+    }
+    block.spans.retain(|span| span.range.start < span.range.end);
+    block.block_id = Some(id);
+}
+fn flush_authored_run(
+    run: &mut Cell,
+    indent: usize,
+    quoted: bool,
+    out: &mut Vec<Block>,
+    last: Option<&Node<'_>>,
+    source: &str,
+    authored: bool,
+) {
+    let before = out.len();
+    flush_run(run, indent, quoted, out);
+    if authored && out.len() > before {
+        apply_authored_marker(out.last_mut().unwrap(), last, source);
+    }
+}
+/// IDs are case-sensitive and duplicate IDs select the first document occurrence.
+pub fn authored_block_targets(blocks: &[Block]) -> std::collections::BTreeMap<String, usize> {
+    let mut targets = std::collections::BTreeMap::new();
+    for (index, block) in blocks.iter().enumerate() {
+        if let Some(id) = &block.block_id {
+            targets.entry(format!("^{id}")).or_insert(index);
+        }
+    }
+    targets
+}
+
+fn blocks(
+    node: &Node<'_>,
+    source: &str,
+    indent: usize,
+    quoted: bool,
+    out: &mut Vec<Block>,
+    authored: bool,
+) {
     match &node.event {
         Event::Start(Tag::FootnoteDefinition(label)) => {
             // Labels remain literal and searchable, not fake navigation links.
@@ -1138,7 +1242,7 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
                 unicase::UniCase::new(label.as_ref()).to_folded_case(),
             );
             for child in &node.children {
-                blocks(child, source, indent + 1, quoted, out);
+                blocks(child, source, indent + 1, quoted, out, authored);
             }
             return;
         }
@@ -1154,6 +1258,7 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
             });
             if unrepresented {
                 out.push(Block {
+                    block_id: None,
                     kind: BlockKind::Literal,
                     text: source[node.range.clone()].into(),
                     indent,
@@ -1184,6 +1289,7 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
                 })
                 .collect();
             out.push(Block {
+                block_id: None,
                 kind: BlockKind::Table,
                 text: source[node.range.clone()].into(),
                 indent,
@@ -1205,7 +1311,7 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
         Event::Start(Tag::List(start)) => {
             for (index, child) in node.children.iter().enumerate() {
                 let before = out.len();
-                blocks(child, source, indent + 1, quoted, out);
+                blocks(child, source, indent + 1, quoted, out, authored);
                 if let Some(first) = out
                     .get_mut(before)
                     .filter(|block| block.indent == indent + 1)
@@ -1226,6 +1332,7 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
             // Tight lists omit paragraph tags. Group inline runs into one paragraph.
             let before = out.len();
             let mut run = Cell::default();
+            let mut last_inline = None;
             for child in &node.children {
                 if matches!(
                     child.event,
@@ -1240,13 +1347,22 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
                                 | Tag::FootnoteDefinition(_)
                         )
                 ) {
-                    flush_run(&mut run, indent, quoted, out);
-                    blocks(child, source, indent, quoted, out);
+                    flush_authored_run(
+                        &mut run,
+                        indent,
+                        quoted,
+                        out,
+                        last_inline.take(),
+                        source,
+                        authored,
+                    );
+                    blocks(child, source, indent, quoted, out, authored);
                 } else {
                     inline(child, source, &mut run, InlineStyle::default());
+                    last_inline = Some(child);
                 }
             }
-            flush_run(&mut run, indent, quoted, out);
+            flush_authored_run(&mut run, indent, quoted, out, last_inline, source, authored);
             // An empty task still needs its own indicator, including when its only
             // content is a nested list. Do not put the parent's state on its child.
             if task_state(node).is_some()
@@ -1255,6 +1371,7 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
                 out.insert(
                     before,
                     Block {
+                        block_id: None,
                         kind: BlockKind::Paragraph,
                         text: String::new(),
                         indent,
@@ -1274,7 +1391,7 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
         }
         Event::Start(Tag::BlockQuote(_)) => {
             for child in &node.children {
-                blocks(child, source, indent, true, out);
+                blocks(child, source, indent, true, out, authored);
             }
             return;
         }
@@ -1316,6 +1433,7 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
         None
     };
     out.push(Block {
+        block_id: None,
         syntax,
         language,
         fence_info,
@@ -1329,11 +1447,15 @@ fn blocks(node: &Node<'_>, source: &str, indent: usize, quoted: bool, out: &mut 
         quoted,
         marker: None,
     });
+    if authored {
+        apply_authored_marker(out.last_mut().unwrap(), node.children.last(), source);
+    }
 }
 
 fn flush_run(run: &mut Cell, indent: usize, quoted: bool, out: &mut Vec<Block>) {
     if !run.text.is_empty() {
         out.push(Block {
+            block_id: None,
             kind: BlockKind::Paragraph,
             text: std::mem::take(&mut run.text),
             spans: std::mem::take(&mut run.spans),
@@ -1355,6 +1477,13 @@ fn flush_run(run: &mut Cell, indent: usize, quoted: bool, out: &mut Vec<Block>) 
 /// Rich Track task notation remains literal; no task mutation is supported.
 /// Reference definitions omitted by the parser are retained as source fallback.
 pub fn parse(source: &str) -> Vec<Block> {
+    parse_mode(source, false)
+}
+/// Accepted live reader only. Snapshot and inert preview parsing remain unchanged.
+pub fn parse_reader(source: &str) -> Vec<Block> {
+    parse_mode(source, true)
+}
+fn parse_mode(source: &str, authored: bool) -> Vec<Block> {
     let options = Options::ENABLE_TABLES
         | Options::ENABLE_TASKLISTS
         | Options::ENABLE_STRIKETHROUGH
@@ -1364,7 +1493,7 @@ pub fn parse(source: &str) -> Vec<Block> {
     let mut end = 0;
     for node in &tree {
         fallback(&source[end..node.range.start], &mut result);
-        blocks(node, source, 0, false, &mut result);
+        blocks(node, source, 0, false, &mut result, authored);
         end = node.range.end;
     }
     fallback(&source[end..], &mut result);
@@ -1417,7 +1546,7 @@ pub(crate) fn preview_blocks(source: &str) -> Result<Vec<Block>, String> {
     let mut end = 0;
     for node in &tree {
         fallback(&source[end..node.range.start], &mut result);
-        blocks(node, source, 0, false, &mut result);
+        blocks(node, source, 0, false, &mut result, false);
         if result.len() > PREVIEW_BLOCK_LIMIT {
             return Err("Rendered preview exceeds 4096 blocks.".into());
         }
@@ -1494,7 +1623,7 @@ pub(crate) fn included_preview(
             });
             matched.insert(line);
         } else {
-            blocks(node, source, 0, false, &mut host);
+            blocks(node, source, 0, false, &mut host, false);
         }
         if count + host.len() > PREVIEW_BLOCK_LIMIT {
             return Err("Rendered preview exceeds 4096 blocks.".into());
@@ -1521,6 +1650,7 @@ pub(crate) fn included_preview(
 fn fallback(text: &str, out: &mut Vec<Block>) {
     if !text.trim().is_empty() {
         out.push(Block {
+            block_id: None,
             kind: BlockKind::Literal,
             text: text.to_owned(),
             spans: vec![],
@@ -1943,38 +2073,56 @@ fn render_elements(
             } else {
                 row
             };
-            let element =
-                if let Some(entry) = entries.iter().find(|entry| entry.block_index == index) {
-                    row.id(SharedString::from(format!(
-                        "markdown-heading:{}",
-                        entry.anchor
-                    )))
-                    .anchor_scroll(
-                        anchors
-                            .and_then(|anchors| anchors.targets.get(&entry.anchor))
-                            .cloned(),
+            let element = if let Some((id, (_, anchor))) = anchors.and_then(|anchors| {
+                anchors
+                    .authored
+                    .iter()
+                    .find(|(_, (target, _))| *target == index)
+            }) {
+                row.id(SharedString::from(format!("markdown-block:{id}")))
+                    .anchor_scroll(Some(anchor.clone()))
+                    .when_some(
+                        callbacks
+                            .filter(|_| plain_reader_block(block))
+                            .and_then(|callbacks| callbacks.plain_click.clone()),
+                        |row, activate| {
+                            row.on_click(move |event, window, cx| {
+                                activate(index, event, window, cx)
+                            })
+                        },
                     )
                     .into_any_element()
-                } else if let Some((index, anchor)) = anchors.and_then(|anchors| {
+            } else if let Some(entry) = entries.iter().find(|entry| entry.block_index == index) {
+                row.id(SharedString::from(format!(
+                    "markdown-heading:{}",
+                    entry.anchor
+                )))
+                .anchor_scroll(
                     anchors
-                        .footnotes
-                        .values()
-                        .find(|(target, _)| *target == index)
-                }) {
-                    row.id(SharedString::from(format!("markdown-footnote-{index}")))
-                        .anchor_scroll(Some(anchor.clone()))
-                        .into_any_element()
-                } else if let Some(activate) = callbacks
-                    .filter(|_| plain_reader_block(block))
-                    .and_then(|callbacks| callbacks.plain_click.as_ref())
-                {
-                    let activate = activate.clone();
-                    row.id(SharedString::from(format!("plain-reader-{index}")))
-                        .on_click(move |event, window, cx| activate(index, event, window, cx))
-                        .into_any_element()
-                } else {
-                    row.into_any_element()
-                };
+                        .and_then(|anchors| anchors.targets.get(&entry.anchor))
+                        .cloned(),
+                )
+                .into_any_element()
+            } else if let Some((index, anchor)) = anchors.and_then(|anchors| {
+                anchors
+                    .footnotes
+                    .values()
+                    .find(|(target, _)| *target == index)
+            }) {
+                row.id(SharedString::from(format!("markdown-footnote-{index}")))
+                    .anchor_scroll(Some(anchor.clone()))
+                    .into_any_element()
+            } else if let Some(activate) = callbacks
+                .filter(|_| plain_reader_block(block))
+                .and_then(|callbacks| callbacks.plain_click.as_ref())
+            {
+                let activate = activate.clone();
+                row.id(SharedString::from(format!("plain-reader-{index}")))
+                    .on_click(move |event, window, cx| activate(index, event, window, cx))
+                    .into_any_element()
+            } else {
+                row.into_any_element()
+            };
             // Copy and Find may coexist after Find closes. Lay out both retained
             // anchors; choosing just one leaves the other with stale/no bounds.
             let element = if let Some(anchor) = copy
@@ -3033,7 +3181,7 @@ mod tests {
         );
         assert_eq!(
             fragment_anchor(&blocks, &wiki("#^block")),
-            Err(FragmentError::UnsupportedBlock)
+            Err(FragmentError::MissingBlock("block".into()))
         );
         assert_eq!(fragment_anchor(&blocks, &wiki("#")), Ok(None));
         for destination in [
@@ -4223,6 +4371,148 @@ mod plain_reader_ownership_tests {
             "Ref[^x]\n\n[^x]: body",
         ] {
             assert!(!plain_reader_block(&parse(text)[0]), "{text}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod authored_block_tests {
+    use super::*;
+    fn wiki(id: &str) -> LinkTarget {
+        LinkTarget::Wiki {
+            key: "Note".into(),
+            fragment: Some(format!("#^{id}")),
+            authored_label: false,
+        }
+    }
+    #[test]
+    fn accepted_reader_hides_terminal_markers_but_snapshot_and_preview_keep_source() {
+        for source in [
+            "日本語 paragraph ^A_1-z",
+            "- item ^A_1-z",
+            "1. ordered ^A_1-z",
+            "- [x] task ^A_1-z",
+            "- loose ^A_1-z\n\n- second",
+        ] {
+            let reader = parse_reader(source);
+            assert_eq!(reader[0].block_id.as_deref(), Some("A_1-z"), "{source}");
+            assert!(!reader[0].text.contains("^A_1-z"));
+            assert!(parse(source)[0].text.contains("^A_1-z"));
+            assert!(preview_blocks(source).unwrap()[0].text.contains("^A_1-z"));
+            assert_eq!(reader[0].marker, parse(source)[0].marker);
+            assert_eq!(reader[0].indent, parse(source)[0].indent);
+            assert_eq!(
+                fragment_anchor(&reader, &wiki("A_1-z")),
+                Ok(Some("^A_1-z".into()))
+            );
+        }
+    }
+    #[test]
+    fn unsupported_or_nonterminal_shapes_remain_visible_without_anchor() {
+        for source in [
+            "^bare",
+            "- ^bare",
+            "text ^bad!",
+            "text ^_bad",
+            "text ^日本語",
+            "text ^id more",
+            "text `^id`",
+            "text \\^id",
+            "text **^id**",
+            "# heading ^id",
+            "> quote ^id",
+            "```rust\ntext ^id\n```",
+            "| cell |\n|---|\n| text ^id |",
+            "text [^id](other)",
+        ] {
+            let reader = parse_reader(source);
+            assert_eq!(reader, parse(source), "{source}");
+            assert!(authored_block_targets(&reader).is_empty(), "{source}");
+        }
+    }
+    #[test]
+    fn visible_style_link_and_find_byte_offsets_remain_valid() {
+        let reader = parse_reader("日本語 **bold** and [link](https://example.com) ^id");
+        assert_eq!(reader[0].text, "日本語 bold and link");
+        assert_eq!(reader[0].block_id.as_deref(), Some("id"));
+        for span in &reader[0].spans {
+            assert!(reader[0].text.get(span.range.clone()).is_some());
+        }
+        assert_eq!(&reader[0].text[reader[0].links[0].range.clone()], "link");
+        let found = crate::reader_find::search(&reader, "link");
+        assert_eq!(found.hits.len(), 1);
+        assert!(crate::reader_find::search(&reader, "^id").hits.is_empty());
+    }
+    #[test]
+    fn duplicate_ids_are_first_case_sensitive_and_separate_from_headings_footnotes() {
+        let reader =
+            parse_reader("first ^id\n\nsecond ^id\n\nuppercase ^ID\n\n# id\n\n[^id]: definition");
+        let targets = authored_block_targets(&reader);
+        assert_eq!(targets.get("^id"), Some(&0));
+        assert_eq!(targets.get("^ID"), Some(&2));
+        assert_eq!(
+            fragment_anchor(&reader, &wiki("Id")),
+            Err(FragmentError::MissingBlock("Id".into()))
+        );
+        assert_eq!(
+            fragment_anchor(&reader, &wiki("missing")),
+            Err(FragmentError::MissingBlock("missing".into()))
+        );
+        assert_eq!(
+            fragment_anchor(&reader, &wiki("bad!")),
+            Err(FragmentError::InvalidFragment)
+        );
+        assert_eq!(
+            fragment_anchor(
+                &reader,
+                &LinkTarget::Markdown {
+                    destination: "#^id".into()
+                }
+            ),
+            Ok(Some("^id".into()))
+        );
+        assert_eq!(outline(&reader)[0].anchor, "id");
+        assert!(footnote_targets(&reader).contains_key("id"));
+    }
+    #[test]
+    fn tight_nested_and_loose_runs_do_not_attach_bare_markers_or_change_code() {
+        let reader = parse_reader(
+            "- first ^one\n  - child ^two\n- [ ] task ^three\n\n- fourth ^four\n\n  later paragraph ^five\n\n```rust\nlet x = 1; ^code\n```",
+        );
+        for id in ["one", "two", "three", "four", "five"] {
+            assert!(
+                authored_block_targets(&reader).contains_key(&format!("^{id}")),
+                "{id}"
+            );
+        }
+        let code = reader
+            .iter()
+            .find(|block| block.kind == BlockKind::Code)
+            .unwrap();
+        assert_eq!(code.text, "let x = 1; ^code\n");
+        assert_eq!(code.language.as_deref(), Some("rust"));
+        assert!(code.block_id.is_none());
+    }
+}
+
+#[cfg(test)]
+mod authored_marker_protected_ranges {
+    #[test]
+    fn trailing_label_or_inline_code_space_is_preserved_without_projection() {
+        for source in [
+            "[foo ](https://example.com) ^id",
+            "`foo ` ^id",
+            "日本語 [空白 ](target) ^id",
+        ] {
+            let blocks = super::parse_reader(source);
+            assert_eq!(blocks, super::parse(source), "{source}");
+            assert!(blocks[0].block_id.is_none());
+            for link in &blocks[0].links {
+                assert!(blocks[0].text.get(link.range.clone()).is_some());
+            }
+            for span in &blocks[0].spans {
+                assert!(blocks[0].text.get(span.range.clone()).is_some());
+            }
         }
     }
 }

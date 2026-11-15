@@ -128,6 +128,35 @@ impl Workspace {
         }
         Some((source, key))
     }
+    fn block_fragment_layout_source(&self, cx: &App) -> Option<(LinkSource, tabs::TabKey)> {
+        let pending = self.shell.pending_fragment.as_ref()?;
+        if !pending.loaded
+            || self.tag_routing_blocked(cx)
+            || !self.find_available()
+            || self.editing_ui.active()
+            || self.partial_read
+            || self.read_error.is_some()
+            || self.content.is_empty()
+            || self.content.len() > 4096
+        {
+            return None;
+        }
+        let anchor = markdown::fragment_anchor(&self.content, &pending.intent.target).ok()??;
+        if !anchor.starts_with('^') {
+            return None;
+        }
+        let source = self.current_link_source()?;
+        let key = self.tabs.active()?.key.clone();
+        let route = self.current_note_request.as_ref()?;
+        let storage = self.live.as_ref()?.initial_storage.as_ref()?;
+        if !position_route_matches(&source, route, &key)
+            || storage.phase != "ready"
+            || storage.generation != source.storage_generation
+        {
+            return None;
+        }
+        Some((source, key))
+    }
     pub(crate) fn follow_layout_anchors(&self) -> Option<std::rc::Rc<markdown::PositionAnchors>> {
         self.shell.positions.anchors.clone()
     }
@@ -1401,6 +1430,16 @@ fn reference_row(
 }
 // show_graph only controls the reader's aside, never replaces the article.
 // Keep it explicit here so the availability regression covers both aside states.
+fn fragment_layout_current(
+    source: bool,
+    tab: bool,
+    handle: bool,
+    interaction: bool,
+    viewport: bool,
+    anchors: bool,
+) -> bool {
+    source && tab && handle && interaction && viewport && anchors
+}
 fn code_copy_available(
     reader_available: bool,
     find_open: bool,
@@ -2086,9 +2125,9 @@ impl Workspace {
                     Some("Heading not found; showing the top of the note.".into());
                 None
             }
-            Err(markdown::FragmentError::UnsupportedBlock) => {
+            Err(markdown::FragmentError::MissingBlock(_)) => {
                 self.shell.navigation_notice =
-                    Some("Block fragment jumps are unavailable; the note was opened.".into());
+                    Some("Block target not found; no fragment jump was applied.".into());
                 self.shell.pending_fragment = None;
                 return;
             }
@@ -2101,7 +2140,22 @@ impl Workspace {
                 return;
             }
         };
+        let block_index = anchor
+            .as_ref()
+            .filter(|anchor| anchor.starts_with('^'))
+            .and_then(|anchor| {
+                markdown::authored_block_targets(&self.content)
+                    .get(anchor)
+                    .copied()
+            });
+        let block_positions = block_index.and(self.shell.positions.anchors.clone());
+        let displayed = self.displayed_content();
         self.shell.pending_fragment.as_mut().unwrap().scheduled = true;
+        let destination_source = self.current_link_source();
+        let destination_tab = self.tabs.active().map(|tab| tab.key.clone());
+        let reader_epoch = self.shell.reader_scroll_epoch;
+        let interaction = self.shell.positions.interaction;
+        let viewport = window.viewport_size();
         let weak = cx.entity().downgrade();
         window.on_next_frame(move |window, cx| {
             let _ = weak.update(cx, |this, cx| {
@@ -2113,8 +2167,22 @@ impl Workspace {
                     .live
                     .as_ref()
                     .map(|session| session.client().launch_generation);
-                if !still_pending
-                    || this.request != pending.request
+                if !still_pending { return; }
+                if !fragment_layout_current(
+                    this.current_link_source() == destination_source,
+                    this.tabs.active().map(|tab| tab.key.clone()) == destination_tab,
+                    this.shell.reader_scroll_epoch == reader_epoch,
+                    this.shell.positions.interaction == interaction,
+                    window.viewport_size() == viewport,
+                    destination_tab.as_ref().and_then(|tab| this.shell.heading_anchors.get(tab))
+                        .is_some_and(|(_, current)| std::rc::Rc::ptr_eq(current, &anchors)),
+                ) {
+                    this.shell.pending_fragment = None;
+                    this.shell.navigation_notice = Some("Fragment jump canceled after the reader changed; activate the link again.".into());
+                    cx.notify();
+                    return;
+                }
+                if this.request != pending.request
                     || key.as_ref().is_none_or(|key| {
                         !fragment_accepts(
                             &pending.intent,
@@ -2129,13 +2197,26 @@ impl Workspace {
                     return;
                 }
                 this.shell.pending_fragment = None;
-                if this.editing_ui.active() {
+                if this.editing_ui.active() || this.tag_routing_blocked(cx) {
                     return;
                 }
-                if let Some(anchor) = anchor {
+                if let Some(index) = block_index {
+                    // Direct measured application inside this guarded callback.
+                    // ScrollAnchor would enqueue an additional unguarded frame.
+                    let applied = block_positions.as_ref().is_some_and(|positions| {
+                        this.displayed_content().as_ref() == displayed.as_ref()
+                            && this.shell.positions.anchors.as_ref().is_some_and(|current| std::rc::Rc::ptr_eq(current, positions))
+                            && positions.capture(window.viewport_size(), window.scale_factor()).is_some_and(|capture| {
+                                positions.apply(index, &capture, window.viewport_size(), window.scale_factor())
+                            })
+                    });
+                    if !applied {
+                        this.shell.navigation_notice = Some("Block layout was unavailable or changed; no fragment jump was applied.".into());
+                    }
+                } else if let Some(anchor) = anchor {
                     if !anchors.scroll_to(&anchor, window, cx) {
                         this.shell.navigation_notice = Some(
-                            "Heading layout was unavailable; no fragment jump was applied.".into(),
+                            "Fragment layout was unavailable; no fragment jump was applied.".into(),
                         );
                     } else {
                         // ScrollAnchor queues another next-frame callback. The
@@ -2936,7 +3017,8 @@ impl Render for Workspace {
         let position_source = self
             .position_source()
             .ok()
-            .or_else(|| self.follow_layout_source(cx));
+            .or_else(|| self.follow_layout_source(cx))
+            .or_else(|| self.block_fragment_layout_source(cx));
         if self.shell.positions.source != position_source {
             self.shell.positions.source = position_source.clone();
             self.shell.positions.anchors = position_source.as_ref().and_then(|_| {
@@ -2949,8 +3031,9 @@ impl Render for Workspace {
         let position_controls = self.position_controls(window, cx);
         let mut headings = markdown::outline(&self.content);
         let outline_signature = format!(
-            "{headings:?}:{:?}",
-            markdown::footnote_targets(&self.content)
+            "{headings:?}:{:?}:{:?}",
+            markdown::footnote_targets(&self.content),
+            markdown::authored_block_targets(&self.content)
         );
         let heading_anchors = if self.tag_page.is_some() {
             std::rc::Rc::new(markdown::HeadingAnchors::new(&self.content, &reader_scroll))
@@ -5523,5 +5606,22 @@ mod native_history_menu_tests {
         // focus exists the predicate is false, so renders cannot repeatedly focus.
         assert!(!workspace_root_focus_allowed(true, true, false));
         assert!(shell.reader_keys.is_none());
+    }
+}
+
+#[cfg(test)]
+mod fragment_layout_tests {
+    #[test]
+    fn deferred_fragment_requires_current_source_tab_handle_interaction_geometry_and_anchors() {
+        assert!(super::fragment_layout_current(
+            true, true, true, true, true, true
+        ));
+        for stale in 0..6 {
+            let mut current = [true; 6];
+            current[stale] = false;
+            assert!(!super::fragment_layout_current(
+                current[0], current[1], current[2], current[3], current[4], current[5]
+            ));
+        }
     }
 }

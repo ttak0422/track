@@ -849,7 +849,7 @@ impl Workspace {
                                 );
                             }
                         }
-                        this.content = markdown::parse(&baseline);
+                        this.content = markdown::parse_reader(&baseline);
                         this.editing_ui.message =
                             "Fixture save acknowledged. Authored text and undo history retained."
                                 .into();
@@ -1048,7 +1048,7 @@ impl Workspace {
                         );
                     }
                 }
-                self.content = markdown::parse(&text);
+                self.content = markdown::parse_reader(&text);
                 match active.input.update(cx, |editor, cx| editor.mark_saved(&text, cx)) {
                     Ok(()) => "Explicitly accepted matching GET revision. No write sent; authored text retained.".into(), Err(message) => message.into(),
                 }

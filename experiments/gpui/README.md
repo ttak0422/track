@@ -986,3 +986,11 @@ Successfully decoded standalone local PNG/JPEG images have an explicit Enlarge c
 ## Copy current title
 
 The accepted live reader offers Copy title beside its wrapped title. It submits the exact plain-text title, without wiki syntax or note identifiers. “Copy submitted” lasts about 1.5 seconds and renews on repeat; this reports clipboard submission, not readback verification. Empty or over-64-KiB titles and pending/error/competing-owner states have no active control. Preview copying and a Cmd-C binding are not added.
+
+## Authored reader block links
+
+Accepted live paragraph/list prose supports a terminal whitespace-delimited `^ID` (ASCII letter/digit first, then letters/digits/hyphen/underscore). The marker is hidden and `[[Title#^ID]]` or verified metadata links reveal the first exact, case-sensitive match. Missing targets report no jump. Bare markers, quotes, nonterminal/invalid markers, code, tables and other unsupported shapes retain their source. Snapshot and inert preview parsing are unchanged; no transclusion or writes.
+
+This subset reveals at the reader top within available scroll extent. Arrival
+highlighting and centered placement remain unavailable. Markers whose removal
+would truncate protected link/code text remain literal and are not anchors.

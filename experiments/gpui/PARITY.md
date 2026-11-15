@@ -492,3 +492,12 @@ Explicit read-only enlargement of already decoded current-reader standalone PNG/
 ## Current reader title copy candidate
 
 Explicit exact-title clipboard submission is source/tab/revision/launch/vault qualified, bounded to 64 KiB, with generation-safe 1.5-second feedback. Reuses the accepted reader and existing owner guards; no focus acquisition, clipboard reads, mutation or persistence. Model tests added for Unicode, bounds, stale sources and repeated-copy timers. Cloud Rust and native validation are pending; preview copy is deferred.
+
+## Authored block links candidate
+
+Current accepted reader paragraph/list markers and internal block-fragment links are implemented through existing resolver/navigation with separate heading/footnote namespaces. Duplicate IDs select the first occurrence; missing/invalid IDs never use a heading/top fallback. Source/tab/reader/interaction/viewport guards reject stale deferred jumps. Six model tests added; Rust/build/native validation pending. No standalone-marker attachment, transclusion, preview/snapshot pipeline change or vault writes.
+
+Block-link model/native evidence is recorded in NATIVE-QA.md (697 Rust tests;
+paragraph/tight-list/duplicate/missing/same-note pointer smoke). Arrival highlight,
+centered placement, block transclusion and the remaining native scenarios are not
+implemented or validated by this increment. Normal vault writes stay disabled.
