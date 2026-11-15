@@ -1,5 +1,7 @@
 #[path = "gallery_covers.rs"]
 mod gallery_covers;
+#[path = "include_navigation.rs"]
+mod include_navigation;
 #[path = "preview_copy.rs"]
 mod preview_copy;
 #[path = "query_inline.rs"]
@@ -383,6 +385,8 @@ impl Workspace {
                                         "{origin} · {target} · source {}",
                                         source_position(entry.source_line)
                                     ));
+                                row =
+                                    row.child(self.include_source_control(index, *entry_index, cx));
                                 if let Some(etag) = &entry.etag {
                                     row = row.child(format!("Snapshot revision: {etag}"));
                                 }

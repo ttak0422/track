@@ -2,7 +2,7 @@
 use crate::live::Error;
 use serde_json::Value;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Include {
     pub line: u64,
     pub source_line: i64,
