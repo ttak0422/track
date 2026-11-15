@@ -584,3 +584,10 @@ occurrences require Hide first. Show/Hide uses existing guarded passage restore.
 No PDF text search, automatic loading, or additional decode. Isolated duplicate
 occurrence, below-page passage retention and Find checks passed; narrow layout,
 bottom clamping and native race/error injection remain unverified.
+
+Rendered host-query list/board/gallery rows offer an explicit Open note control.
+It uses one bounded, source-scoped engine wiki lookup per activation, preserving
+resolved vault identity; absent/empty targets alone fall back to title lookup.
+Snapshot/row/page/scope tickets reject stale work. Included queries and calendar,
+whole-card/keyboard/modifier/hover parity are deferred. No creation or external
+opener; failed resolution keeps the accepted preview. Native QA pending.

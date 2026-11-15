@@ -1356,7 +1356,7 @@ fn plain_click_admitted(
 ) -> bool {
     left && down_count == 1 && up_count == 1 && stationary && unmodified
 }
-fn plain_reader_click(event: &gpui::ClickEvent) -> bool {
+pub(crate) fn plain_reader_click(event: &gpui::ClickEvent) -> bool {
     let gpui::ClickEvent::Mouse(event) = event else {
         return false;
     };
@@ -1698,7 +1698,9 @@ impl Drop for LinkResolutionCache {
             .store(true, std::sync::atomic::Ordering::Release);
     }
 }
-fn uncertain_resolution(fields: &std::collections::BTreeMap<String, serde_json::Value>) -> bool {
+pub(crate) fn uncertain_resolution(
+    fields: &std::collections::BTreeMap<String, serde_json::Value>,
+) -> bool {
     fn uncertain(value: &serde_json::Value) -> bool {
         let Some(object) = value.as_object() else {
             return false;

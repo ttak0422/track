@@ -2,6 +2,8 @@
 mod gallery_covers;
 #[path = "preview_copy.rs"]
 mod preview_copy;
+#[path = "query_navigation.rs"]
+mod query_navigation;
 #[path = "task_boards.rs"]
 mod task_boards;
 #[path = "viewspec_preview.rs"]
@@ -44,6 +46,7 @@ pub(crate) struct IncludesState {
     preview_focus: Option<gpui::FocusHandle>,
     preview_scroll: gpui::ScrollHandle,
     preview_epoch: u64,
+    query_nav: query_navigation::Navigation,
     query_pages: std::collections::BTreeMap<(usize, usize, Option<usize>), usize>,
     query_sources: std::collections::BTreeSet<(usize, usize)>,
     gallery: gallery_covers::Gallery,
@@ -103,6 +106,7 @@ impl IncludesState {
             preview_focus: None,
             preview_scroll: gpui::ScrollHandle::new(),
             preview_epoch: 0,
+            query_nav: Default::default(),
             query_pages: Default::default(),
             query_sources: Default::default(),
             gallery: Default::default(),
@@ -255,6 +259,7 @@ impl Workspace {
         state.copy =
             preview_copy::CopyUi::prepare(state.result.as_ref().and_then(|r| r.as_ref().ok()), cx);
         state.preview_epoch = SERIAL.fetch_add(1, Ordering::Relaxed);
+        state.query_nav = Default::default();
         state.query_pages.clear();
         state.query_sources.clear();
         state.preview_scroll = gpui::ScrollHandle::new();
@@ -292,6 +297,7 @@ impl Workspace {
         state.mindmap_cache.clear();
         state.gallery.cancel();
         state.viewspecs.cancel();
+        state.query_nav = Default::default();
         state.query_pages.clear();
         state.query_sources.clear();
         if let Some(focus) = &self.shell.reader_focus {
@@ -316,6 +322,9 @@ impl Workspace {
         let (paper, ink, line) = colors;
         let close_identity = identity.clone();
         let mut body = div().flex().flex_col().gap_3();
+        if let Some(notice) = self.query_navigation_notice() {
+            body = body.child(notice);
+        }
         if let Some(Ok(snapshot)) = &state.result {
             match &snapshot.preview {
                 Err(error) => body = body.child(format!("Rendered preview unavailable: {error}")),
@@ -398,7 +407,7 @@ impl Workspace {
                 cx.stop_propagation();
             }))
             .child(div().flex().justify_between().child("Rendered content (read-only)").child(div().id("close-rendered-includes-preview").cursor_pointer().child("Close preview (Esc)").on_click(cx.listener(move |this, _, window, cx| this.close_includes_preview(&close_identity, serial, window, cx)))))
-            .child("Engine-resolved snapshots; completeness and currentness are not guaranteed. Partial inline preview: only isolated top-level includes are embedded. Links, task changes, recursive includes, Find and navigation are unavailable. Gallery covers support bounded local PNG/JPEG only. Text selection is unavailable. Tagged code and displayed source have explicit Copy controls (plain text, up to 256 KiB).")
+            .child("Engine-resolved snapshots; completeness and currentness are not guaranteed. Partial inline preview: only isolated top-level includes are embedded. General links, task changes, recursive includes and Find are unavailable. Host query rows provide explicit Open note controls; included query rows remain inert. Gallery covers support bounded local PNG/JPEG only. Text selection is unavailable. Tagged code and displayed source have explicit Copy controls (plain text, up to 256 KiB).")
             .child(div().id(gpui::SharedString::from(format!("rendered-includes-scroll-{serial}"))).track_scroll(&scroll).flex_1().min_h_0().overflow_y_scroll().child(body))
     }
     fn includes_identity(&self) -> Option<Identity> {
@@ -483,6 +492,7 @@ impl Workspace {
         state.copy = Default::default();
         state.gallery.cancel();
         state.viewspecs.cancel();
+        state.query_nav = Default::default();
         state.query_pages.clear();
         state.query_sources.clear();
         let Some(permit) = Permit::acquire() else {
@@ -919,6 +929,7 @@ mod tests {
         }));
         state.preview_open = true;
         state.preview_epoch = SERIAL.fetch_add(1, Ordering::Relaxed);
+        state.query_nav = Default::default();
         state.query_pages.clear();
         state.query_sources.clear();
         assert!(state.accepts(&id, 5));
@@ -926,6 +937,7 @@ mod tests {
         state.copy = Default::default();
         state.gallery.cancel();
         state.viewspecs.cancel();
+        state.query_nav = Default::default();
         state.query_pages.clear();
         state.query_sources.clear();
         assert_eq!(source, original);
@@ -1565,6 +1577,12 @@ impl Workspace {
                         for value in metadata {
                             card = card.child(value);
                         }
+                        card = card.child(self.query_navigation_control(
+                            key,
+                            group_index,
+                            row_index,
+                            cx,
+                        ));
                         grid = grid.child(card);
                     }
                     visual = visual.child(grid);
@@ -1575,10 +1593,17 @@ impl Workspace {
                     if view.total_rows() == 0 {
                         visual = visual.child("No query rows in this snapshot.");
                     }
-                    for (index, row) in view
+                    for (index, (group_index, row_index, row)) in view
                         .groups
                         .iter()
-                        .flat_map(|g| g.rows.iter())
+                        .enumerate()
+                        .flat_map(|(g, group)| {
+                            group
+                                .rows
+                                .iter()
+                                .enumerate()
+                                .map(move |(r, row)| (g, r, row))
+                        })
                         .enumerate()
                         .skip(page * LIST_PAGE)
                         .take(LIST_PAGE)
@@ -1595,6 +1620,12 @@ impl Workspace {
                         for text in view.metadata(row) {
                             card = card.child(div().child(text));
                         }
+                        card = card.child(self.query_navigation_control(
+                            key,
+                            group_index,
+                            row_index,
+                            cx,
+                        ));
                         visual = visual.child(card);
                     }
                 }
@@ -1752,6 +1783,12 @@ impl Workspace {
                             for text in metadata {
                                 card = card.child(text);
                             }
+                            card = card.child(self.query_navigation_control(
+                                key,
+                                group_index,
+                                row_index,
+                                cx,
+                            ));
                             lane = lane.child(card);
                         }
                         lanes = lanes.child(lane);

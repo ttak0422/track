@@ -1628,3 +1628,15 @@ note/metadata/asset hashes; no ordinary session or PDF-cache writes are allowed.
 - Narrow layouts, bottom-clamp transitions, page-error injection, source/scope
   races, clipboard/heading navigation and actual IME remain unverified. No extra
   fetch/decode is present in Show/Hide; request counts were not instrumented.
+
+## Host query row navigation: bounded native validation
+
+Generate actual list/board/gallery query results in an isolated title-mode vault.
+Open Alpha/Beta via row controls and Back to source; separately verify id-v1
+explicit targets, same titles with distinct targets, missing/hostile target,
+foreign resolved vault and unavailable vault. Failed explicit lookup must not
+fall back to title or dismiss preview. Change page/scope/source while lookup is
+pending; stale callbacks must not navigate. Included query results stay inert.
+Check no note creation, external requests, session writes or canonical changes.
+
+On 2026-11-15, an isolated title-mode fixture verified list → Alpha, board → Beta, and gallery → Alpha using explicit Open note controls. Back returned to the host, whose rendered preview could be reopened. Native Quit succeeded, all 12 canonical hashes remained unchanged, and both owned ports closed. The additional failure, id-v1, foreign-vault, race and IME cases above remain unverified natively; regression tests cover target admission, provenance and stale ticket identity. Ordinary vault editing stays disabled.

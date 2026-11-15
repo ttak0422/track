@@ -39,6 +39,7 @@ pub struct Group {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Row {
     pub title: String,
+    pub target: Option<String>,
     pub cells: Vec<String>,
     pub cover: Option<String>,
     pub icon: Option<String>,
@@ -248,7 +249,7 @@ fn optional_string<'a>(
 }
 
 /// Validate the entire bounded document before cloning any typed UI data.
-/// Navigation targets are discarded; cover/icon strings are retained but never interpreted.
+/// Targets remain opaque resolver input; cover/icon strings remain display data.
 pub fn decode(source: &str) -> Result<View, String> {
     if source.len() > MAX_BYTES {
         return Err("Query snapshot exceeds 256 KiB limit".into());
@@ -342,6 +343,7 @@ pub fn decode(source: &str) -> Result<View, String> {
                     .iter()
                     .map(|row| Row {
                         title: row["title"].as_str().unwrap().to_owned(),
+                        target: row.get("target").map(|v| v.as_str().unwrap().to_owned()),
                         cover: row.get("cover").map(|v| v.as_str().unwrap().to_owned()),
                         icon: row.get("icon").map(|v| v.as_str().unwrap().to_owned()),
                         cells: row["cells"]
