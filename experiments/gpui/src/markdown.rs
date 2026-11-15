@@ -1904,11 +1904,26 @@ fn render_elements(
                 theme,
             ));
             let row = if let Some(image) = images.and_then(|images| images.get(&index)) {
+                let (width, ratio) = crate::raster::inline_geometry(image.width, image.height);
                 row.child(
-                    gpui::img(image.image.clone())
-                        .w(px((image.width as f32).min(620.)))
+                    // Img resolves auto height from its requested width before
+                    // max-width clamping. Let the parent own coupled geometry;
+                    // the absolute image cannot contribute intrinsic sizing.
+                    div()
+                        .relative()
+                        .w(px(width))
                         .max_w_full()
-                        .max_h(px(480.)),
+                        .map(|mut frame| {
+                            frame.style().aspect_ratio = Some(ratio);
+                            frame
+                        })
+                        .child(
+                            gpui::img(image.image.clone())
+                                .absolute()
+                                .inset_0()
+                                .size_full()
+                                .object_fit(gpui::ObjectFit::Contain),
+                        ),
                 )
                 .child(
                     div()

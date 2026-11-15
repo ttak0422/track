@@ -10,6 +10,17 @@ pub const THUMBNAIL_WIDTH: u32 = 320;
 pub const THUMBNAIL_HEIGHT: u32 = 180;
 pub const MAX_THUMBNAIL_BYTES: usize = 320 * 180 * 4;
 
+/// One coupled size constraint: height follows the natural ratio after the
+/// layout engine constrains width to the reader's available width.
+/// Decoded dimensions are nonzero; the defensive fallback avoids invalid style.
+pub fn inline_geometry(width: u32, height: u32) -> (f32, f32) {
+    if width == 0 || height == 0 {
+        return (0., 1.);
+    }
+    let ratio = width as f32 / height as f32;
+    ((width as f32).min(620.).min(480. * ratio), ratio)
+}
+
 pub struct Decoded {
     pub image: Arc<gpui::RenderImage>,
     pub width: u32,
@@ -247,5 +258,41 @@ pub(crate) mod tests {
         }
         assert!(decode_thumbnail(&bytes[..12], "image/png").is_err());
         assert!(decode_thumbnail(&vec![0; MAX_ENCODED + 1], "image/png").is_err());
+    }
+}
+
+#[cfg(test)]
+mod inline_geometry_tests {
+    use super::inline_geometry;
+
+    #[test]
+    fn inline_width_and_ratio_preserve_portrait_landscape_and_small_images() {
+        for (width, height, expected_width) in [
+            (600, 1200, 240.),
+            (1200, 600, 620.),
+            (1000, 1000, 480.),
+            (100, 200, 100.),
+            (1, 2048, 480. / 2048.),
+            (2048, 1, 620.),
+        ] {
+            let (cap, ratio) = inline_geometry(width, height);
+            assert!((cap - expected_width).abs() < 0.001);
+            for parent_width in [1_f32, 80., 200., 400., 1000.] {
+                // The parent frame uses this cap with max_w_full and aspect ratio.
+                let rendered_width = cap.min(parent_width);
+                let rendered_height = rendered_width / ratio;
+                assert!(rendered_width <= parent_width && rendered_width <= width as f32);
+                assert!(rendered_height <= height as f32 + 0.001);
+                assert!(rendered_height <= 480.001);
+                assert!((rendered_width / rendered_height - ratio).abs() < 0.001);
+            }
+        }
+    }
+
+    #[test]
+    fn invalid_inline_dimensions_do_not_produce_nan_or_infinite_styles() {
+        for dimensions in [(0, 0), (0, 100), (100, 0)] {
+            assert_eq!(inline_geometry(dimensions.0, dimensions.1), (0., 1.));
+        }
     }
 }

@@ -1314,3 +1314,17 @@ Arc and absence of new read/decode calls were source-reviewed, not measured with
 a live request counter. JPEG, resize/small-window, full keyboard/AX, source-change
 and IME/dirty/recovery combinations still need native coverage. Ordinary vault
 writes remain disabled.
+
+## Inline raster aspect-ratio correction: native validation pending
+
+Inline reader images now use one natural aspect ratio with a coupled 620px-width / 480px-height cap, then shrink to the available parent width without upscaling. Model tests cover portrait, landscape, square, tiny and narrow-parent geometry. Verify tall PNG/JPEG and landscape images in wide/narrow windows; verify Enlarge and Close preserve the unchanged reader layout. No loader, decoded allocation, Enlarge geometry or write gate changes. Cloud diff-check passed; Rust/build/native checks not run here.
+
+Native macOS inline correction smoke on 2026-11-15 verified the generated
+landscape raster at approximately 568×331px inside a parent narrower than the
+620px cap, and portrait at approximately 206×480px. Square grid cells and the
+full border retained natural proportions. Portrait Enlarge/Close retained the
+reader offset. A window-edge drag did not change the tiled window dimensions,
+so live resize and still narrower windows remain unverified. Quit exited, both
+owned ports closed, and all 12 canonical fixture hashes stayed unchanged.
+687 Rust tests passed, 7 ignored; formatting and native build passed. Independent
+review found no P1/P2 issue. Normal vault writes remain disabled.
