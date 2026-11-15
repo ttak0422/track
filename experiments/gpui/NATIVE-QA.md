@@ -1517,3 +1517,31 @@ The initial Home-only empty state, long-list scrolling, foreign scopes, injected
 stale responses, restart and actual IME remain unverified natively. Review found
 and fixed non-user Reload/startup visits and missing modal input containment
 before this smoke; those background admission branches have model coverage.
+
+### Weekly tasks candidate
+
+Native checks pending: open Weekly tasks in disposable Home; inspect seven civil
+days, scheduled/due deduplication, excluded completed rows, current-week Overdue,
+empty days, Previous/Next/This week, and snapshot reuse without per-day fetches.
+Open a source row and return with Back. Scope, registry, storage, route and request
+changes must reject old completion/row controls; rapid week changes reject old
+selection callbacks. Check incomplete data and truncation notices. Verify canonical
+hashes unchanged and no session writes. Monday starts and full Calendar are outside
+this slice; real IME remains separately unverified.
+
+### Weekly task agenda: isolated native smoke
+
+A disposable three-note launch vault verified the explicit Home weekly panel.
+The current Sunday-start week showed one same-day scheduled/due task once,
+a separate task on both its scheduled and due days, and an overdue task only
+in the current-week Overdue section. Completed and undated tasks were absent.
+Next week showed the expected future task without Overdue; previous week showed
+seven empty days; This week restored the current projection. A task row opened
+the correct note, Back returned to Home, and reopening fetched a fresh panel.
+The bounded panel scrolled to Saturday without moving its controls or the Home
+search field. Collapse and application Quit succeeded. All 12 canonical fixture
+files remained unchanged and both owned server ports closed.
+
+This is not native coverage of foreign-vault scope races, partial responses,
+midnight rollover, dense lists, accessibility, or IME. Those remain separate
+validation gates; ordinary vault editing and session persistence remain disabled.

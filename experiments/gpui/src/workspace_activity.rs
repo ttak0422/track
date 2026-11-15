@@ -182,7 +182,7 @@ impl Day {
     }
 }
 /// Civil arithmetic only: never add seconds or reinterpret a display-zone date.
-fn adjacent_day(date: &str, forward: bool) -> Option<String> {
+pub(crate) fn adjacent_day(date: &str, forward: bool) -> Option<String> {
     if !live::calendar_date_valid(date) {
         return None;
     }
@@ -223,6 +223,10 @@ fn calendar(today: Day, weekday: usize, weeks: usize) -> Vec<Day> {
     dates.reverse();
     dates
 }
+pub(crate) fn device_today() -> Option<(String, usize)> {
+    today().map(|(day, weekday)| (day.text(), weekday))
+}
+
 fn today() -> Option<(Day, usize)> {
     // localtime_r writes only the supplied stack value; no global TZ changes.
     unsafe {

@@ -520,6 +520,7 @@ pub struct ShellState {
     pub(crate) note_tasks: Option<workspace_note_tasks::NoteTasksState>,
     pub(crate) hierarchy: Option<workspace_hierarchy::HierarchyState>,
     pub(crate) reader_hierarchy: Option<workspace_hierarchy::ReaderHierarchy>,
+    pub(crate) weekly: Option<workspace_weekly::WeeklyState>,
     pub(crate) activity: Option<workspace_activity::ActivityState>,
     pub(crate) journal_day: Option<workspace_journal_day::JournalDayState>,
     pub(crate) calendar_zone: workspace_activity::CalendarZone,
@@ -644,6 +645,7 @@ impl Default for ShellState {
             recent: Default::default(),
             includes: None,
             relation_pages: Default::default(),
+            weekly: None,
             activity: None,
             journal_day: None,
             calendar_zone: Default::default(),
@@ -4905,6 +4907,11 @@ impl Render for Workspace {
                     dark,
                     cx,
                 )
+            } else {
+                div()
+            })
+            .child(if home {
+                self.home_weekly_tasks(dark, cx)
             } else {
                 div()
             })

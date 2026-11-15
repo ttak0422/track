@@ -49,6 +49,7 @@ mod session_store;
 mod shell;
 mod tabs;
 mod title_copy;
+mod weekly_tasks;
 mod workspace_activity;
 mod workspace_edit;
 mod workspace_find;
@@ -65,6 +66,7 @@ mod workspace_preview;
 mod workspace_recent;
 mod workspace_session;
 mod workspace_tags;
+mod workspace_weekly;
 use backend::{Backend, Note, Snapshot};
 actions!(
     native_workspace,

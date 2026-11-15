@@ -549,3 +549,14 @@ fixture session persistence enabled. Hover/focus-to-open behavior is not yet
 implemented. The popup does not fetch titles or preview notes; it uses the normal
 guarded note route when a row is activated. Close, Escape, and outside clicks do
 not change the reader scroll handle or offset.
+
+### Weekly task reading subset
+
+Home has an explicit Weekly tasks view for one working vault, Sunday-aligned on
+the device-local civil date. One bounded dated-task read supplies all seven days
+and current-week Overdue; week navigation reuses the snapshot. Completed tasks are
+excluded, scheduled/due same-day duplicates collapse, and source note activation
+uses normal guarded navigation. Partial data, invalid dates, and per-section row
+limits are explicit. Full Calendar, other week starts, events, task mutation and
+persistence are not provided. Existing strict dated-task wire validation remains
+unchanged; unsupported wire states are reported as errors.
