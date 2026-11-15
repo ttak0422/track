@@ -93,6 +93,8 @@ describe("AgentTimelineView", () => {
     expect(await screen.findByRole("heading", { name: "Alpha" })).toBeTruthy();
     expect(screen.getByText(/task-a: pause → worker · requested/)).toBeTruthy();
     expect(screen.getByText(/A request is not an acknowledgement/)).toBeTruthy();
+    expect(screen.getByText(/Task states are last reported records, not live process status/)).toBeTruthy();
+    expect(screen.getByText(/An active task may have stopped without reporting/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /acknowledge/i })).toBeNull();
     cache.clear();
   });
