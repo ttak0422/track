@@ -840,6 +840,56 @@ pub(crate) fn calendar_date_valid(date: &str) -> bool {
     day >= 1 && day <= days
 }
 
+#[derive(Clone, Debug, Deserialize)]
+pub struct JournalLookupNote {
+    pub note_id: i64,
+    pub file_kind: String,
+    pub title: String,
+}
+#[derive(Clone, Debug, Deserialize)]
+pub struct JournalLookup {
+    pub vault: String,
+    pub title: String,
+    pub found: bool,
+    pub note: Option<JournalLookupNote>,
+    #[serde(skip)]
+    pub source_vault: String,
+    #[serde(skip)]
+    pub launch_generation: u64,
+}
+pub(crate) fn journal_title_valid(title: &str) -> bool {
+    if !matches!(title.len(), 6 | 8) || !title.bytes().all(|b| b.is_ascii_digit()) {
+        return false;
+    }
+    let date = format!(
+        "{}-{}-{}",
+        &title[..4],
+        &title[4..6],
+        if title.len() == 8 { &title[6..] } else { "01" }
+    );
+    !title.starts_with("0000") && !title.starts_with("9999") && calendar_date_valid(&date)
+}
+#[derive(Clone, Debug)]
+pub(crate) struct JournalExpectation {
+    pub key: NoteKey,
+    pub title: String,
+    pub launch_vault: String,
+}
+impl JournalExpectation {
+    pub fn accepts(&self, note: &Note) -> bool {
+        note.note_id == self.key.note_id
+            && note.file_kind == "journal"
+            && note.title == self.title
+            && calendar_range_vault_matches(&self.key.vault, &note.vault, &self.launch_vault)
+    }
+    pub fn verify(&self, response: NoteResponse) -> Result<NoteResponse, Error> {
+        if self.accepts(&response.note.note) {
+            Ok(response)
+        } else {
+            Err(Error::Shape("Journal changed after lookup; no mismatched body was displayed. Return to Calendar and retry.".into()))
+        }
+    }
+}
 /// Resolve accepts a source scope but returns an independent target identity.
 /// In particular an omitted target vault means launch, never the source vault.
 #[derive(Clone, Debug, Deserialize)]
@@ -1781,6 +1831,40 @@ impl ReadClient {
         Ok(bytes)
     }
 
+    pub fn journal_lookup(
+        &self,
+        title: &str,
+        vault: &str,
+        launch: &str,
+    ) -> Result<JournalLookup, Error> {
+        if !journal_title_valid(title)
+            || vault.len() > 1024
+            || launch.len() > 1024
+            || vault.contains('\0')
+            || launch.contains('\0')
+        {
+            return Err(Error::Config("Invalid journal lookup identity.".into()));
+        }
+        let mut args = vault_query(vault);
+        args.push(("title", title.into()));
+        let mut response: JournalLookup =
+            self.get_bounded("/api/journal/lookup", &args, None, 8192)?;
+        if response.vault.len() > 1024
+            || response.vault.contains('\0')
+            || !calendar_range_vault_matches(vault, &response.vault, launch)
+            || response.title != title
+            || response.found != response.note.is_some()
+            || response
+                .note
+                .as_ref()
+                .is_some_and(|n| n.note_id <= 0 || n.file_kind != "journal" || n.title != title)
+        {
+            return Err(Error::Shape("Journal lookup identity mismatch.".into()));
+        }
+        response.source_vault = vault.into();
+        response.launch_generation = self.launch_generation;
+        Ok(response)
+    }
     /// The caller supplies the parsed target without label or anchor suffix.
     /// Do not interpret ID-shaped/numeric terms or vault prefixes in this client.
     pub fn resolve(&self, term: &str, source_vault: &str) -> Result<Resolution, Error> {
@@ -5016,6 +5100,116 @@ mod tests {
             .alive
             .store(false, std::sync::atomic::Ordering::Release);
         assert!(matches!(client.calendar_events(""), Err(Error::Stale)));
+    }
+    #[test]
+    fn journal_lookup_is_exact_read_only_and_distinguishes_absent_and_unavailable() {
+        for scope in ["", "host", "foreign"] {
+            let wire = if scope == "foreign" { "foreign" } else { "" };
+            let body = serde_json::json!({"vault":wire,"title":"20261117","found":true,"note":{"note_id":42,"file_kind":"journal","title":"20261117"}});
+            let (client, worker) = mock(200, body.to_string());
+            let response = client.journal_lookup("20261117", scope, "host").unwrap();
+            assert_eq!(response.source_vault, scope);
+            assert_eq!(response.note.unwrap().note_id, 42);
+            let request = worker.join().unwrap();
+            assert!(request.starts_with("GET /api/journal/lookup?"));
+            assert!(!request.contains("POST"));
+        }
+        let (client, worker) = mock(
+            200,
+            r#"{"vault":"","title":"202611","found":false,"note":null}"#,
+        );
+        assert!(!client.journal_lookup("202611", "", "host").unwrap().found);
+        worker.join().unwrap();
+        for status in [409, 503, 500] {
+            let (client, worker) = mock(status, "{}");
+            assert!(
+                matches!(client.journal_lookup("202611","","host"),Err(Error::Http{status:s,..}) if s==status)
+            );
+            worker.join().unwrap();
+        }
+    }
+    #[test]
+    fn journal_lookup_rejects_note_shadow_wrong_scope_title_and_inconsistent_found() {
+        let original = serde_json::json!({"vault":"foreign","title":"20261117","found":true,"note":{"note_id":42,"file_kind":"journal","title":"20261117"}});
+        let mut cases = vec![];
+        for (field, value) in [("file_kind", "note"), ("title", "20261118")] {
+            let mut bad = original.clone();
+            bad["note"][field] = value.into();
+            cases.push(bad);
+        }
+        let mut bad = original.clone();
+        bad["vault"] = "".into();
+        cases.push(bad);
+        let mut bad = original.clone();
+        bad["title"] = "20261118".into();
+        cases.push(bad);
+        let mut bad = original.clone();
+        bad["found"] = false.into();
+        cases.push(bad);
+        let mut bad = original.clone();
+        bad["note"] = Value::Null;
+        cases.push(bad);
+        for body in cases {
+            let (client, worker) = mock(200, body.to_string());
+            assert!(matches!(
+                client.journal_lookup("20261117", "foreign", "host"),
+                Err(Error::Shape(_))
+            ));
+            worker.join().unwrap();
+        }
+        for invalid in [
+            "20260230",
+            "202613",
+            "000011",
+            "999901",
+            "99990101",
+            "2026-11",
+            "２０２６１１",
+            "20261117?create=1",
+        ] {
+            assert!(!journal_title_valid(invalid));
+        }
+        assert!(journal_title_valid("20240229"));
+        assert!(journal_title_valid("202611"));
+        assert!(journal_title_valid("000101"));
+        assert!(journal_title_valid("99981231"));
+    }
+    #[test]
+    fn journal_final_body_guard_rejects_post_lookup_rename_kind_or_vault_change() {
+        let expected = JournalExpectation {
+            key: NoteKey {
+                vault: "foreign".into(),
+                note_id: 42,
+            },
+            title: "20261117".into(),
+            launch_vault: "host".into(),
+        };
+        let payload = serde_json::json!({"note":{"note_id":42,"vault":"foreign","title":"20261117","file_kind":"journal","path":"display","body":"must not leak on mismatch","etag":"v2","read_only":true}});
+        assert!(
+            expected
+                .verify(serde_json::from_value(payload.clone()).unwrap())
+                .is_ok()
+        );
+        for (field, value) in [
+            ("title", "20261118"),
+            ("file_kind", "note"),
+            ("vault", "host"),
+        ] {
+            let mut changed = payload.clone();
+            changed["note"][field] = value.into();
+            assert!(
+                expected
+                    .verify(serde_json::from_value(changed).unwrap())
+                    .is_err()
+            );
+        }
+        let mut changed = payload.clone();
+        changed["note"]["note_id"] = 43.into();
+        assert!(
+            expected
+                .verify(serde_json::from_value(changed).unwrap())
+                .is_err()
+        );
     }
     fn content_fixture() -> Value {
         serde_json::json!({"vault":"work", "since":"2026-11-01", "until":"2026-11-01", "time_zone":"UTC", "today":"2026-11-17",

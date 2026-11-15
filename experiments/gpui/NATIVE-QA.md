@@ -1796,3 +1796,27 @@ each dense row, separate task/note counts without duplicated activity counts,
 and preview selection of the host day details after scrolling. All 30 canonical
 file hashes again remained unchanged and both owned listeners closed. Rust tests
 passed (833 passed, 7 ignored); Go tests passed, including the read-only endpoint.
+
+## Existing Calendar journal navigation
+
+Use an isolated host/foreign fixture with an existing daily journal and monthly
+journal, plus a normal note with the same daily title. Both scopes should have
+the same journal ID but distinguishable bodies. Check explicit daily/monthly
+Open, no-match feedback, foreign scope, and Calendar Back restoration. A lookup
+must not create a missing journal or open the same-title normal note. Confirm
+canonical hashes and owned-server shutdown after Quit. Repeated clicks, scope
+changes and post-lookup rename/delete need stale-response regression coverage.
+
+On 2026-11-15, the isolated HTTP smoke returned the exact daily/monthly journals,
+not the same-title normal note; a missing indexed title returned `found: false`
+and an impossible date returned HTTP 400. All 28 canonical fixture file hashes
+remained unchanged. The server required process inspection permission for its
+normal readiness check; the sandbox-restricted attempt returned HTTP 503 rather
+than a false missing result. This verifies the endpoint, not native navigation.
+Native GUI subsequently opened the host daily journal instead of its same-title
+normal note, restored the selected day and fresh details on Back, preserved the
+Calendar on a missing next-day lookup, opened the existing monthly journal and
+opened the foreign daily journal despite its equal numeric ID. All 28 canonical
+hashes remained unchanged and both owned listeners closed on Quit. Real IME,
+rapid interleaved requests and mid-read file changes remain unverified natively;
+ordinary-vault editing remains disabled.

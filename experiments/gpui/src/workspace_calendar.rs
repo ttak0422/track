@@ -5,6 +5,44 @@ use gpui::Div;
 pub(crate) struct CalendarState {
     pub month: Option<calendar_month::Month>,
     pub revision: u64,
+    pub day_memory: Option<CalendarDayMemory>,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct CalendarDayMemory {
+    pub launch: u64,
+    pub epoch: u64,
+    pub scope_revision: u64,
+    pub scope: String,
+    pub registry: (String, Vec<String>),
+    pub month: calendar_month::Month,
+    pub date: String,
+}
+impl CalendarDayMemory {
+    pub fn matches(
+        &self,
+        launch: u64,
+        epoch: u64,
+        scope_revision: u64,
+        scope: &str,
+        registry: &(String, Vec<String>),
+        month: &calendar_month::Month,
+    ) -> bool {
+        self.launch == launch
+            && self.epoch == epoch
+            && self.scope_revision == scope_revision
+            && self.scope == scope
+            && &self.registry == registry
+            && &self.month == month
+            && calendar_month::Month::containing(&self.date).as_ref() == Some(month)
+    }
+}
+pub(crate) fn day_restore_ready(
+    agenda_exists: bool,
+    activity_done: bool,
+    events_done: bool,
+    zone_applied: bool,
+) -> bool {
+    !agenda_exists && activity_done && events_done && zone_applied
 }
 pub(crate) fn involves_calendar(
     intent: &workspace_edit::Transition,
@@ -80,6 +118,46 @@ impl Workspace {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn restore_waits_for_jobs_and_never_replaces_new_day_intent() {
+        assert!(!day_restore_ready(false, false, false, true));
+        assert!(!day_restore_ready(false, true, false, true));
+        assert!(!day_restore_ready(false, false, true, true));
+        assert!(!day_restore_ready(false, true, true, false));
+        assert!(!day_restore_ready(true, true, true, true));
+        assert!(day_restore_ready(false, true, true, true)); // Done includes failed jobs; no success prerequisite.
+    }
+    #[test]
+    fn selected_day_memory_is_scoped_and_never_a_response_ticket() {
+        let month = calendar_month::Month::containing("2026-11-17").unwrap();
+        let registry = ("host".into(), vec!["foreign".into(), "host".into()]);
+        let memory = CalendarDayMemory {
+            launch: 1,
+            epoch: 2,
+            scope_revision: 3,
+            scope: "foreign".into(),
+            registry: registry.clone(),
+            month: month.clone(),
+            date: "2026-11-17".into(),
+        };
+        assert!(memory.matches(1, 2, 3, "foreign", &registry, &month));
+        assert!(!memory.matches(2, 2, 3, "foreign", &registry, &month));
+        assert!(!memory.matches(1, 4, 3, "foreign", &registry, &month));
+        assert!(!memory.matches(1, 2, 5, "foreign", &registry, &month));
+        assert!(!memory.matches(1, 2, 3, "host", &registry, &month));
+        assert!(!memory.matches(
+            1,
+            2,
+            3,
+            "foreign",
+            &("host".into(), vec!["host".into()]),
+            &month
+        ));
+        assert!(!memory.matches(1, 2, 3, "foreign", &registry, &month.shifted(true).unwrap()));
+        let mut invalid = memory.clone();
+        invalid.date = "2026-11-31".into();
+        assert!(!invalid.matches(1, 2, 3, "foreign", &registry, &month));
+    }
     #[test]
     fn entry_and_neighbor_routes_require_owner_gate_before_mutation() {
         use workspace_edit::Transition;

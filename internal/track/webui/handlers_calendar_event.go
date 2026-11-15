@@ -126,7 +126,7 @@ func (s *Server) handleCalendarEventsRange(v *vaultView, w http.ResponseWriter, 
 }
 
 func calendarProjectionPath(path string) bool {
-	return path == "/api/calendar-events/day" || path == "/api/calendar-events/range" || path == "/api/calendar-activity/range"
+	return path == "/api/calendar-events/day" || path == "/api/calendar-events/range" || path == "/api/calendar-activity/range" || path == "/api/journal/lookup"
 }
 
 // Range reads canonical event files only: resolving a vault must not open or refresh an index.

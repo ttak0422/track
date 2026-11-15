@@ -472,6 +472,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/notes", s.withVault(s.handleNotes))
 	s.mux.HandleFunc("/api/activity", s.withVault(s.handleActivity))
 	s.mux.HandleFunc("/api/agenda", s.withVault(s.handleAgenda))
+	s.mux.HandleFunc("/api/journal/lookup", s.handleJournalLookup)
 	s.mux.HandleFunc("/api/journal", s.withVault(s.handleJournal))
 	s.mux.HandleFunc("/api/resolve", s.withVault(s.handleResolve))
 	s.mux.HandleFunc("/api/note", s.withVault(s.handleNote))

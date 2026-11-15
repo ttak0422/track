@@ -696,3 +696,17 @@ remain unchanged. Isolated native validation covered dense month layout, indepen
 scope switching, zone-edit invalidation, retry and day details. Interrupted
 requests, native deadline-boundary timing and real IME remain unverified; this
 does not establish full Calendar parity.
+
+### Explicit existing Calendar journals
+
+Calendar offers read-only daily/monthly journal lookup controls, scoped to the
+selected vault and exact journal kind/title. Missing, ambiguous and unavailable
+results remain on Calendar; there is no creation or generic title-resolution
+fallback. Normal note reads carry an exact journal expectation through both
+metadata discovery and final body acceptance to reject post-lookup identity,
+kind, title or vault changes. A mismatch after route acceptance shows an error,
+not a different body. Memory-only qualified day restoration reads fresh results
+on Back. This differs from automatic day-cell journal navigation. Isolated native GUI verified daily/monthly opening, same-title normal-note
+exclusion, selected-day Back restoration, missing feedback and foreign scope.
+Interrupted lookup flows, mid-read mutation and real IME remain unverified
+natively.

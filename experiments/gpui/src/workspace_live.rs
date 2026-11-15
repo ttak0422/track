@@ -559,6 +559,14 @@ impl Workspace {
     }
 
     pub fn open_live_key(&mut self, key: live::NoteKey, cx: &mut Context<Self>) {
+        self.open_live_key_expected(key, None, cx);
+    }
+    pub(crate) fn open_live_key_expected(
+        &mut self,
+        key: live::NoteKey,
+        expected: Option<live::JournalExpectation>,
+        cx: &mut Context<Self>,
+    ) {
         if !self.session_ui.permits(&key.vault) {
             self.read_error = Some("Vault is absent from the validated session registry; no fallback request was sent.".into());
             cx.notify();
@@ -577,7 +585,7 @@ impl Workspace {
         };
         if let Some(index) = self.live_notes.iter().position(|n| n.key() == key) {
             let previous = self.request;
-            self.select(index, cx);
+            self.select_expected(index, expected, cx);
             self.recent_note_requested(previous, key);
             return;
         }
@@ -601,10 +609,14 @@ impl Workspace {
         self.live_reader_pending = Some(request);
         let destination = key.clone();
         let expected_epoch = self.accepted_storage_generation;
+        let read_expected = expected.clone();
         let job = cx.background_executor().spawn(async move {
             let client = session.client();
             let before = client.storage();
-            let result = client.note(&key);
+            let result = client.note(&key).and_then(|response| match &read_expected {
+                Some(expected) => expected.verify(response),
+                None => Ok(response),
+            });
             let after = client.storage();
             if !matches!((&before,&after),(Ok(a),Ok(b)) if a.generation == b.generation) {
                 return (Err(live::Error::Stale), after);
@@ -665,7 +677,7 @@ impl Workspace {
                         let recent = this.recent_request_pending(request, &destination);
                         let previous = this.request;
                         this.follow.routing = this.following_read(request);
-                        this.select(this.live_notes.len() - 1, cx);
+                        this.select_expected(this.live_notes.len() - 1, expected.clone(), cx);
                         if recent {
                             this.recent_note_requested(previous, fragment_destination.clone());
                         }
@@ -681,7 +693,12 @@ impl Workspace {
         .detach();
     }
 
-    pub fn select_live(&mut self, index: usize, cx: &mut Context<Self>) {
+    pub fn select_live(
+        &mut self,
+        index: usize,
+        expected: Option<live::JournalExpectation>,
+        cx: &mut Context<Self>,
+    ) {
         if let Some(note) = self.live_notes.get(index) {
             if self.guard_transition(workspace_edit::Transition::Note(note.key()), cx) {
                 return;
@@ -702,7 +719,10 @@ impl Workspace {
         let job = cx.background_executor().spawn(async move {
             let client = session.client();
             let before = client.storage();
-            let mut result = client.note(&key);
+            let mut result = client.note(&key).and_then(|response| match &expected {
+                Some(expected) => expected.verify(response),
+                None => Ok(response),
+            });
             let after = client.storage();
             if !matches!((&before,&after), (Ok(a),Ok(b)) if a.generation == b.generation) {
                 result = Err(live::Error::Stale);

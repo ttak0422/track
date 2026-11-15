@@ -83,6 +83,7 @@ pub(crate) struct ActivityState {
     agenda: Option<AgendaState>,
     month_events: Option<MonthEvents>,
     month_content: Option<MonthContent>,
+    journal_lookup: Option<JournalLookupState>,
 }
 // A bounded civil comparison, never seconds or device-local timezone arithmetic.
 fn month_due_bar(due: &str, today: &str) -> Option<(u8, bool)> {
@@ -100,6 +101,16 @@ fn month_due_bar(due: &str, today: &str) -> Option<(u8, bool)> {
         day = adjacent_day(&day, true)?;
     }
     Some((0, false))
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct JournalTicket {
+    serial: u64,
+    title: String,
+    day: Option<(u64, String)>,
+}
+struct JournalLookupState {
+    ticket: JournalTicket,
+    notice: String,
 }
 fn short_month_label(text: &str) -> String {
     let label: String = text.chars().take(22).collect();
@@ -804,6 +815,7 @@ impl Workspace {
                 hover: None,
                 agenda: None,
                 month_events: None,
+                journal_lookup: None,
                 month_content: content_ticket.as_ref().map(|ticket| MonthContent {
                     ticket: ticket.clone(),
                     result: None,
@@ -890,6 +902,9 @@ impl Workspace {
         {
             self.fetch_month_events(&identity, false, cx);
         }
+        if month_view {
+            self.restore_calendar_day(&identity, cx);
+        }
         let state = self.shell.activity.as_ref().unwrap();
         view = view.child(div().mb_2().child(if month_view {
             "Calendar · note activity"
@@ -924,7 +939,7 @@ impl Workspace {
                 .children(self.shell.calendar_zone.input.clone())
                 .child(div().id("calendar-month-zone-apply").cursor_pointer().child("Apply / retry month summaries")
                     .on_click(cx.listener(move |this, _, _, cx| this.fetch_month_events(&captured, true, cx))))
-                .child(self.month_events_notice(state)).child(self.month_content_notice(state));
+                .child(self.month_events_notice(state)).child(self.month_content_notice(state)).child(self.journal_control(state, false, cx));
         }
         let response = match &state.result {
             Some(Ok(response)) => Some(response),
@@ -1157,6 +1172,41 @@ mod tests {
         assert!(busy.result.as_ref().unwrap().is_err());
     }
     #[test]
+    fn journal_click_and_day_return_tickets_reject_newer_intents() {
+        let first = JournalTicket {
+            serial: 1,
+            title: "20261117".into(),
+            day: Some((7, "2026-11-17".into())),
+        };
+        let mut newer = first.clone();
+        newer.serial = 2;
+        assert_ne!(first, newer);
+        newer = first.clone();
+        newer.day = Some((8, "2026-11-17".into()));
+        assert_ne!(first, newer);
+        newer = first.clone();
+        newer.title = "202611".into();
+        assert_ne!(first, newer);
+        let old = Identity {
+            surface: Surface::Calendar(4),
+            registry: Some(("host".into(), vec!["host".into()])),
+            launch: 1,
+            epoch: 2,
+            request: 3,
+            scope_revision: 0,
+            vault: "".into(),
+            since: "2026-11-01".into(),
+            until: "2026-11-30".into(),
+        };
+        assert!(!old.accepts(Some(1), Some(2), 5, 0, "", true)); // Back creates fresh request.
+        assert!(!old.surface.accepts(false, true, 6)); // Old month/route generation cannot restore.
+        let pending = AgendaState::loading("2026-11-18".into(), 9);
+        assert!(!workspace_calendar::day_restore_ready(
+            true, true, true, true
+        ));
+        assert!(!pending.accepts(7, "2026-11-17"));
+    }
+    #[test]
     fn month_range_launch_alias_does_not_rebind_foreign_scope() {
         let mut identity = Identity {
             surface: Surface::Calendar(1),
@@ -1380,6 +1430,200 @@ impl Workspace {
             && !self.search.read(cx).is_composing()
             && !self.shell.calendar_zone.is_composing(cx)
     }
+    fn journal_owner_available(&self, cx: &App) -> bool {
+        self.calendar_active()
+            && self.activity_selection_available(cx)
+            && self.editing_ui.plain_reader_mode()
+            && !self.tag_routing_blocked(cx)
+    }
+    fn journal_ticket_current(&self, identity: &Identity, ticket: &JournalTicket) -> bool {
+        self.activity_identity_current(identity)
+            && self.shell.activity.as_ref().is_some_and(|s| {
+                s.journal_lookup
+                    .as_ref()
+                    .is_some_and(|j| j.ticket == *ticket)
+                    && s.agenda.as_ref().map(|a| (a.serial, a.date.clone())) == ticket.day
+            })
+    }
+    fn journal_control(&self, state: &ActivityState, daily: bool, cx: &mut Context<Self>) -> Div {
+        if !matches!(state.identity.surface, Surface::Calendar(_)) {
+            return div();
+        }
+        let title = if daily {
+            let Some(day) = state.agenda.as_ref() else {
+                return div();
+            };
+            day.date.replace('-', "")
+        } else {
+            state.identity.since[..7].replace('-', "")
+        };
+        let identity = state.identity.clone();
+        let day = state.agenda.as_ref().map(|a| (a.serial, a.date.clone()));
+        let mut view = div().mt_2().child(
+            div()
+                .id(if daily {
+                    "open-existing-daily-journal"
+                } else {
+                    "open-existing-monthly-journal"
+                })
+                .child(if daily {
+                    "Open existing daily journal"
+                } else {
+                    "Open existing monthly journal"
+                })
+                .when(self.journal_owner_available(cx), |button| {
+                    button
+                        .cursor_pointer()
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.lookup_calendar_journal(&identity, title.clone(), day.clone(), cx)
+                        }))
+                }),
+        );
+        if let Some(lookup) = &state.journal_lookup {
+            view = view.child(lookup.notice.clone());
+        }
+        view
+    }
+    fn lookup_calendar_journal(
+        &mut self,
+        identity: &Identity,
+        title: String,
+        day: Option<(u64, String)>,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.activity_identity_current(identity)
+            || !self.journal_owner_available(cx)
+            || !live::journal_title_valid(&title)
+        {
+            return;
+        }
+        if self
+            .shell
+            .activity
+            .as_ref()
+            .and_then(|s| s.agenda.as_ref())
+            .map(|a| (a.serial, a.date.clone()))
+            != day
+        {
+            return;
+        }
+        let Some((launch, names)) = identity
+            .registry
+            .as_ref()
+            .filter(|(launch, names)| names.contains(launch))
+        else {
+            return;
+        };
+        if !identity.vault.is_empty() && !names.contains(&identity.vault) {
+            return;
+        }
+        let launch_name = launch.clone();
+        let state = self.shell.activity.as_mut().unwrap();
+        let ticket = JournalTicket {
+            serial: NEXT_AGENDA.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            title,
+            day: state.agenda.as_ref().map(|a| (a.serial, a.date.clone())),
+        };
+        state.journal_lookup = Some(JournalLookupState {
+            ticket: ticket.clone(),
+            notice: "Looking up existing journal…".into(),
+        });
+        let Some(permit) = AgendaPermit::acquire() else {
+            state.journal_lookup.as_mut().unwrap().notice =
+                "Earlier requests are finishing. Click Open again to retry.".into();
+            cx.notify();
+            return;
+        };
+        let client = self.live.as_ref().unwrap().client();
+        let captured = identity.clone();
+        let requested = ticket.clone();
+        let job = cx.background_executor().spawn(async move {
+            let _permit = permit;
+            let before = client.storage().map_err(|e| e.to_string())?;
+            if before.phase != "ready" || before.generation != captured.epoch {
+                return Err("Journal index unavailable; retry after reload.".into());
+            }
+            let response = client
+                .journal_lookup(&requested.title, &captured.vault, &launch_name)
+                .map_err(|e| e.to_string())?;
+            let after = client.storage().map_err(|e| e.to_string())?;
+            if after.phase != "ready"
+                || after.generation != captured.epoch
+                || response.launch_generation != captured.launch
+                || response.source_vault != captured.vault
+                || response.title != requested.title
+                || !captured.range_vault_matches(&response.vault)
+            {
+                return Err("Journal lookup source changed; retry.".into());
+            }
+            Ok(response)
+        });
+        let identity = identity.clone();
+        cx.spawn(async move |this,cx| {
+            let result: Result<live::JournalLookup,String>=job.await;
+            let _=this.update(cx,|this,cx| {
+                if !this.journal_ticket_current(&identity,&ticket) { return; }
+                if !this.journal_owner_available(cx) {
+                    this.shell.activity.as_mut().unwrap().journal_lookup.as_mut().unwrap().notice="Journal lookup stopped because another control owns navigation. Click Open again.".into();cx.notify();return;
+                }
+                match result {
+                    Ok(response) => if let Some(note)=response.note {
+                        let key=live::NoteKey {vault:identity.vault.clone(),note_id:note.note_id};
+                        let expected=live::JournalExpectation {key:key.clone(),title:ticket.title.clone(),launch_vault:identity.registry.as_ref().unwrap().0.clone()};
+                        this.open_live_key_expected(key,Some(expected),cx);
+                    } else { this.shell.activity.as_mut().unwrap().journal_lookup.as_mut().unwrap().notice="No existing journal in the verified index. Nothing was created.".into(); },
+                    Err(error) => this.shell.activity.as_mut().unwrap().journal_lookup.as_mut().unwrap().notice=format!("Journal lookup unavailable or ambiguous: {error}. Calendar unchanged."),
+                }
+                cx.notify();
+            });
+        }).detach();
+        cx.notify();
+    }
+    fn restore_calendar_day(&mut self, identity: &Identity, cx: &mut Context<Self>) {
+        if !matches!(identity.surface, Surface::Calendar(_)) {
+            return;
+        }
+        let Some(memory) = self.shell.calendar.day_memory.clone() else {
+            return;
+        };
+        let current = self
+            .shell
+            .calendar
+            .month
+            .as_ref()
+            .zip(identity.registry.as_ref())
+            .is_some_and(|(month, registry)| {
+                memory.matches(
+                    identity.launch,
+                    identity.epoch,
+                    identity.scope_revision,
+                    &identity.vault,
+                    registry,
+                    month,
+                )
+            });
+        if !current {
+            self.shell.calendar.day_memory = None;
+            return;
+        }
+        // Initial activity/summary and event jobs own both shared permits. Wait
+        // for those jobs to finish; no old day response or authority is reused.
+        let ready = self.shell.activity.as_ref().is_some_and(|state| {
+            state.identity == *identity
+                && workspace_calendar::day_restore_ready(
+                    state.agenda.is_some(),
+                    state.result.is_some(),
+                    state
+                        .month_events
+                        .as_ref()
+                        .is_some_and(|events| events.result.is_some()),
+                    self.shell.calendar_zone.draft == self.shell.calendar_zone.accepted,
+                )
+        });
+        if ready {
+            self.select_activity_day(identity.clone(), memory.date, cx);
+        }
+    }
     fn step_calendar_month(&mut self, identity: &Identity, step: i32, cx: &mut Context<Self>) {
         if !matches!(identity.surface, Surface::Calendar(_))
             || !self.activity_identity_current(identity)
@@ -1397,6 +1641,7 @@ impl Workspace {
                 .and_then(|month| month.shifted(step > 0))
         };
         if let Some(month) = next {
+            self.shell.calendar.day_memory = None;
             self.shell.calendar.month = Some(month);
             self.shell.calendar.revision = self.shell.calendar.revision.wrapping_add(1);
             self.shell.activity = None;
@@ -1440,6 +1685,25 @@ impl Workspace {
             return;
         };
         let client = session.client();
+        if matches!(identity.surface, Surface::Calendar(_)) {
+            if let Some((month, registry)) = self
+                .shell
+                .calendar
+                .month
+                .clone()
+                .zip(identity.registry.clone())
+            {
+                self.shell.calendar.day_memory = Some(workspace_calendar::CalendarDayMemory {
+                    launch: identity.launch,
+                    epoch: identity.epoch,
+                    scope_revision: identity.scope_revision,
+                    scope: identity.vault.clone(),
+                    registry,
+                    month,
+                    date: date.clone(),
+                });
+            }
+        }
         let zone_serial = self.shell.calendar_zone.advance();
         let zone = self.shell.calendar_zone.accepted.clone();
         let state = self.shell.activity.as_mut().unwrap();
@@ -1549,6 +1813,7 @@ impl Workspace {
         let Some(agenda) = state.agenda.as_ref() else {
             return view;
         };
+        view = view.child(self.journal_control(state, true, cx));
         let available = self.activity_identity_current(&state.identity)
             && self.activity_selection_available(cx);
         let mut controls = div().flex().gap_3();

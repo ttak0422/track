@@ -328,6 +328,14 @@ impl Workspace {
         }
     }
     fn select(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.select_expected(index, None, cx);
+    }
+    fn select_expected(
+        &mut self,
+        index: usize,
+        expected: Option<live::JournalExpectation>,
+        cx: &mut Context<Self>,
+    ) {
         let Some(note) = self.snapshot.notes.get(index) else {
             return;
         };
@@ -366,7 +374,7 @@ impl Workspace {
         self.current_note_request = None;
         self.current_related.clear();
         if self.live.is_some() {
-            self.select_live(index, cx);
+            self.select_live(index, expected, cx);
             return;
         }
         let Some(backend) = self.backend.clone() else {
