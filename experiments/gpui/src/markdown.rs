@@ -27,6 +27,8 @@ pub struct Block {
     pub text: String,
     pub indent: usize,
     pub quoted: bool,
+    /// Quote-local decoration; title never replaces authored body/navigation identity.
+    pub callout: Option<(CalloutKind, bool)>,
     pub marker: Option<String>,
     pub spans: Vec<Span>,
     pub links: Vec<Link>,
@@ -1455,6 +1457,7 @@ fn blocks(
             if unrepresented {
                 out.push(Block {
                     block_id: None,
+                    callout: None,
                     kind: BlockKind::Literal,
                     text: source[node.range.clone()].into(),
                     indent,
@@ -1486,6 +1489,7 @@ fn blocks(
                 .collect();
             out.push(Block {
                 block_id: None,
+                callout: None,
                 kind: BlockKind::Table,
                 text: source[node.range.clone()].into(),
                 indent,
@@ -1570,6 +1574,7 @@ fn blocks(
                     before,
                     Block {
                         block_id: None,
+                        callout: None,
                         kind: BlockKind::Paragraph,
                         text: String::new(),
                         indent,
@@ -1588,8 +1593,12 @@ fn blocks(
             return;
         }
         Event::Start(Tag::BlockQuote(_)) => {
+            let before = out.len();
             for child in &node.children {
                 blocks(child, source, indent, true, out, authored);
+            }
+            if let Some((kind, marker)) = callout_marker(node, source) {
+                decorate_callout(&mut out[before..], kind, marker);
             }
             return;
         }
@@ -1632,6 +1641,7 @@ fn blocks(
     };
     out.push(Block {
         block_id: None,
+        callout: None,
         syntax,
         language,
         fence_info,
@@ -1650,10 +1660,114 @@ fn blocks(
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CalloutKind {
+    Note,
+    Tip,
+    Important,
+    Warning,
+    Caution,
+}
+impl CalloutKind {
+    fn title(self) -> &'static str {
+        match self {
+            Self::Note => "Note",
+            Self::Tip => "Tip",
+            Self::Important => "Important",
+            Self::Warning => "Warning",
+            Self::Caution => "Caution",
+        }
+    }
+    fn color(self, dark: bool) -> u32 {
+        match (self, dark) {
+            (Self::Note, false) => 0x0969da,
+            (Self::Note, true) => 0x79c0ff,
+            (Self::Tip, false) => 0x1a7f37,
+            (Self::Tip, true) => 0x7ee787,
+            (Self::Important, false) => 0x8250df,
+            (Self::Important, true) => 0xd2a8ff,
+            (Self::Warning, false) => 0x9a6700,
+            (Self::Warning, true) => 0xe3b341,
+            (Self::Caution, false) => 0xcf222e,
+            (Self::Caution, true) => 0xff7b72,
+        }
+    }
+}
+/// Exact unstyled marker-only authored first line, not rendered text guessing.
+fn callout_marker<'a>(node: &Node<'_>, source: &'a str) -> Option<(CalloutKind, &'a str)> {
+    let first = node.children.first()?;
+    if !matches!(first.event, Event::Start(Tag::Paragraph)) {
+        return None;
+    }
+    let line = source
+        .get(first.range.clone())?
+        .split(['\r', '\n'])
+        .next()?
+        .trim_end();
+    let name = line.strip_prefix("[!")?.strip_suffix(']')?;
+    let kind = match name.to_ascii_uppercase().as_str() {
+        "NOTE" => CalloutKind::Note,
+        "TIP" => CalloutKind::Tip,
+        "IMPORTANT" => CalloutKind::Important,
+        "WARNING" => CalloutKind::Warning,
+        "CAUTION" => CalloutKind::Caution,
+        _ => return None,
+    };
+    Some((kind, line))
+}
+/// Keep exactly one output block per original block. Only the known marker line
+/// is removed; all surviving inline offsets refer to the resulting visible text.
+fn decorate_callout(blocks: &mut [Block], kind: CalloutKind, marker: &str) {
+    let Some(first) = blocks.first() else {
+        return;
+    };
+    if first.kind != BlockKind::Paragraph || first.callout.is_some() {
+        return;
+    }
+    let Some(rest) = first.text.strip_prefix(marker) else {
+        return;
+    };
+    let cut = if rest.is_empty() {
+        marker.len()
+    } else if rest.starts_with('\n') {
+        marker.len() + 1
+    } else {
+        return;
+    };
+    // A marker resolved as a reference link or styled text is not plain syntax.
+    if first.links.iter().any(|l| l.range.start < cut)
+        || first
+            .spans
+            .iter()
+            .any(|s| s.range.start < marker.len() && s.style != InlineStyle::default())
+    {
+        return;
+    }
+    let first = &mut blocks[0];
+    first.text.drain(..cut);
+    first.spans.retain_mut(|s| {
+        if s.range.end <= cut {
+            return false;
+        }
+        s.range = s.range.start.saturating_sub(cut)..s.range.end - cut;
+        true
+    });
+    for link in &mut first.links {
+        link.range = link.range.start - cut..link.range.end - cut;
+    }
+    for (i, block) in blocks.iter_mut().enumerate() {
+        // Nested explicitly typed callouts keep their own kind/title.
+        if block.callout.is_none() {
+            block.callout = Some((kind, i == 0));
+        }
+    }
+}
+
 fn flush_run(run: &mut Cell, indent: usize, quoted: bool, out: &mut Vec<Block>) {
     if !run.text.is_empty() {
         out.push(Block {
             block_id: None,
+            callout: None,
             kind: BlockKind::Paragraph,
             text: std::mem::take(&mut run.text),
             spans: std::mem::take(&mut run.spans),
@@ -2688,6 +2802,7 @@ fn fallback(text: &str, out: &mut Vec<Block>) {
     if !text.trim().is_empty() {
         out.push(Block {
             block_id: None,
+            callout: None,
             kind: BlockKind::Literal,
             text: text.to_owned(),
             spans: vec![],
@@ -2948,6 +3063,18 @@ fn render_elements(
                     .border_l_2()
                     .border_color(rgb(theme.strong_line))
                     .pl(px(12. + (block.indent * 16) as f32));
+            }
+            if let Some((kind, first)) = block.callout {
+                row = row.border_l_2().border_color(rgb(kind.color(dark)));
+                if first {
+                    row = row.child(
+                        div()
+                            .mb_2()
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(rgb(kind.color(dark)))
+                            .child(kind.title()),
+                    );
+                }
             }
             if block.kind == BlockKind::Rule {
                 // Keep one layout element per parsed block, including empty-text
@@ -6195,5 +6322,82 @@ mod display_math_tests {
         assert!(display_math_references(source, &model).is_empty());
         let source = format!("$$ {} $$\n", "x".repeat(4097));
         assert!(display_math_references(&source, &parse_reader(&source)).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod callout_tests {
+    use super::*;
+    #[test]
+    fn five_kinds_case_and_first_line_only() {
+        for (name, kind) in [
+            ("note", CalloutKind::Note),
+            ("TIP", CalloutKind::Tip),
+            ("Important", CalloutKind::Important),
+            ("WARNING", CalloutKind::Warning),
+            ("caution", CalloutKind::Caution),
+        ] {
+            let body = format!("> [!{name}]\n> 日本語 **bold** [[Target|link]]\n\n# After");
+            let blocks = parse_reader(&body);
+            assert_eq!(blocks.len(), 2);
+            assert_eq!(blocks[0].callout, Some((kind, true)));
+            assert_eq!(blocks[0].text, "日本語 bold link");
+            assert!(blocks[0].quoted);
+            assert!(
+                blocks[0]
+                    .spans
+                    .iter()
+                    .any(|s| s.style.strong && &blocks[0].text[s.range.clone()] == "bold")
+            );
+            assert_eq!(&blocks[0].text[blocks[0].links[0].range.clone()], "link");
+            assert_eq!(blocks[1].kind, BlockKind::Heading(1));
+            assert_eq!(blocks[1].callout, None);
+            assert_eq!(outline(&blocks)[0].block_index, 1);
+        }
+    }
+    #[test]
+    fn quote_scope_blank_marker_and_crlf_ranges() {
+        let blocks = parse_reader(
+            "> [!NOTE]\r\n>\r\n> body [Guide](Guide.md)\r\n\r\noutside\r\n\r\n> ordinary",
+        );
+        assert_eq!(blocks.len(), 4);
+        assert!(blocks[0].text.is_empty());
+        assert_eq!(blocks[0].callout, Some((CalloutKind::Note, true)));
+        assert_eq!(blocks[1].callout, Some((CalloutKind::Note, false)));
+        assert_eq!(&blocks[1].text[blocks[1].links[0].range.clone()], "Guide");
+        assert!(blocks[2..].iter().all(|b| b.callout.is_none()));
+        assert!(blocks[3].quoted);
+    }
+    #[test]
+    fn unsupported_markers_are_ordinary_and_code_untouched() {
+        for source in [
+            "> [!UNKNOWN]\n> body",
+            "> intro\n> [!NOTE]\n> body",
+            "> [!NOTE] custom\n> body",
+            "> **[!NOTE]**\n> body",
+            "> \\[!NOTE]\n> body",
+            "> `[!NOTE]`\n> body",
+            "```md\n> [!NOTE]\n```",
+            "> ```\n> [!NOTE]\n> ```",
+        ] {
+            let blocks = parse_reader(source);
+            assert!(blocks.iter().all(|b| b.callout.is_none()), "{source}");
+            assert!(blocks.iter().any(|b| b.text.contains("[!")));
+        }
+    }
+    #[test]
+    fn marker_removal_only_shifts_surviving_ranges() {
+        let source = "> [!TIP]\n> [Guide](Guide.md) and [[Target#Heading|日本語]]\n> last";
+        let blocks = parse_reader(source);
+        let block = &blocks[0];
+        assert_eq!(block.text, "Guide and 日本語\nlast");
+        assert_eq!(block.links.len(), 2);
+        assert_eq!(&block.text[block.links[0].range.clone()], "Guide");
+        assert_eq!(&block.text[block.links[1].range.clone()], "日本語");
+        for span in &block.spans {
+            assert!(block.text.get(span.range.clone()).is_some());
+        }
+        assert!(!block.text.contains("[!TIP]")); // Find's visible text has no hidden marker.
+        assert!(source.starts_with("> [!TIP]")); // Source backing Copy MD is never edited.
     }
 }

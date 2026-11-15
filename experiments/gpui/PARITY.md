@@ -770,3 +770,10 @@ regressions are added; final GPUI/native layout and interruption QA is pending.
   opaque strings. Nix interpolation/path/URI ambiguity conservatively leaves the
   remainder plain; no injected-language or semantic-token parity. Pure source
   regressions pass; native visual QA remains pending.
+
+- Callouts: five case-insensitive GitHub-style marker-only quote introductions
+  receive a title and light/dark border. Source Copy MD is unchanged; the first
+  marker line is removed from the visible body and inline byte ranges are shifted
+  together. Block count/indices remain stable, including marker-only paragraphs.
+  No custom titles, collapse, or quoted-text selection expansion. Unknown/code/
+  escaped/styled markers fall back. Pure mapping harness passes; native QA pending.
