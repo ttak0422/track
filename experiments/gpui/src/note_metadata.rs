@@ -4,10 +4,37 @@ use crate::{
     tabs::TabKey,
 };
 
+/// Display classification only. Flags never confer permissions or change editing.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Flag {
+    Deprecated,
+    Confidential,
+    Other(String),
+}
+
+impl Flag {
+    fn from_source(value: &str) -> Option<Self> {
+        match value {
+            "" => None,
+            "DEPRECATED" => Some(Self::Deprecated),
+            "CONFIDENTIAL" => Some(Self::Confidential),
+            other => Some(Self::Other(other.to_owned())),
+        }
+    }
+
+    pub fn label(&self) -> &str {
+        match self {
+            Self::Deprecated => "DEPRECATED",
+            Self::Confidential => "CONFIDENTIAL",
+            Self::Other(value) => value,
+        }
+    }
+}
+
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Metadata {
     pub tags: Vec<String>,
-    pub flags: String,
+    pub flags: Vec<Flag>,
     pub milestone: Option<&'static str>,
 }
 
@@ -21,7 +48,11 @@ impl Metadata {
     ) -> Self {
         if !live {
             return Self {
-                tags: snapshot_tags.to_vec(),
+                tags: snapshot_tags
+                    .iter()
+                    .filter(|tag| !tag.is_empty())
+                    .cloned()
+                    .collect(),
                 ..Self::default()
             };
         }
@@ -38,8 +69,19 @@ impl Metadata {
             return Self::default();
         };
         Self {
-            tags: body.note.tags.clone(),
-            flags: flag_labels(body.note.flags.iter().map(String::as_str)),
+            tags: body
+                .note
+                .tags
+                .iter()
+                .filter(|tag| !tag.is_empty())
+                .cloned()
+                .collect(),
+            flags: body
+                .note
+                .flags
+                .iter()
+                .filter_map(|flag| Flag::from_source(flag))
+                .collect(),
             milestone: recorded_milestone(&body.note.additional),
         }
     }
@@ -105,6 +147,52 @@ mod tests {
         }
     }
     #[test]
+    fn flags_classify_exact_names_and_preserve_inert_unknown_text() {
+        assert_eq!(Flag::from_source(""), None);
+        assert_eq!(Flag::from_source("DEPRECATED"), Some(Flag::Deprecated));
+        assert_eq!(Flag::from_source("CONFIDENTIAL"), Some(Flag::Confidential));
+        for value in [
+            "deprecated",
+            " CONFIDENTIAL",
+            "FUTURE_RULE",
+            "<script>",
+            "[x](url)",
+            "日本語",
+            " ",
+        ] {
+            let flag = Flag::from_source(value).unwrap();
+            assert_eq!(flag, Flag::Other(value.into()));
+            assert_eq!(flag.label(), value);
+        }
+        assert_eq!(Flag::Deprecated.label(), "DEPRECATED");
+        assert_eq!(Flag::Confidential.label(), "CONFIDENTIAL");
+    }
+
+    #[test]
+    fn empty_labels_are_omitted_without_discarding_other_metadata() {
+        let mut body = body();
+        body.note.tags = vec!["".into(), "日本語".into(), "[x](url)".into()];
+        body.note.flags = vec!["".into(), "FUTURE_RULE".into(), "CONFIDENTIAL".into()];
+        let metadata = Metadata::current(
+            true,
+            &key("work", 42),
+            Some(&body),
+            Some(&body.note.key()),
+            &[],
+        );
+        assert_eq!(metadata.tags, ["日本語", "[x](url)"]);
+        assert_eq!(
+            metadata.flags,
+            [Flag::Other("FUTURE_RULE".into()), Flag::Confidential]
+        );
+        assert!(
+            Metadata::current(false, &key("work", 42), None, None, &["".into()])
+                .tags
+                .is_empty()
+        );
+    }
+
+    #[test]
     fn accepted_source_wins_over_snapshot_even_when_empty() {
         let mut body = body();
         let stale = vec!["stale".into()];
@@ -116,7 +204,7 @@ mod tests {
             &stale,
         );
         assert_eq!(metadata.tags, ["fresh"]);
-        assert_eq!(metadata.flags, "[DEPRECATED] [CONFIDENTIAL]");
+        assert_eq!(metadata.flags, [Flag::Deprecated, Flag::Confidential]);
         body.note.tags.clear();
         body.note.flags.clear();
         assert_eq!(
@@ -169,7 +257,7 @@ mod tests {
         let route = key("", 42);
         let metadata = Metadata::current(true, &route, Some(&body), Some(&launch), &[]);
         assert_eq!(metadata.tags, ["fresh"]);
-        assert_eq!(metadata.flags, "[DEPRECATED] [CONFIDENTIAL]");
+        assert_eq!(metadata.flags, [Flag::Deprecated, Flag::Confidential]);
         assert_eq!(
             Metadata::current(true, &key("other", 42), Some(&body), Some(&launch), &[]),
             Metadata::default()

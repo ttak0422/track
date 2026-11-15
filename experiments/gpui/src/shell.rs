@@ -803,6 +803,32 @@ impl Palette {
         }
     }
 }
+
+// Literal text only. Constrain each label and wrap the badge row; do not create
+// per-character elements or alter user text to manufacture break opportunities.
+fn metadata_text(value: &str) -> Div {
+    div().min_w_0().max_w_full().child(value.to_owned())
+}
+
+fn metadata_badge(flag: &crate::note_metadata::Flag, p: Palette) -> Div {
+    use crate::note_metadata::Flag;
+    let (text, border) = match flag {
+        Flag::Deprecated => (p.mark, p.mark),
+        Flag::Confidential => (p.ink, p.mark),
+        Flag::Other(_) => (p.muted, p.line),
+    };
+    div()
+        .min_w_0()
+        .max_w_full()
+        .border_1()
+        .border_color(rgb(border))
+        .rounded_md()
+        .px_2()
+        .py_1()
+        .text_color(rgb(text))
+        .child(metadata_text(flag.label()))
+}
+
 fn rail_button(id: &'static str, glyph: &'static str, p: Palette, active: bool) -> Stateful<Div> {
     let color = if active { p.mark } else { p.muted };
     div()
@@ -2590,51 +2616,52 @@ impl Render for Workspace {
                     }),
                 ),
             );
-        let aside =
-            div()
-                .id("context-rail")
-                .overflow_y_scroll()
-                .w(px(
-                    (f32::from(window.viewport_size().width) * 0.24).clamp(240., 380.)
+        let aside = div()
+            .id("context-rail")
+            .overflow_y_scroll()
+            .w(px(
+                (f32::from(window.viewport_size().width) * 0.24).clamp(240., 380.)
+            ))
+            .flex_shrink_0()
+            .when(wide, |aside| aside.h_full())
+            .pt(px(48.))
+            .pr_6()
+            .text_size(px(14.))
+            .text_color(rgb(p.muted))
+            .when(!note_labels.tags.is_empty(), |aside| {
+                aside.child(div().mb_8().child(label("TAGS", p)).children(
+                    note_labels.tags.iter().map(|tag| {
+                        metadata_text(&format!("#{tag}"))
+                            .mb_2()
+                            .text_color(rgb(p.ink))
+                    }),
                 ))
-                .flex_shrink_0()
-                .when(wide, |aside| aside.h_full())
-                .pt(px(48.))
-                .pr_6()
-                .text_size(px(14.))
-                .text_color(rgb(p.muted))
-                .when(!note_labels.tags.is_empty(), |aside| {
-                    aside.child(div().mb_8().child(label("TAGS", p)).children(
-                        note_labels.tags.iter().map(|tag| {
-                            div().mb_2().text_color(rgb(p.ink)).child(format!("#{tag}"))
-                        }),
-                    ))
-                })
-                .when(headings.len() > 1, |aside| {
-                    aside.child(div().mb_8().child(label("CONTENTS", p)).children(
-                        headings.into_iter().enumerate().map(|(index, heading)| {
-                            let anchors = heading_anchors.clone();
-                            let anchor = heading.anchor;
-                            div()
-                                .id(("outline", index))
-                                .mb_2()
-                                .pl(px((heading.level.saturating_sub(minimum_heading_level)
-                                    as f32)
-                                    * 28.))
-                                .cursor_pointer()
-                                .child(heading.title)
-                                .on_click(cx.listener(move |this, _, window, cx| {
-                                    this.cancel_position_resume();
-                                    if anchors.scroll_to(&anchor, window, cx) {
-                                        cx.notify();
-                                    }
-                                    if let Some(focus) = &this.shell.reader_focus {
-                                        window.focus(focus);
-                                    }
-                                }))
-                        }),
-                    ))
-                });
+            })
+            .when(headings.len() > 1, |aside| {
+                aside.child(div().mb_8().child(label("CONTENTS", p)).children(
+                    headings.into_iter().enumerate().map(|(index, heading)| {
+                        let anchors = heading_anchors.clone();
+                        let anchor = heading.anchor;
+                        div()
+                            .id(("outline", index))
+                            .mb_2()
+                            .pl(px((heading.level.saturating_sub(minimum_heading_level)
+                                as f32)
+                                * 28.))
+                            .cursor_pointer()
+                            .child(heading.title)
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.cancel_position_resume();
+                                if anchors.scroll_to(&anchor, window, cx) {
+                                    cx.notify();
+                                }
+                                if let Some(focus) = &this.shell.reader_focus {
+                                    window.focus(focus);
+                                }
+                            }))
+                    }),
+                ))
+            });
         let aside = aside.child(children_relations).child(backlink_relations);
         // Derive only from the accepted response; no additional reads or cache.
         let external =
@@ -2807,8 +2834,14 @@ impl Render for Workspace {
                             div()
                                 .mb_4()
                                 .text_size(px(13.))
-                                .text_color(rgb(p.muted))
-                                .child(note_labels.flags.clone()),
+                                .min_w_0()
+                                .max_w_full()
+                                .flex()
+                                .flex_wrap()
+                                .gap_2()
+                                .children(
+                                    note_labels.flags.iter().map(|flag| metadata_badge(flag, p)),
+                                ),
                         )
                     })
                     .when(!metadata.is_empty(), |reader| {

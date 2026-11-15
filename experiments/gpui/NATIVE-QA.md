@@ -965,3 +965,17 @@ previously acknowledged sentinel on disk, with no checkpoint. Native marked-text
 IME, all overlay permutations, and pending network timing under these new keys
 remain outside this run; existing model/transport tests cover their guards.
 Ordinary-vault editing is still disabled.
+
+## 2026-11-15: reader metadata badge implementation
+
+Known source flags now retain separate literal DEPRECATED and CONFIDENTIAL labels
+with theme palette treatments; unknown flags stay neutral inert text. Empty
+labels are omitted. Tag width constraints and a wrapping badge row avoid adding
+per-character UI nodes. Existing accepted-source and recorded-milestone guards
+remain unchanged. This is not flag-based authorization or watermark parity.
+
+Implementation and independent source review ran in the cloud. Native macOS
+unit tests passed (590 passed, 7 ignored); the macOS build passed. GUI light/dark,
+narrow viewport and long unbroken Unicode label wrapping were not exercised for
+this increment. These checks remain open, as does real IME composition. Ordinary
+vault editing remains disabled.
