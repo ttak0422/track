@@ -737,6 +737,7 @@ impl Workspace {
                         this.partial_read =
                             response.note.read_only || partial(&response.related_and_diagnostics);
                         this.current_note = Some(response.note.clone());
+                        this.shell.accepted_title_request = Some(request);
                         this.current_note_request = Some(accepted_request.clone());
                         this.accept_fragment_destination(request, cx);
                         this.follow.routing = this.following_read(request);

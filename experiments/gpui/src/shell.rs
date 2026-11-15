@@ -442,6 +442,8 @@ pub struct ShellState {
     reader_keys: Option<ReaderKeyOwner>,
     reader_scroll_epoch: u64,
     code_copy: code_copy::State,
+    title_copy: title_copy::State,
+    pub(crate) accepted_title_request: Option<u64>,
     code_anchors: Option<std::rc::Rc<markdown::FindAnchors>>,
     code_focus: std::collections::BTreeMap<usize, gpui::FocusHandle>,
     pub(crate) find: workspace_find::FindState,
@@ -555,6 +557,8 @@ impl Default for ShellState {
             reader_keys: None,
             reader_scroll_epoch: 0,
             code_copy: Default::default(),
+            title_copy: Default::default(),
+            accepted_title_request: None,
             code_anchors: None,
             code_focus: Default::default(),
             find: Default::default(),
@@ -1416,6 +1420,66 @@ fn cycle_index(index: usize, len: usize, backwards: bool) -> usize {
     }
 }
 impl Workspace {
+    fn copy_title_source(&self, cx: &App) -> Option<title_copy::Source> {
+        if self.shell.accepted_title_request != Some(self.request)
+            || !self.footnote_reader_available(cx)
+            || self.tag_routing_blocked(cx)
+            || self.editor_shortcut_blocked(cx)
+            || self.shell.find.is_composing(cx)
+            || (self.session_ui.recovery_enabled()
+                && (!self.session_ui.recovery_ready()
+                    || self.session_ui.recovery_record().is_some()
+                    || self.session_ui.recovery_status()
+                        != workspace_session::RecoveryStatus::Ready(
+                            draft_recovery::LocalStatus::Empty,
+                        )))
+        {
+            return None;
+        }
+        let source = self.current_link_source()?;
+        let note = self.current_note.as_ref()?;
+        let request = self.current_note_request.as_ref()?;
+        let storage = self.live.as_ref()?.initial_storage.as_ref()?;
+        if &source.note != request
+            || note.note.key() != *request
+            || storage.phase != "ready"
+            || storage.generation != source.storage_generation
+            || self.tabs.active()?.key
+                != (tabs::TabKey::Note {
+                    vault: request.vault.clone(),
+                    note_id: request.note_id,
+                })
+        {
+            return None;
+        }
+        title_copy::Source::new(self.copy_document()?, &note.note.title)
+    }
+    fn copy_title(&mut self, epoch: u64, window: &Window, cx: &mut Context<Self>) {
+        if !window.is_window_active() {
+            return;
+        }
+        let current = self.copy_title_source(cx);
+        let Some(title) = self.shell.title_copy.text(epoch, current.as_ref()) else {
+            return;
+        };
+        // GPUI has no write-result API. This acknowledges submission, never readback.
+        cx.write_to_clipboard(gpui::ClipboardItem::new_string(title));
+        let serial = self.shell.title_copy.submitted();
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(1500))
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                let source = this.copy_title_source(cx);
+                this.shell.title_copy.sync(source);
+                if this.shell.title_copy.expire(epoch, serial) {
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
     fn copy_document(&self) -> Option<code_copy::Document> {
         code_copy_available(
             self.find_available(),
@@ -2570,6 +2634,8 @@ impl Workspace {
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_enlarged_image(window, cx);
+        let title_source = self.copy_title_source(cx);
+        self.shell.title_copy.sync(title_source);
         self.sync_creation_journal(cx);
         if self.shell.reader_keys.as_ref().is_some_and(|owner| {
             !self.reader_key_owner_current(owner, window, cx)
@@ -3572,7 +3638,44 @@ impl Render for Workspace {
                                     .line_height(px(36.4))
                                     .font_weight(gpui::FontWeight::MEDIUM)
                                     .mb(px(6.))
-                                    .child(title),
+                                    .flex()
+                                    .flex_wrap()
+                                    .items_start()
+                                    .gap_2()
+                                    .child(div().min_w_0().max_w_full().child(title))
+                                    .when(self.current_note.is_some(), |row| {
+                                        let epoch = self.shell.title_copy.epoch;
+                                        row.child(
+                                            div()
+                                                .id("copy-reader-title")
+                                                .w(px(110.))
+                                                .flex_shrink_0()
+                                                .text_size(px(12.))
+                                                .line_height(px(22.))
+                                                .when(
+                                                    self.shell.title_copy.source.is_some(),
+                                                    |button| button.cursor_pointer(),
+                                                )
+                                                .text_color(rgb(p.muted))
+                                                .child(
+                                                    if self.shell.title_copy.feedback.is_some() {
+                                                        "Copy submitted"
+                                                    } else {
+                                                        "Copy title"
+                                                    },
+                                                )
+                                                .on_mouse_down(
+                                                    gpui::MouseButton::Left,
+                                                    |_, _, cx| cx.stop_propagation(),
+                                                )
+                                                .on_click(cx.listener(
+                                                    move |this, _, window, cx| {
+                                                        this.copy_title(epoch, window, cx);
+                                                        cx.stop_propagation();
+                                                    },
+                                                )),
+                                        )
+                                    }),
                             )
                             .child(markdown::render_with_positions(
                                 &displayed_content,

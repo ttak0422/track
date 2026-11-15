@@ -1328,3 +1328,22 @@ so live resize and still narrower windows remain unverified. Quit exited, both
 owned ports closed, and all 12 canonical fixture hashes stayed unchanged.
 687 Rust tests passed, 7 ignored; formatting and native build passed. Independent
 review found no P1/P2 issue. Normal vault writes remain disabled.
+
+## Copy title: native validation pending
+
+Check explicit Copy title submits exact Unicode/plain title, preserves focus, wraps long titles and gives renewed “Copy submitted” feedback on rapid clicks. Navigate/Back/reload while a timer is pending; stale timers/callbacks must not affect another title. Pending/error, Home/Tag/Graph, Enlarge, Find/search, composition, editor/save/recovery and quit owners must not copy. No Cmd-C hook or clipboard readback is introduced. Three model tests added; cloud diff-check passed, Rust/build/native/IME not run here.
+
+Native macOS pointer smoke on 2026-11-15 verified Copy title on the isolated
+Raster Enlargement QA note, its submission acknowledgement, and exact plain-title
+round trip into the fixture search input using the system paste action. Feedback
+returned to Copy title. Search preserved the title-row footprint and reader
+position; native Quit exited and both owned ports closed. All 12 canonical
+fixture hashes stayed unchanged. The clipboard intentionally contains the test
+title; no prior clipboard was read. Long-title wrapping, rapid clicks, keyboard
+activation, accessibility, interruption and actual IME remain unverified natively.
+
+Independent review identified layout instability when overlays removed the
+button or the feedback label changed width. The accepted note retains a fixed
+button footprint, with action-time guards disabling unavailable copies. The final
+Rust suite passed 690 tests, with 7 ignored; formatting and native build passed.
+Ordinary vault writes remain disabled.

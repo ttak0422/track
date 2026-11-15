@@ -982,3 +982,7 @@ part of this change. Native pointer menu checks passed; keyboard/IME coverage re
 ## Enlarge decoded reader images
 
 Successfully decoded standalone local PNG/JPEG images have an explicit Enlarge control. The window-local overlay reuses the same decoded pixels, fits without upscaling, and closes with Escape, backdrop or Close. It adds no read, decode, history, clipboard or write operation. Competing input/recovery owners block admission; stale sources close the overlay. Native PNG fit and pointer dismissal, bottom-position retention and Quit were checked. JPEG, resize, keyboard/accessibility and IME validation remain incomplete.
+
+## Copy current title
+
+The accepted live reader offers Copy title beside its wrapped title. It submits the exact plain-text title, without wiki syntax or note identifiers. “Copy submitted” lasts about 1.5 seconds and renews on repeat; this reports clipboard submission, not readback verification. Empty or over-64-KiB titles and pending/error/competing-owner states have no active control. Preview copying and a Cmd-C binding are not added.

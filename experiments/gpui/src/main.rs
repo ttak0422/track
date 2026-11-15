@@ -42,6 +42,7 @@ mod search_input;
 mod session_store;
 mod shell;
 mod tabs;
+mod title_copy;
 mod workspace_activity;
 mod workspace_edit;
 mod workspace_find;

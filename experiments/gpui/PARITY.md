@@ -488,3 +488,7 @@ unverified. Reload is excluded.
 ## Raster enlargement candidate
 
 Explicit read-only enlargement of already decoded current-reader standalone PNG/JPEG images is implemented with exact source/block/allocation guards and one modal owner. Aspect-fit and identity/admission models pass on macOS. Native PNG landscape/portrait fit, content click, wheel isolation, dismissal, bottom-position retention and open-overlay Quit were verified. JPEG, resize, full keyboard/AX, source changes and IME combinations remain unverified. No new formats, fetches, zoom/pan, clipboard, persistence or vault writes.
+
+## Current reader title copy candidate
+
+Explicit exact-title clipboard submission is source/tab/revision/launch/vault qualified, bounded to 64 KiB, with generation-safe 1.5-second feedback. Reuses the accepted reader and existing owner guards; no focus acquisition, clipboard reads, mutation or persistence. Model tests added for Unicode, bounds, stale sources and repeated-copy timers. Cloud Rust and native validation are pending; preview copy is deferred.
