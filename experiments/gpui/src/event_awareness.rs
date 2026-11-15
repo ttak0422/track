@@ -7,6 +7,7 @@ pub struct Ticket {
     change: u64,
     data: u64,
     gaps: u64,
+    initial_failures: u64,
 }
 #[derive(Clone, Copy)]
 pub struct Notice {
@@ -33,15 +34,26 @@ impl State {
     }
     pub fn notice(&self) -> Option<Notice> {
         let (launch, snapshot) = self.current?;
+        if snapshot.gaps == u64::MAX {
+            return Some(Notice {
+                message: "Live observation coverage cannot be confirmed. Reload for current data.",
+                dismiss: None,
+            });
+        }
         let ticket = Ticket {
             launch,
             change: snapshot.change,
             data: snapshot.data,
             gaps: snapshot.gaps,
+            initial_failures: snapshot.initial_failures,
         };
         if !snapshot.connected && snapshot.gaps > 0 {
             return Some(Notice {
-                message: "Live updates are interrupted. Reload for current data.",
+                message: if snapshot.ever_connected {
+                    "Live updates are interrupted. Reload for current data."
+                } else {
+                    "Live updates have not connected yet; changes may be missed. Reload for current data."
+                },
                 dismiss: None,
             });
         }
@@ -50,9 +62,14 @@ impl State {
             change: 0,
             data: 0,
             gaps: 0,
+            initial_failures: 0,
         });
-        let message = if ticket.gaps > previous.gaps {
+        let message = if ticket.gaps.saturating_sub(ticket.initial_failures)
+            > previous.gaps.saturating_sub(previous.initial_failures)
+        {
             "Live observation had a gap; changes may have been missed. Reload for current data."
+        } else if ticket.initial_failures > previous.initial_failures {
+            "Live updates connected after a delay; earlier changes may have been missed. Reload for current data."
         } else if ticket.change > previous.change && ticket.data > previous.data {
             "Note and data changes observed. Reload to refresh the current page."
         } else if ticket.change > previous.change {
@@ -74,9 +91,11 @@ impl State {
             return false;
         };
         if ticket.launch != launch
+            || snapshot.gaps == u64::MAX
             || !snapshot.connected
             || ticket.change > snapshot.change
             || ticket.data > snapshot.data
+            || ticket.initial_failures > snapshot.initial_failures
             || ticket.gaps > snapshot.gaps
         {
             return false;
@@ -86,12 +105,14 @@ impl State {
             change: 0,
             data: 0,
             gaps: 0,
+            initial_failures: 0,
         });
         self.acknowledged = Some(Ticket {
             launch,
             change: previous.change.max(ticket.change),
             data: previous.data.max(ticket.data),
             gaps: previous.gaps.max(ticket.gaps),
+            initial_failures: previous.initial_failures.max(ticket.initial_failures),
         });
         true
     }
@@ -107,6 +128,8 @@ mod tests {
             data,
             gaps,
             connected,
+            ever_connected: connected || gaps > 0,
+            ..Default::default()
         }
     }
     #[test]
@@ -136,6 +159,73 @@ mod tests {
         assert!(state.notice().unwrap().message.contains("gap"));
         assert!(state.dismiss(ticket)); // old click still cannot dismiss the new gap
         assert!(state.notice().is_some());
+    }
+    #[test]
+    fn saturated_initial_failures_never_hide_later_loss() {
+        let mut state = State::default();
+        state.observe(Some((
+            1,
+            Snapshot {
+                gaps: u64::MAX,
+                initial_failures: u64::MAX,
+                connected: true,
+                ever_connected: true,
+                ..Default::default()
+            },
+        )));
+        assert!(state.notice().unwrap().dismiss.is_none());
+        assert!(
+            state
+                .notice()
+                .unwrap()
+                .message
+                .contains("cannot be confirmed")
+        );
+    }
+    #[test]
+    fn initial_delay_is_honest_and_dismiss_cannot_hide_later_stream_loss() {
+        let mut state = State::default();
+        let mut current = Snapshot {
+            gaps: 1,
+            initial_failures: 1,
+            ..Default::default()
+        };
+        state.observe(Some((1, current)));
+        assert!(
+            state
+                .notice()
+                .unwrap()
+                .message
+                .contains("not connected yet")
+        );
+        assert!(state.notice().unwrap().dismiss.is_none());
+        current.connected = true;
+        current.ever_connected = true;
+        state.observe(Some((1, current)));
+        assert!(
+            state
+                .notice()
+                .unwrap()
+                .message
+                .contains("earlier changes may have been missed")
+        );
+        let delayed = state.notice().unwrap().dismiss.unwrap();
+        assert!(state.dismiss(delayed));
+        assert!(state.notice().is_none());
+        current.gaps += 1;
+        current.connected = false;
+        state.observe(Some((1, current)));
+        assert!(state.notice().unwrap().message.contains("interrupted"));
+        assert!(!state.dismiss(delayed));
+        current.connected = true;
+        state.observe(Some((1, current)));
+        assert!(state.dismiss(delayed));
+        assert!(state.notice().unwrap().message.contains("had a gap"));
+        let gap = state.notice().unwrap().dismiss.unwrap();
+        current.data += 1;
+        state.observe(Some((1, current)));
+        assert!(state.dismiss(gap));
+        assert!(state.notice().unwrap().message.starts_with("Data changes"));
     }
     #[test]
     fn replaced_launch_rejects_old_controls_and_ordinary_snapshot_mode_is_empty() {

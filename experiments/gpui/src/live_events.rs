@@ -20,6 +20,9 @@ pub struct Snapshot {
     /// Bounded invalidation only; event payloads are never navigation authority.
     pub follow: u64,
     pub gaps: u64,
+    /// Subset of gaps before the first accepted stream; total gaps still invalidate follow.
+    pub initial_failures: u64,
+    pub ever_connected: bool,
     pub connected: bool,
 }
 impl Snapshot {
@@ -33,6 +36,9 @@ impl Snapshot {
     }
     fn gap(&mut self) {
         self.connected = false;
+        if !self.ever_connected {
+            self.initial_failures = self.initial_failures.saturating_add(1);
+        }
         self.gaps = self.gaps.saturating_add(1);
     }
 }
@@ -225,7 +231,11 @@ async fn observe(
                 .and_then(|v| v.split(';').next())
                 .is_some_and(|v| v.trim().eq_ignore_ascii_case("text/event-stream"));
             if response.status() == reqwest::StatusCode::OK && content_type {
-                state.lock().unwrap().connected = true;
+                {
+                    let mut snapshot = state.lock().unwrap();
+                    snapshot.connected = true;
+                    snapshot.ever_connected = true;
+                }
                 let mut parser = Parser::new();
                 while alive.load(Ordering::Acquire) {
                     let Some(chunk) =
@@ -435,6 +445,42 @@ mod tests {
         assert!(snapshot.connected && snapshot.gaps >= 1);
         observer.cancel();
         wait(|| observer.is_done());
+        server.join().unwrap();
+    }
+    #[test]
+    fn initial_503_then_stream_loss_and_rejected_reconnect_keep_total_gaps() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            accept(&listener)
+                .write_all(b"HTTP/1.1 503 Unavailable\r\nContent-Length: 0\r\n\r\n")
+                .unwrap();
+            let mut first = accept(&listener);
+            headers(&mut first);
+            chunk(&mut first, b": connected\n\nevent: change\ndata: {}\n\n");
+            first.write_all(b"0\r\n\r\n").unwrap();
+            drop(first);
+            accept(&listener)
+                .write_all(b"HTTP/1.1 503 Unavailable\r\nContent-Length: 0\r\n\r\n")
+                .unwrap();
+            let mut last = accept(&listener);
+            headers(&mut last);
+            chunk(&mut last, b": connected\n\nevent: data\ndata: {}\n\n");
+            let mut byte = [0];
+            assert_eq!(last.read(&mut byte).unwrap(), 0);
+        });
+        let observer = Observer::start(&origin, Arc::new(AtomicBool::new(true)));
+        wait(|| observer.snapshot().initial_failures == 1);
+        assert_eq!(observer.snapshot().gaps, 1);
+        assert!(!observer.snapshot().ever_connected);
+        wait(|| observer.snapshot().change == 1);
+        wait(|| observer.snapshot().data == 1);
+        let snapshot = observer.snapshot();
+        assert!(snapshot.connected && snapshot.ever_connected);
+        assert_eq!((snapshot.initial_failures, snapshot.gaps), (1, 3));
+        observer.cancel();
+        wait(|| observer.is_done());
+        assert_eq!(observer.snapshot().gaps, 3); // cancellation is not a gap
         server.join().unwrap();
     }
     #[test]

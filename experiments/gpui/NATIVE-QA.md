@@ -1138,3 +1138,21 @@ Pin capacity, interrupted settling gestures, native pinch, multi-monitor/narrow
 layout and performance claims remain unverified. No ordinary-vault write gate
 changed. This repairs the existing experimental graph controls, not a new public
 command or launch option; user-facing help controls remain unchanged.
+
+
+## Initial live-update coverage (2026-11-15)
+
+An isolated owned-engine startup reproduced the initial connection race three
+times: the ready token and HTTP 200 vault/storage responses preceded storage
+initialization, so `/api/events` returned 503. About 180 ms after launch storage
+was ready and SSE connected. Ready-stream headers arrived in under 1 ms, followed
+by `: connected` and a `: ping` heartbeat after 25 seconds. Reconnection did not
+replay events or honor Last-Event-ID. No timeout increase was needed.
+
+With the rebuilt native app and the read-only six-note fixture, startup displayed
+“Live updates connected after a delay; earlier changes may have been missed.”
+Dismiss removed the notice; Cmd-Q exited and both owned listener ports closed.
+All 18 canonical fixture files remained unchanged. Synthetic transport/model
+tests cover subsequent EOF/rejected reconnects and stale dismissal without
+weakening total-gap/editor-follow invalidation. Actual interrupted-stream GUI
+behavior and IME composition were not tested in this pass.
