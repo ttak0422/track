@@ -946,3 +946,22 @@ Home and the owned server, and About reopened successfully. Final workspace
 quit stopped the fixture server. Clipboard non-interference is source-reviewed,
 not a native sentinel test in this run; About performs no clipboard action.
 Native IME and ordinary-vault editing acceptance remain unresolved.
+
+## Guarded Save/Close keyboard actions, 2026-11-15
+
+On clean `e47a5c1` with the isolated owned-server fixture, Cmd-S from focused
+source input saved the typed sentinel and stayed in Edit. Source readback matched,
+the dirty marker cleared, and no recovery checkpoint remained. After another
+unsaved line, Cmd-W opened the existing close-tab confirmation. Repeating Cmd-S
+and Cmd-W behind it neither saved the sentinel nor replaced the decision; Cancel
+preserved the visible dirty draft.
+
+With that dirty workspace behind About, Cmd-S did not save and Cmd-W dismissed
+only About. The underlying draft and tab remained. Cmd-W followed by explicit
+Discard closed the note and selected Home; closing the last Home tab left the
+application and owned server alive on empty Home. Further Cmd-S/W there were
+inert. Final Cmd-Q exited, released the fixture server port, and left only the
+previously acknowledged sentinel on disk, with no checkpoint. Native marked-text
+IME, all overlay permutations, and pending network timing under these new keys
+remain outside this run; existing model/transport tests cover their guards.
+Ordinary-vault editing is still disabled.
