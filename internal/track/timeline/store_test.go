@@ -336,3 +336,86 @@ func TestCanonicalRejectsTrailingJSON(t *testing.T) {
 		t.Fatalf("multiple JSON values accepted: %v", err)
 	}
 }
+
+func TestPresentJournalMissingCreateIsCorruptionNotAbsence(t *testing.T) {
+	s, root := fixture(t)
+	create(t, s)
+	file := filepath.Join(root, ".track/timelines/plan.json")
+	payload, err := json.Marshal(task("orphan", "", "active"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(document{SchemaVersion: SchemaVersion, ProjectID: "plan", Events: []Event{{
+		Sequence: 1, At: time.Now().UTC().Format(time.RFC3339Nano), Source: "agent", EventID: "orphan",
+		Kind: "task.upsert", Payload: payload,
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Read(context.Background(), "plan"); !errors.Is(err, ErrInvalid) || errors.Is(err, ErrNotFound) {
+		t.Fatalf("present invalid journal must not be absent: %v", err)
+	}
+	if _, err := s.Apply(context.Background(), "plan", req(0, "replacement", "project.create", Project{Title: "replacement"})); !errors.Is(err, ErrInvalid) || errors.Is(err, ErrNotFound) {
+		t.Fatalf("corrupt journal creation: %v", err)
+	}
+	after, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(raw) {
+		t.Fatal("invalid existing journal was overwritten")
+	}
+	if _, err := s.Read(context.Background(), "missing"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("genuinely missing file should remain not found: %v", err)
+	}
+}
+
+func TestCanonicalEscapingLimitPreservesJournalAndBoundaryRetries(t *testing.T) {
+	s, root := fixture(t)
+	create(t, s)
+	file := filepath.Join(root, ".track/timelines/plan.json")
+	before, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := req(1, "expanded", "project.update", nil)
+	request.Payload = json.RawMessage(`{"title":"x","description":"` + strings.Repeat("<", 12000) + `"}`)
+	if len(request.Payload) >= 64<<10 {
+		t.Fatal("test must exercise a small input")
+	}
+	if _, err := s.Apply(context.Background(), "plan", request); !errors.Is(err, ErrLimit) {
+		t.Fatalf("expanded payload should be rejected: %v", err)
+	}
+	after, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Fatal("rejected payload changed journal")
+	}
+
+	// Exactly 64 KiB after escaping remains valid and retryable after reopening.
+	description := strings.Repeat("<", 10000)
+	encoded, err := json.Marshal(map[string]string{"title": "x", "description": description})
+	if err != nil {
+		t.Fatal(err)
+	}
+	description += strings.Repeat("a", (64<<10)-len(encoded))
+	request.EventID = "boundary"
+	request.Payload = json.RawMessage(`{"title":"x","description":"` + description + `"}`)
+	first := apply(t, s, request)
+	if len(first.Events[len(first.Events)-1].Payload) != 64<<10 {
+		t.Fatal("incorrect boundary fixture")
+	}
+	retry := apply(t, NewStore(root), request)
+	if retry.Revision != first.Revision {
+		t.Fatal("identical retry appended an event")
+	}
+	request.Payload = first.Events[len(first.Events)-1].Payload
+	if got := apply(t, NewStore(root), request); got.Revision != first.Revision {
+		t.Fatal("canonical payload retry appended an event")
+	}
+}
