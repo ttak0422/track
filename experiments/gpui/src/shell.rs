@@ -5042,15 +5042,23 @@ impl Render for Workspace {
                 ))
             });
         let property_source = self.current_link_source();
-        let mut metadata: Vec<(String, String, Option<usize>)> = property_projection
-            .rows
-            .iter()
-            .enumerate()
-            .map(|(index, row)| (row.key.to_uppercase(), row.value.clone(), Some(index)))
+        let mut metadata: Vec<(String, Vec<(String, Option<usize>)>)> = property_projection
+            .groups()
+            .into_iter()
+            .map(|group| {
+                (
+                    group.key,
+                    group
+                        .rows
+                        .into_iter()
+                        .map(|index| (property_projection.rows[index].value.clone(), Some(index)))
+                        .collect(),
+                )
+            })
             .collect();
         if let Some(body) = &self.current_note {
             if let Some(created) = body.note.additional.get("created").and_then(|v| v.as_str()) {
-                metadata.push(("CREATED".into(), created.into(), None));
+                metadata.push(("CREATED".into(), vec![(created.into(), None)]));
             }
             if let Some(updated) = body
                 .note
@@ -5059,7 +5067,7 @@ impl Render for Workspace {
                 .and_then(|v| v.as_i64())
                 .and_then(display_date)
             {
-                metadata.push(("UPDATED".into(), updated, None));
+                metadata.push(("UPDATED".into(), vec![(updated, None)]));
             }
         }
         let trail_result = reader_relations::entries(self.current_related.get("trail"));
@@ -5140,27 +5148,48 @@ impl Render for Workspace {
                         )
                     })
                     .when(!metadata.is_empty(), |reader| {
-                        reader.child(div().flex().flex_wrap().gap(px(28.)).mb(px(36.)).children(
-                            metadata.into_iter().enumerate().map(
-                                |(index, (key, value, property_index))| {
-                                    let verified = property_index
-                                        .and_then(|i| property_projection.rows.get(i))
-                                        .zip(property_source.as_ref())
-                                        .is_some_and(|(row, source)| {
-                                            self.footnote_reader_available(cx)
-                                                && self.property_link_verified(row, source)
-                                        });
-                                    let captured = property_projection.clone();
-                                    let source = property_source.clone();
-                                    let value = div()
-                                        .id(("typed-property", index))
-                                        .min_w_0()
-                                        .max_w_full()
-                                        .text_size(px(13.))
-                                        .text_color(rgb(if verified { p.mark } else { p.muted }))
-                                        .child(metadata_text(&value))
-                                        .when(verified, |value| {
-                                            value.cursor_pointer().on_click(cx.listener(
+                        reader.child(
+                            div().flex().flex_col().gap_2().mb(px(36.)).children(
+                                metadata
+                                    .into_iter()
+                                    .enumerate()
+                                    .map(|(index, (key, values))| {
+                                        let values = div()
+                                            .min_w_0()
+                                            .flex_1()
+                                            .flex()
+                                            .flex_wrap()
+                                            .gap_3()
+                                            .children(values.into_iter().enumerate().map(
+                                                |(value_index, (value, property_index))| {
+                                                    let verified = property_index
+                                                        .and_then(|i| {
+                                                            property_projection.rows.get(i)
+                                                        })
+                                                        .zip(property_source.as_ref())
+                                                        .is_some_and(|(row, source)| {
+                                                            self.footnote_reader_available(cx)
+                                                                && self.property_link_verified(
+                                                                    row, source,
+                                                                )
+                                                        });
+                                                    let captured = property_projection.clone();
+                                                    let source = property_source.clone();
+                                                    let value = div()
+                                                    .id(gpui::SharedString::from(format!(
+                                                        "typed-property-{index}-{value_index}"
+                                                    )))
+                                                    .min_w_0()
+                                                    .max_w_full()
+                                                    .text_size(px(13.))
+                                                    .text_color(rgb(if verified {
+                                                        p.mark
+                                                    } else {
+                                                        p.muted
+                                                    }))
+                                                    .child(metadata_text(&value))
+                                                    .when(verified, |value| {
+                                                        value.cursor_pointer().on_click(cx.listener(
                                                 move |this, _, _, cx| {
                                                     let Some(row) = property_index
                                                         .and_then(|i| captured.rows.get(i))
@@ -5181,21 +5210,28 @@ impl Render for Workspace {
                                                     }
                                                 },
                                             ))
-                                        });
-                                    div()
-                                        .min_w_0()
-                                        .max_w_full()
-                                        .child(
-                                            div()
-                                                .font_family("monospace")
-                                                .text_size(px(11.))
-                                                .text_color(rgb(p.muted))
-                                                .child(metadata_text(&key)),
-                                        )
-                                        .child(value)
-                                },
+                                                    });
+                                                    value
+                                                },
+                                            ));
+                                        div()
+                                            .min_w_0()
+                                            .max_w_full()
+                                            .flex()
+                                            .gap_3()
+                                            .child(
+                                                div()
+                                                    .min_w_0()
+                                                    .max_w(px(160.))
+                                                    .font_family("monospace")
+                                                    .text_size(px(11.))
+                                                    .text_color(rgb(p.muted))
+                                                    .child(metadata_text(&key)),
+                                            )
+                                            .child(values)
+                                    }),
                             ),
-                        ))
+                        )
                     })
                     .when(
                         self.current_note.is_some() && property_projection.unavailable,
