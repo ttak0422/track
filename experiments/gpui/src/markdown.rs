@@ -159,6 +159,7 @@ pub fn with_resolved_titles(
 /// Shell supplies verified internal or explicit HTTP(S) links. Others stay inert.
 #[derive(Clone)]
 pub struct LinkCallbacks {
+    pub arrival_block: Option<usize>,
     pub enlarge: Option<Rc<dyn Fn(usize, &mut Window, &mut App)>>,
     pub plain_click: Option<Rc<dyn Fn(usize, &gpui::ClickEvent, &mut Window, &mut App)>>,
     pub resolved: Rc<dyn Fn(&LinkTarget) -> bool>,
@@ -1837,7 +1838,13 @@ fn render_elements(
                 .line_height(px(BODY_LINE_HEIGHT))
                 .font_family(".SystemUIFont")
                 .text_color(rgb(theme.ink))
-                .pl(px((block.indent * 16) as f32));
+                .pl(px((block.indent * 16) as f32))
+                // Paint only: never change row size, text ranges or Find spans.
+                .when(
+                    callbacks.is_some_and(|callbacks| callbacks.arrival_block == Some(index))
+                        && block.block_id.is_some(),
+                    |row| row.bg(gpui::rgba(if dark { 0xe2b84b33 } else { 0xe2b84b44 })),
+                );
             if block.quoted {
                 row = row
                     .border_l_2()
@@ -3228,6 +3235,7 @@ mod tests {
         assert!(pending.iter().filter(|span| span.style.unresolved).count() >= 2);
         assert!(pending.iter().all(|span| !span.style.link));
         let callbacks = LinkCallbacks {
+            arrival_block: None,
             enlarge: None,
             plain_click: None,
             resolved: Rc::new(|_| true),
@@ -3932,6 +3940,7 @@ mod footnote_navigation_tests {
         let cell = &parsed[0].table.as_ref().unwrap().rows[1][0];
         assert!(footnote_link_valid(&parsed, &cell.links[0]));
         let callbacks = LinkCallbacks {
+            arrival_block: None,
             enlarge: None,
             plain_click: None,
             resolved: Rc::new(|t| matches!(t, LinkTarget::Footnote { .. })),

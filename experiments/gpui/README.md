@@ -991,6 +991,8 @@ The accepted live reader offers Copy title beside its wrapped title. It submits 
 
 Accepted live paragraph/list prose supports a terminal whitespace-delimited `^ID` (ASCII letter/digit first, then letters/digits/hyphen/underscore). The marker is hidden and `[[Title#^ID]]` or verified metadata links reveal the first exact, case-sensitive match. Missing targets report no jump. Bare markers, quotes, nonterminal/invalid markers, code, tables and other unsupported shapes retain their source. Snapshot and inert preview parsing are unchanged; no transclusion or writes.
 
-This subset reveals at the reader top within available scroll extent. Arrival
-highlighting and centered placement remain unavailable. Markers whose removal
+This subset reveals at the reader top within available scroll extent. A successful
+block jump briefly paints the destination background (about 1.5 seconds), separate
+from Find; source changes, newer jumps and competing owners clear the cue.
+Arrival-cue native validation is pending. Centered placement remains unavailable. Markers whose removal
 would truncate protected link/code text remain literal and are not anchors.

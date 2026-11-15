@@ -1370,3 +1370,23 @@ IME scenarios remain unverified natively. Arrival highlighting and centered
 placement are not implemented; current targets reveal at the reader top, clamped
 to available scroll extent. This is a bounded subset, not full block-link parity.
 Ordinary vault editing remains disabled.
+
+## Block arrival cue: native validation pending
+
+After successful same/cross-note block reveal, verify the destination has a subtle
+background for about 1.5 seconds and that repeated jumps renew it. Failed/missing
+jumps must not start a cue; navigation, a newer jump, Find/search/modal or source
+change must clear it without later revival. Check that cue appearance/expiry does
+not move content, change Find/style/link ranges or create a history entry. Three
+model tests added; cloud diff-check passed, Rust/build/native checks not run here.
+
+Native macOS cue smoke on 2026-11-15 verified a cross-note paragraph arrival in
+dark mode and a tight-list arrival in light mode. The correct destination row
+received the background cue, which expired without changing text layout or reader
+position. Back returned to the source. Native Quit exited; both owned ports closed
+and all 10 canonical fixture hashes stayed unchanged. The final Rust suite passed
+700 tests with 7 ignored; formatting and native build passed. Independent review
+found no P1/P2 issue. Rapid/repeated cue replacement, modal/IME interruption,
+keyboard and accessibility remain unverified natively; source/timer invalidation
+has model coverage. Centered placement is still unavailable. Ordinary vault writes
+remain disabled.

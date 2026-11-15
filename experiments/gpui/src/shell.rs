@@ -471,6 +471,7 @@ pub struct ShellState {
     reader_keys: Option<ReaderKeyOwner>,
     reader_scroll_epoch: u64,
     code_copy: code_copy::State,
+    block_arrival: block_arrival::State,
     title_copy: title_copy::State,
     pub(crate) accepted_title_request: Option<u64>,
     code_anchors: Option<std::rc::Rc<markdown::FindAnchors>>,
@@ -586,6 +587,7 @@ impl Default for ShellState {
             reader_keys: None,
             reader_scroll_epoch: 0,
             code_copy: Default::default(),
+            block_arrival: Default::default(),
             title_copy: Default::default(),
             accepted_title_request: None,
             code_anchors: None,
@@ -1459,7 +1461,7 @@ fn cycle_index(index: usize, len: usize, backwards: bool) -> usize {
     }
 }
 impl Workspace {
-    fn copy_title_source(&self, cx: &App) -> Option<title_copy::Source> {
+    fn accepted_reader_document(&self, cx: &App) -> Option<code_copy::Document> {
         if self.shell.accepted_title_request != Some(self.request)
             || !self.footnote_reader_available(cx)
             || self.tag_routing_blocked(cx)
@@ -1491,7 +1493,13 @@ impl Workspace {
         {
             return None;
         }
-        title_copy::Source::new(self.copy_document()?, &note.note.title)
+        self.copy_document()
+    }
+    fn copy_title_source(&self, cx: &App) -> Option<title_copy::Source> {
+        title_copy::Source::new(
+            self.accepted_reader_document(cx)?,
+            &self.current_note.as_ref()?.note.title,
+        )
     }
     fn copy_title(&mut self, epoch: u64, window: &Window, cx: &mut Context<Self>) {
         if !window.is_window_active() {
@@ -1513,6 +1521,44 @@ impl Workspace {
                 let source = this.copy_title_source(cx);
                 this.shell.title_copy.sync(source);
                 if this.shell.title_copy.expire(epoch, serial) {
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+    fn block_arrival_source(&self, index: usize, cx: &App) -> Option<block_arrival::Source> {
+        // Reuse accepted-reader identity admission, including pending reads, full
+        // source/tab/storage readiness and competing input/recovery/modal owners.
+        let document = self.accepted_reader_document(cx)?;
+        let id = self.content.get(index)?.block_id.clone()?;
+        Some(block_arrival::Source {
+            document,
+            index,
+            id,
+        })
+    }
+    fn sync_block_arrival(&mut self, cx: &App) {
+        let current = self
+            .shell
+            .block_arrival
+            .active
+            .as_ref()
+            .and_then(|ticket| self.block_arrival_source(ticket.source.index, cx));
+        self.shell.block_arrival.retain(current.as_ref());
+    }
+    fn show_block_arrival(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(source) = self.block_arrival_source(index, cx) else {
+            return;
+        };
+        let ticket = self.shell.block_arrival.show(source);
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(1500))
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.sync_block_arrival(cx);
+                if this.shell.block_arrival.expire(&ticket) {
                     cx.notify();
                 }
             });
@@ -2021,6 +2067,7 @@ impl Workspace {
         }
         self.shell.navigation_notice = None;
         self.shell.pending_fragment = None;
+        self.shell.block_arrival.clear();
         self.open_live_key(intent.destination.clone(), cx);
         if has_authored_fragment(&intent.target) {
             self.shell.pending_fragment = Some(PendingFragment {
@@ -2212,6 +2259,8 @@ impl Workspace {
                     });
                     if !applied {
                         this.shell.navigation_notice = Some("Block layout was unavailable or changed; no fragment jump was applied.".into());
+                    } else {
+                        this.show_block_arrival(index, cx);
                     }
                 } else if let Some(anchor) = anchor {
                     if !anchors.scroll_to(&anchor, window, cx) {
@@ -2718,6 +2767,7 @@ impl Render for Workspace {
         let title_source = self.copy_title_source(cx);
         self.shell.title_copy.sync(title_source);
         self.sync_creation_journal(cx);
+        self.sync_block_arrival(cx);
         if self.shell.reader_keys.as_ref().is_some_and(|owner| {
             !self.reader_key_owner_current(owner, window, cx)
                 || self
@@ -2773,6 +2823,12 @@ impl Render for Workspace {
         let plain_displayed = external_displayed.clone();
         let plain_weak = cx.entity().downgrade();
         let link_callbacks = markdown::LinkCallbacks {
+            arrival_block: self
+                .shell
+                .block_arrival
+                .active
+                .as_ref()
+                .map(|ticket| ticket.source.index),
             enlarge: self.enlarge_callback(cx),
             plain_click: Some(std::rc::Rc::new(move |index, event, window, cx| {
                 if let Some(source) = &plain_source {

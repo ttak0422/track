@@ -498,6 +498,15 @@ Explicit exact-title clipboard submission is source/tab/revision/launch/vault qu
 Current accepted reader paragraph/list markers and internal block-fragment links are implemented through existing resolver/navigation with separate heading/footnote namespaces. Duplicate IDs select the first occurrence; missing/invalid IDs never use a heading/top fallback. Source/tab/reader/interaction/viewport guards reject stale deferred jumps. Six model tests added; Rust/build/native validation pending. No standalone-marker attachment, transclusion, preview/snapshot pipeline change or vault writes.
 
 Block-link model/native evidence is recorded in NATIVE-QA.md (697 Rust tests;
-paragraph/tight-list/duplicate/missing/same-note pointer smoke). Arrival highlight,
-centered placement, block transclusion and the remaining native scenarios are not
-implemented or validated by this increment. Normal vault writes stay disabled.
+paragraph/tight-list/duplicate/missing/same-note pointer smoke). Centered placement,
+block transclusion and the remaining native scenarios are not implemented or
+validated by that increment. Normal vault writes stay disabled.
+
+Arrival-cue follow-up: successful guarded block application now paints a transient,
+source-qualified background without changing geometry, text ranges or Find.
+Three model tests cover invalidation and old/new timers. Cloud diff-check passed;
+Rust/build/native appearance and timeout validation remain pending.
+
+Arrival-cue native pointer smoke passed for dark paragraph and light list rows,
+including expiry without layout/position change. See NATIVE-QA.md for limits and
+700-test evidence; this does not establish full keyboard/IME/block parity.

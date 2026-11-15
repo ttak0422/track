@@ -5,6 +5,7 @@ use gpui::{
 };
 mod about;
 mod backend;
+mod block_arrival;
 mod build_info;
 mod code_copy;
 mod code_highlight;
