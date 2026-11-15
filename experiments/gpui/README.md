@@ -1011,3 +1011,8 @@ Copy MD beside the reader title submits portable Markdown from the exact accepte
 
 ### Reader link previews (bounded candidate)
 Verified internal body links can show one inert note preview after a 260 ms hover rest; leaving has a 220 ms grace period and entering the card holds it. Close dismisses it. Clicking the original link still uses normal guarded navigation, including fragments. External/unresolved links, local heading jumps, metadata, snapshots and included-note projections do not preview. Existing pinned graph cards suppress reader hover rather than being replaced. No focus, reader position, history, clipboard or vault changes are made by hovering. Graph and reader previews share two HTTP worker slots and bounded content; busy, failed and partial reads remain explicit. Cloud model checks are added; native hover/IME behavior is not yet verified.
+
+### Native Reload
+View → Reload (`Cmd-R`) reuses the rail's guarded reload for the active ready live reader or Home. It is unavailable in other routes, inputs, previews, competing owners or while the current list/body read is pending. A retained previously accepted reader can retry a recoverable read failure without adding a history visit. Snapshot/startup, Tag and Graph menu reload are outside this bounded slice; no automatic refresh or vault writes are added.
+
+Native Reload validation: 730 Rust tests passed (7 ignored), formatting/native build passed. Disposable note/Home/history/search-menu smoke is recorded in NATIVE-QA.md; pending/failure/IME native cases remain unverified. Home requires a recorded Home reload route or safe-session Home; route-less initial Home without session opt-in remains disabled to avoid the existing first-note fallback.

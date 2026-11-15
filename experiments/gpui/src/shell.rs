@@ -13,6 +13,30 @@ fn native_find_enabled(
     active_workspace && accepted && !blocked && allowed_focus && (!step || has_query)
 }
 
+fn native_reload_enabled(
+    active_workspace: bool,
+    ready_route: bool,
+    blocked: bool,
+    pending: bool,
+    allowed_focus: bool,
+) -> bool {
+    active_workspace && ready_route && !blocked && !pending && allowed_focus
+}
+fn native_reload_home(home: bool, route: Option<&tabs::TabKey>, safe_home: bool) -> bool {
+    home && (matches!(route, Some(tabs::TabKey::Home)) || (route.is_none() && safe_home))
+}
+fn reload_reader_identity(
+    identity: Option<&ReaderContentIdentity>,
+    launch: u64,
+    storage: Option<u64>,
+) -> bool {
+    identity
+        .and_then(|identity| identity.live.as_ref())
+        .is_some_and(|(accepted_launch, accepted_storage, _)| {
+            *accepted_launch == launch && storage.is_some() && *accepted_storage == storage
+        })
+}
+
 fn native_history_dispatch_allowed(active: bool, workspace_window: bool, available: bool) -> bool {
     active && workspace_window && available
 }
@@ -2768,6 +2792,79 @@ impl Workspace {
     pub(crate) fn reader_fragment_pending(&self) -> bool {
         self.shell.pending_fragment.is_some()
     }
+    fn native_reload_available(&self, window: &Window, cx: &App) -> bool {
+        let ready = self
+            .live
+            .as_ref()
+            .filter(|session| session.failure().is_none())
+            .and_then(|session| {
+                let storage = session.initial_storage.as_ref()?;
+                (storage.phase == "ready"
+                    && Some(storage.generation) == self.accepted_storage_generation)
+                    .then_some(session.client().launch_generation)
+            });
+        let reload_route = self.history.reload_route(&self.tabs);
+        let home = native_reload_home(
+            self.shell.home,
+            reload_route.as_ref(),
+            self.session_ui.safe_home,
+        );
+        let ready_route = ready.is_some_and(|launch| {
+            home || self.tabs.active().is_some_and(|tab| match &tab.key {
+                tabs::TabKey::Note { vault, .. } => {
+                    !self.shell.home
+                        && self.session_ui.permits(vault)
+                        && reload_reader_identity(
+                            self.shell.reader_content.get(&tab.key),
+                            launch,
+                            self.accepted_storage_generation,
+                        )
+                }
+                _ => false,
+            })
+        });
+        let blocked = self.tag_page.is_some()
+            || self.full_graph_active()
+            || self.native_history_owner_blocked(cx)
+            || !self.editing_ui.plain_reader_mode()
+            || !self.editing_ui.follow_safe()
+            || self.creation_open()
+            || self.shell.find.open
+            || self.reader_hover_active()
+            || self.shell.pending_fragment.is_some()
+            || self.search.read(cx).is_composing()
+            || self.shell.calendar_zone.is_composing(cx)
+            || (self.session_ui.recovery_enabled()
+                && (!self.session_ui.recovery_ready()
+                    || self.session_ui.recovery_record().is_some()
+                    || self.session_ui.recovery_status()
+                        != workspace_session::RecoveryStatus::Ready(
+                            draft_recovery::LocalStatus::Empty,
+                        )));
+        let focus = window.focused(cx).is_none()
+            || self
+                .shell
+                .workspace_focus
+                .as_ref()
+                .is_some_and(|focus| focus.is_focused(window))
+            || self
+                .shell
+                .reader_focus
+                .as_ref()
+                .is_some_and(|focus| focus.is_focused(window));
+        native_reload_enabled(
+            window.is_window_active() && cx.active_window().and_then(shortcut_workspace).is_some(),
+            ready_route,
+            blocked,
+            self.live_reader_pending == Some(self.request),
+            focus,
+        )
+    }
+    fn native_reload(&mut self, window: &Window, cx: &mut Context<Self>) {
+        if self.native_reload_available(window, cx) {
+            self.load_notes(cx);
+        }
+    }
     pub(crate) fn native_find_available(&self, step: bool, window: &Window, cx: &App) -> bool {
         let accepted = self.shell.accepted_title_request == Some(self.request)
             && self.current_link_source().is_some_and(|source| {
@@ -4498,6 +4595,12 @@ impl Render for Workspace {
         div()
             .id("workspace-shell")
             .track_focus(&workspace_focus)
+            .when(self.native_reload_available(window, cx), |root| {
+                root.on_action(cx.listener(|this, _: &NativeReload, window, cx| {
+                    this.native_reload(window, cx);
+                    cx.stop_propagation();
+                }))
+            })
             .when(self.native_find_available(false, window, cx), |root| {
                 root.on_action(cx.listener(|this, _: &NativeFind, window, cx| {
                     if this.native_find_available(false, window, cx) {
@@ -6327,5 +6430,59 @@ mod reader_hover_tests {
         let mut changed = o.geometry.clone();
         changed.viewport.width = px(680.);
         assert_ne!(changed, o.geometry);
+    }
+}
+
+#[cfg(test)]
+mod native_reload_tests {
+    use super::*;
+    #[test]
+    fn home_reload_uses_existing_route_even_without_active_tab() {
+        assert!(native_reload_home(true, Some(&tabs::TabKey::Home), false));
+        assert!(native_reload_home(true, None, true));
+        assert!(!native_reload_home(true, None, false));
+        assert!(!native_reload_home(false, Some(&tabs::TabKey::Home), true));
+        assert!(!native_reload_home(true, Some(&tabs::TabKey::Graph), true));
+        assert!(!native_reload_home(
+            true,
+            Some(&tabs::TabKey::Note {
+                vault: String::new(),
+                note_id: 7
+            }),
+            true
+        ));
+    }
+    #[test]
+    fn reload_requires_active_ready_idle_reader_owner_and_eligible_focus() {
+        assert!(native_reload_enabled(true, true, false, false, true));
+        for (active, ready, blocked, pending, focus) in [
+            (false, true, false, false, true),
+            (true, false, false, false, true),
+            (true, true, true, false, true),
+            (true, true, false, true, true),
+            (true, true, false, false, false),
+        ] {
+            assert!(!native_reload_enabled(
+                active, ready, blocked, pending, focus
+            ));
+        }
+    }
+    #[test]
+    fn retained_accepted_reader_can_retry_only_same_live_storage_identity() {
+        let identity = ReaderContentIdentity::new(
+            "prior accepted body",
+            Some((7, Some(8), "old revision".into())),
+        );
+        // Previous read failure/partial status is not itself an admission input.
+        assert!(reload_reader_identity(Some(&identity), 7, Some(8)));
+        assert!(!reload_reader_identity(Some(&identity), 9, Some(8)));
+        assert!(!reload_reader_identity(Some(&identity), 7, Some(9)));
+        assert!(!reload_reader_identity(Some(&identity), 7, None));
+        assert!(!reload_reader_identity(None, 7, Some(8)));
+        assert!(!reload_reader_identity(
+            Some(&ReaderContentIdentity::new("snapshot", None)),
+            7,
+            Some(8)
+        ));
     }
 }

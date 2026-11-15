@@ -265,6 +265,9 @@ impl Workspace {
     }
 
     pub fn load_live_notes(&mut self, cx: &mut Context<Self>) {
+        if self.live_reader_pending == Some(self.request) {
+            return;
+        }
         if let Some(page) = &self.tag_page {
             self.open_tag_page(page.tag.clone(), page.scope.clone(), cx);
             return;
@@ -278,6 +281,7 @@ impl Workspace {
         let reload_route = self.history.reload_route(&self.tabs);
         self.request += 1;
         let request = self.request;
+        self.live_reader_pending = Some(request);
         self.status = "Reading server notes…".into();
         let expected_epoch = self.accepted_storage_generation;
         let job = cx.background_executor().spawn(async move {
@@ -293,6 +297,9 @@ impl Workspace {
         cx.spawn(async move |this, cx| {
             let (result, storage, failure) = job.await;
             let _ = this.update(cx, |this, cx| {
+                if finish_reader_read(&mut this.live_reader_pending, request) {
+                    cx.notify();
+                }
                 if this.request != request {
                     return;
                 }
@@ -576,6 +583,7 @@ impl Workspace {
         self.graph_request += 1;
         cx.notify(); // Publish the accepted destination before its asynchronous read.
         let request = self.request;
+        self.live_reader_pending = Some(request);
         let destination = key.clone();
         let expected_epoch = self.accepted_storage_generation;
         let job = cx.background_executor().spawn(async move {
@@ -591,6 +599,9 @@ impl Workspace {
         cx.spawn(async move |this, cx| {
             let (result, storage) = job.await;
             let _ = this.update(cx, |this, cx| {
+                if finish_reader_read(&mut this.live_reader_pending, request) {
+                    cx.notify();
+                }
                 if !note_read_is_current(request, this.request, &destination, &this.tabs) {
                     return;
                 }
@@ -665,6 +676,7 @@ impl Workspace {
         let key = note.key();
         let accepted_request = key.clone();
         let request = self.request;
+        self.live_reader_pending = Some(request);
         self.status = "Reading raw body (read-only)…".into();
         let expected_epoch = self.accepted_storage_generation;
         let job = cx.background_executor().spawn(async move {
@@ -680,6 +692,9 @@ impl Workspace {
         cx.spawn(async move |this, cx| {
             let (result, storage, failure) = job.await;
             let _ = this.update(cx, |this, cx| {
+                if finish_reader_read(&mut this.live_reader_pending, request) {
+                    cx.notify();
+                }
                 if this.request != request {
                     return;
                 }
@@ -1051,5 +1066,27 @@ mod history_read_tests {
         tabs.open_note("one", 7, "Resolved");
         history.record(tabs.active().map(|t| t.key.clone()));
         assert_eq!(history, before);
+    }
+}
+
+/// Completion only releases its own admission token, never a newer read.
+fn finish_reader_read(pending: &mut Option<u64>, completed: u64) -> bool {
+    if *pending != Some(completed) {
+        return false;
+    }
+    *pending = None;
+    true
+}
+#[cfg(test)]
+mod reload_pending_tests {
+    use super::*;
+    #[test]
+    fn stale_completion_cannot_release_newer_reader_request() {
+        let mut pending = Some(12);
+        assert!(!finish_reader_read(&mut pending, 11));
+        assert_eq!(pending, Some(12));
+        assert!(finish_reader_read(&mut pending, 12));
+        assert_eq!(pending, None);
+        assert!(!finish_reader_read(&mut pending, 12));
     }
 }

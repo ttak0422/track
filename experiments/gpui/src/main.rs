@@ -78,7 +78,8 @@ actions!(
         HistoryForward,
         NativeFind,
         NativeFindNext,
-        NativeFindPrevious
+        NativeFindPrevious,
+        NativeReload
     ]
 );
 
@@ -89,6 +90,7 @@ fn workspace_key_bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-w", CloseTab, None),
         KeyBinding::new("cmd-[", HistoryBack, None),
         KeyBinding::new("cmd-]", HistoryForward, None),
+        KeyBinding::new("cmd-r", NativeReload, None),
         KeyBinding::new("cmd-f", NativeFind, None),
         KeyBinding::new("cmd-g", NativeFindNext, None),
         KeyBinding::new("cmd-shift-g", NativeFindPrevious, None),
@@ -157,6 +159,7 @@ struct Workspace {
     status: String,
     list_status: String,
     request: u64,
+    live_reader_pending: Option<u64>,
     graph_request: u64,
     graph_view: gpui::Entity<graph_view::GraphView>,
     show_graph: bool,
@@ -688,6 +691,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 items: vec![
                     MenuItem::action("Back", HistoryBack),
                     MenuItem::action("Forward", HistoryForward),
+                    MenuItem::action("Reload", NativeReload),
                 ],
             },
             Menu {
@@ -760,6 +764,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         status: String::new(),
                         list_status: String::new(),
                         request: 0,
+                        live_reader_pending: None,
                         graph_request: 0,
                         graph_view: cx.new(|_| {
                             graph_view::GraphView::new(if backend_is_fixture {
@@ -942,5 +947,27 @@ mod tests {
         let s = fixture(10_000);
         assert_eq!(s.notes.len(), 10_000);
         assert_eq!(s.notes[9999].note_id, 9999);
+    }
+}
+
+#[cfg(test)]
+mod native_reload_binding_tests {
+    use super::*;
+    #[test]
+    fn command_r_has_exactly_one_native_workspace_action() {
+        let keymap = gpui::Keymap::new(workspace_key_bindings());
+        for context in ["", "TrackSourceEditor", "TrackSearch composing"] {
+            let contexts = [gpui::KeyContext::parse(context).unwrap()];
+            let (matches, pending) =
+                keymap.bindings_for_input(&[gpui::Keystroke::parse("cmd-r").unwrap()], &contexts);
+            assert!(!pending);
+            assert_eq!(matches.len(), 1);
+            assert!(matches[0].action().partial_eq(&NativeReload));
+            for key in ["r", "ctrl-r", "cmd-shift-r"] {
+                let (matches, _) =
+                    keymap.bindings_for_input(&[gpui::Keystroke::parse(key).unwrap()], &contexts);
+                assert!(matches.is_empty());
+            }
+        }
     }
 }
