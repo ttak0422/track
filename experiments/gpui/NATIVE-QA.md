@@ -833,3 +833,26 @@ modified build was based on `35bb72d`; the tested change is limited to startup
 registry refresh. The live-gap notice remained visible. Final Cmd-Q removed
 the owned listener. Native clipboard, dirty quit, IME and ordinary-vault edit
 acceptance remain pending.
+
+## Launch-vault recovery and dirty quit, 2026-11-15
+
+Clean `ca0700b` admitted the disposable session, but rejected Edit because the
+engine intentionally returns an empty wire vault label for its launch vault.
+The corrected build preserves that label and admits it only for an empty request
+scope in the verified, identity-bound fixture registry. Named scopes are never
+inferred from missing labels. Ordinary vault editing remains disabled.
+
+On the corrected fixture build, Edit opened the existing Japanese-code note.
+Typing an ASCII draft suffix showed the unsaved marker and `Saved locally · not
+saved to the note`. Cmd-Q displayed Save/Discard/Cancel; Cancel kept both app and
+draft open. A second Cmd-Q followed by explicit Save and continue saved the suffix
+through the engine and exited. The fixture file contained the suffix afterward,
+and the owned server port was closed. This verifies one Cancel and successful
+Save quit path, not Discard, failed-save quit, crash restoration, or IME marked
+text. Japanese text already present in the source rendered correctly but is not
+an IME-composition test.
+
+Home activation after tab restoration is the existing intentional safe-start
+policy, covered by session tests; it is not an active-tab restoration defect.
+Clipboard testing remains pending: the initial include fixture used an unresolved
+ID reference, so no Copy interaction was accepted as evidence.

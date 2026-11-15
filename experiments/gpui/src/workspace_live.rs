@@ -759,7 +759,7 @@ fn startup_readiness_pending(phase: Option<&str>, within_deadline: bool, stoppin
 
 /// A bootstrap registry is never promoted by a separate storage-ready response.
 /// Failure leaves no stale launch alias available to later scope normalization.
-fn startup_registry(
+pub(crate) fn startup_registry(
     phase: Option<&str>,
     initial: &mut serde_json::Value,
     stopping: impl Fn() -> bool,

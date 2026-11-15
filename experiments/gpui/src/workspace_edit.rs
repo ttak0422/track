@@ -118,6 +118,19 @@ fn comparison_context_matches(
 ) -> bool {
     !failed && current_launch == Some(expected_launch) && current_storage == Some(expected_storage)
 }
+/// The launch vault has an intentionally empty wire label. Accept that label only
+/// for an empty-scope request, never as an alias for a named/federated source.
+fn recovery_source_identity(note: &live::Note, requested: Option<&live::NoteKey>) -> bool {
+    requested.is_some_and(|requested| {
+        requested.note_id == note.note_id
+            && (if note.vault.is_empty() {
+                requested.vault.is_empty()
+            } else {
+                requested.vault.is_empty() || requested.vault == note.vault
+            })
+    })
+}
+
 struct ActiveDraft {
     session: EditSession,
     input: Entity<editor_input::TextEditor>,
@@ -417,10 +430,11 @@ impl Workspace {
             .ok_or("Read a note before editing.")?;
         if self.session_ui.recovery_enabled()
             && (note.note.file_kind != "note"
-                || note.note.vault.is_empty()
+                || !recovery_source_identity(&note.note, self.current_note_request.as_ref())
+                || !self.session_ui.permits(&note.note.vault)
                 || note.body.len() > draft_recovery::BODY_LIMIT)
         {
-            return Err("Fixture recovery requires a canonical existing note and source within the 2 MiB draft limit.".into());
+            return Err("Fixture recovery requires a verified existing note identity and source within the 2 MiB draft limit.".into());
         }
         if !fixture_note(
             self.editing_ui.fixture_root.as_ref().unwrap(),
@@ -1153,6 +1167,50 @@ impl Workspace {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn recovery_launch_wire_identity_stays_empty_for_save() {
+        let source: live::NoteResponse = serde_json::from_value(serde_json::json!({
+            "note":{"note_id":2,"vault":"","title":"Fixture","path":"/fixture/note/2.md",
+                "file_kind":"note","body":"before","etag":"rev","read_only":false}
+        }))
+        .unwrap();
+        let key = live::NoteKey {
+            vault: String::new(),
+            note_id: 2,
+        };
+        assert!(recovery_source_identity(&source.note.note, Some(&key)));
+        assert!(!recovery_source_identity(&source.note.note, None));
+        assert!(!recovery_source_identity(
+            &source.note.note,
+            Some(&live::NoteKey {
+                vault: "peer".into(),
+                note_id: 2
+            })
+        ));
+        assert!(!recovery_source_identity(
+            &source.note.note,
+            Some(&live::NoteKey {
+                vault: String::new(),
+                note_id: 3
+            })
+        ));
+        let storage: live::Storage = serde_json::from_value(serde_json::json!({
+            "phase":"ready","read_only":false,"verified":1,"generation":2
+        }))
+        .unwrap();
+        let save = live::SaveRequest::from_source(1, &storage, &source, "after".into()).unwrap();
+        assert_eq!(save.key, key); // Matches the engine's blank launch-vault acknowledgement.
+        let mut named = source.note.note.clone();
+        named.vault = "peer".into();
+        assert!(!recovery_source_identity(
+            &named,
+            Some(&live::NoteKey {
+                vault: "different".into(),
+                note_id: 2
+            })
+        ));
+    }
+
     #[test]
     fn developer_editing_is_disabled_without_opt_in() {
         assert!(!EditingUi::new(None).enabled());

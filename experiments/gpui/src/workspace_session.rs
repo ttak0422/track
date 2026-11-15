@@ -758,6 +758,43 @@ mod tests {
         assert!(ui.take_restored_history(true).is_none());
     }
     #[test]
+    fn ready_startup_registry_keeps_session_and_recovery_available() {
+        let fixture = Fixture::new();
+        let mut ui = fixture.ui();
+        ui.enable_recovery();
+        let mut initial = serde_json::json!({
+            "active": {"name": "work", "path": "/fixture"},
+            "vaults": [{"name": "work", "path": "/fixture", "active": true}],
+            "unavailable": [{"error": "initializing"}], "storage_state": "initializing"
+        });
+        let ready = serde_json::json!({
+            "active": {"name": "work", "path": "/fixture"},
+            "vaults": [{"name": "work", "path": "/fixture", "active": true}],
+            "unavailable": []
+        });
+        let registry = crate::workspace_live::startup_registry(
+            Some("ready"),
+            &mut initial,
+            || false,
+            || Ok(ready),
+        );
+        let tabs = ui.restore(registry).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !ui.recovery_ready() {
+            assert!(std::time::Instant::now() < deadline);
+            assert!(!matches!(ui.recovery_status(), RecoveryStatus::Failed));
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        ui.registry_changed(crate::shell::session_registry(&initial).unwrap());
+        ui.sync(&tabs, &navigation::History::default());
+        ui.flush();
+        assert!(ui.session_available());
+        assert!(ui.recovery_ready());
+        assert!(ui.warning.is_none());
+        drop(ui);
+    }
+
+    #[test]
     fn startup_reads_without_writing_and_selects_safe_home() {
         let fixture = Fixture::new();
         let mut ui = fixture.ui();

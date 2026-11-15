@@ -25,7 +25,12 @@ pub struct Record {
 }
 impl Record {
     pub fn validate(&self, binding: &str, registry: &[String]) -> Result<(), String> {
-        let metadata = [&self.binding, &self.vault, &self.kind, &self.base_etag];
+        let metadata = [&self.binding, &self.kind, &self.base_etag];
+        // Empty is the engine's launch-vault wire label, not a missing identity.
+        // It is valid only for the verified empty launch scope under this exact
+        // fixture binding. A named request must never be reinterpreted as launch.
+        let launch_label_valid = !self.vault.is_empty()
+            || (self.scope.is_empty() && registry.iter().any(String::is_empty));
         if self.schema != 1
             || self.binding != binding
             || binding.is_empty()
@@ -40,6 +45,9 @@ impl Record {
                 .title
                 .as_ref()
                 .is_some_and(|s| s.len() > MAX_METADATA_BYTES || s.contains('\0'))
+            || !launch_label_valid
+            || self.vault.len() > MAX_METADATA_BYTES
+            || self.vault.contains('\0')
             || self.scope.contains('\0')
             || self.scope.len() > MAX_METADATA_BYTES
             || self.body.len() > BODY_LIMIT
@@ -355,6 +363,32 @@ mod tests {
             draft_busy: false,
         }
     }
+    #[test]
+    fn empty_launch_wire_label_is_bound_to_verified_default_scope() {
+        let mut r = record(1);
+        r.scope.clear();
+        r.vault.clear();
+        let bytes = r.encode("fixture", &registry()).unwrap();
+        let decoded = Record::decode(&bytes, "fixture", &registry()).unwrap();
+        let model = RecoveryModel::new("fixture".into(), registry(), Some(decoded)).unwrap();
+        let mut fresh = context();
+        fresh.scope.clear();
+        fresh.vault.clear();
+        assert!(model.offer_recovery(&fresh).is_some());
+        fresh.vault = "peer".into();
+        assert!(model.offer_recovery(&fresh).is_none());
+        fresh.vault.clear();
+        fresh.binding = "another-fixture".into();
+        assert!(model.offer_recovery(&fresh).is_none());
+        assert!(r.validate("another-fixture", &registry()).is_err());
+        assert!(r.validate("fixture", &["alias".into()]).is_err());
+        r.scope = "alias".into();
+        assert!(r.validate("fixture", &registry()).is_err());
+        r.scope.clear();
+        r.vault = "bad\0vault".into();
+        assert!(r.validate("fixture", &registry()).is_err());
+    }
+
     #[test]
     fn bounded_exact_bytes_and_schema() {
         for body in [
