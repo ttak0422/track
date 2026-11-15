@@ -17,6 +17,7 @@ afterEach(() => vi.restoreAllMocks());
 const project: AgentProject = {
   schema_version: 1, project_id: "alpha", title: "Alpha", revision: 2, mode: "serial",
   tasks: [{ id: "task-a", title: "Work", status: "active", owner: "worker", weight: 1, done_minutes: 2, remaining_minutes: 8, mode: "serial" }],
+  task_progress: { "task-a": { fraction: 0.2, total: 1, done: 0, retired: 0, done_minutes: 2, remaining_minutes: 8 } },
   reports: [], discussions: [], controls: [{ id: "control", task_id: "task-a", owner: "worker", action: "pause", status: "requested" }],
   events: [{ sequence: 1, at: "2026-11-15T00:00:00Z", source: "web", event_id: "create", kind: "project.create", payload: { title: "Alpha" } }],
   progress: { fraction: 0.2, total: 1, done: 0, retired: 0, done_minutes: 2, remaining_minutes: 8 },
@@ -106,6 +107,7 @@ describe("AgentTimelineView", () => {
     fireEvent.change(screen.getByLabelText("Project"), { target: { value: "alpha" } });
     await screen.findByRole("heading", { name: "Alpha" });
     fireEvent.click(screen.getByText("Add authored report"));
+    expect(screen.getByText(/20% subtree/)).toHaveTextContent("8 min remaining");
     fireEvent.change(screen.getByLabelText("Report author"), { target: { value: "Reviewer" } });
     fireEvent.change(screen.getByLabelText("Period start (RFC3339)"), { target: { value: "2026-11-15T00:00:00Z" } });
     fireEvent.change(screen.getByLabelText("Period end (RFC3339)"), { target: { value: "2026-11-15T01:00:00Z" } });

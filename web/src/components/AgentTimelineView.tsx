@@ -2,7 +2,7 @@ import { useBlocker } from "@tanstack/react-router";
 import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { APIError } from "../api";
-import { agentKeys, applyAgentRequest, getAgentProject, listAgentProjects, type AgentProject, type AgentRequest, type AgentTask } from "../agentTimeline";
+import { agentKeys, applyAgentRequest, getAgentProject, listAgentProjects, type AgentProject, type AgentProgress, type AgentRequest, type AgentTask } from "../agentTimeline";
 import { split } from "../vaultId";
 import { useVaultScope } from "../vaultScope";
 
@@ -113,7 +113,7 @@ function ProjectWorkspace({ vault, id }: { vault: string; id: string }) {
         </TimelineForm>
       </details>
       <h3>Tasks</h3>
-      <TaskTree tasks={p.tasks} onEdit={task => { if (mayLeave()) { setEditing(task); setEditingRevision(p.revision); } }} />
+      <TaskTree tasks={p.tasks} progress={p.task_progress} onEdit={task => { if (mayLeave()) { setEditing(task); setEditingRevision(p.revision); } }} />
       <details open={editing !== null}><summary>{editing ? `Edit ${editing.title}` : "Add task"}</summary>
         <TimelineForm key={editing ? `${editing.id}:${editingRevision}` : "new"} revision={p.revision} stickyRevision={editing !== null} kind="task.upsert" send={send} label="Save task" build={(d) => ({
           id: text(d, "id"), title: text(d, "title"), detail: text(d, "detail"), parent_id: text(d, "parent_id"),
@@ -150,9 +150,10 @@ function ProjectWorkspace({ vault, id }: { vault: string; id: string }) {
   </section>;
 }
 
-function TaskTree({ tasks, onEdit }: { tasks: AgentTask[]; onEdit: (t: AgentTask) => void }) {
+function TaskTree({ tasks, progress, onEdit }: { tasks: AgentTask[]; progress?: Record<string, AgentProgress>; onEdit: (t: AgentTask) => void }) {
   const children = (parent = ""): ReactNode => <ul>{tasks.filter(t => (t.parent_id ?? "") === parent).map(t => <li key={t.id}>
     <button className="timeline-text-button" type="button" onClick={() => onEdit(t)}>{t.title}</button> · {t.status}{t.owner ? ` · ${t.owner}` : ""}
+    {progress?.[t.id] ? <span className="muted"> · {Math.round(progress[t.id].fraction * 100)}% subtree · {progress[t.id].remaining_minutes} min remaining</span> : null}
     {tasks.some(child => child.parent_id === t.id) ? children(t.id) : null}
   </li>)}</ul>;
   return tasks.length ? <div aria-label="Task tree">{children()}</div> : <p>No tasks yet.</p>;

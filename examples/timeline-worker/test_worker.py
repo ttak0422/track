@@ -2,6 +2,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -24,6 +25,28 @@ class RetryTest(unittest.TestCase):
                 Client("track", "/tmp/example", "demo", "worker").apply({"revision": 1}, "project.update", {"title": "Demo"})
             self.assertEqual(run.call_count, 1)
 
+    def test_uncertain_timeout_does_not_refresh_or_rebase(self):
+        with patch("worker.subprocess.run", side_effect=subprocess.TimeoutExpired("track", 15)) as run:
+            with self.assertRaisesRegex(WorkerError, "uncertain"):
+                Client("track", "/tmp/example", "demo", "worker").apply(
+                    {"revision": 1}, "task.upsert", {"id": "task"})
+            self.assertEqual(run.call_count, 2)
+            self.assertEqual(run.call_args_list[0].kwargs["input"], run.call_args_list[1].kwargs["input"])
+
+    def test_conflict_retry_is_bounded_and_uses_new_identity(self):
+        snapshot = {"revision": 2, "tasks": [], "controls": []}
+        conflict = subprocess.CompletedProcess([], 1, '{"error":"timeline revision conflict"}', '')
+        read = subprocess.CompletedProcess([], 0, json.dumps(snapshot), '')
+        responses = [conflict, read, conflict, read, conflict, read, conflict]
+        with patch("worker.subprocess.run", side_effect=responses) as run:
+            with self.assertRaisesRegex(WorkerError, "retry limit"):
+                Client("track", "/tmp/example", "demo", "worker").apply(
+                    {"revision": 1}, "task.upsert", {"id": "task"})
+            requests = [json.loads(call.kwargs["input"]) for call in run.call_args_list
+                        if call.kwargs["input"]]
+            self.assertEqual(len({request["event_id"] for request in requests}), 4)
+            self.assertEqual([request["expected_revision"] for request in requests], [1, 2, 2, 2])
+
 
 @unittest.skipUnless(os.getenv("TRACK_TEST_BIN"), "Set TRACK_TEST_BIN to a built Track executable")
 class IntegrationTest(unittest.TestCase):
@@ -41,6 +64,30 @@ class IntegrationTest(unittest.TestCase):
         self.client = Client(self.binary, str(self.vault), "demo", "worker")
         self.client.apply({"revision": 0}, "project.create", {"title": "Demo"})
 
+    def test_two_independent_worker_processes(self):
+        script = str(Path(__file__).with_name("worker.py"))
+        workers = []
+        for identity in ("left", "right"):
+            workers.append(subprocess.Popen([
+                sys.executable, script, "--track", self.binary, "--vault", str(self.vault),
+                "--project", "demo", "--task", identity, "--owner", identity,
+                "--steps", "5", "--interval", "0.03",
+            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True))
+        try:
+            for process in workers:
+                out, err = process.communicate(timeout=20)
+                self.assertEqual(process.returncode, 0, err)
+                self.assertEqual(json.loads(out)["project_id"], "demo")
+        finally:
+            for process in workers:
+                if process.poll() is None:
+                    process.kill()
+                    process.communicate()
+        snapshot = self.client.read()
+        self.assertEqual({task["owner"] for task in snapshot["tasks"]}, {"left", "right"})
+        self.assertTrue(all(task["status"] == "done" for task in snapshot["tasks"]))
+        self.assertEqual(len(snapshot["reports"]), 2)
+
     def test_finite_run_and_report(self):
         snapshot = Demo(self.client, "task", 2, 0.01, 1).run()
         self.assertEqual(snapshot["tasks"][0]["status"], "done")
@@ -50,6 +97,31 @@ class IntegrationTest(unittest.TestCase):
         self.assertTrue(all(seq < snapshot["revision"] for seq in report["event_sequences"]))
         with self.assertRaisesRegex(WorkerError, "new task ID"):
             Demo(self.client, "task", 2, 0.01, 1).run()
+
+    def test_unrelated_task_conflict_reconciles_but_same_task_does_not(self):
+        demo = Demo(self.client, "task", 2, 0.01, 1)
+        stale = demo.task(self.client.read(), "active")
+        fresh = self.client.apply(stale, "task.upsert", {
+            "id": "unrelated", "title": "Other worker", "owner": "other", "status": "active"})
+        updated = demo.task(stale, "active")
+        self.assertEqual(updated["revision"], fresh["revision"] + 1)
+        changed = dict(updated["tasks"][0], title="Concurrent edit")
+        self.client.apply(updated, "task.upsert", changed)
+        with self.assertRaisesRegex(WorkerError, "Affected task"):
+            demo.task(updated, "done")
+        self.assertEqual(self.client.read()["tasks"][0]["title"], "Concurrent edit")
+
+    def test_control_change_blocks_stale_progress_and_receipts(self):
+        demo = Demo(self.client, "task", 2, 0.01, 1)
+        stale = demo.task(self.client.read(), "active")
+        requested = self.client.apply(stale, "control.request", {
+            "id": "pause", "task_id": "task", "owner": "worker", "action": "pause"})
+        with self.assertRaisesRegex(WorkerError, "Affected task"):
+            demo.task(stale, "done")
+        self.client.apply(requested, "control.update", {"id": "pause", "status": "acknowledged"})
+        with self.assertRaisesRegex(WorkerError, "Affected task"):
+            self.client.apply(requested, "control.update", {"id": "pause", "status": "rejected"})
+        self.assertEqual(self.client.read()["controls"][0]["status"], "acknowledged")
 
     def test_pause_resume_at_safe_point_and_other_owner_ignored(self):
         demo = Demo(self.client, "task", 2, 0.01, 1)

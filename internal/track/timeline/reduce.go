@@ -269,44 +269,37 @@ func reduce(s *Snapshot, e Event) error {
 	}
 	s.Revision = e.Sequence
 	s.Events = append(s.Events, e)
-	s.Progress = progress(s)
+	s.Progress, s.TaskProgress = projectProgress(s)
 	return nil
 }
 
-// Progress uses weighted leaf completion. Parent effort is not counted again.
+// projectProgress computes each subtree once. Parent effort is not counted again.
 // Serial groups sum remaining estimates; parallel groups use the longest child
-// path. Retired subtrees are excluded from scheduling and completion weight.
-func progress(s *Snapshot) Progress {
-	children := map[string][]Task{}
-	p := Progress{Total: len(s.Tasks)}
-	for _, t := range s.Tasks {
-		children[t.ParentID] = append(children[t.ParentID], t)
-		if t.Status == "done" {
-			p.Done++
-		}
-		if t.Status == "retired" {
-			p.Retired++
-		}
+// path. Retired roots have zero completion and effort, but retain subtree counts.
+// Descendants retain their own projections even beneath a retired ancestor; that
+// ancestor excludes them from its own and the project's completion and effort.
+// Total/Done/Retired count explicit task records, including excluded descendants.
+func projectProgress(s *Snapshot) (Progress, map[string]Progress) {
+	children := make(map[string][]Task, len(s.Tasks))
+	for _, task := range s.Tasks {
+		children[task.ParentID] = append(children[task.ParentID], task)
 	}
-	var aggregate func(string, string) Progress
-	aggregate = func(parent, groupMode string) Progress {
+	memo := make(map[string]Progress, len(s.Tasks))
+	var subtree func(Task) Progress
+	var group func(string, string) Progress
+	group = func(parent, groupMode string) Progress {
 		var out Progress
 		var weight float64
-		for _, t := range children[parent] {
-			if t.Status == "retired" {
+		for _, task := range children[parent] {
+			current := subtree(task)
+			out.Total += current.Total
+			out.Done += current.Done
+			out.Retired += current.Retired
+			if task.Status == "retired" {
 				continue
 			}
-			current := Progress{DoneMinutes: t.DoneMinutes, RemainingMinutes: t.RemainingMinutes}
-			if len(children[t.ID]) > 0 {
-				current = aggregate(t.ID, t.Mode)
-			} else if t.Status == "done" {
-				current.Fraction = 1
-				current.RemainingMinutes = 0
-			} else if total := t.DoneMinutes + t.RemainingMinutes; total > 0 {
-				current.Fraction = t.DoneMinutes / total
-			}
-			out.Fraction += current.Fraction * t.Weight
-			weight += t.Weight
+			out.Fraction += current.Fraction * task.Weight
+			weight += task.Weight
 			out.DoneMinutes += current.DoneMinutes
 			if groupMode == "parallel" {
 				out.RemainingMinutes = math.Max(out.RemainingMinutes, current.RemainingMinutes)
@@ -319,9 +312,31 @@ func progress(s *Snapshot) Progress {
 		}
 		return out
 	}
-	a := aggregate("", s.Mode)
-	p.Fraction = a.Fraction
-	p.DoneMinutes = a.DoneMinutes
-	p.RemainingMinutes = a.RemainingMinutes
-	return p
+	subtree = func(task Task) Progress {
+		if cached, ok := memo[task.ID]; ok {
+			return cached
+		}
+		var out Progress
+		if len(children[task.ID]) > 0 {
+			out = group(task.ID, task.Mode)
+		} else {
+			out.DoneMinutes, out.RemainingMinutes = task.DoneMinutes, task.RemainingMinutes
+			if task.Status == "done" {
+				out.Fraction, out.RemainingMinutes = 1, 0
+			} else if total := task.DoneMinutes + task.RemainingMinutes; total > 0 {
+				out.Fraction = task.DoneMinutes / total
+			}
+		}
+		out.Total++
+		if task.Status == "done" {
+			out.Done++
+		}
+		if task.Status == "retired" {
+			out.Retired++
+			out.Fraction, out.DoneMinutes, out.RemainingMinutes = 0, 0, 0
+		}
+		memo[task.ID] = out
+		return out
+	}
+	return group("", s.Mode), memo
 }
