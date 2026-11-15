@@ -856,3 +856,26 @@ Home activation after tab restoration is the existing intentional safe-start
 policy, covered by session tests; it is not an active-tab restoration defect.
 Clipboard testing remains pending: the initial include fixture used an unresolved
 ID reference, so no Copy interaction was accepted as evidence.
+
+## Crash recovery and discard, 2026-11-15
+
+On clean `b17a7a9`, a fixture draft was checkpointed without changing its source.
+Unicode inserted through native paste was present in the checkpoint as Japanese
+text and decomposed `e` + combining acute. Automated key typing did not insert
+those non-ASCII characters; this is not accepted as IME composition evidence.
+Only the verified disposable GPUI PID was killed. The owned server stopped,
+and relaunch with identical fixture identity reported an unsaved draft on Home.
+
+Opening the matching source exposed a recovery-gate defect: the passive local
+graph sidebar was treated as the full Graph surface, suppressing Recover.
+The correction retains the full-graph/gesture and source-identity gates but does
+not reject the passive aside. On that corrected build, scrolling the diagnostic
+panel exposed Recover draft (no save); explicit activation restored the dirty
+Unicode draft without an engine write. Cmd-Q then Discard and continue exited,
+removed the checkpoint and left the source unchanged. The server port was free.
+The diagnostic panel is scrollable; controls below its first page are not absent.
+
+The rendered-preview Copy code control appeared on code-bed hover and reported
+Copy requested after activation. Pasted payload verification remains pending,
+so this is not a complete native clipboard acceptance result. Save-fault proxy
+and marked-text IME scenarios remain pending. Ordinary vault editing stays off.

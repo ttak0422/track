@@ -62,6 +62,12 @@ impl RecoveryActionGate {
     }
 }
 
+// The local graph is a passive reader aside populated on every note read.
+// Only the full Graph tab displaces the source required for recovery.
+fn recovery_graph_surface(full_graph: bool, _aside_graph: bool) -> bool {
+    full_graph
+}
+
 fn guarded_recovery_action<T>(gate: RecoveryActionGate, action: impl FnOnce() -> T) -> Option<T> {
     gate.allowed().then(action)
 }
@@ -74,7 +80,7 @@ impl Workspace {
             exiting: self.editing_ui.exit_requested,
             handoff: self.handoff_active(),
             includes: self.includes_preview_active(),
-            graph: self.full_graph_active() || self.show_graph,
+            graph: recovery_graph_surface(self.full_graph_active(), self.show_graph),
             search: self.shell.search_open,
             composing: self.search.read(cx).is_composing(),
             menu: self.shell.vault_menu || self.shell.tab_menu || self.editing_ui.mode_menu,
@@ -419,6 +425,20 @@ impl Workspace {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn local_graph_aside_does_not_block_retained_draft_actions() {
+        for aside in [false, true] {
+            for full_graph in [false, true] {
+                let gate = RecoveryActionGate {
+                    diagnostics_open: true,
+                    graph: recovery_graph_surface(full_graph, aside),
+                    ..Default::default()
+                };
+                assert_eq!(gate.allowed(), !full_graph);
+            }
+        }
+    }
+
     #[test]
     fn retained_actions_recheck_closing_and_competing_surfaces_before_mutation() {
         // The same gate runs before recovery context/model resolution and before
