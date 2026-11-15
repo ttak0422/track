@@ -5,9 +5,9 @@ use gpui::{Div, SharedString};
 
 static NEXT_AGENDA: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 static ACTIVE_AGENDA: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-struct AgendaPermit;
+pub(crate) struct AgendaPermit;
 impl AgendaPermit {
-    fn acquire() -> Option<Self> {
+    pub(crate) fn acquire() -> Option<Self> {
         ACTIVE_AGENDA
             .fetch_update(
                 std::sync::atomic::Ordering::AcqRel,

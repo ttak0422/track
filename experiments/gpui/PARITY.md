@@ -446,3 +446,14 @@ metadata styling and block fragments remain unsupported. Native pointer checks c
 plain versus typed up and inert missing/plain URL values. Exact heading scrolling,
 interrupted flows, layout, IME and keyboard/accessibility validation remain pending;
 projection/lookup/stale-callback models are covered.
+
+### Daily journal On this day
+
+Accepted daily journal IDs supply the exact civil date; the journal's own vault
+scopes the existing agenda GET. Independent reader state preserves engine order,
+excludes qualified self, and rejects stale source/tab/revision/epoch/retry reads
+and clicks. Home/day/zone state is untouched. Existing two-read concurrency and
+4096-note transport bounds apply; the first 100 rows have explicit truncation.
+Success-empty, partial/cache and errors differ, with bounded explicit retry.
+No mutations, NEW inference, anniversary expansion, hover previews or pagination.
+Eligibility/identity/order/empty/stale models are covered; native QA is pending.

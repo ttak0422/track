@@ -405,6 +405,7 @@ pub struct ShellState {
     pub(crate) note_tasks: Option<workspace_note_tasks::NoteTasksState>,
     pub(crate) hierarchy: Option<workspace_hierarchy::HierarchyState>,
     pub(crate) activity: Option<workspace_activity::ActivityState>,
+    pub(crate) journal_day: Option<workspace_journal_day::JournalDayState>,
     pub(crate) calendar_zone: workspace_activity::CalendarZone,
     pub home: bool,
     pub search_open: bool,
@@ -512,6 +513,7 @@ impl Default for ShellState {
             includes: None,
             relation_pages: Default::default(),
             activity: None,
+            journal_day: None,
             calendar_zone: Default::default(),
             home: true,
             search_open: false,
@@ -675,7 +677,7 @@ impl FootnoteGeometry {
     }
 }
 impl Workspace {
-    fn footnote_reader_available(&self, cx: &App) -> bool {
+    pub(crate) fn footnote_reader_available(&self, cx: &App) -> bool {
         self.find_available()
             && self.editing_ui.follow_safe()
             && !self.creation_open()
@@ -2314,6 +2316,7 @@ impl Workspace {
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_creation_journal(cx);
+        self.sync_journal_day(cx);
         if self
             .shell
             .footnote_return
@@ -2564,6 +2567,7 @@ impl Render for Workspace {
         let includes_inspector = self.includes_inspector(cx);
         let children_relations = self.relation_section("children", cx);
         let backlink_relations = self.relation_section("backlinks", cx);
+        let journal_day = self.journal_day_section(cx);
         let note_labels = crate::note_metadata::Metadata::current(
             self.live.is_some(),
             &reader_key,
@@ -3019,7 +3023,10 @@ impl Render for Workspace {
                     }),
                 ))
             });
-        let aside = aside.child(children_relations).child(backlink_relations);
+        let aside = aside
+            .child(journal_day)
+            .child(children_relations)
+            .child(backlink_relations);
         // Derive only from the accepted response; no additional reads or cache.
         let external =
             crate::external_refs::ExternalReferences::from_related(&self.current_related);

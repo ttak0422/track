@@ -1220,3 +1220,26 @@ fixture files retained their baseline hashes. Rust tests: 664 passed, 7 ignored;
 formatting, native build and help-site generation passed. Narrow/Unicode layout,
 source replacement and dirty/dialog interruptions, keyboard/accessibility and
 actual IME remain unverified. Ordinary vault editing remains disabled.
+
+### Journal On this day candidate (native validation pending)
+
+- Models cover daily/leap-date eligibility, own-vault/date/launch response checks,
+  qualified self exclusion and engine order, 100-row display boundary, source/tab/
+  revision/retry invalidation and empty/partial/error/malformed-null distinction.
+- Pending native: daily journal shows exact activity order, result click + Back,
+  month/year/ordinary-note absence, named-vault independence from Home, empty and
+  partial/failure Retry, long Unicode titles in short/narrow reader aside.
+- Dirty, save, recovery, dialog, actual IME, keyboard and quit-interruption flows
+  are not newly verified. No build/test execution is claimed by the cloud worker.
+  Ordinary vault writing remains disabled; no new mutation endpoint is used.
+
+Native macOS pointer smoke on 2026-11-15 reused the isolated read-only agenda
+fixture. Daily journal 20261115 showed its two activity notes in engine order.
+Opening the first row navigated to the expected normal note, where the journal
+section was absent; Back restored the journal and both rows. Month journal 202611
+and year journal 2026 had no On this day section. Cmd-Q exited and both owned
+ports closed; all 12 canonical fixture hashes remained unchanged. Native empty,
+error/Retry, foreign-vault, long-list, interrupted/IME and keyboard/accessibility
+scenarios remain unverified. Rust tests: 669 passed, 7 ignored; formatting, native
+build and help-site generation/text inspection passed. Normal vault writes stay
+disabled.

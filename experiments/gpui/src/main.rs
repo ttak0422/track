@@ -50,6 +50,7 @@ mod workspace_handoff;
 mod workspace_hierarchy;
 mod workspace_images;
 mod workspace_includes;
+mod workspace_journal_day;
 mod workspace_live;
 mod workspace_note_tasks;
 mod workspace_preview;
