@@ -133,3 +133,11 @@ cleanup entry, term/kill attempts, elapsed reap time, and exception type only.
 A future isolated GUI run must retain these events and avoid any inspection
 that might launch the app again after exit.
 Pending-success remains unverified in GUI; see the 3s timing limit above.
+
+Verified GUI cleanup, 2026-11-15: clean `8804ab4`, new canonical temporary fixture,
+real Go engine, public 24282/24283 and upstream 26000/26001. Save and continue
+with one dropped successful acknowledgement retained the uncertain draft and
+cancelled Quit. Read-only inspection did not retry the PUT. Subsequent explicit
+Discard and continue exited; adapter SIGTERM recorded child `reaped` status 0
+in 9 ms and all four ports were free. This supersedes the earlier unresolved
+GUI cleanup evidence limit for this run; pending-success remains unverified.

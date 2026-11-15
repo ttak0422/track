@@ -879,3 +879,28 @@ The rendered-preview Copy code control appeared on code-bed hover and reported
 Copy requested after activation. Pasted payload verification remains pending,
 so this is not a complete native clipboard acceptance result. Save-fault proxy
 and marked-text IME scenarios remain pending. Ordinary vault editing stays off.
+
+## Clipboard and uncertain quit, 2026-11-15
+
+On clean `8804ab4`, the explicit rendered-preview Copy code control was activated
+on a disposable Lua block. Cmd-V into the native fixture search field displayed
+`print("日本語")`, without Markdown fences or provenance text. This verifies the
+native clipboard round trip for this Unicode code example, not general text
+selection, rich clipboard formats, or IME composition.
+
+A new canonical temporary fixture used the Save fault adapter with the real Go
+engine and all fixture edit/session/recovery opt-ins. After editing a note,
+Cmd-Q opened the dirty-quit prompt. The adapter was armed to drop one successful
+acknowledgement, then Save and continue was selected. The app stayed open in
+Uncertain with the draft/checkpoint retained. Adapter events recorded exactly
+one `put_ack` (200) and one `dropped_ack`; the source contained the submitted text.
+Read-only Inspect server content displayed the saved body without replacing the
+draft, replaying Quit, or sending another PUT. A later Cmd-Q still prompted.
+Explicit Discard and continue then exited, removed only the local checkpoint,
+and preserved the committed source. Adapter cleanup recorded SIGTERM and child
+`reaped` status 0 in 9 ms; both public and upstream port pairs were free.
+WebSocket interruption notices are expected in this Save-only adapter and do not
+establish live-update parity. No automatic save retry occurred.
+
+Actual marked-text IME composition and pending-success acknowledgement timing
+remain unverified in native GUI. Ordinary vault editing remains disabled.
