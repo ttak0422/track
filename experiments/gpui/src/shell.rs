@@ -492,6 +492,7 @@ pub struct ShellState {
     pub(crate) includes: Option<workspace_includes::IncludesState>,
     pub(crate) note_tasks: Option<workspace_note_tasks::NoteTasksState>,
     pub(crate) hierarchy: Option<workspace_hierarchy::HierarchyState>,
+    pub(crate) reader_hierarchy: Option<workspace_hierarchy::ReaderHierarchy>,
     pub(crate) activity: Option<workspace_activity::ActivityState>,
     pub(crate) journal_day: Option<workspace_journal_day::JournalDayState>,
     pub(crate) calendar_zone: workspace_activity::CalendarZone,
@@ -605,6 +606,7 @@ impl Default for ShellState {
             code_focus: Default::default(),
             find: Default::default(),
             hierarchy: None,
+            reader_hierarchy: None,
             note_tasks: None,
             includes: None,
             relation_pages: Default::default(),
@@ -2396,7 +2398,10 @@ impl Workspace {
         }
         true
     }
-    fn native_find_available(&self, step: bool, window: &Window, cx: &App) -> bool {
+    pub(crate) fn reader_fragment_pending(&self) -> bool {
+        self.shell.pending_fragment.is_some()
+    }
+    pub(crate) fn native_find_available(&self, step: bool, window: &Window, cx: &App) -> bool {
         let accepted = self.shell.accepted_title_request == Some(self.request)
             && self.current_link_source().is_some_and(|source| {
                 self.current_note_request.as_ref().is_some_and(|route| {
@@ -2614,7 +2619,7 @@ impl Workspace {
         cx.notify();
     }
     pub(crate) fn workspace_shortcut(&mut self, save: bool, cx: &mut Context<Self>) {
-        if self.enlarged_image_open() {
+        if self.enlarged_image_open() || self.reader_hierarchy_open() {
             return;
         }
         if self.tag_page.is_some()
@@ -2772,7 +2777,7 @@ impl Workspace {
         }
     }
     fn dismiss_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.enlarged_image_open() {
+        if self.enlarged_image_open() || self.reader_hierarchy_open() {
             return;
         }
         if self.search.read(cx).is_composing() {
@@ -2792,7 +2797,7 @@ impl Workspace {
         cx.notify();
     }
     fn step_search_result(&mut self, forward: bool, cx: &mut Context<Self>) {
-        if self.enlarged_image_open() {
+        if self.enlarged_image_open() || self.reader_hierarchy_open() {
             return;
         }
         if !self.shell.search_open || self.search.read(cx).is_composing() {
@@ -2810,7 +2815,7 @@ impl Workspace {
         cx.notify();
     }
     fn open_search_result(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.enlarged_image_open() {
+        if self.enlarged_image_open() || self.reader_hierarchy_open() {
             return;
         }
         if !self.shell.search_open || self.search.read(cx).is_composing() {
@@ -2840,6 +2845,7 @@ impl Workspace {
 
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.sync_reader_hierarchy(window, cx);
         self.sync_enlarged_image(window, cx);
         let title_source = self.copy_title_source(cx);
         self.shell.title_copy.sync(title_source);
@@ -3430,6 +3436,10 @@ impl Render for Workspace {
                             )
                         })
                 }),
+            )
+            .when(
+                !home && !full_graph_active && self.tag_page.is_none(),
+                |rail| rail.child(self.reader_hierarchy_entry(window, cx)),
             )
             .child(
                 rail_button("home", "home", p, home).on_click(cx.listener(|this, _, _, cx| {
@@ -4197,7 +4207,10 @@ impl Render for Workspace {
                 this.shell.positions.interaction = this.shell.positions.interaction.wrapping_add(1);
             }))
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
-                if this.enlarged_image_open() || this.creation_open() {
+                if this.enlarged_image_open()
+                    || this.reader_hierarchy_open()
+                    || this.creation_open()
+                {
                     cx.stop_propagation();
                     return;
                 }
@@ -4546,6 +4559,9 @@ impl Render for Workspace {
             })
             .when(self.enlarged_image_open(), |root| {
                 root.child(self.render_enlarged_image(window, cx))
+            })
+            .when(self.reader_hierarchy_open(), |root| {
+                root.child(self.render_reader_hierarchy(dark, window, cx))
             })
     }
 }

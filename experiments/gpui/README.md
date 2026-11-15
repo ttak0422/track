@@ -1000,3 +1000,7 @@ would truncate protected link/code text remain literal and are not anchors.
 ## Native Find menu
 
 Edit → Find provides Find… (Cmd-F), Find Next (Cmd-G), and Find Previous (Shift-Cmd-G) for the accepted reader. Find selects the retained query without advancing when already open; Next/Previous reuse the existing wrapping behavior and need a nonblank query, including after closing the bar. Commands are inactive for other panes, inputs, composition, modal/recovery/quit owners and other windows. There is no global text-search or Cmd-C change. Disposable native menu/accelerator and query-retention smoke is recorded in NATIVE-QA.md; full IME and interruption coverage remains pending. Closing the bar resets the next search step to the first/last result through the existing reader behavior.
+
+## Reader Hierarchy panel
+
+The reader rail has a click-only Hierarchy panel for the explicitly labeled working-vault scope, not an implicit switch to a foreign note’s vault. Roots and immediate children appear first; roots cannot collapse, nonroot branches toggle, and titles open verified scoped notes. Close, Escape or backdrop dismisses without navigation. The panel shares Home’s bounded read, diagnostics and 200-row paging, but keeps separate state. Hover/grace interaction and retained expansion after closing are not implemented. Disposable native navigation and position-retention smoke is recorded in NATIVE-QA.md; full IME, interruption and accessibility validation remains pending.

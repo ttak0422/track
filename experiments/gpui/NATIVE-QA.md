@@ -1410,3 +1410,26 @@ found no P1/P2 issue. Actual IME composition, inactive/reactivated-window races,
 Graph/editor/image-modal interactions, stale-dispatch races, full accessibility,
 and local Enter/Shift-Enter delivery remain unverified natively. Existing safety
 and source guards remain in force; normal vault writes stay disabled.
+
+## Reader Hierarchy panel: disposable read-only smoke
+
+A five-note official-CLI fixture verified Root → Child → Grandchild and Leaf under
+Root, with Unplaced absent from the engine hierarchy. In a narrow 680px native
+window, opening the rail panel from Unplaced near its bottom preserved paragraph
+27 at the same position. Roots and direct children initially appeared; expanding
+Child revealed Grandchild. Root and leaf had no interactive collapse controls.
+Panel wheel input, j and Cmd-F left the underlying reader unchanged. Escape,
+explicit Close and outside-click dismissal each retained the same reader position.
+Reopening resets non-root expansion; no persistent expansion is claimed.
+
+Grandchild title activation closed the panel and opened the correct note; Back
+returned to Unplaced at the earlier position. Root title independently opened Root.
+Home still displayed its original inline, initially collapsed hierarchy. Native Quit
+exited normally; all 16 canonical files were unchanged and both owned ports closed.
+
+709 tests passed (7 ignored), formatting and debug build passed. Independent review
+found a ScrollHandle replacement risk on opening; this was corrected by reusing the
+existing overlay pause without replacing the handle, then the near-bottom checks
+above passed. Re-review found no remaining P1/P2. Actual IME, interrupted reads,
+scope/storage replacement, large/paged tree wheel behavior, repeated labels and
+full accessibility remain unverified natively. No ordinary vault write gate changed.

@@ -109,6 +109,7 @@ impl Workspace {
         cx: &App,
     ) -> bool {
         self.enlarged_image_open()
+            || self.reader_hierarchy_open()
             || self.search.read(cx).is_composing()
             || self.shell.calendar_zone.is_composing(cx)
             || surface_blocks(

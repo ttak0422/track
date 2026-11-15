@@ -514,3 +514,7 @@ including expiry without layout/position change. See NATIVE-QA.md for limits and
 ## Native Find routing
 
 Conditional workspace-root listeners plus action-time checks route native Edit → Find commands to the accepted reader only. Old raw Cmd-F/Cmd-G handling is removed; Find input Enter/Shift-Enter stays local. Existing root focus recovery does not grant reader j/k ownership or replace an existing input focus. Four model/keymap tests added; 704 Rust tests passed (7 ignored), formatting and build passed. Disposable native menu/accelerator, query retention and Home/Search/About exclusion smoke passed; IME and interruption coverage remain pending. No requests, writes, clipboard or persistence changes.
+
+## Reader Hierarchy panel
+
+A source/scope-qualified, click-only reader panel reuses Home hierarchy transport, concurrency, diagnostics and bounded row rendering. Reader roots stay expanded; Home root behavior is unchanged. Close invalidates pending requests and stale controls; modal focus gates background navigation/Find/scroll and pauses follow. Five model tests added for admission, lifecycle, roots/nested/leaves, repeated labels/paging and errors. 709 Rust tests passed (7 ignored), formatting and build passed. Disposable native expansion/navigation/Back, dismissal/position retention, input isolation and Home smoke passed; IME/interrupted/large-tree coverage remains pending. No new endpoints, writes, settings or persistence; no reference hover/grace behavior.
