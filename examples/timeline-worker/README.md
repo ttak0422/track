@@ -49,6 +49,11 @@ step the worker exits and does not service further requests.
 
 ## Failure boundaries
 
+The worker compares its complete last accepted task with every refreshed snapshot,
+including after a step or while paused. Same-owner external edits stop the worker
+without overwriting status or effort. An identical retry returning a newer snapshot
+does not adopt another writer’s task; manual reconciliation is required.
+
 - The only subprocess is the explicitly selected Track executable, with fixed
   argument arrays and JSON stdin, never shell evaluation.
 - Timeout retries use the same serialized request and event identity. Two timeouts
