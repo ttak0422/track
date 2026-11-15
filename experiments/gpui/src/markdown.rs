@@ -200,10 +200,76 @@ impl PdfProjection {
             && crate::reader_pdf::asset_name(&self.reference).is_ok()
     }
 }
+/// A separately rendered formula beneath a visible, unchanged source block.
+#[derive(Clone)]
+pub struct MathProjection {
+    pub block: usize,
+    pub source_text: String,
+    pub image: Arc<gpui::RenderImage>,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct MathReference {
+    pub block: usize,
+    pub formula: String,
+    pub source_text: String,
+}
+/// Conservative host-only correspondence; transformed reader models stay literal.
+pub(crate) fn display_math_references(source: &str, current: &[Block]) -> Vec<MathReference> {
+    if parse_reader(source) != current {
+        return vec![];
+    }
+    let options = Options::ENABLE_TABLES
+        | Options::ENABLE_TASKLISTS
+        | Options::ENABLE_STRIKETHROUGH
+        | Options::ENABLE_FOOTNOTES;
+    let math: Vec<_> = Parser::new_ext(source, options | Options::ENABLE_MATH)
+        .into_offset_iter()
+        .filter_map(|(event, range)| match event {
+            Event::DisplayMath(formula) if !formula.trim().is_empty() && formula.len() <= 4096 => {
+                Some((range, formula.into_string()))
+            }
+            _ => None,
+        })
+        .take(16)
+        .collect();
+    let tree = nodes(&mut Parser::new_ext(source, options).into_offset_iter());
+    let mut original = vec![];
+    let mut end = 0;
+    let mut result = vec![];
+    for node in &tree {
+        fallback(&source[end..node.range.start], &mut original);
+        let index = original.len();
+        blocks(node, source, 0, false, &mut original, true);
+        if original.len() == index + 1
+            && original[index].kind == BlockKind::Paragraph
+            && original[index].indent == 0
+            && !original[index].quoted
+            && original[index].marker.is_none()
+        {
+            if let Some((_, formula)) = math.iter().find(|(range, _)| {
+                range.start == node.range.start
+                    && range.end <= node.range.end
+                    && source[range.end..node.range.end].trim().is_empty()
+            }) {
+                result.push(MathReference {
+                    block: index,
+                    formula: formula.clone(),
+                    source_text: original[index].text.clone(),
+                });
+                if result.len() == 16 {
+                    break;
+                }
+            }
+        }
+        end = node.range.end;
+    }
+    result
+}
 /// Shell supplies verified internal or explicit HTTP(S) links. Others stay inert.
 #[derive(Clone)]
 pub struct LinkCallbacks {
     pub pdf: Option<PdfProjection>,
+    pub math: Option<MathProjection>,
     pub selection: Option<SelectionCallbacks>,
     pub hover: Option<
         Rc<
@@ -3118,6 +3184,32 @@ fn render_elements(
             } else {
                 row
             };
+            let row = if let Some(math) = callbacks.and_then(|c| c.math.as_ref()).filter(|m| {
+                m.block == index && m.source_text == block.text && plain_reader_block(block)
+            }) {
+                row.child(
+                    div()
+                        .relative()
+                        .w_full()
+                        .max_w(px(620.))
+                        .h(px(260.))
+                        .bg(rgb(0xffffff))
+                        .child(
+                            gpui::img(math.image.clone())
+                                .absolute()
+                                .inset_0()
+                                .size_full()
+                                .object_fit(gpui::ObjectFit::Contain),
+                        ),
+                )
+                .child(
+                    div()
+                        .text_size(px(12.))
+                        .child("Display math · original source above"),
+                )
+            } else {
+                row
+            };
             let row = if let Some(image) = images.and_then(|images| images.get(&index)) {
                 let (width, ratio) = crate::raster::inline_geometry(image.width, image.height);
                 row.child(
@@ -4462,6 +4554,7 @@ mod tests {
         assert!(pending.iter().all(|span| !span.style.link));
         let callbacks = LinkCallbacks {
             pdf: None,
+            math: None,
             selection: None,
             hover: None,
             arrival_block: None,
@@ -5170,6 +5263,7 @@ mod footnote_navigation_tests {
         assert!(footnote_link_valid(&parsed, &cell.links[0]));
         let callbacks = LinkCallbacks {
             pdf: None,
+            math: None,
             selection: None,
             hover: None,
             arrival_block: None,
@@ -6053,5 +6147,53 @@ mod terminal_wiki_hash_tests {
                 matches!(&blocks[0].links[0].target,LinkTarget::Wiki{key,fragment:Some(f),..} if key=="Title" && f==expected)
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod display_math_tests {
+    use super::*;
+    #[test]
+    fn standalone_exact_occurrence_and_code_exclusion() {
+        let source = "Before\n\n$$\n\\frac{1}{2}\n$$\n\nAfter\n\n$$\n\\frac{1}{2}\n$$\n";
+        let model = parse_reader(source);
+        let refs = display_math_references(source, &model);
+        assert_eq!(refs.len(), 2);
+        assert_ne!(refs[0].block, refs[1].block);
+        assert_eq!(refs[0].formula, refs[1].formula);
+        for r in refs {
+            assert_eq!(r.source_text, model[r.block].text);
+        }
+        for source in [
+            "Inline $x^2$ text\n",
+            "```tex\n$$x$$\n```\n",
+            "`$$x$$`\n",
+            "prefix $$x$$ suffix\n",
+        ] {
+            assert!(
+                display_math_references(source, &parse_reader(source)).is_empty(),
+                "{source}"
+            );
+        }
+    }
+    #[test]
+    fn repeated_formulas_keep_exact_ranges_and_bounded_controls() {
+        let source = "$$x$$\n\n".repeat(20);
+        let blocks = parse_reader(&source);
+        let refs = display_math_references(&source, &blocks);
+        assert_eq!(refs.len(), 16);
+        assert_eq!(
+            refs.iter().map(|r| r.block).collect::<Vec<_>>(),
+            (0..16).collect::<Vec<_>>()
+        );
+    }
+    #[test]
+    fn transformed_and_oversized_source_remains_literal() {
+        let source = "$$x^2$$\n";
+        let mut model = parse_reader(source);
+        model[0].text.push('!');
+        assert!(display_math_references(source, &model).is_empty());
+        let source = format!("$$ {} $$\n", "x".repeat(4097));
+        assert!(display_math_references(&source, &parse_reader(&source)).is_empty());
     }
 }

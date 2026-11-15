@@ -1843,3 +1843,29 @@ context-dependent links retain the whole source list.
 - Final native layout, Find/link/anchor/Back, Copy MD and interruption checks
   remain pending. Isolated fixtures are prepared; no GUI acceptance is claimed.
   Real IME remains unverified. Normal-vault editing stays disabled.
+
+
+## Display-math snapshot candidate (cloud verification)
+
+Standalone display math now has an explicit Render / Show / Hide path. The original
+expression remains visible and copied unchanged. Inline math, transformed readers,
+and more than 16 eligible occurrences are outside this slice. No normal-vault write
+gate changes are included.
+
+- The exact helper source passed six isolated Rust tests: supported math, input/depth/
+  pixel limits, malformed image rejection, child deadline, cancellation, exit failure
+  and output overflow. Independent source review found no remaining P1/P2 after
+  fixing duplicate-expression occurrence matching and the 16-result bound.
+- Three exact-source mapping regressions passed in an isolated pulldown-cmark
+  0.13.6 harness with stubbed reader Block generation; this does not exercise GPUI
+  rendering or Find.
+- Rustfmt and diff whitespace checks passed. The dependency lock adds only five
+  packages. Official GPUI crate bytes matched the existing pinned SHA-256 before
+  applying the repository patch for dependency resolution.
+- A full locked Linux Cargo check stopped in the existing `xattr` dependency because
+  `libc::ENOATTR` is unavailable. This is not a successful GPUI compilation or test run.
+  macOS build, native formula layout, selection/Find and Show/Hide passage restoration
+  remain unverified. The help-site build was not run because Nix is unavailable.
+- Renderer code is MIT OR Apache-2.0; embedded STIX Two Math is SIL OFL 1.1 with the
+  license retained under `licenses/`. Rust 1.99 or newer is required. The helper uses
+  input/depth/dimension/output/time limits, not a complete OS sandbox or RSS cap.

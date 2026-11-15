@@ -747,3 +747,14 @@ Host-context-dependent Markdown reference links (including collapsed and shortcu
 forms), footnotes and non-inline parser links also keep the whole list in its
 original reader form. Inline Markdown and wiki links remain eligible; the table
 never reparses a resolved host reference without its definition.
+
+### Explicit local display math (bounded subset)
+
+Standalone host `$$…$$` occurrences can be explicitly rendered locally, then
+shown below their unchanged visible source. One accepted raster/worker, exact
+source/request/occurrence ownership, bounded PNG decoding and guarded Show/Hide
+passage restoration. Inline math, automatic replacement, included/query models,
+transformed readers and unsupported syntax remain literal. No equation actions,
+remote services, imports or vault writes. Source Find/Copy semantics remain
+visible; this is not full reference math parity. Pure correspondence/bounds
+regressions are added; final GPUI/native layout and interruption QA is pending.

@@ -2,9 +2,11 @@
 name = "track-gpui-poc"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.99"
 publish = false
 
 [dependencies]
+latex-rust = { version = "=3.0.3", default-features = false, features = ["png"] }
 image = { version = "=0.25.9", default-features = false, features = ["png", "jpeg"] }
 gpui = { path = ".build-deps/gpui", version = "=0.2.2", default-features = false, features = ["font-kit", "runtime_shaders"] }
 serde = { version = "1", features = ["derive"] }

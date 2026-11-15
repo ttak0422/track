@@ -1,6 +1,8 @@
 mod inline_viewspec;
+mod math_probe;
 mod pdf_probe;
 mod reader_pdf;
+mod workspace_math;
 mod workspace_pdf;
 use gpui::{
     App, Application, Bounds, Context, KeyBinding, Menu, MenuItem, Window, WindowBounds,
@@ -157,6 +159,7 @@ struct Workspace {
     follow: workspace_follow::FollowUi,
     reader_images: workspace_images::State,
     reader_pdf: Option<workspace_pdf::State>,
+    reader_math: Option<workspace_math::State>,
     pdf_enlargement: Option<workspace_pdf::Modal>,
     snapshot: Snapshot,
     selected: Option<usize>,
@@ -504,6 +507,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(result) = pdf_probe::early_helper(&args) {
         return result.map_err(Into::into);
     }
+    #[cfg(unix)]
+    if let Some(result) = math_probe::early_helper(&args) {
+        return result.map_err(Into::into);
+    }
     let _ = log::set_logger(&LOGGER);
     log::set_max_level(log::LevelFilter::Warn);
     if args.as_slice() == ["--version"] {
@@ -781,6 +788,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         follow: Default::default(),
                         reader_images: Default::default(),
                         reader_pdf: None,
+                        reader_math: None,
                         pdf_enlargement: None,
                         selected: (!snapshot.notes.is_empty()).then_some(0),
                         snapshot,

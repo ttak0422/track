@@ -3803,6 +3803,7 @@ impl Render for Workspace {
         ));
         let p = Palette::new(dark);
         self.sync_pdf();
+        self.sync_math();
         self.reset_stale_handoff();
         if self.handoff_active() {
             return self.render_handoff(dark, (p.paper, p.ink, p.line), cx);
@@ -3841,6 +3842,7 @@ impl Render for Workspace {
         let select_weak = cx.entity().downgrade();
         let link_callbacks = markdown::LinkCallbacks {
             pdf: self.pdf_projection(),
+            math: self.math_projection(),
             selection: Some(markdown::SelectionCallbacks {
                 selected: self
                     .shell
@@ -4141,7 +4143,8 @@ impl Render for Workspace {
             .or_else(|| self.block_fragment_layout_source(cx))
             .or_else(|| self.includes_layout_source())
             .or_else(|| self.query_layout_source())
-            .or_else(|| self.pdf_layout_source());
+            .or_else(|| self.pdf_layout_source())
+            .or_else(|| self.math_layout_source());
         if self.shell.positions.source != position_source {
             self.shell.positions.source = position_source.clone();
             self.shell.positions.anchors = position_source.as_ref().and_then(|_| {
@@ -4600,6 +4603,7 @@ impl Render for Workspace {
                 ))
             });
         let aside = aside
+            .when_some(self.math_inspector(cx), |aside, math| aside.child(math))
             .when_some(self.pdf_inspector(window, cx), |aside, pdf| {
                 aside.child(pdf)
             })

@@ -13,7 +13,7 @@ This is not yet a feature-compatible replacement for Track.app; see [PARITY.md](
 
 ## Run (macOS)
 
-Install Nix, a current Rust toolchain and Apple's Command Line Tools, then run:
+Install Nix, Rust 1.99 or newer and Apple's Command Line Tools, then run:
 
 ```sh
 ./experiments/gpui/prepare.sh
@@ -1126,3 +1126,10 @@ remain unchanged. Isolated native validation covered dense month layout, indepen
 scope switching, zone-edit invalidation, retry and day details. Interrupted
 requests, native deadline-boundary timing and real IME remain unverified; this
 does not establish full Calendar parity.
+
+## Math renderer notices
+
+The optional display-math action uses pinned `latex-rust` 3.0.3 (MIT OR Apache-2.0)
+with its embedded STIX Two Math font. The font is licensed under SIL OFL 1.1;
+redistributions must retain [the bundled font license](licenses/STIX-Two-Math-OFL.txt).
+No system font lookup, TeX installation or external rendering service is used.
