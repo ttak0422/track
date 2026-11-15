@@ -2094,6 +2094,7 @@ impl Workspace {
 
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.sync_creation_journal(cx);
         let dark = self.shell.dark.unwrap_or(matches!(
             window.appearance(),
             WindowAppearance::Dark | WindowAppearance::VibrantDark
@@ -3296,6 +3297,9 @@ impl Render for Workspace {
                         .text_color(rgb(p.muted))
                         .child(self.editor_fixture_notice()),
                 )
+            })
+            .when_some(self.creation_journal_notice(), |root, notice| {
+                root.child(div().pl(px(64.)).py_1().text_xs().child(notice))
             })
             .when_some(link_warning, |root, warning| {
                 root.child(

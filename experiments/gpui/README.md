@@ -910,8 +910,15 @@ verifies fresh source before opening Preview. Ordinary/named vaults and snapshot
 cannot create. Root/config/cache/marker changes or symlinks in the controlled
 fixture refuse the request.
 
-Uncertain results never retry and deliberately block navigation/quit pending
-resolution. Durable uncertainty recovery remains a release prerequisite. See
+A bounded receipt in the isolated cache is synced before POST. Uncertain results
+never retry. After the request finishes, **Keep unresolved receipt and close**
+verifies durable retention before allowing normal guarded quit. The receipt
+reappears after restart and still blocks further creation; acknowledging it is
+not success, rollback or permission to retry. No extra session/draft-persistence
+flag is needed, and ordinary launches never touch this receipt. See
 [PARITY.md](PARITY.md) for scope and [NATIVE-QA.md](NATIVE-QA.md) for required checks.
 A bounded native creation smoke passed; actual IME and interrupted creation QA
 remain open. Normal-vault editing stays disabled.
+
+The durable-receipt increment passes 642 native tests (7 ignored) and formatting;
+its final build and receipt-specific GUI checks are not yet confirmed.

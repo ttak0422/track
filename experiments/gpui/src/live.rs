@@ -696,6 +696,7 @@ pub struct Storage {
 
 #[derive(Clone)]
 pub struct ReadClient {
+    creation_store: Arc<Mutex<Option<Result<crate::session_store::CreationStore, String>>>>,
     creation_fixture: Option<CreateFixture>,
     http: reqwest::blocking::Client,
     origin: String,
@@ -1659,6 +1660,49 @@ impl ReadClient {
     pub fn creation_available(&self) -> bool {
         self.is_alive() && self.creation_fixture.is_some()
     }
+    // Background-only: clones share a single lock owner. Ordinary clients never
+    // inspect or create receipt files, even if a cache path happens to exist.
+    fn with_creation_store<T>(
+        &self,
+        action: impl FnOnce(&mut crate::session_store::CreationStore) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let fixture = self
+            .creation_fixture
+            .as_ref()
+            .ok_or("Creation receipt storage is not enabled.")?;
+        fixture.verify()?;
+        let mut owner = self
+            .creation_store
+            .lock()
+            .map_err(|_| "Creation receipt owner failed.")?;
+        if owner.is_none() {
+            *owner = Some(crate::session_store::CreationStore::open(
+                &fixture.root.path,
+                &fixture.config.path,
+                &fixture.cache.path,
+            ));
+        }
+        match owner.as_mut().unwrap() {
+            Ok(store) => action(store),
+            Err(error) => Err(error.clone()),
+        }
+    }
+    pub fn creation_snapshot(
+        &self,
+    ) -> Result<Option<crate::session_store::CreationRecord>, String> {
+        self.with_creation_store(|store| store.inspect())
+    }
+    /// Revalidate and sync the exact retained evidence. This never resolves a
+    /// mutation, deletes its receipt, opens a note, or authorizes another POST.
+    pub fn retain_uncertain_creation(
+        &self,
+        exact: &crate::session_store::CreationRecord,
+    ) -> Result<(), String> {
+        if exact.outcome != crate::session_store::CreationOutcome::Pending {
+            return Err("Only an unresolved creation receipt can be acknowledged here.".into());
+        }
+        self.with_creation_store(|store| store.verify_retained(exact))
+    }
     /// One title-only POST. No body override, implicit PUT, redirect or retry.
     /// The Workspace owns pending/uncertain outcomes and prevents close/quit.
     pub fn create_note(
@@ -1679,16 +1723,7 @@ impl ReadClient {
                 .creation_fixture
                 .as_ref()
                 .ok_or("Disposable fixture creation is not enabled.")?;
-            fixture.verify()?;
-            let storage = self.storage().map_err(|e| e.to_string())?;
-            if storage.phase != "ready"
-                || storage.read_only
-                || degraded_save_data(&serde_json::to_value(&storage.additional).unwrap())
-            {
-                return Err("Storage must explicitly be ready and writable.".into());
-            }
-            // Recheck after blocking read. This is not a filesystem sandbox; the
-            // fixture must not be concurrently reconfigured by another process.
+            // Controlled disposable fixture, not a hostile-filesystem sandbox.
             fixture.verify()?;
             if !self.is_alive() {
                 return Err("Owned launch changed.".into());
@@ -1696,6 +1731,53 @@ impl ReadClient {
             Ok(())
         })();
         preflight.map_err(CreateError::NotSent)?;
+        // Hold the sole receipt owner through dispatch and checkpoint completion.
+        // Durable Pending is acknowledged before send. A crash even immediately
+        // before send is intentionally unresolved after restart, never retried.
+        self.with_creation_store(|store| {
+            let exact = store.begin(title)?;
+            Ok(self.send_creation_once(title, store, &exact))
+        })
+        .map_err(CreateError::NotSent)?
+    }
+    fn send_creation_once(
+        &self,
+        title: &str,
+        store: &mut crate::session_store::CreationStore,
+        exact: &crate::session_store::CreationRecord,
+    ) -> Result<CreateAck, CreateError> {
+        // Readiness and pinned binding are rechecked after the intent fsync and
+        // immediately before dispatch. A known pre-send failure is checkpointed.
+        let ready = (|| -> Result<(), String> {
+            let storage = self.storage().map_err(|e| e.to_string())?;
+            if storage.phase != "ready"
+                || storage.read_only
+                || degraded_save_data(&serde_json::to_value(&storage.additional).unwrap())
+            {
+                return Err("Storage must explicitly be ready and writable.".into());
+            }
+            self.creation_fixture
+                .as_ref()
+                .ok_or("Fixture unavailable.")?
+                .verify()?;
+            if !self.is_alive() {
+                return Err("Owned launch changed.".into());
+            }
+            Ok(())
+        })();
+        if let Err(reason) = ready {
+            store
+                .finish(exact, crate::session_store::CreationOutcome::NotSent)
+                .map_err(|e| {
+                    CreateError::Uncertain(format!(
+                        "No POST sent, but the intent checkpoint could not be resolved: {e}"
+                    ))
+                })?;
+            return Err(CreateError::NotSent(reason));
+        }
+        // The blocking readiness read could race receipt/lock replacement. Verify
+        // exact durable ownership again before dispatch, not only after response.
+        store.verify_retained(exact).map_err(CreateError::NotSent)?;
         let mut response = self
             .http
             .post(format!("{}/api/note", self.origin))
@@ -1714,6 +1796,14 @@ impl ReadClient {
             ));
         }
         if matches!(status, 400 | 403 | 404 | 405 | 409) {
+            store
+                .finish(
+                    exact,
+                    crate::session_store::CreationOutcome::Rejected { status },
+                )
+                .map_err(|e| {
+                    CreateError::Uncertain(format!("HTTP {status}; receipt checkpoint failed: {e}"))
+                })?;
             return Err(CreateError::Rejected { status });
         }
         if status != 200 {
@@ -1740,6 +1830,11 @@ impl ReadClient {
                 "Acknowledgement identity mismatch.".into(),
             ));
         }
+        store.finish(exact, crate::session_store::CreationOutcome::Created {
+            note_id: ack.note_id, title: ack.title.clone(),
+        }).map_err(|e| CreateError::Uncertain(format!(
+            "Server acknowledged note #{}, but durable receipt checkpoint failed: {e}. Original intent is retained; do not repeat creation.", ack.note_id
+        )))?;
         Ok(CreateAck {
             launch_generation: self.launch_generation,
             vault: ack.vault,
@@ -2033,6 +2128,7 @@ impl OwnedServer {
             .map_err(|e| Error::Transport(e.to_string()))?;
         let alive = Arc::new(AtomicBool::new(true));
         let client = ReadClient {
+            creation_store: Default::default(),
             creation_fixture: config.creation_fixture.clone(),
             http,
             origin: format!("http://127.0.0.1:{}", config.port),
@@ -2602,7 +2698,7 @@ mod tests {
         let pid = child.id();
         let server = OwnedServer {
             child: Some(child),
-            client: ReadClient { creation_fixture: None, http: reqwest::blocking::Client::new(), origin: "http://127.0.0.1:1".into(), alive: Arc::new(AtomicBool::new(true)), launch_generation: 1 },
+            client: ReadClient { creation_store: Default::default(), creation_fixture: None, http: reqwest::blocking::Client::new(), origin: "http://127.0.0.1:1".into(), alive: Arc::new(AtomicBool::new(true)), launch_generation: 1 },
             logs: Arc::new(Mutex::new(VecDeque::new())), initial_vaults: serde_json::json!({"active":{},"vaults":[]}),
             initial_storage: Some(serde_json::from_value(serde_json::json!({"phase":"initializing","read_only":true,"verified":0,"generation":1})).unwrap()), storage_error: None,
         };
@@ -2631,7 +2727,14 @@ mod tests {
     /// This is a controlled local HTTP fixture, not a filesystem/vault mutation.
     fn gated_save_mock(
         replies: Vec<Option<(u16, String)>>,
+        put_gate: Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>,
+    ) -> (ReadClient, thread::JoinHandle<Vec<String>>) {
+        gated_request_mock(replies, put_gate, "PUT ")
+    }
+    fn gated_request_mock(
+        replies: Vec<Option<(u16, String)>>,
         mut put_gate: Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>,
+        gate_prefix: &'static str,
     ) -> (ReadClient, thread::JoinHandle<Vec<String>>) {
         use std::io::Write;
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
@@ -2678,7 +2781,7 @@ mod tests {
                 stream.read_exact(&mut body).unwrap();
                 header.extend(body);
                 requests.push(String::from_utf8(header).unwrap());
-                if requests.last().unwrap().starts_with("PUT ") {
+                if requests.last().unwrap().starts_with(gate_prefix) {
                     if let Some((received, release)) = put_gate.take() {
                         received.send(()).unwrap();
                         release
@@ -2709,6 +2812,7 @@ mod tests {
         });
         (
             ReadClient {
+                creation_store: Default::default(),
                 creation_fixture: None,
                 http: reqwest::blocking::Client::builder()
                     .no_proxy()
@@ -2940,7 +3044,6 @@ mod tests {
     }
     #[test]
     fn create_lost_malformed_mismatched_and_server_error_responses_never_retry() {
-        let fixture = CreationFixtureTest::new();
         let replies = [
             None,
             Some((500, "failure".into())),
@@ -2958,6 +3061,7 @@ mod tests {
             Some((200, CREATE_OK.replace("Alpha", "Other"))),
         ];
         for reply in replies {
+            let fixture = CreationFixtureTest::new();
             let (client, requests) =
                 fixture.client(vec![Some((200, CREATE_STORAGE.into())), reply]);
             assert!(matches!(
@@ -2971,6 +3075,153 @@ mod tests {
                 1
             );
         }
+    }
+    #[test]
+    fn ordinary_clients_never_touch_creation_journal() {
+        let fixture = CreationFixtureTest::new();
+        let (mut client, requests) = fixture.client(vec![]);
+        client.creation_fixture = None;
+        assert!(client.creation_snapshot().is_err());
+        assert!(client.create_note("Alpha", "", 1).is_err());
+        assert_eq!(
+            std::fs::read_dir(fixture.root.join("cache"))
+                .unwrap()
+                .count(),
+            0
+        );
+        assert!(requests.join().unwrap().is_empty());
+    }
+    #[test]
+    fn unsafe_receipt_storage_blocks_before_any_network_request() {
+        use std::os::unix::fs::symlink;
+        let fixture = CreationFixtureTest::new();
+        let target = fixture.root.join("outside");
+        std::fs::write(&target, "untouched").unwrap();
+        symlink(
+            &target,
+            fixture.root.join("cache/track-native-create-v1.json"),
+        )
+        .unwrap();
+        let (client, requests) = fixture.client(vec![]);
+        assert!(matches!(
+            client.create_note("Alpha", "", 1),
+            Err(CreateError::NotSent(_))
+        ));
+        assert!(requests.join().unwrap().is_empty());
+        assert_eq!(std::fs::read_to_string(target).unwrap(), "untouched");
+    }
+    #[test]
+    fn lost_response_retained_exit_and_restart_never_authorize_retry() {
+        let fixture = CreationFixtureTest::new();
+        let (client, requests) = fixture.client(vec![Some((200, CREATE_STORAGE.into())), None]);
+        assert!(matches!(
+            client.create_note("Alpha", "", 1),
+            Err(CreateError::Uncertain(_))
+        ));
+        let exact = client.creation_snapshot().unwrap().unwrap();
+        assert_eq!(
+            exact.outcome,
+            crate::session_store::CreationOutcome::Pending
+        );
+        client.retain_uncertain_creation(&exact).unwrap();
+        assert!(matches!(
+            client.clone().create_note("Alpha", "", 1),
+            Err(CreateError::NotSent(_))
+        ));
+        assert_eq!(
+            requests
+                .join()
+                .unwrap()
+                .iter()
+                .filter(|r| r.starts_with("POST "))
+                .count(),
+            1
+        );
+        drop(client);
+        let (mut restarted, requests) = fixture.client(vec![]);
+        restarted.launch_generation = 99;
+        assert_eq!(restarted.creation_snapshot().unwrap(), Some(exact.clone()));
+        restarted.retain_uncertain_creation(&exact).unwrap();
+        assert!(matches!(
+            restarted.create_note("Other", "", 99),
+            Err(CreateError::NotSent(_))
+        ));
+        assert!(requests.join().unwrap().is_empty());
+    }
+    #[test]
+    fn receipt_or_lock_changed_during_readiness_prevents_post() {
+        use std::os::unix::fs::PermissionsExt;
+        for name in ["track-native-create-v1.json", "track-native-create-v1.lock"] {
+            let fixture = CreationFixtureTest::new();
+            let (received, waiting) = std::sync::mpsc::channel();
+            let (release, resume) = std::sync::mpsc::channel();
+            let (mut client, requests) = gated_request_mock(
+                vec![Some((200, CREATE_STORAGE.into()))],
+                Some((received, resume)),
+                "GET ",
+            );
+            client.creation_fixture = Some(fixture.binding.clone());
+            let worker = thread::spawn(move || client.create_note("Alpha", "", 1));
+            waiting.recv_timeout(Duration::from_secs(3)).unwrap();
+            let path = fixture.root.join("cache").join(name);
+            let bytes = std::fs::read(&path).unwrap();
+            std::fs::rename(&path, path.with_extension("retained")).unwrap();
+            std::fs::write(&path, bytes).unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+            release.send(()).unwrap();
+            assert!(matches!(
+                worker.join().unwrap(),
+                Err(CreateError::NotSent(_))
+            ));
+            let requests = requests.join().unwrap();
+            assert_eq!(requests.len(), 1);
+            assert!(!requests.iter().any(|r| r.starts_with("POST ")));
+        }
+    }
+    #[test]
+    fn cloned_clients_serialize_pending_mutation_and_durable_intent_precedes_post() {
+        let fixture = CreationFixtureTest::new();
+        let (received, waiting) = std::sync::mpsc::channel();
+        let (release, resume) = std::sync::mpsc::channel();
+        let (mut client, requests) = gated_request_mock(
+            vec![Some((200, CREATE_STORAGE.into())), None],
+            Some((received, resume)),
+            "POST ",
+        );
+        client.creation_fixture = Some(fixture.binding.clone());
+        let first = client.clone();
+        let worker = thread::spawn(move || first.create_note("Alpha", "", 1));
+        waiting.recv_timeout(Duration::from_secs(3)).unwrap();
+        let bytes = std::fs::read(fixture.root.join("cache/track-native-create-v1.json")).unwrap();
+        let record: crate::session_store::CreationRecord = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            record.outcome,
+            crate::session_store::CreationOutcome::Pending
+        );
+        let (completed, completion) = std::sync::mpsc::channel();
+        let second = thread::spawn(move || {
+            completed.send(client.create_note("Beta", "", 1)).unwrap();
+        });
+        assert!(completion.recv_timeout(Duration::from_millis(20)).is_err());
+        release.send(()).unwrap();
+        assert!(matches!(
+            worker.join().unwrap(),
+            Err(CreateError::Uncertain(_))
+        ));
+        assert!(matches!(
+            completion.recv_timeout(Duration::from_secs(3)).unwrap(),
+            Err(CreateError::NotSent(_))
+        ));
+        second.join().unwrap();
+        assert_eq!(
+            requests
+                .join()
+                .unwrap()
+                .iter()
+                .filter(|r| r.starts_with("POST "))
+                .count(),
+            1
+        );
     }
     #[test]
     fn create_conflict_is_not_success_and_does_not_overwrite() {
@@ -3762,6 +4013,7 @@ mod tests {
         });
         (
             ReadClient {
+                creation_store: Default::default(),
                 creation_fixture: None,
                 http: reqwest::blocking::Client::builder()
                     .no_proxy()
@@ -3818,6 +4070,7 @@ mod tests {
         });
         (
             ReadClient {
+                creation_store: Default::default(),
                 creation_fixture: None,
                 http: reqwest::blocking::Client::builder()
                     .no_proxy()
@@ -3885,6 +4138,7 @@ mod tests {
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         listener.set_nonblocking(true).unwrap();
         let client = ReadClient {
+            creation_store: Default::default(),
             creation_fixture: None,
             http: reqwest::blocking::Client::builder()
                 .no_proxy()
@@ -4026,6 +4280,7 @@ mod tests {
                 String::from_utf8(request).unwrap()
             });
             let client = ReadClient {
+                creation_store: Default::default(),
                 creation_fixture: None,
                 http: reqwest::blocking::Client::builder()
                     .no_proxy()
@@ -4094,6 +4349,7 @@ mod tests {
                 }
             });
             let client = ReadClient {
+                creation_store: Default::default(),
                 creation_fixture: None,
                 http: reqwest::blocking::Client::builder()
                     .no_proxy()
@@ -4682,6 +4938,7 @@ mod tests {
             String::from_utf8(request).unwrap()
         });
         let client = ReadClient {
+            creation_store: Default::default(),
             creation_fixture: None,
             http: reqwest::blocking::Client::builder()
                 .no_proxy()
@@ -5111,6 +5368,7 @@ mod tests {
         }
         thread::sleep(Duration::from_millis(50));
         let client = ReadClient {
+            creation_store: Default::default(),
             creation_fixture: None,
             http: reqwest::blocking::Client::new(),
             origin: "http://127.0.0.1:1".into(),
@@ -5215,6 +5473,7 @@ mod markdown_consume_tests {
         });
         (
             ReadClient {
+                creation_store: Default::default(),
                 creation_fixture: None,
                 http: reqwest::blocking::Client::builder()
                     .no_proxy()

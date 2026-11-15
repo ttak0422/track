@@ -14,8 +14,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[path = "creation_store.rs"]
+pub(crate) mod creation_store;
 #[path = "recovery_store.rs"]
 mod recovery_store;
+pub use creation_store::{CreationOutcome, CreationRecord, CreationStore};
 
 const STATE: &str = "track-native-tabs-v1.json";
 const LOCK: &str = "track-native-tabs-v1.lock";

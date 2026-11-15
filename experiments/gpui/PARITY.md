@@ -397,8 +397,14 @@ explicit reader opening, single-flight pending ownership, dirty/recovery/IME
 and competing-owner guards. No automatic retry, body override, template picker,
 named-vault creation, voice-selection/pinned-preview parity or ordinary-vault writes.
 
-Uncertain mutations retain title/destination and block navigation/quit; durable
-unresolved receipts and reconciliation are still required before normal release.
+Creation now durably records a bounded intent before POST using a dedicated
+receipt lock/artifact and existing protected atomic-write primitives. Pending
+requests block quit; after completion, explicit exact receipt verification/sync
+can allow closing without deleting evidence or enabling another create. Restart
+loads unresolved evidence before enabling New. Recorded Created identities remain
+visible without automatically opening a note. A title match or absent result is
+never used to infer success/noncreation. Actual uncertainty reconciliation and
+safe permission for a later fresh create remain deferred.
 Success with GET failure remains “created, unable to open/verify,” never a second
 POST. Fixture bindings and linked output directories are checked before dispatch,
 but this is a controlled disposable-fixture gate, not a filesystem sandbox against
@@ -408,3 +414,9 @@ Model/transport tests and a bounded native first-note/duplicate/navigation smoke
 passed, including real-engine default-template checks. Actual IME and interrupted
 mutation GUI flows remain unverified; see [NATIVE-QA.md](NATIVE-QA.md).
 No general new-note parity claim.
+
+Durable-receipt increment: native macOS tests pass (642 passed, 7 ignored), and
+formatting and native debug build pass. A seeded post-intent process-exit fixture
+verified native receipt restore, blocked dismissal/quit, retained close, New
+reopening without retry, normal quit and second-launch restore. This is not a
+live lost-response POST or dirty/IME combination smoke; see NATIVE-QA.md.

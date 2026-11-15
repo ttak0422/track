@@ -334,6 +334,10 @@ fn fixture_note(root: &Path, path: &Path) -> bool {
 impl Workspace {
     /// true means caller must stop before changing any navigation state.
     pub(crate) fn guard_transition(&mut self, intent: Transition, cx: &mut Context<Self>) -> bool {
+        if self.creation_retention_needed() && !self.editing_ui.creation.open {
+            self.show_retained_creation(cx);
+            return true;
+        }
         if self.editing_ui.creation.open {
             self.editing_ui.creation.message = if self.editing_ui.creation.flow.can_dismiss() {
                 "Close the creation dialog before navigating or quitting."

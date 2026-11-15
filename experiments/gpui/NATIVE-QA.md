@@ -1000,9 +1000,9 @@ IME remain pending. Ordinary vault editing stays disabled.
 ## Fixture title creation: bounded native smoke (2026-11-15)
 
 The title-only developer-fixture dialog uses the launch vault's default template.
-Ordinary vault writes remain disabled. Uncertain POST outcomes deliberately retain
-the title/destination and block navigation/quit; durable unresolved receipts and
-read-only reconciliation remain required before normal release.
+Ordinary vault writes remain disabled. At this smoke's revision, uncertain POST
+outcomes retained title/destination and blocked navigation/quit without a durable
+exit path. The subsequent receipt work is documented separately below.
 
 Validation on an isolated empty fixture with a controlled default template:
 - Click New, focus the title field, paste a title and press Enter: a created receipt
@@ -1032,3 +1032,57 @@ The smoke exposed a pre-existing empty-list decode failure: the real engine emit
 empty list, while missing/malformed list shapes still fail. Exact wire evidence
 and HTTP/model regressions cover the correction; the final null-decoder change
 was rebuilt/tested but not re-run through the GUI.
+
+
+## Durable fixture creation receipts
+
+`track-native-create-v1.json` and its separate lock live only in the explicitly
+isolated fixture cache. They do not enable or share the tab/draft artifact writer.
+The single owned-client receipt owner uses the existing descriptor-relative
+no-follow/ownership checks, bounded reads, exact bytes/device/inode compare token,
+atomic replacement, file sync and directory sync. Binding is an identity/change
+detector, not cryptographic authentication. Titles are bounded to 8192 UTF-8 bytes;
+receipt artifacts to 64 KiB. Ordinary/non-edit clients never inspect/create them.
+
+A durably acknowledged Pending intent precedes the only POST. Readiness and exact
+fixture/receipt/lock ownership are rechecked after persistence before dispatch.
+Crash before dispatch is deliberately indistinguishable from crash after an
+unacknowledged write: restart shows unresolved evidence and never retries.
+Acknowledged Created and definitive rejected/not-sent results are checkpointed;
+checkpoint uncertainty freezes the writer and cannot authorize another request.
+
+Once no worker is in flight, **Keep unresolved receipt and close** verifies/syncs
+the exact Pending record without editing/deleting it. It releases only the
+creation dialog: existing dirty/recovery/IME quit guards still apply. New reopens
+the unresolved receipt instead of posting. Restart shows it again. Corrupt,
+foreign, replaced or inaccessible evidence is retained and creation fails closed.
+No title search, absence-based resolution, automatic source navigation or
+uncertainty-erasure path is implemented. Storage failure can still block a safe
+exit; the UI never presents forced termination as rollback.
+
+New regressions include actual subprocess exit immediately after intent sync,
+response loss/restart/no retry, shared-client duplicate admission, durable intent
+present when POST arrives, receipt/lock replacement during held readiness GET,
+unsafe storage before any request, ordinary-client no-touch, stale completion,
+post-rename acknowledgement loss and retained-exit admission. The implementation
+passes the native macOS Rust suite (642 passed, 7 ignored), formatting and cloud
+whitespace checks; the native debug build also succeeds.
+
+A fresh isolated fixture was seeded through the regression subprocess, which
+exited immediately after durable intent sync without dispatching POST. Native GUI
+startup restored its exact title and uncertainty warning. Escape and Cmd-Q did
+not discard it. Explicit Keep receipt closed the dialog; New reopened the same
+receipt rather than a title-entry form. Keep then Cmd-Q exited. Relaunch restored
+the receipt again, and a second acknowledged exit succeeded. Post-exit checks
+confirmed byte-identical receipt content, zero Markdown files and both owned
+ports closed. This run had no session/draft flags. The workspace itself reported
+read/storage unavailable, so it is evidence for local receipt recovery/exit, not
+a successful live-engine creation or healthy-reader smoke. HTTP method absence
+was not separately instrumented in this GUI run. Actual lost-response creation
+is covered by transport tests, not this seeded startup observation.
+
+Native follow-up: hold POST then request all quit paths; release a lost response,
+keep receipt and quit, restart and verify the same title/evidence without a POST;
+repeat with a retained dirty draft and real marked-text IME. Check creation stays
+disabled after acknowledging uncertainty, and that a malformed receipt is never
+erased. No normal-vault write release gate is opened by this increment.
