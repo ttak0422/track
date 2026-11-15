@@ -14,7 +14,7 @@ fresh results for the candidate build in an isolated fixture:
 | Native termination routes | Earlier fixture app-menu Quit, Cmd-Q and window-close observations | Current Dock Quit, repeated quit, pending/failed/uncertain save and Cancel on every native route; verify exact owned child and ports reclaimed only after permitted exit |
 | IME and editor focus | UTF-16/composition model tests | Actual preedit, commit/cancel, Save, mode switch, tab navigation and quit with a real input method; no lost/duplicated text or shortcut interception |
 | Tab and session ownership | One-active-draft model; fixture metadata-only session tests | Multiple open tabs with a dirty active note, background close, return/cancel and relaunch; no draft replaced by restored metadata |
-| Recovery boundaries | Failed/uncertain writes retain the in-memory draft | Verify the visible recovery actions and clearly disclose memory-only recovery; forced kill/crash recovery is not implemented |
+| Recovery boundaries | Failed/uncertain writes retain the in-memory draft; explicit fixture checkpoints implemented | Verify current native recovery actions, durable versus pending status, restart/quit and conflict preservation. Ordinary recovery remains disabled |
 | Storage/session changes | Captured identity/revision and stale-completion tests | Current native behavior after owned-server loss or storage change: retain draft, refuse unsafe save, present recovery without automatic retry |
 
 Headless tests can strengthen request sequencing, exact destination consumption,
@@ -809,3 +809,27 @@ clipboard access during render, hover or refresh. Exercise keyboard focus,
 Enter/Space activation and readable feedback in both themes and high-DPI layouts.
 Headless fake-sink tests do not verify the system clipboard, native focus or AX.
 Normal vault editing remains disabled.
+
+## Current fixture startup, 2026-11-15
+
+Build `35bb72d`, clean, ran in the existing isolated QA application bundle with a
+fresh temporary vault/config/cache and explicit session/recovery opt-ins. No
+personal vault was opened. The native Home screen rendered, but immediately
+reported failed fixture recovery and a changed vault registry; diagnostics showed
+ready storage and one verified vault. This is a reproduced startup defect, not an
+editing or recovery pass. Cmd-Q exited the clean fixture and the owned server
+port was no longer listening. Clipboard, dirty quit and IME remain untested for
+this build. Ordinary editing remains disabled.
+
+After refreshing the registry only once storage is ready, the same fixture
+reached `Fixture recovery ready` and no longer reported a registry change.
+The first retest correctly rejected noncanonical `/var` fixture arguments;
+using their canonical `/private/var` paths resolved that fixture setup error
+without weakening validation. The native search opened `Native QA Copy` and
+rendered its Japanese Lua snippet. After Cmd-Q and relaunch the saved note tab
+was present alongside Home, with Home active. This verifies startup and tab
+presence, not active-tab fidelity, draft restoration or editing safety. The
+modified build was based on `35bb72d`; the tested change is limited to startup
+registry refresh. The live-gap notice remained visible. Final Cmd-Q removed
+the owned listener. Native clipboard, dirty quit, IME and ordinary-vault edit
+acceptance remain pending.

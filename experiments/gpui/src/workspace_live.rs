@@ -173,7 +173,17 @@ impl Workspace {
                     }
                 }
             }
-            let tabs = session_ui.restore(shell::session_registry(&session.initial_vaults));
+            // The launch handshake may have returned the bootstrap /api/vaults
+            // placeholder. Waiting for /api/storage does not refresh that value.
+            // Bind persistence only to a fresh, validated post-readiness registry.
+            let client = session.client();
+            let registry = startup_registry(
+                session.initial_storage.as_ref().map(|s| s.phase.as_str()),
+                &mut session.initial_vaults,
+                || owner.is_closing() || owner.failure().is_some(),
+                || client.vaults().map_err(|error| error.to_string()),
+            );
+            let tabs = session_ui.restore(registry);
             Ok::<_, live::Error>((session, session_ui, tabs))
         });
         cx.spawn(async move |this, cx| {
@@ -747,6 +757,27 @@ fn startup_readiness_pending(phase: Option<&str>, within_deadline: bool, stoppin
     within_deadline && !stopping && matches!(phase, Some("initializing" | "partial"))
 }
 
+/// A bootstrap registry is never promoted by a separate storage-ready response.
+/// Failure leaves no stale launch alias available to later scope normalization.
+fn startup_registry(
+    phase: Option<&str>,
+    initial: &mut serde_json::Value,
+    stopping: impl Fn() -> bool,
+    fetch: impl FnOnce() -> Result<serde_json::Value, String>,
+) -> Result<Vec<String>, String> {
+    *initial = serde_json::Value::Null;
+    if phase != Some("ready") || stopping() {
+        return Err("Startup vault registry is not ready".into());
+    }
+    let fresh = fetch()?;
+    if stopping() {
+        return Err("Startup vault registry was canceled".into());
+    }
+    let registry = shell::session_registry(&fresh)?;
+    *initial = fresh;
+    Ok(registry)
+}
+
 fn epoch_compatible(started: Option<u64>, current: Option<u64>, response: Option<u64>) -> bool {
     current == started || response.is_some() && current == response
 }
@@ -796,6 +827,78 @@ mod tests {
             .take_while(|phase| startup_readiness_pending(Some(phase), true, false))
             .collect();
         assert_eq!(observed, ["initializing", "partial", "partial"]);
+    }
+
+    #[test]
+    fn startup_registry_replaces_bootstrap_after_storage_becomes_ready() {
+        // Shapes emitted by bootstrap.go and vaults.go respectively.
+        let mut initial = serde_json::json!({
+            "active":{"name":"fixture","path":"/fixture"},
+            "vaults":[{"name":"fixture","path":"/fixture","active":true}],
+            "unavailable":[{"error":"initializing"}], "storage_state":"initializing"
+        });
+        assert!(shell::session_registry(&initial).is_err());
+        let fresh = serde_json::json!({
+            "active":{"name":"fixture","path":"/fixture"},
+            "vaults":[{"name":"fixture","path":"/fixture","active":true}],
+            "unavailable":[]
+        });
+        let registry =
+            startup_registry(Some("ready"), &mut initial, || false, || Ok(fresh.clone())).unwrap();
+        assert_eq!(registry, vec!["", "fixture"]);
+        assert_eq!(initial, fresh);
+        // Subsequent discovery sees the same binding, rather than a false change.
+        assert_eq!(registry, shell::session_registry(&initial).unwrap());
+    }
+
+    #[test]
+    fn startup_registry_never_restores_from_stale_or_canceled_data() {
+        for phase in [None, Some("initializing"), Some("partial"), Some("failed")] {
+            let mut old = serde_json::json!({"active":{"name":"old"},"vaults":[]});
+            assert!(
+                startup_registry(phase, &mut old, || false, || panic!("must not fetch")).is_err()
+            );
+            assert!(old.is_null());
+        }
+        let mut old = serde_json::json!({"active":{"name":"old"},"vaults":[]});
+        assert!(
+            startup_registry(
+                Some("ready"),
+                &mut old,
+                || true,
+                || panic!("must not fetch")
+            )
+            .is_err()
+        );
+        assert!(old.is_null());
+        assert!(
+            startup_registry(Some("ready"), &mut old, || false, || Err("offline".into())).is_err()
+        );
+        assert!(old.is_null());
+        assert!(
+            startup_registry(
+                Some("ready"),
+                &mut old,
+                || false,
+                || Ok(serde_json::json!({"storage_state":"partial"}))
+            )
+            .is_err()
+        );
+        assert!(old.is_null());
+        let calls = std::cell::Cell::new(0);
+        assert!(
+            startup_registry(
+                Some("ready"),
+                &mut old,
+                || {
+                    calls.set(calls.get() + 1);
+                    calls.get() > 1
+                },
+                || Ok(serde_json::json!({}))
+            )
+            .is_err()
+        );
+        assert!(old.is_null());
     }
 
     #[test]
