@@ -1828,6 +1828,33 @@ impl Workspace {
             .sync_with_scope(&self.tabs, &self.history, &self.shell.working_scope);
         cx.notify();
     }
+    pub(crate) fn workspace_shortcut(&mut self, save: bool, cx: &mut Context<Self>) {
+        if self.shell.search_open
+            || self.search.read(cx).is_composing()
+            || self.shell.calendar_zone.is_composing(cx)
+            || self.shell.vault_menu
+            || self.shell.tab_menu
+            || self.shell.diagnostics
+            || self.quit_session.is_closing()
+            || self.previews.model.geometry_active()
+            || self.shell.find.open
+            || self.handoff_active()
+            || self.includes_preview_active()
+            || self.previews.model.transient.is_some()
+            || self.editor_shortcut_blocked(cx)
+        {
+            return;
+        }
+        if save {
+            if !self.shell.home && !self.full_graph_active() && self.editor_shortcut_save_eligible()
+            {
+                self.editor_save(false, cx);
+            }
+        } else if let Some(key) = self.tabs.active().map(|tab| tab.key.clone()) {
+            self.close_tab(&key, cx);
+        }
+    }
+
     pub(crate) fn close_tab(&mut self, key: &tabs::TabKey, cx: &mut Context<Self>) {
         if self.tabs.get(key).is_none() {
             return;
@@ -3116,16 +3143,6 @@ impl Render for Workspace {
                 {
                     this.navigate_history(event.keystroke.key == "]", cx);
                     cx.stop_propagation();
-                } else if event.keystroke.key == "w"
-                    && modifiers.platform
-                    && !modifiers.control
-                    && !modifiers.alt
-                    && !modifiers.shift
-                {
-                    if let Some(key) = this.tabs.active().map(|tab| tab.key.clone()) {
-                        this.close_tab(&key, cx);
-                        cx.stop_propagation();
-                    }
                 } else if event.keystroke.key == "tab"
                     && !modifiers.platform
                     && !modifiers.control

@@ -58,6 +58,8 @@ actions!(
     [
         Quit,
         CloseWindow,
+        CloseTab,
+        Save,
         MinimizeWindow,
         ZoomWindow,
         ToggleFullscreen,
@@ -69,9 +71,32 @@ actions!(
 fn workspace_key_bindings() -> Vec<KeyBinding> {
     vec![
         KeyBinding::new("cmd-q", Quit, None),
+        KeyBinding::new("cmd-s", Save, None),
+        KeyBinding::new("cmd-w", CloseTab, None),
         KeyBinding::new("cmd-m", MinimizeWindow, None),
         KeyBinding::new("ctrl-cmd-f", ToggleFullscreen, None),
     ]
+}
+
+/// Route only to the native window that owned dispatch. Never use the quit
+/// fallback or a retained workspace behind an informational window.
+fn shortcut_workspace(handle: gpui::AnyWindowHandle) -> Option<gpui::WindowHandle<Workspace>> {
+    handle.downcast::<Workspace>()
+}
+
+fn route_workspace_shortcut(cx: &mut App, save: bool) {
+    let Some(handle) = cx.active_window().and_then(shortcut_workspace) else {
+        return;
+    };
+    // App-level action dispatch holds the window; update after it releases it.
+    cx.defer(move |cx| {
+        if cx.active_window() != Some(handle.into()) {
+            return;
+        }
+        let _ = handle.update(cx, |workspace, _, cx| {
+            workspace.workspace_shortcut(save, cx);
+        });
+    });
 }
 
 fn fixture(count: usize) -> Snapshot {
@@ -563,6 +588,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         cx.on_action(move |_: &Quit, cx| {
             route_workspace_quit(cx, &quit_target, quit_handle.clone())
         });
+        cx.on_action(|_: &Save, cx| route_workspace_shortcut(cx, true));
+        cx.on_action(|_: &CloseTab, cx| {
+            if !about::dismiss_active(cx) {
+                route_workspace_shortcut(cx, false);
+            }
+        });
         let close_handle = quit_session.clone();
         let close_target = workspace_target.clone();
         cx.on_action(move |_: &CloseWindow, cx| {
@@ -599,6 +630,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     MenuItem::action("About Track Native", ShowAbout),
                     MenuItem::action("Copy Build Info", CopyBuildInfo),
                     MenuItem::action("Quit", Quit),
+                ],
+            },
+            Menu {
+                name: "File".into(),
+                items: vec![
+                    MenuItem::action("Save", Save),
+                    MenuItem::action("Close Tab", CloseTab),
                 ],
             },
             Menu {
@@ -749,6 +787,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn shortcuts_resolve_with_focused_editor_without_changing_quit() {
+        let keymap = gpui::Keymap::new(workspace_key_bindings());
+        for context in ["TrackSourceEditor", "TrackSearch composing", ""] {
+            let contexts = [gpui::KeyContext::parse(context).unwrap()];
+            for (key, action) in [
+                ("cmd-s", Box::new(Save) as Box<dyn gpui::Action>),
+                ("cmd-w", Box::new(CloseTab)),
+                ("cmd-q", Box::new(Quit)),
+            ] {
+                let (matches, pending) =
+                    keymap.bindings_for_input(&[gpui::Keystroke::parse(key).unwrap()], &contexts);
+                assert!(!pending);
+                assert_eq!(matches.len(), 1);
+                assert!(matches[0].action().partial_eq(action.as_ref()));
+            }
+        }
+    }
+
+    #[test]
+    fn shortcut_route_declines_unknown_or_absent_window() {
+        let workspace = gpui::WindowHandle::<Workspace>::new(1_u64.into());
+        let other = gpui::WindowHandle::<gpui::Empty>::new(2_u64.into());
+        assert!(shortcut_workspace(workspace.into()).is_some());
+        assert!(shortcut_workspace(other.into()).is_none());
+        assert!(
+            None::<gpui::AnyWindowHandle>
+                .and_then(shortcut_workspace)
+                .is_none()
+        );
+    }
+
     #[test]
     fn recovery_requires_both_verified_fixture_bindings_and_owned_server() {
         let root = std::path::Path::new("/verified/fixture");

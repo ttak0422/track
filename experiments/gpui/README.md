@@ -338,6 +338,14 @@ A test-only loopback gate exercises a real post-preflight conflict and a real
 commit whose acknowledgment is dropped. It does not launch GPUI, change the
 production save path, or establish GUI/IME/Dock behavior. See [NATIVE-QA.md](NATIVE-QA.md).
 
+## Save and close shortcuts
+
+Cmd-S (File → Save) uses the existing guarded fixture Save and stays in the editor.
+Cmd-W (File → Close Tab) closes the active tab, not the application; dirty notes
+retain Save/Discard/Cancel protection. In About, Cmd-W dismisses only About.
+Modal surfaces, composition and pending work block underlying workspace actions.
+These shortcuts do not enable ordinary-vault editing.
+
 ## Session page history
 
 Use the Back and Forward rail controls on Home, Graph or a note. Unavailable

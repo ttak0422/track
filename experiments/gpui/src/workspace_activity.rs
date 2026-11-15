@@ -77,6 +77,12 @@ impl Default for CalendarZone {
     }
 }
 impl CalendarZone {
+    pub(crate) fn is_composing(&self, cx: &App) -> bool {
+        self.input
+            .as_ref()
+            .is_some_and(|input| input.read(cx).is_composing())
+    }
+
     fn advance(&mut self) -> u64 {
         self.serial = NEXT_AGENDA.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.serial

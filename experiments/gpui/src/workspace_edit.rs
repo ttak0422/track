@@ -146,6 +146,30 @@ fn recovery_source_identity(note: &live::Note, requested: Option<&live::NoteKey>
     })
 }
 
+fn shortcut_save_eligible(
+    enabled: bool,
+    mode: EditorMode,
+    draft: Option<&live::NoteKey>,
+    tab: Option<&tabs::TabKey>,
+    request: Option<&live::NoteKey>,
+    source: Option<&live::NoteKey>,
+) -> bool {
+    enabled
+        && mode != EditorMode::Preview
+        && draft.is_some_and(|key| {
+            source == Some(key)
+                && request.is_some_and(|route| {
+                    route.note_id == key.note_id
+                        && (route.vault == key.vault || route.vault.is_empty())
+                        && tab
+                            == Some(&tabs::TabKey::Note {
+                                vault: route.vault.clone(),
+                                note_id: route.note_id,
+                            })
+                })
+        })
+}
+
 struct ActiveDraft {
     session: EditSession,
     input: Entity<editor_input::TextEditor>,
@@ -206,6 +230,14 @@ impl EditingUi {
             && !self.recovery_clearing
             && !self.inspecting
             && !self.mode_menu
+    }
+    fn shortcut_blocked(&self, input_busy: bool) -> bool {
+        self.pending.is_some()
+            || self.exit_requested
+            || self.recovery_clearing
+            || self.inspecting
+            || self.mode_menu
+            || input_busy
     }
     pub fn has_pending(&self) -> bool {
         self.pending.is_some()
@@ -555,6 +587,30 @@ impl Workspace {
         self.editing_ui.mode_menu = false;
         cx.notify();
     }
+    pub(crate) fn editor_shortcut_blocked(&self, cx: &App) -> bool {
+        self.editing_ui
+            .shortcut_blocked(self.editing_ui.active.as_ref().is_some_and(|active| {
+                active.session.is_saving() || active.input.read(cx).is_composing()
+            }))
+    }
+
+    pub(crate) fn editor_shortcut_save_eligible(&self) -> bool {
+        shortcut_save_eligible(
+            self.editing_ui.enabled(),
+            self.editing_ui.mode,
+            self.editing_ui
+                .active
+                .as_ref()
+                .map(|active| active.session.key()),
+            self.tabs.active().map(|tab| &tab.key),
+            self.current_note_request.as_ref(),
+            self.current_note
+                .as_ref()
+                .map(|note| note.note.key())
+                .as_ref(),
+        )
+    }
+
     pub(crate) fn editor_save(&mut self, leaving: bool, cx: &mut Context<Self>) {
         if self.editing_ui.recovery_clearing {
             return;
@@ -1967,5 +2023,147 @@ mod follow_gate_tests {
         ui.inspecting = false;
         ui.mode_menu = true;
         assert!(!ui.follow_safe());
+    }
+}
+
+#[cfg(test)]
+mod shortcut_tests {
+    use super::*;
+
+    #[test]
+    fn save_requires_visible_opted_in_editor_and_same_route_source_tab() {
+        let key = live::NoteKey {
+            vault: "".into(),
+            note_id: 1,
+        };
+        let other = live::NoteKey {
+            vault: "other".into(),
+            note_id: 1,
+        };
+        let tab = tabs::TabKey::Note {
+            vault: "".into(),
+            note_id: 1,
+        };
+        let eligible = |enabled, mode, draft, active_tab, route, source| {
+            shortcut_save_eligible(enabled, mode, draft, active_tab, route, source)
+        };
+        assert!(eligible(
+            true,
+            EditorMode::Edit,
+            Some(&key),
+            Some(&tab),
+            Some(&key),
+            Some(&key)
+        ));
+        assert!(eligible(
+            true,
+            EditorMode::Split,
+            Some(&key),
+            Some(&tab),
+            Some(&key),
+            Some(&key)
+        ));
+        assert!(!eligible(
+            false,
+            EditorMode::Edit,
+            Some(&key),
+            Some(&tab),
+            Some(&key),
+            Some(&key)
+        ));
+        assert!(!eligible(
+            true,
+            EditorMode::Preview,
+            Some(&key),
+            Some(&tab),
+            Some(&key),
+            Some(&key)
+        ));
+        assert!(!eligible(
+            true,
+            EditorMode::Edit,
+            None,
+            Some(&tab),
+            Some(&key),
+            Some(&key)
+        ));
+        assert!(!eligible(
+            true,
+            EditorMode::Edit,
+            Some(&key),
+            None,
+            Some(&key),
+            Some(&key)
+        ));
+        assert!(!eligible(
+            true,
+            EditorMode::Edit,
+            Some(&other),
+            Some(&tab),
+            Some(&other),
+            Some(&other)
+        ));
+        assert!(!eligible(
+            true,
+            EditorMode::Edit,
+            Some(&key),
+            Some(&tab),
+            Some(&other),
+            Some(&key)
+        ));
+        assert!(!eligible(
+            true,
+            EditorMode::Edit,
+            Some(&key),
+            Some(&tab),
+            Some(&key),
+            Some(&other)
+        ));
+        // Empty launch route may resolve to its canonical named source. The
+        // tab remains bound to the route, the draft to the returned source.
+        assert!(eligible(
+            true,
+            EditorMode::Edit,
+            Some(&other),
+            Some(&tab),
+            Some(&key),
+            Some(&other)
+        ));
+        let wrong_id = live::NoteKey {
+            vault: "".into(),
+            note_id: 2,
+        };
+        assert!(!eligible(
+            true,
+            EditorMode::Edit,
+            Some(&other),
+            Some(&tab),
+            Some(&wrong_id),
+            Some(&other)
+        ));
+    }
+
+    #[test]
+    fn shortcuts_cannot_replace_dialog_or_busy_input_owner() {
+        let mut ui = EditingUi::new(None);
+        assert!(!ui.shortcut_blocked(false)); // Clean close is allowed without editing.
+        assert!(ui.shortcut_blocked(true)); // Live composition or in-flight save.
+        ui.pending.capture(Transition::Home);
+        assert!(ui.shortcut_blocked(false));
+        assert_eq!(ui.pending.intent, Some(Transition::Home));
+        ui.pending.cancel();
+        ui.exit_requested = true;
+        assert!(ui.shortcut_blocked(false));
+        ui.exit_requested = false;
+        ui.recovery_clearing = true;
+        assert!(ui.shortcut_blocked(false));
+        ui.recovery_clearing = false;
+        ui.inspecting = true;
+        assert!(ui.shortcut_blocked(false));
+        ui.inspecting = false;
+        ui.mode_menu = true;
+        assert!(ui.shortcut_blocked(false));
+        ui.mode_menu = false;
+        assert!(!ui.shortcut_blocked(false));
     }
 }
