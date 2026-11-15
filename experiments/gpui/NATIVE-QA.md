@@ -1648,3 +1648,10 @@ Use two identical actual `track-query :layout list` fences separated by long pro
 On 2026-11-15, the isolated two-query fixture verified controls in the wide Rendered content section, first-query Show/Hide, second occurrence projection after scrolling, and Open note from the second summary to Alpha. An earlier run verified the first summary to Beta. Native Quit succeeded; all 14 canonical hashes stayed unchanged and both owned ports closed. Native testing exposed and fixed server-added terminal-LF mapping rejection and narrow-rail control wrapping. Scrolled Hide passage retention, empty/truncated panels, Find/Copy interactions and in-flight lookup races remain native follow-ups rather than claimed coverage.
 
 CI run 43713416637 initially rejected Save after Cancel with HTTP 409 (index not fully verified). The unchanged-head rerun passed all termination scenarios. The original read-state cause remains unidentified; no safety gate or Save behavior was relaxed.
+
+
+## Calendar query row navigation (candidate)
+
+Unit coverage verifies exact group/row identity across unsorted months, duplicate titles with distinct explicit targets, empty titles, first-three bound, hidden +N rows, stale month and nonexistent rows. Modal admission rechecks visibility before issuing or accepting navigation; existing snapshot/source/scope tickets remain mandatory. Native follow-up: open each visible row, Back, missing explicit target without fallback, inert day/+N, change month while resolving, included-calendar inertness, unchanged fixture hashes. No calendar native pass is claimed yet.
+
+On 2026-11-15, an isolated two-month calendar fixture showed exactly three visible rows and an inert +1 count. Clicking +1 and the day label did not navigate. Next changed November to December, and that month's Open note reached Beta. Native Quit succeeded; all 12 canonical hashes stayed unchanged and owned ports closed. Pending-month races, explicit ID/foreign-vault cases and keyboard/accessibility parity remain unverified natively.

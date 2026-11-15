@@ -1651,7 +1651,7 @@ impl Workspace {
                     }
                 }
                 Layout::Calendar => {
-                    visual = visual.child("First 3 titles per date; +N counts additional rows. Source retains all supplied rows.");
+                    visual = visual.child("First 3 titles per date; Open note applies only to that row. +N and day labels are inert. Source retains all supplied rows.");
                     if let Some(month) = view.calendar_page(page) {
                         visual = visual.child(month.month.label()).child(self.query_pager(
                             key,
@@ -1704,7 +1704,8 @@ impl Workspace {
                                         content = content.child(div().id(gpui::SharedString::from(format!(
                                             "query-date-row-{}-{}-{item}-{block_index}-{}-{}-{}-{row_index}",
                                             state.serial, state.preview_epoch, month.month.year, month.month.month, day.day
-                                        ))).truncate().child(if title.is_empty() { "Untitled".to_owned() } else { (*title).to_owned() }));
+                                        ))).child(div().truncate().child(if title.is_empty() { "Untitled".to_owned() } else { (*title).to_owned() }))
+                                            .when_some(day.group_index, |row, group| row.child(self.query_navigation_control(key, group, row_index, cx))));
                                     }
                                     if day.excess > 0 {
                                         content = content.child(format!("+{}", day.excess));

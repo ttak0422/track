@@ -585,11 +585,10 @@ No PDF text search, automatic loading, or additional decode. Isolated duplicate
 occurrence, below-page passage retention and Find checks passed; narrow layout,
 bottom clamping and native race/error injection remain unverified.
 
-Rendered host-query list/board/gallery rows offer an explicit Open note control.
+Rendered host-query list/board/gallery and visible calendar rows offer an explicit Open note control.
 It uses one bounded, source-scoped engine wiki lookup per activation, preserving
 resolved vault identity; absent/empty targets alone fall back to title lookup.
-Snapshot/row/page/scope tickets reject stale work. Included queries and calendar,
-whole-card/keyboard/modifier/hover parity are deferred. No creation or external
-opener; failed resolution keeps the accepted preview. Native QA pending.
+Snapshot/row/page/scope tickets reject stale work. Included queries and whole-card/keyboard/modifier/hover parity are deferred. No creation or external
+opener; failed resolution keeps the accepted preview. Native list/board/gallery navigation and Back passed in an isolated title-mode fixture. Calendar, cross-vault, id-v1 and in-flight races remain native follow-ups. Calendar controls cover only first-three visible rows per date; day/+N remain inert.
 
-- Explicit inline host-query summaries: strict paired source/result fence correspondence, source retained, one fixed-height text-only panel, 100 total rows and explicit truncation. Uses accepted snapshot only; rich layout stays modal. Includes/other transformations reject inline admission. Surface-qualified resolver navigation and guarded passage restoration; no source/normal-vault/session writes. Native QA pending.
+- Explicit inline host-query summaries: strict paired source/result fence correspondence, source retained, one fixed-height text-only panel, 100 total rows and explicit truncation. Uses accepted snapshot only; rich layout stays modal. Includes/other transformations reject inline admission. Surface-qualified resolver navigation and guarded passage restoration; no source/normal-vault/session writes. Isolated native first-query Show/Hide, selected second occurrence projection and row navigation passed. Scrolled Hide passage retention, empty/truncated panels, Find/Copy interactions and pending-lookup races remain unverified natively.

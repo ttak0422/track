@@ -124,6 +124,25 @@ impl Workspace {
         {
             return None;
         }
+        if surface == Surface::Modal {
+            let view = state
+                .result
+                .as_ref()?
+                .as_ref()
+                .ok()?
+                .queries
+                .get(&key)?
+                .as_ref()
+                .ok()?;
+            if view.layout == crate::query_view::Layout::Calendar {
+                let page = state
+                    .query_pages
+                    .get(&(key.0, key.1, None))
+                    .copied()
+                    .unwrap_or(0);
+                view.calendar_visible_row(page, group, row)?;
+            }
+        }
         let value = host_row(state, key, group, row)?.clone();
         target(&value)?;
         Some(Ticket {

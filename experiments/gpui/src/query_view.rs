@@ -154,6 +154,23 @@ impl View {
             .collect()
     }
 
+    /// Exact visible calendar row authority: never the day itself or the +N label.
+    pub fn calendar_visible_row(&self, requested: usize, group: usize, row: usize) -> Option<&Row> {
+        if self.layout != Layout::Calendar || row >= 3 {
+            return None;
+        }
+        let page = self.calendar_page(requested)?;
+        if !page
+            .cells
+            .iter()
+            .flatten()
+            .any(|day| day.group_index == Some(group) && row < day.titles.len())
+        {
+            return None;
+        }
+        self.groups.get(group)?.rows.get(row)
+    }
+
     /// Materializes a single bounded month, not all months on every page.
     pub fn calendar_page(&self, requested: usize) -> Option<CalendarPage<'_>> {
         let months = self.calendar_months();
@@ -765,6 +782,59 @@ mod tests {
         assert_eq!((page.index, page.count), (2, 3));
         assert_eq!(page.month.label(), "2027 / 01");
         assert!(read(&base()).unwrap().calendar_page(0).is_none());
+    }
+
+    #[test]
+    fn calendar_row_authority_is_visible_structural_identity_not_title() {
+        let view = read(&json!({"layout":"calendar","columns":[],"groups":[
+            {"name":"2026-08-02","rows":[{"title":"same","target":"id:9","cells":[]}]},
+            {"name":"2026-07-02","rows":[
+                {"title":"same","target":"id:1","cells":[]},
+                {"title":"same","target":"other:id:2","cells":[]},
+                {"title":"","target":"id:3","cells":[]},
+                {"title":"hidden","target":"id:4","cells":[]}]}
+        ]}))
+        .unwrap();
+        assert_eq!(
+            view.calendar_visible_row(0, 1, 0)
+                .unwrap()
+                .target
+                .as_deref(),
+            Some("id:1")
+        );
+        assert_eq!(
+            view.calendar_visible_row(0, 1, 1)
+                .unwrap()
+                .target
+                .as_deref(),
+            Some("other:id:2")
+        );
+        assert_eq!(
+            view.calendar_visible_row(0, 1, 2)
+                .unwrap()
+                .target
+                .as_deref(),
+            Some("id:3")
+        );
+        assert!(view.calendar_visible_row(0, 1, 3).is_none());
+        assert!(view.calendar_visible_row(0, 0, 0).is_none());
+        assert!(view.calendar_visible_row(1, 1, 0).is_none());
+        assert_eq!(
+            view.calendar_visible_row(1, 0, 0)
+                .unwrap()
+                .target
+                .as_deref(),
+            Some("id:9")
+        );
+        assert!(view.calendar_visible_row(0, 9, 0).is_none());
+        assert!(view.calendar_visible_row(0, 1, usize::MAX).is_none());
+        assert!(calendar(&[]).calendar_visible_row(0, 0, 0).is_none());
+        assert!(
+            read(&base())
+                .unwrap()
+                .calendar_visible_row(0, 0, 0)
+                .is_none()
+        );
     }
 
     #[test]
