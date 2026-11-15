@@ -176,6 +176,7 @@ export interface TaskItem {
 
 // Read-only projection of the existing note tasks and recorded sidecar transitions.
 export interface TaskTimeline {
+  read_state?: PartialReadState;
   schema_version: 1;
   note_id: NoteID;
   title: string;

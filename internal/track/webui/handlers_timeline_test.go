@@ -47,3 +47,17 @@ func TestTimelineEndpoint(t *testing.T) {
 		t.Fatalf("missing id: %d", resp.StatusCode)
 	}
 }
+
+func TestTimelineKeepsAddressedVaultIdentity(t *testing.T) {
+	server, _, _ := twoVaultServer(t)
+	for _, tc := range []struct{ query, label, title string }{
+		{"", "", "Alpha in main"},
+		{"&vault=main", "", "Alpha in main"},
+		{"&vault=work", "work", "Alpha in work"},
+	} {
+		got := getVaultJSON(t, server.URL+"/api/timeline?id=100"+tc.query)
+		if got["vault"] != tc.label || got["title"] != tc.title || got["note_id"] != float64(100) {
+			t.Fatalf("timeline scope for %q: %+v", tc.query, got)
+		}
+	}
+}

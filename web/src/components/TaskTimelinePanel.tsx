@@ -36,10 +36,12 @@ function TimelineRead({ noteID }: { noteID: NoteID }) {
 
 export function TimelineSnapshotView({ timeline }: { timeline: TaskTimeline }) {
   const { progress, items, history } = timeline;
+  const degraded = timeline.read_state?.partial || timeline.read_state?.cache_used;
   return <>
+    {degraded ? <p className="muted" role="status">Some timeline information is unavailable or cached. Tasks and progress may be incomplete or stale.</p> : null}
     <p className="muted">Saved tasks: {progress.done} done, {progress.cancelled} cancelled,
       {" "}{progress.open} open ({progress.total} total).</p>
-    {items.length === 0 ? <p className="muted">No tasks in this note.</p> : (
+    {items.length === 0 ? <p className="muted">{degraded ? "No tasks available in this snapshot." : "No tasks in this note."}</p> : (
       <ol className="task-timeline-items" aria-label="Current tasks">
         {items.map((item) => <li key={item.line} style={{ paddingInlineStart: `${item.depth}em` }}>
           <span className="muted">{item.state}</span> {item.text}

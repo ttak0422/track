@@ -60,7 +60,15 @@ func canonical(raw []byte) (json.RawMessage, error) {
 		return nil, invalid("payload must be an object")
 	}
 	out, err := json.Marshal(value)
-	return out, err
+	if err != nil {
+		return nil, err
+	}
+	// JSON escaping can expand a small input. Persist only payloads that the
+	// same canonicalizer can accept again during an idempotent retry.
+	if len(out) > 64<<10 {
+		return nil, ErrLimit
+	}
+	return out, nil
 }
 func empty(id string) Snapshot {
 	return Snapshot{SchemaVersion: SchemaVersion, ProjectID: id, Tasks: []Task{}, Reports: []Report{}, Discussions: []Discussion{}, Controls: []Control{}, Events: []Event{}}
