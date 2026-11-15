@@ -1086,3 +1086,28 @@ keep receipt and quit, restart and verify the same title/evidence without a POST
 repeat with a retained dirty draft and real marked-text IME. Check creation stays
 disabled after acknowledging uncertainty, and that a malformed receipt is never
 erased. No normal-vault write release gate is opened by this increment.
+
+## Idle anchor repaint and read-only navigation
+
+A read-only disposable fixture exposed delayed same-note heading jumps: the
+reader did not repaint the changed offset until another input. GPUI's anchor
+queues a frame callback without invalidation; the reader had already deferred
+the anchor call into a frame. Heading and footnote paths now queue a single
+refresh after that offset callback, preserving existing source/epoch guards.
+
+Native verification with a fresh two-note fixture and 30 paragraphs confirmed
+that both the heading link and the footnote reference reveal their bottom-of-note
+targets after a single click, without subsequent pointer or keyboard input.
+Outline navigation back to the top, opening the second note, Back and Forward
+also rendered the expected note. Clean Cmd-Q exited and released both owned
+ports; all 10 canonical body/metadata hashes remained unchanged. No edit,
+session or recovery opt-in was used. The 642-test Rust suite, formatting and
+native build pass; independent review found no additional P1/P2 issues.
+
+A separate read-only six-note fixture also verified scoped tag listing (including
+descendant tags), closing the tag surface without losing its source tab, note
+flags disappearing on an unflagged note and returning with Back, and Japanese
+and long tag labels at a wide window size. Its 18 canonical hashes were unchanged.
+These checks do not establish narrow-window/theme parity, full-graph interaction,
+rapid interrupted anchor transitions, dirty-fragment behavior or native IME
+composition. The ordinary-vault editing gate remains closed.

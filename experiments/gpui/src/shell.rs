@@ -1633,6 +1633,12 @@ impl Workspace {
                         this.shell.navigation_notice = Some(
                             "Heading layout was unavailable; no fragment jump was applied.".into(),
                         );
+                    } else {
+                        // ScrollAnchor queues another next-frame callback. The
+                        // notify below paints this outer frame, before that offset
+                        // changes. Refresh AFTER the queued anchor application so
+                        // an idle reader need not wait for an unrelated input.
+                        window.on_next_frame(|window, _| window.refresh());
                     }
                 } else {
                     scroll.set_offset(point(px(0.), px(0.)));
@@ -2178,7 +2184,11 @@ impl Render for Workspace {
                                         if let Some(anchors) = this.tabs.active().and_then(|tab| {
                                             this.shell.heading_anchors.get(&tab.key)
                                         }) {
-                                            anchors.1.scroll_to_footnote(label, window, cx);
+                                            if anchors.1.scroll_to_footnote(label, window, cx) {
+                                                // The anchor applies on the following frame;
+                                                // repaint after its deferred offset change.
+                                                window.on_next_frame(|window, _| window.refresh());
+                                            }
                                             cx.notify();
                                         }
                                     });
