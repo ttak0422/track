@@ -1545,3 +1545,25 @@ files remained unchanged and both owned server ports closed.
 This is not native coverage of foreign-vault scope races, partial responses,
 midnight rollover, dense lists, accessibility, or IME. Those remain separate
 validation gates; ordinary vault editing and session persistence remain disabled.
+
+### Isolated PDF renderer feasibility (not a reader feature)
+
+The internal macOS helper uses CoreGraphics with an in-memory data provider. It
+runs before logger, UI, vault, session and engine initialization. It accepts no
+file path or URL. No reader asset fetching or PDF controls are connected yet.
+No new crate or external service was added.
+
+Local generated fixtures verified upright portrait text/vector geometry, landscape
+Japanese text, and separate page 1/page 2 counters and pixels. Invalid signature,
+malformed document, encrypted document, excessive input and an out-of-range page
+were rejected without an output frame. The observed BGRA frames were decoded and
+visually inspected independently of the app UI.
+
+Model/process tests cover byte/request/geometry/frame bounds, a non-reading child,
+cancellation during input, deadline, excessive output and nonzero exit. The runner
+owns one child at a time, uses nonblocking pipes, and kills/reaps on unsuccessful
+exit. Limits are 8 MiB input, 256 pages, 1536 pixels per edge, 2 million output
+pixels and a 5-second parent deadline; a 3-second CPU limit is secondary. This is
+process isolation, not an OS security sandbox or a hard resident-memory limit.
+PDF links, scripts, forms, annotations, external assets and session state are not
+executed or interpreted by this helper. Interactive reader acceptance is pending.

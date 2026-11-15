@@ -1,4 +1,5 @@
 mod inline_viewspec;
+mod pdf_probe;
 use gpui::{
     App, Application, Bounds, Context, KeyBinding, Menu, MenuItem, Window, WindowBounds,
     WindowOptions, actions, div, prelude::*, px, rgb, size, uniform_list,
@@ -484,9 +485,13 @@ fn validate_recovery_binding(
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    #[cfg(target_os = "macos")]
+    if let Some(result) = pdf_probe::early_helper(&args) {
+        return result.map_err(Into::into);
+    }
     let _ = log::set_logger(&LOGGER);
     log::set_max_level(log::LevelFilter::Warn);
-    let args: Vec<String> = std::env::args().skip(1).collect();
     if args.as_slice() == ["--version"] {
         print!("{}", build_info::clipboard_payload());
         return Ok(());
