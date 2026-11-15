@@ -1797,6 +1797,46 @@ pub fn parse(source: &str) -> Vec<Block> {
 pub fn parse_reader(source: &str) -> Vec<Block> {
     parse_mode(source, true)
 }
+/// Source coordinates for the untransformed accepted plain reader. Constructed
+/// on selection intent, not every frame. Never matches duplicate text by search.
+pub fn plain_source_segments(
+    source: &str,
+    current: &[Block],
+) -> Vec<crate::selection_lines::Segment> {
+    let options = Options::ENABLE_TABLES
+        | Options::ENABLE_TASKLISTS
+        | Options::ENABLE_STRIKETHROUGH
+        | Options::ENABLE_FOOTNOTES;
+    let tree = nodes(&mut Parser::new_ext(source, options).into_offset_iter());
+    let mut original = Vec::new();
+    let mut segments = Vec::new();
+    let mut end = 0;
+    for node in &tree {
+        fallback(&source[end..node.range.start], &mut original);
+        let index = original.len();
+        blocks(node, source, 0, false, &mut original, true);
+        if matches!(node.event, Event::Start(Tag::Paragraph))
+            && original.len() == index + 1
+            && crate::reader_selection::eligible(&original[index])
+        {
+            if let Some(segment) = crate::selection_lines::Segment::exact(
+                index,
+                source,
+                node.range.clone(),
+                &original[index].text,
+            ) {
+                segments.push(segment);
+            }
+        }
+        end = node.range.end;
+    }
+    fallback(&source[end..], &mut original);
+    if original != current {
+        return vec![];
+    }
+    segments
+}
+
 /// Accepted body and task metadata from one successful note GET only.
 /// Invalid or missing metadata keeps the original reader model.
 pub fn parse_accepted_reader(
@@ -6416,5 +6456,47 @@ mod callout_tests {
         }
         assert!(!block.text.contains("[!TIP]")); // Find's visible text has no hidden marker.
         assert!(source.starts_with("> [!TIP]")); // Source backing Copy MD is never edited.
+    }
+}
+
+#[cfg(test)]
+mod source_selection_tests {
+    use super::*;
+    #[test]
+    fn exact_plain_mapping_preserves_duplicate_identity_and_crlf() {
+        let source = "first\r\ncontinued\r\n\r\nsame\r\n\r\nsame\n";
+        let parsed = parse_reader(source);
+        let map = plain_source_segments(source, &parsed);
+        // Current inline() flattens SoftBreak to space, so the multiline
+        // paragraph has no exact source correspondence and is omitted.
+        assert_eq!(map.len(), 2);
+        assert_eq!(map.iter().map(|s| s.block).collect::<Vec<_>>(), vec![1, 2]);
+        assert_ne!(map[0].source, map[1].source);
+        assert_eq!(&source[map[1].source.clone()], "same");
+        let mut changed = parsed.clone();
+        changed[0].text.push('x');
+        assert!(plain_source_segments(source, &changed).is_empty());
+    }
+    #[test]
+    fn transformed_or_ambiguous_paragraphs_never_get_raw_authority() {
+        for source in [
+            "a\\*b",
+            "&amp;",
+            "a  \nb",
+            "**bold**",
+            "[[Target]]",
+            "> quote",
+            "- item",
+            "![x](assets/x.png)",
+            "> [!NOTE]\n> text",
+        ] {
+            assert!(
+                plain_source_segments(source, &parse_reader(source)).is_empty(),
+                "{source}"
+            );
+        }
+        let source = "one\n\n# heading\n\ntwo";
+        let map = plain_source_segments(source, &parse_reader(source));
+        assert_eq!(map.iter().map(|s| s.block).collect::<Vec<_>>(), vec![0, 2]);
     }
 }

@@ -755,6 +755,8 @@ struct ReaderSelection {
     scroll_epoch: u64,
     scope_revision: u64,
     range: reader_selection::State,
+    source_lines: Option<(std::sync::Arc<str>, crate::selection_lines::Segment)>,
+    markdown_feedback: bool,
     measured_layout: gpui::TextLayout,
     origin: gpui::Point<gpui::Pixels>,
     moved: bool,
@@ -896,6 +898,12 @@ impl Workspace {
             self.observe_preview_activation(window, cx);
             self.shell.selection_serial = self.shell.selection_serial.wrapping_add(1);
             self.shell.selection_suppress_click = false;
+            let source_lines = self.current_note.as_ref().and_then(|note| {
+                markdown::plain_source_segments(&note.body, displayed)
+                    .into_iter()
+                    .find(|segment| segment.block == index)
+                    .map(|segment| (std::sync::Arc::<str>::from(note.body.as_str()), segment))
+            });
             self.shell.selection = Some(ReaderSelection {
                 source: source.clone(),
                 document,
@@ -906,6 +914,8 @@ impl Workspace {
                 scroll_epoch: self.shell.reader_scroll_epoch,
                 scope_revision: self.shell.scope_revision,
                 range,
+                source_lines,
+                markdown_feedback: false,
                 measured_layout: layout.clone(),
                 origin: position,
                 moved: false,
@@ -984,6 +994,7 @@ impl Workspace {
         self.shell.selection_serial = self.shell.selection_serial.wrapping_add(1);
         let feedback = self.shell.selection_serial;
         self.shell.selection.as_mut().unwrap().feedback = Some(feedback);
+        self.shell.selection.as_mut().unwrap().markdown_feedback = false;
         cx.notify();
         cx.spawn(async move |this, cx| {
             cx.background_executor()
@@ -1001,6 +1012,104 @@ impl Workspace {
         })
         .detach();
     }
+    fn selected_markdown_payload(&self, token: u64, window: &Window, cx: &App) -> Option<String> {
+        if !self.reader_selection_current(window, cx) {
+            return None;
+        }
+        let selected = self
+            .shell
+            .selection
+            .as_ref()
+            .filter(|s| s.token == token && !s.range.dragging())?;
+        let (source, segment) = selected.source_lines.as_ref()?;
+        if self.current_note.as_ref()?.body.as_str() != source.as_ref() {
+            return None;
+        }
+        let range = selected.range.range()?;
+        crate::selection_lines::single_markdown(source, segment, range).map(str::to_owned)
+    }
+    fn copy_selected_markdown(&mut self, token: u64, window: &Window, cx: &mut Context<Self>) {
+        let Some(payload) = self.selected_markdown_payload(token, window, cx) else {
+            self.shell.navigation_notice = Some("Markdown line copy unavailable: select a released plain paragraph with exact source correspondence (256 KiB maximum).".into());
+            cx.notify();
+            return;
+        };
+        cx.write_to_clipboard(gpui::ClipboardItem::new_string(payload));
+        self.shell.selection_serial = self.shell.selection_serial.wrapping_add(1);
+        let feedback = self.shell.selection_serial;
+        if let Some(s) = self.shell.selection.as_mut().filter(|s| s.token == token) {
+            s.feedback = Some(feedback);
+            s.markdown_feedback = true;
+        }
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(1500))
+                .await;
+            let _ =
+                this.update(cx, |this, cx| {
+                    if let Some(s) = this.shell.selection.as_mut().filter(|s| {
+                        selection_feedback_current(s.token, s.feedback, token, feedback)
+                    }) {
+                        s.feedback = None;
+                        cx.notify();
+                    }
+                });
+        })
+        .detach();
+    }
+    fn selected_markdown_control(
+        &self,
+        muted: u32,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        let token = self.shell.selection.as_ref().map_or(0, |s| s.token);
+        let enabled = self.reader_selection_current(window, cx)
+            && self.shell.selection.as_ref().is_some_and(|s| {
+                !s.range.dragging() && s.range.range().is_some() && s.source_lines.is_some()
+            });
+        div()
+            .id("copy-selected-markdown-lines")
+            .w(px(210.))
+            .flex_shrink_0()
+            .text_size(px(12.))
+            .line_height(px(22.))
+            .text_color(rgb(muted))
+            .opacity(if enabled { 1. } else { 0.5 })
+            .when(enabled, |el| el.cursor_pointer())
+            .child(
+                if self
+                    .shell
+                    .selection
+                    .as_ref()
+                    .is_some_and(|s| s.feedback.is_some() && s.markdown_feedback)
+                {
+                    "Markdown lines submitted"
+                } else {
+                    "Copy selected Markdown lines"
+                },
+            )
+            .on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener(move |this, _, window, cx| {
+                    if this.reader_selection_current(window, cx)
+                        && this
+                            .shell
+                            .selection
+                            .as_ref()
+                            .is_some_and(|s| s.token == token && !s.range.dragging())
+                    {
+                        cx.stop_propagation();
+                    }
+                }),
+            )
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.copy_selected_markdown(token, window, cx);
+                cx.stop_propagation();
+            }))
+    }
+
     fn selection_copy_control(
         &self,
         muted: u32,
@@ -1020,11 +1129,13 @@ impl Workspace {
             .text_color(rgb(muted))
             .opacity(if enabled { 1. } else { 0.5 })
             .when(enabled, |el| el.cursor_pointer())
-            .child(if selection.is_some_and(|s| s.feedback.is_some()) {
-                "Copy submitted"
-            } else {
-                "Copy selection"
-            })
+            .child(
+                if selection.is_some_and(|s| s.feedback.is_some() && !s.markdown_feedback) {
+                    "Copy submitted"
+                } else {
+                    "Copy selection"
+                },
+            )
             .on_mouse_down(
                 gpui::MouseButton::Left,
                 cx.listener(move |this, _, window, cx| {
@@ -4919,6 +5030,9 @@ impl Render for Workspace {
                                     .when(self.current_note.is_some(), |row| {
                                         row.child(self.copy_markdown_control(p.muted, window, cx))
                                             .child(self.selection_copy_control(p.muted, window, cx))
+                                            .child(
+                                                self.selected_markdown_control(p.muted, window, cx),
+                                            )
                                     }),
                             )
                             .child(markdown::render_with_positions(
@@ -7184,6 +7298,8 @@ mod reader_selection_owner_tests {
             scroll_epoch: 1,
             scope_revision: 2,
             range: reader_selection::State::begin(&displayed[0].text, 0).unwrap(),
+            source_lines: None,
+            markdown_feedback: false,
             measured_layout: Default::default(),
             origin: point(px(1.), px(1.)),
             moved: false,

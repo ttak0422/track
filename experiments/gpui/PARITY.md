@@ -777,3 +777,10 @@ regressions are added; final GPUI/native layout and interruption QA is pending.
   together. Block count/indices remain stable, including marker-only paragraphs.
   No custom titles, collapse, or quoted-text selection expansion. Unknown/code/
   escaped/styled markers fall back. Pure mapping harness passes; native QA pending.
+
+- Selected Markdown lines: separate exact-source copy action for a released
+  single plain paragraph; whole touched lines and original CRLF preserved, with
+  existing source/document/scope/geometry ownership rechecked at copy time.
+  No pointer behavior changes or multi-paragraph UI support. Ambiguous rendered
+  transformations, links/styles/quotes and payloads above 256 KiB remain unavailable.
+  Pure source-line model tests pass; native pointer/clipboard verification pending.

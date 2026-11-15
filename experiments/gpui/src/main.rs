@@ -53,6 +53,7 @@ mod reader_selection;
 mod recent_notes;
 mod search_input;
 mod search_refinement;
+mod selection_lines;
 mod session_store;
 mod shell;
 mod tabs;
