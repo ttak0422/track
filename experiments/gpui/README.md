@@ -363,8 +363,10 @@ behavior is unchanged.
 
 ### Identify a running build
 
-The diagnostics drawer shows the package version, full source commit, tracked-source
-state and target captured at compile time. The same information is available without
+The application menu’s About Track Native and the diagnostics drawer show the package
+version, full source commit, tracked-source state and target captured at compile time.
+Copy Build Info remains a separate explicit clipboard action. About does not access
+the vault, and closing it leaves the workspace open. The same information is available without
 opening a window, vault or server:
 
 ```sh

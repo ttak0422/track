@@ -56,6 +56,12 @@ mod tests {
     fn preserves_full_revision_and_modified_state() {
         let revision = "0123456789012345678901234567890123456789";
         let text = format("0.1.0", revision, "modified", "aarch64-apple-darwin");
+        assert_eq!(
+            text,
+            format!(
+                "Track Native 0.1.0\nCommit: {revision}\nTracked source: modified\nTarget: aarch64-apple-darwin"
+            )
+        );
         assert!(text.contains(revision));
         assert!(text.contains("Tracked source: modified"));
         assert!(text.contains("aarch64-apple-darwin"));
@@ -73,7 +79,10 @@ mod tests {
 
     #[test]
     fn missing_metadata_is_explicit() {
-        assert!(format("0.1.0", "unknown", "unknown", "target").contains("Commit: unknown"));
+        assert_eq!(
+            format("0.1.0", "unknown", "unknown", "target"),
+            "Track Native 0.1.0\nCommit: unknown\nTracked source: unknown\nTarget: target"
+        );
         assert!(display().starts_with("Track Native "));
     }
 }

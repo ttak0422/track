@@ -3,6 +3,7 @@ use gpui::{
     App, Application, Bounds, Context, KeyBinding, Menu, MenuItem, Window, WindowBounds,
     WindowOptions, actions, div, prelude::*, px, rgb, size, uniform_list,
 };
+mod about;
 mod backend;
 mod build_info;
 mod code_copy;
@@ -60,7 +61,8 @@ actions!(
         MinimizeWindow,
         ZoomWindow,
         ToggleFullscreen,
-        CopyBuildInfo
+        CopyBuildInfo,
+        ShowAbout
     ]
 );
 
@@ -564,7 +566,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let close_handle = quit_session.clone();
         let close_target = workspace_target.clone();
         cx.on_action(move |_: &CloseWindow, cx| {
-            route_workspace_quit(cx, &close_target, close_handle.clone())
+            if !about::dismiss_active(cx) {
+                route_workspace_quit(cx, &close_target, close_handle.clone());
+            }
         });
         cx.on_action(|_: &MinimizeWindow, cx| {
             if let Some(handle) = cx.active_window() {
@@ -581,6 +585,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let _ = handle.update(cx, |_, window, _| window.toggle_fullscreen());
             }
         });
+        cx.on_action(|_: &ShowAbout, cx| about::show(cx));
         cx.on_action(|_: &CopyBuildInfo, cx| {
             cx.write_to_clipboard(gpui::ClipboardItem::new_string(
                 build_info::clipboard_payload(),
@@ -591,6 +596,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Menu {
                 name: "Track Native".into(),
                 items: vec![
+                    MenuItem::action("About Track Native", ShowAbout),
                     MenuItem::action("Copy Build Info", CopyBuildInfo),
                     MenuItem::action("Quit", Quit),
                 ],
