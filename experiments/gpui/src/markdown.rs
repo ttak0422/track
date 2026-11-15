@@ -1729,7 +1729,9 @@ fn decorate_callout(blocks: &mut [Block], kind: CalloutKind, marker: &str) {
     };
     let cut = if rest.is_empty() {
         marker.len()
-    } else if rest.starts_with('\n') {
+    } else if rest.starts_with([' ', '\n']) {
+        // The authored first line was checked before projection. Its break is
+        // a space for SoftBreak or a newline for HardBreak, matching inline().
         marker.len() + 1
     } else {
         return;
@@ -6386,11 +6388,26 @@ mod callout_tests {
         }
     }
     #[test]
+    fn marker_break_follows_existing_inline_projection() {
+        for source in ["> [!NOTE]\n> body\n> tail", "> [!NOTE]  \n> body\n> tail"] {
+            let blocks = parse_reader(source);
+            assert_eq!(blocks[0].callout, Some((CalloutKind::Note, true)));
+            assert_eq!(blocks[0].text, "body tail");
+        }
+        let blocks = parse_reader("> [!NOTE]\n> body  \n> tail");
+        assert_eq!(blocks[0].text, "body\ntail");
+        assert!(
+            parse_reader("> [!NOTE] body")
+                .iter()
+                .all(|block| block.callout.is_none())
+        );
+    }
+    #[test]
     fn marker_removal_only_shifts_surviving_ranges() {
         let source = "> [!TIP]\n> [Guide](Guide.md) and [[Target#Heading|日本語]]\n> last";
         let blocks = parse_reader(source);
         let block = &blocks[0];
-        assert_eq!(block.text, "Guide and 日本語\nlast");
+        assert_eq!(block.text, "Guide and 日本語 last");
         assert_eq!(block.links.len(), 2);
         assert_eq!(&block.text[block.links[0].range.clone()], "Guide");
         assert_eq!(&block.text[block.links[1].range.clone()], "日本語");
