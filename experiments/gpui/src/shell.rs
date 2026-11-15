@@ -547,6 +547,9 @@ pub struct ShellState {
     workspace_focus: Option<gpui::FocusHandle>,
     reader_hover: Option<ReaderHover>,
     selection: Option<ReaderSelection>,
+    selection_measurements: markdown::SelectionMeasurements,
+    selection_source_cache:
+        crate::selection_lines::SourceMapCache<LinkSource, std::rc::Rc<Vec<markdown::Block>>>,
     selection_serial: u64,
     selection_suppress_click: bool,
     reader_scrolls: std::collections::HashMap<tabs::TabKey, gpui::ScrollHandle>,
@@ -673,6 +676,8 @@ impl Default for ShellState {
             workspace_focus: None,
             reader_hover: None,
             selection: None,
+            selection_measurements: Default::default(),
+            selection_source_cache: Default::default(),
             selection_serial: 0,
             selection_suppress_click: false,
             reader_scrolls: Default::default(),
@@ -755,6 +760,7 @@ struct ReaderSelection {
     scroll_epoch: u64,
     scope_revision: u64,
     range: reader_selection::State,
+    multi: Option<MultiReaderSelection>,
     source_lines: Option<(std::sync::Arc<str>, crate::selection_lines::Segment)>,
     markdown_feedback: bool,
     measured_layout: gpui::TextLayout,
@@ -763,7 +769,31 @@ struct ReaderSelection {
     token: u64,
     feedback: Option<u64>,
 }
+struct MultiReaderSelection {
+    state: crate::selection_lines::Selection,
+    segments: std::rc::Rc<[crate::selection_lines::Segment]>,
+}
 impl ReaderSelection {
+    fn dragging(&self) -> bool {
+        self.multi
+            .as_ref()
+            .map_or_else(|| self.range.dragging(), |m| m.state.dragging())
+    }
+    fn ranges(&self) -> Vec<(usize, std::ops::Range<usize>)> {
+        self.multi.as_ref().map_or_else(
+            || {
+                self.range
+                    .range()
+                    .map(|r| vec![(self.index, r)])
+                    .unwrap_or_default()
+            },
+            |m| m.state.ranges(&m.segments),
+        )
+    }
+    fn has_range(&self) -> bool {
+        !self.ranges().is_empty()
+    }
+
     fn matches(
         &self,
         source: Option<&LinkSource>,
@@ -783,12 +813,26 @@ impl ReaderSelection {
             && scope == self.scope_revision
     }
 }
+fn selection_rect(b: gpui::Bounds<gpui::Pixels>) -> crate::selection_lines::Rect {
+    crate::selection_lines::Rect {
+        left: f32::from(b.left()),
+        top: f32::from(b.top()),
+        right: f32::from(b.right()),
+        bottom: f32::from(b.bottom()),
+    }
+}
+fn selection_clip(g: &FootnoteGeometry) -> crate::selection_lines::Rect {
+    let b = selection_rect(g.reader);
+    crate::selection_lines::Rect {
+        left: b.left.max(0.),
+        top: b.top.max(0.),
+        right: b.right.min(f32::from(g.viewport.width)),
+        bottom: b.bottom.min(f32::from(g.viewport.height)),
+    }
+}
 impl Workspace {
     pub(crate) fn reader_selection_dragging(&self) -> bool {
-        self.shell
-            .selection
-            .as_ref()
-            .is_some_and(|s| s.range.dragging())
+        self.shell.selection.as_ref().is_some_and(|s| s.dragging())
     }
     pub(crate) fn clear_reader_selection(&mut self) {
         if self.reader_selection_dragging() {
@@ -843,6 +887,7 @@ impl Workspace {
     }
     fn sync_reader_selection(&mut self, window: &Window, cx: &App) {
         if self.shell.selection.is_some() && !self.reader_selection_current(window, cx) {
+            self.shell.selection_source_cache.clear();
             self.clear_reader_selection();
         }
     }
@@ -862,6 +907,15 @@ impl Workspace {
             || !std::rc::Rc::ptr_eq(displayed, &self.displayed_content())
         {
             return false;
+        }
+        if !matches!(phase, SelectionPhase::Begin)
+            && self
+                .shell
+                .selection
+                .as_ref()
+                .is_some_and(|s| s.multi.is_some())
+        {
+            return self.reader_multi_pointer(phase, position, window, cx);
         }
         let Some(block) = displayed
             .get(index)
@@ -898,11 +952,42 @@ impl Workspace {
             self.observe_preview_activation(window, cx);
             self.shell.selection_serial = self.shell.selection_serial.wrapping_add(1);
             self.shell.selection_suppress_click = false;
-            let source_lines = self.current_note.as_ref().and_then(|note| {
-                markdown::plain_source_segments(&note.body, displayed)
-                    .into_iter()
-                    .find(|segment| segment.block == index)
-                    .map(|segment| (std::sync::Arc::<str>::from(note.body.as_str()), segment))
+            let source_map = self.current_note.as_ref().map(|note| {
+                let segments = self.shell.selection_source_cache.get_with(
+                    source,
+                    &note.body,
+                    displayed,
+                    || markdown::plain_source_segments(&note.body, displayed),
+                );
+                (std::sync::Arc::<str>::from(note.body.as_str()), segments)
+            });
+            let source_lines = source_map.as_ref().and_then(|(body, map)| {
+                map.iter()
+                    .find(|s| s.block == index)
+                    .cloned()
+                    .map(|s| (body.clone(), s))
+            });
+            let multi = source_map.as_ref().and_then(|(_, segments)| {
+                let rows = self.shell.selection_measurements.snapshot()?;
+                let clip = selection_clip(&geometry);
+                let visible = |i| {
+                    rows.get(&i)
+                        .is_some_and(|r| selection_rect(r.bounds).inside(clip))
+                };
+                if !visible(index)
+                    || !segments.iter().any(|s| {
+                        s.block != index && s.block.abs_diff(index) == 1 && visible(s.block)
+                    })
+                {
+                    return None;
+                }
+                Some(MultiReaderSelection {
+                    state: crate::selection_lines::Selection::begin(
+                        segments,
+                        crate::selection_lines::Point { block: index, byte },
+                    )?,
+                    segments: segments.clone(),
+                })
             });
             self.shell.selection = Some(ReaderSelection {
                 source: source.clone(),
@@ -915,6 +1000,7 @@ impl Workspace {
                 scope_revision: self.shell.scope_revision,
                 range,
                 source_lines,
+                multi,
                 markdown_feedback: false,
                 measured_layout: layout.clone(),
                 origin: position,
@@ -929,7 +1015,7 @@ impl Workspace {
             .shell
             .selection
             .as_ref()
-            .is_some_and(|s| s.index == index && s.range.dragging())
+            .is_some_and(|s| s.index == index && s.dragging())
         {
             return false;
         }
@@ -957,19 +1043,111 @@ impl Workspace {
                 }
                 false
             }
-            SelectionPhase::Cancel => {
+            SelectionPhase::Cancel | SelectionPhase::EndOutside => {
                 selection.range.cancel();
                 false
             }
             SelectionPhase::Begin => unreachable!(),
         };
         self.shell.selection_suppress_click |= selection.moved || !valid;
-        if !valid || (!selection.range.dragging() && selection.range.range().is_none()) {
+        if !valid || (!selection.dragging() && selection.range.range().is_none()) {
             self.shell.selection = None;
         }
         cx.notify();
         true
     }
+    fn reader_multi_pointer(
+        &mut self,
+        phase: markdown::SelectionPhase,
+        position: Option<gpui::Point<gpui::Pixels>>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        use markdown::SelectionPhase;
+        if !self
+            .shell
+            .selection
+            .as_ref()
+            .is_some_and(|s| s.multi.is_some() && s.dragging())
+        {
+            return false;
+        }
+        if !self.reader_selection_current(window, cx) {
+            self.clear_reader_selection();
+            cx.notify();
+            return true;
+        }
+        // Hover-leave can fire during a repaint before the reader commits all
+        // measurements. Do not use an older generation or invent movement then.
+        let rows = self.shell.selection_measurements.snapshot();
+        if matches!(phase, SelectionPhase::Leave) && rows.is_none() {
+            return false;
+        }
+        let selected = self.shell.selection.as_ref().unwrap();
+        let clip = selection_clip(&selected.geometry);
+        let point = position.and_then(|position| {
+            let rows = rows.as_ref()?;
+            let measured: Vec<_> = rows
+                .iter()
+                .map(|(i, r)| (*i, selection_rect(r.bounds)))
+                .collect();
+            let hit = crate::selection_lines::hit(
+                &measured,
+                clip,
+                (f32::from(position.x), f32::from(position.y)),
+            )?;
+            let p = match hit {
+                crate::selection_lines::Hit::Text(block) => crate::selection_lines::Point {
+                    block,
+                    byte: rows.get(&block)?.layout.index_for_position(position).ok()?,
+                },
+                crate::selection_lines::Hit::Gap(block) => crate::selection_lines::Point {
+                    block,
+                    byte: selected
+                        .multi
+                        .as_ref()?
+                        .segments
+                        .iter()
+                        .find(|s| s.block == block)?
+                        .text
+                        .len(),
+                },
+            };
+            // No hidden/offscreen/intervening blocks, even for fast pointer jumps.
+            for i in selected.index.min(p.block)..=selected.index.max(p.block) {
+                if !rows
+                    .get(&i)
+                    .is_some_and(|r| selection_rect(r.bounds).inside(clip))
+                {
+                    return None;
+                }
+            }
+            Some(p)
+        });
+        if matches!(phase, SelectionPhase::Leave) && point.is_some() {
+            return false;
+        }
+        let selected = self.shell.selection.as_mut().unwrap();
+        selected.moved |= position.is_none_or(|p| p != selected.origin);
+        let m = selected.multi.as_mut().unwrap();
+        let valid = if matches!(phase, SelectionPhase::Cancel | SelectionPhase::Leave) {
+            m.state.cancel();
+            false
+        } else {
+            m.state.update(
+                &m.segments,
+                point,
+                matches!(phase, SelectionPhase::End | SelectionPhase::EndOutside),
+            )
+        };
+        self.shell.selection_suppress_click |= selected.moved || !valid;
+        if !valid || (!selected.dragging() && !selected.has_range()) {
+            self.shell.selection = None;
+        }
+        cx.notify();
+        true
+    }
+
     fn copy_reader_selection(&mut self, token: u64, window: &Window, cx: &mut Context<Self>) {
         if !self.reader_selection_current(window, cx) {
             self.clear_reader_selection();
@@ -979,11 +1157,16 @@ impl Workspace {
         let Some(s) = self.shell.selection.as_ref().filter(|s| s.token == token) else {
             return;
         };
-        let payload = s
-            .range
-            .payload(&s.displayed[s.index].text)
-            .map(str::to_owned);
-        let Ok(payload) = payload else {
+        let payload = s.multi.as_ref().map_or_else(
+            || {
+                s.range
+                    .payload(&s.displayed[s.index].text)
+                    .ok()
+                    .map(str::to_owned)
+            },
+            |m| m.state.plain(&m.segments),
+        );
+        let Some(payload) = payload else {
             self.shell.navigation_notice = Some(
                 "Selection copy refused: select a released nonempty range within 256 KiB.".into(),
             );
@@ -1020,10 +1203,13 @@ impl Workspace {
             .shell
             .selection
             .as_ref()
-            .filter(|s| s.token == token && !s.range.dragging())?;
+            .filter(|s| s.token == token && !s.dragging())?;
         let (source, segment) = selected.source_lines.as_ref()?;
         if self.current_note.as_ref()?.body.as_str() != source.as_ref() {
             return None;
+        }
+        if let Some(m) = &selected.multi {
+            return m.state.markdown(&m.segments, source).map(str::to_owned);
         }
         let range = selected.range.range()?;
         crate::selection_lines::single_markdown(source, segment, range).map(str::to_owned)
@@ -1066,9 +1252,11 @@ impl Workspace {
     ) -> Stateful<Div> {
         let token = self.shell.selection.as_ref().map_or(0, |s| s.token);
         let enabled = self.reader_selection_current(window, cx)
-            && self.shell.selection.as_ref().is_some_and(|s| {
-                !s.range.dragging() && s.range.range().is_some() && s.source_lines.is_some()
-            });
+            && self
+                .shell
+                .selection
+                .as_ref()
+                .is_some_and(|s| !s.dragging() && s.has_range() && s.source_lines.is_some());
         div()
             .id("copy-selected-markdown-lines")
             .w(px(210.))
@@ -1098,7 +1286,7 @@ impl Workspace {
                             .shell
                             .selection
                             .as_ref()
-                            .is_some_and(|s| s.token == token && !s.range.dragging())
+                            .is_some_and(|s| s.token == token && !s.dragging())
                     {
                         cx.stop_propagation();
                     }
@@ -1119,7 +1307,7 @@ impl Workspace {
         let selection = self.shell.selection.as_ref();
         let token = selection.map(|s| s.token).unwrap_or(0);
         let enabled = self.reader_selection_current(window, cx)
-            && selection.is_some_and(|s| !s.range.dragging() && s.range.range().is_some());
+            && selection.is_some_and(|s| !s.dragging() && s.has_range());
         div()
             .id("copy-reader-selection")
             .w(px(155.))
@@ -1144,7 +1332,7 @@ impl Workspace {
                             .shell
                             .selection
                             .as_ref()
-                            .is_some_and(|s| s.token == token && !s.range.dragging())
+                            .is_some_and(|s| s.token == token && !s.dragging())
                     {
                         cx.stop_propagation();
                     }
@@ -3959,7 +4147,10 @@ impl Render for Workspace {
                     .shell
                     .selection
                     .as_ref()
-                    .and_then(|s| s.range.range().map(|range| (s.index, range))),
+                    .map(ReaderSelection::ranges)
+                    .unwrap_or_default(),
+                measurements: self.shell.selection_measurements.clone(),
+                generation: self.shell.selection_measurements.begin(),
                 pointer: std::rc::Rc::new(move |index, phase, layout, position, window, cx| {
                     let Some(source) = &select_source else {
                         return false;
@@ -5408,11 +5599,34 @@ impl Render for Workspace {
                         this.shell.positions.interaction.wrapping_add(1);
                 }),
             )
-            .on_mouse_move(cx.listener(|this, event: &gpui::MouseMoveEvent, _, _| {
-                if event.pressed_button.is_some() {
-                    this.shell.reader_keys = None;
-                }
-            }))
+            .on_mouse_move(
+                cx.listener(|this, event: &gpui::MouseMoveEvent, window, cx| {
+                    if event.pressed_button.is_some() {
+                        this.shell.reader_keys = None;
+                    }
+                    let phase = if event.pressed_button == Some(gpui::MouseButton::Left) {
+                        markdown::SelectionPhase::Move
+                    } else {
+                        markdown::SelectionPhase::Cancel
+                    };
+                    if this.reader_multi_pointer(phase, Some(event.position), window, cx) {
+                        cx.stop_propagation();
+                    }
+                }),
+            )
+            .on_mouse_up(
+                gpui::MouseButton::Left,
+                cx.listener(|this, event: &gpui::MouseUpEvent, window, cx| {
+                    if this.reader_multi_pointer(
+                        markdown::SelectionPhase::End,
+                        Some(event.position),
+                        window,
+                        cx,
+                    ) {
+                        cx.stop_propagation();
+                    }
+                }),
+            )
             .on_mouse_down(
                 gpui::MouseButton::Right,
                 cx.listener(|this, _, _, _| this.shell.reader_keys = None),
@@ -7299,6 +7513,7 @@ mod reader_selection_owner_tests {
             scope_revision: 2,
             range: reader_selection::State::begin(&displayed[0].text, 0).unwrap(),
             source_lines: None,
+            multi: None,
             markdown_feedback: false,
             measured_layout: Default::default(),
             origin: point(px(1.), px(1.)),

@@ -48,6 +48,108 @@ impl Segment {
         (output == byte).then_some(self.source.start + input)
     }
 }
+/// One immutable data snapshot only. This cache never decides whether an action
+/// is authorized; callers must validate the live document/owner before using it.
+pub struct SourceMapCache<K, M> {
+    entry: Option<(K, String, M, std::rc::Rc<[Segment]>)>,
+}
+impl<K, M> Default for SourceMapCache<K, M> {
+    fn default() -> Self {
+        Self { entry: None }
+    }
+}
+impl<K: PartialEq + Clone, M: PartialEq + Clone> SourceMapCache<K, M> {
+    pub fn clear(&mut self) {
+        self.entry = None;
+    }
+    pub fn get_with(
+        &mut self,
+        key: &K,
+        source: &str,
+        model: &M,
+        compute: impl FnOnce() -> Vec<Segment>,
+    ) -> std::rc::Rc<[Segment]> {
+        if let Some((old_key, old_source, old_model, result)) = &self.entry {
+            if old_key == key && old_source == source && old_model == model {
+                return result.clone();
+            }
+        }
+        let result: std::rc::Rc<[Segment]> = compute().into();
+        self.entry = Some((
+            key.clone(),
+            source.to_owned(),
+            model.clone(),
+            result.clone(),
+        ));
+        result
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Rect {
+    pub left: f32,
+    pub top: f32,
+    pub right: f32,
+    pub bottom: f32,
+}
+impl Rect {
+    fn valid(self) -> bool {
+        [self.left, self.top, self.right, self.bottom]
+            .iter()
+            .all(|n| n.is_finite())
+            && self.left < self.right
+            && self.top < self.bottom
+    }
+    pub fn inside(self, clip: Self) -> bool {
+        self.valid()
+            && clip.valid()
+            && self.left >= clip.left
+            && self.right <= clip.right
+            && self.top >= clip.top
+            && self.bottom <= clip.bottom
+    }
+    fn contains(self, p: (f32, f32)) -> bool {
+        self.valid()
+            && p.0 >= self.left
+            && p.0 <= self.right
+            && p.1 >= self.top
+            && p.1 <= self.bottom
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Hit {
+    Text(usize),
+    Gap(usize),
+}
+/// Exact measured rows only. Gap returns the preceding paragraph's end; it
+/// never guesses a glyph position or crosses an intervening ineligible block.
+pub fn hit(rows: &[(usize, Rect)], clip: Rect, p: (f32, f32)) -> Option<Hit> {
+    if !p.0.is_finite() || !p.1.is_finite() || !clip.contains(p) {
+        return None;
+    }
+    if rows
+        .windows(2)
+        .any(|w| w[0].0 >= w[1].0 || w[0].1.bottom > w[1].1.top)
+    {
+        return None;
+    }
+    let mut hits = rows.iter().filter(|(_, r)| r.inside(clip) && r.contains(p));
+    if let Some((i, _)) = hits.next() {
+        return hits.next().is_none().then_some(Hit::Text(*i));
+    }
+    for pair in rows.windows(2) {
+        let ((a, x), (b, y)) = (pair[0], pair[1]);
+        if a.checked_add(1) != Some(b) || !x.inside(clip) || !y.inside(clip) || x.bottom >= y.top {
+            continue;
+        }
+        if p.1 > x.bottom && p.1 < y.top && p.0 >= x.left.max(y.left) && p.0 <= x.right.min(y.right)
+        {
+            return Some(Hit::Gap(a));
+        }
+    }
+    None
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Point {
     pub block: usize,
@@ -273,6 +375,78 @@ mod tests {
                 .collect(),
         )
     }
+    #[test]
+    fn duplicate_release_or_old_outside_event_cannot_cancel_finished_selection() {
+        let (source, s) = fixture();
+        let mut state = Selection::begin(&s, Point { block: 0, byte: 0 }).unwrap();
+        assert!(state.update(&s, Some(Point { block: 2, byte: 2 }), true));
+        let before = state.clone();
+        assert!(!state.update(&s, None, true));
+        assert_eq!(state, before);
+        assert_eq!(state.markdown(&s, source), Some(source));
+    }
+
+    #[test]
+    fn measured_gap_requires_adjacent_visible_rows_and_horizontal_overlap() {
+        let clip = Rect {
+            left: 0.,
+            top: 0.,
+            right: 500.,
+            bottom: 500.,
+        };
+        let a = Rect {
+            left: 20.,
+            top: 20.,
+            right: 300.,
+            bottom: 60.,
+        };
+        let b = Rect {
+            left: 30.,
+            top: 100.,
+            right: 320.,
+            bottom: 150.,
+        };
+        assert_eq!(hit(&[(0, a), (1, b)], clip, (50., 80.)), Some(Hit::Gap(0)));
+        assert_eq!(
+            hit(&[(0, a), (1, b)], clip, (50., 110.)),
+            Some(Hit::Text(1))
+        );
+        assert_eq!(hit(&[(0, a), (2, b)], clip, (50., 80.)), None);
+        assert_eq!(hit(&[(0, a), (1, b)], clip, (25., 80.)), None);
+        assert_eq!(hit(&[(0, a), (1, b)], clip, (501., 110.)), None);
+        assert_eq!(
+            hit(&[(0, a), (1, Rect { bottom: 600., ..b })], clip, (50., 80.)),
+            None
+        );
+        assert_eq!(hit(&[(0, a), (1, b)], clip, (f32::NAN, 80.)), None);
+    }
+
+    #[test]
+    fn exact_snapshot_cache_computes_once_and_retires_all_changed_inputs() {
+        let mut cache = SourceMapCache::<u64, Vec<u8>>::default();
+        let calls = std::cell::Cell::new(0);
+        let mut get = |key, source, model: &Vec<u8>| {
+            cache.get_with(&key, source, model, || {
+                calls.set(calls.get() + 1);
+                vec![]
+            })
+        };
+        let a = get(1, "one", &vec![1]);
+        let b = get(1, "one", &vec![1]);
+        assert!(std::rc::Rc::ptr_eq(&a, &b));
+        assert_eq!(calls.get(), 1);
+        get(2, "one", &vec![1]); // route/request identity
+        get(2, "two", &vec![1]); // exact source bytes, even same metadata
+        get(2, "two", &vec![2]); // transformed display model
+        assert_eq!(calls.get(), 4);
+        cache.clear();
+        cache.get_with(&2, "two", &vec![2], || {
+            calls.set(calls.get() + 1);
+            vec![]
+        });
+        assert_eq!(calls.get(), 5);
+    }
+
     #[test]
     fn current_single_ui_slice_returns_exact_line_and_bounds() {
         let source = "before\n\n日本語 line\r\n\nafter";

@@ -781,6 +781,14 @@ regressions are added; final GPUI/native layout and interruption QA is pending.
 - Selected Markdown lines: separate exact-source copy action for a released
   single plain paragraph; whole touched lines and original CRLF preserved, with
   existing source/document/scope/geometry ownership rechecked at copy time.
-  No pointer behavior changes or multi-paragraph UI support. Ambiguous rendered
+  Single-paragraph operation remains available alongside the extension below. Ambiguous rendered
   transformations, links/styles/quotes and payloads above 256 KiB remain unavailable.
   Pure source-line model tests pass; native pointer/clipboard verification pending.
+
+- Adjacent paragraph selection: viewport-measured, exactly source-mapped plain
+  paragraphs can share a forward/reverse drag with bounded gap bridging. Unknown,
+  offscreen and noneligible crossings cancel; no auto-scroll. Original single-
+  paragraph fallback remains. Source-line copy preserves interior blank lines;
+  owner/geometry/source checks remain action-time. One-entry data-only source-map
+  cache avoids repeat parsing. Pure model regressions pass; full native event-order
+  and clipboard validation remain pending.

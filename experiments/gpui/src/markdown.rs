@@ -163,12 +163,61 @@ pub enum SelectionPhase {
     Begin,
     Move,
     End,
+    EndOutside,
     Leave,
     Cancel,
 }
 #[derive(Clone)]
+pub struct MeasuredSelectionText {
+    pub layout: gpui::TextLayout,
+    pub bounds: gpui::Bounds<gpui::Pixels>,
+}
+#[derive(Default)]
+struct SelectionMeasurementState {
+    generation: u64,
+    ready: bool,
+    rows: std::collections::BTreeMap<usize, MeasuredSelectionText>,
+}
+#[derive(Clone, Default)]
+pub struct SelectionMeasurements(Rc<RefCell<SelectionMeasurementState>>);
+impl SelectionMeasurements {
+    pub fn begin(&self) -> u64 {
+        let mut s = self.0.borrow_mut();
+        s.generation = s.generation.wrapping_add(1);
+        s.ready = false;
+        s.rows.clear();
+        s.generation
+    }
+    fn publish(&self, generation: u64, block: usize, layout: &gpui::TextLayout) {
+        let mut s = self.0.borrow_mut();
+        if s.generation != generation {
+            return;
+        }
+        s.rows.insert(
+            block,
+            MeasuredSelectionText {
+                layout: layout.clone(),
+                bounds: layout.bounds(),
+            },
+        );
+    }
+    fn commit(&self, generation: u64) {
+        let mut s = self.0.borrow_mut();
+        if s.generation == generation {
+            s.ready = true;
+        }
+    }
+    pub fn snapshot(&self) -> Option<std::collections::BTreeMap<usize, MeasuredSelectionText>> {
+        let s = self.0.borrow();
+        s.ready.then(|| s.rows.clone())
+    }
+}
+
+#[derive(Clone)]
 pub struct SelectionCallbacks {
-    pub selected: Option<(usize, Range<usize>)>,
+    pub selected: Vec<(usize, Range<usize>)>,
+    pub measurements: SelectionMeasurements,
+    pub generation: u64,
     pub pointer: Rc<
         dyn Fn(
             usize,
@@ -906,6 +955,14 @@ impl PositionAnchors {
         self.layout.borrow_mut().pending = None;
     }
     fn track(&self, reader: Div, count: usize) -> Div {
+        self.track_selection(reader, count, None)
+    }
+    fn track_selection(
+        &self,
+        reader: Div,
+        count: usize,
+        selection: Option<(SelectionMeasurements, u64)>,
+    ) -> Div {
         let generation = {
             let mut state = self.layout.borrow_mut();
             state.generation = state.generation.wrapping_add(1);
@@ -921,6 +978,11 @@ impl PositionAnchors {
                 return;
             }
             let count_matches = blocks.len() == count && count == expected_count;
+            if count_matches {
+                if let Some((measurements, generation)) = &selection {
+                    measurements.commit(*generation);
+                }
+            }
             let measured = PositionMeasurement {
                 blocks,
                 reader: handle.bounds(),
@@ -1145,35 +1207,15 @@ impl FindAnchors {
         target: &Target,
         generation: u64,
     ) -> Div {
-        let state = self.layout.borrow();
-        let Some(hit) = state.hit.as_ref().filter(|hit| &hit.target == target) else {
-            return row;
-        };
-        let Some(index) = match_start(source, &hit.range, prefix) else {
-            return row;
-        };
-        drop(state);
-        let text = text.layout().clone();
-        let state = self.layout.clone();
-        let handle = self.handle.clone();
-        // Runs only after this row's StyledText/InteractiveText has prepainted.
-        row.on_children_prepainted(move |_, window, _| {
-            if state.borrow().generation != generation {
-                return;
-            }
-            if let Some(position) = text.position_for_index(index) {
-                let top = f32::from(position.y - handle.offset().y);
-                state.borrow_mut().publish(
-                    generation,
-                    FindLine {
-                        top,
-                        height: f32::from(text.line_height()),
-                        reader_bounds: handle.bounds(),
-                        viewport: window.viewport_size(),
-                    },
-                );
-            }
-        })
+        track_reader_text(
+            row,
+            text,
+            source,
+            prefix,
+            target,
+            Some((self, generation)),
+            None,
+        )
     }
     pub fn scroll_to_hit(&self, hit: &Hit, viewport: gpui::Size<gpui::Pixels>) -> bool {
         let state = self.layout.borrow();
@@ -1784,6 +1826,50 @@ fn flush_run(run: &mut Cell, indent: usize, quoted: bool, out: &mut Vec<Block>) 
             marker: None,
         });
     }
+}
+
+/// A single listener owns both Find and selection measurement for this row.
+fn track_reader_text(
+    row: Div,
+    text: &StyledText,
+    source: &str,
+    prefix: usize,
+    target: &Target,
+    find: Option<(&FindAnchors, u64)>,
+    selection: Option<(&SelectionMeasurements, u64, usize)>,
+) -> Div {
+    let find = find.and_then(|(a, generation)| {
+        let state = a.layout.borrow();
+        let hit = state.hit.as_ref().filter(|hit| &hit.target == target)?;
+        let index = match_start(source, &hit.range, prefix)?;
+        Some((a.layout.clone(), a.handle.clone(), generation, index))
+    });
+    let selection = selection.map(|(m, g, i)| (m.clone(), g, i));
+    if find.is_none() && selection.is_none() {
+        return row;
+    }
+    let text = text.layout().clone();
+    row.on_children_prepainted(move |_, window, _| {
+        if let Some((m, g, i)) = &selection {
+            m.publish(*g, *i, &text);
+        }
+        if let Some((state, handle, generation, index)) = &find {
+            if state.borrow().generation != *generation {
+                return;
+            }
+            if let Some(position) = text.position_for_index(*index) {
+                state.borrow_mut().publish(
+                    *generation,
+                    FindLine {
+                        top: f32::from(position.y - handle.offset().y),
+                        height: f32::from(text.line_height()),
+                        reader_bounds: handle.bounds(),
+                        viewport: window.viewport_size(),
+                    },
+                );
+            }
+        }
+    })
 }
 
 /// Parse CommonMark plus tables, ordinary tasks, strike and display-only footnotes.
@@ -2998,7 +3084,18 @@ pub fn render_with_positions(
         .flex_col()
         .children(elements);
     if let Some(positions) = positions {
-        positions.track(reader, blocks.len())
+        positions.track_selection(
+            reader,
+            blocks.len(),
+            callbacks
+                .selection
+                .as_ref()
+                .map(|s| (s.measurements.clone(), s.generation)),
+        )
+    } else if let Some(selection) = callbacks.selection.as_ref() {
+        let measurements = selection.measurements.clone();
+        let generation = selection.generation;
+        reader.on_children_prepainted(move |_, _, _| measurements.commit(generation))
     } else {
         reader
     }
@@ -3271,8 +3368,7 @@ fn render_elements(
                 .and_then(|c| c.selection.as_ref())
                 .filter(|_| crate::reader_selection::eligible(block));
             let selected = selection
-                .and_then(|c| c.selected.as_ref())
-                .filter(|(i, _)| *i == index)
+                .and_then(|c| c.selected.iter().find(|(i, _)| *i == index))
                 .map(|(_, r)| r.clone());
             let presentation = if let Some(range) = selected {
                 let runs = styled_runs(text.clone(), &visible_spans, offset, theme, mono, bold);
@@ -3308,18 +3404,15 @@ fn render_elements(
                     dark,
                 )
             };
-            let row = if let (Some(find), Some(generation)) = (find, find_generation) {
-                find.anchors.track_text(
-                    row,
-                    &presentation,
-                    &block.text,
-                    offset,
-                    &Target::Block(index),
-                    generation,
-                )
-            } else {
-                row
-            };
+            let row = track_reader_text(
+                row,
+                &presentation,
+                &block.text,
+                offset,
+                &Target::Block(index),
+                find.zip(find_generation).map(|(f, g)| (f.anchors, g)),
+                selection.map(|s| (&s.measurements, s.generation, index)),
+            );
             let selection_layout = presentation.layout().clone();
             let row = row.child(link_text(
                 presentation,
@@ -3520,9 +3613,9 @@ fn render_elements(
                     .on_mouse_up_out(gpui::MouseButton::Left, move |_, window, cx| {
                         if outside(
                             index,
-                            SelectionPhase::Cancel,
+                            SelectionPhase::EndOutside,
                             &selection_layout,
-                            None,
+                            Some(window.mouse_position()),
                             window,
                             cx,
                         ) {
@@ -6498,5 +6591,25 @@ mod source_selection_tests {
         let source = "one\n\n# heading\n\ntwo";
         let map = plain_source_segments(source, &parse_reader(source));
         assert_eq!(map.iter().map(|s| s.block).collect::<Vec<_>>(), vec![0, 2]);
+    }
+}
+
+#[cfg(test)]
+mod selection_measurement_tests {
+    use super::*;
+    #[test]
+    fn incomplete_and_stale_measurements_never_publish_a_hit_snapshot() {
+        let registry = SelectionMeasurements::default();
+        assert!(registry.snapshot().is_none());
+        let old = registry.begin();
+        let current = registry.begin();
+        registry.commit(old);
+        assert!(registry.snapshot().is_none());
+        // A stale publication must not even inspect an unmeasured TextLayout.
+        registry.publish(old, 0, &Default::default());
+        registry.commit(current);
+        assert!(registry.snapshot().unwrap().is_empty());
+        registry.begin();
+        assert!(registry.snapshot().is_none());
     }
 }
