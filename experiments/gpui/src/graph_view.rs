@@ -327,6 +327,11 @@ impl GraphView {
     pub fn selected(&self) -> Option<i64> {
         self.selected
     }
+    pub(crate) fn canvas_has_focus(&self, window: &Window) -> bool {
+        self.focus
+            .as_ref()
+            .is_some_and(|focus| focus.is_focused(window))
+    }
     pub fn focus_canvas(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         // The Workspace entry handler already checked its context; do not read
         // it recursively while that entity is mutably updating.

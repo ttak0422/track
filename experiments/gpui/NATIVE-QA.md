@@ -1269,3 +1269,27 @@ formatting, build and help-site generation passed. Link/code/table exclusion,
 navigation/resize invalidation, selection, full keyboard/accessibility and
 interrupted owner flows still require native coverage. Normal vault writes
 remain disabled.
+
+### Native View Back/Forward
+
+- Models cover unique bracket bindings, Home/Tag/Graph boundaries, runtime owner
+  blocking and focus fallback without taking existing/background focus.
+- Pending Mac: native menu enabled/disabled state, no-focus Home and full graph,
+  one navigation per bracket press, tag history and About/background isolation.
+  Check reader Escape does not revive j/k, input selection/marked text, dirty/save/
+  recovery/creation dialogs and quit interruptions. No actual IME claim yet.
+- No new route, read/write endpoint, persistence or Reload action.
+
+Native macOS pointer smoke on 2026-11-15 found retained focus after Back to Home
+left Forward unavailable. Repairing only known unmounted focus handles fixed
+that path; live local/full graph and input handles remain excluded from repair.
+The corrected build verified View Back from Alpha to Home, disabled Back at the
+boundary, enabled Forward and successful return to Alpha without a reader click.
+Full graph Back restored Alpha; opening Search disabled both native history
+items. A synthetic Cmd-[ did not visibly navigate with the active IME, so native
+bracket delivery is not claimed. Tag/About, live local-graph focus retention and
+interrupted/dirty flows still need native coverage. Quit exited; all 10 canonical
+fixture hashes stayed unchanged and both owned ports closed. Rust tests: 680
+passed, 7 ignored; formatting, native build and help-site generation passed.
+Independent final focus review found no P1/P2 issue. Normal vault writes remain
+disabled, and full IME composition remains unverified.

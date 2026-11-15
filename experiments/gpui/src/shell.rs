@@ -2,6 +2,41 @@
 use super::*;
 use gpui::{Div, Focusable, PathBuilder, Stateful, WindowAppearance, canvas, point};
 
+fn native_history_dispatch_allowed(active: bool, workspace_window: bool, available: bool) -> bool {
+    active && workspace_window && available
+}
+
+fn stale_workspace_focus(
+    reader_mounted: bool,
+    reader_or_code_focused: bool,
+    search_mounted: bool,
+    search_focused: bool,
+    graph_mounted: bool,
+    graph_focused: bool,
+) -> bool {
+    (!reader_mounted && reader_or_code_focused)
+        || (!search_mounted && search_focused)
+        || (!graph_mounted && graph_focused)
+}
+
+fn workspace_root_focus_allowed(active: bool, focused: bool, blocked: bool) -> bool {
+    active && !focused && !blocked
+}
+
+fn native_history_enabled(
+    history: &navigation::History,
+    forward: bool,
+    invalid_tag: bool,
+    blocked: bool,
+) -> bool {
+    !blocked
+        && if invalid_tag {
+            !forward
+        } else {
+            history.peek(forward).is_some()
+        }
+}
+
 fn tab_activation_needed(
     tabs: &tabs::Tabs,
     key: &tabs::TabKey,
@@ -429,6 +464,7 @@ pub struct ShellState {
     navigation_notice: Option<String>,
     pending_fragment: Option<PendingFragment>,
     pub(crate) reader_focus: Option<gpui::FocusHandle>,
+    workspace_focus: Option<gpui::FocusHandle>,
     reader_scrolls: std::collections::HashMap<tabs::TabKey, gpui::ScrollHandle>,
     reader_content: std::collections::HashMap<tabs::TabKey, ReaderContentIdentity>,
     tab_cycle: Vec<tabs::TabKey>,
@@ -541,6 +577,7 @@ impl Default for ShellState {
             navigation_notice: None,
             pending_fragment: None,
             reader_focus: None,
+            workspace_focus: None,
             reader_scrolls: Default::default(),
             reader_content: Default::default(),
             tab_cycle: Vec::new(),
@@ -2147,6 +2184,23 @@ impl Workspace {
         }
         true
     }
+    fn native_history_owner_blocked(&self, cx: &App) -> bool {
+        self.tag_routing_blocked(cx)
+            || self.editor_shortcut_blocked(cx)
+            || self.shell.find.is_composing(cx)
+    }
+    fn native_history_available(&self, forward: bool, cx: &App) -> bool {
+        let invalid_tag = self
+            .tag_page
+            .as_ref()
+            .is_some_and(|p| !tabs::TabKey::valid_tag_route(&p.tag, &p.scope));
+        native_history_enabled(
+            &self.history,
+            forward,
+            invalid_tag,
+            self.native_history_owner_blocked(cx),
+        )
+    }
     pub(crate) fn navigate_history(&mut self, forward: bool, cx: &mut Context<Self>) {
         // Invalid input is an ephemeral error page, never a serialized route.
         // Back returns to its source without skipping that history entry.
@@ -3660,8 +3714,68 @@ impl Render for Workspace {
                 .flex_1()
                 .min_h_0(),
             );
+        // A stable workspace focus target makes the native menu dispatch path
+        // available on unfocused Home/Tag/Graph, without taking any existing focus.
+        // It is intentionally distinct from reader_focus and never grants j/k.
+        let workspace_focus = self
+            .shell
+            .workspace_focus
+            .get_or_insert_with(|| cx.focus_handle())
+            .clone();
+        // FocusHandle can outlive its mounted element. Repair only recognized
+        // handles whose exact surface is absent, never an arbitrary live input.
+        let stale_focus = stale_workspace_focus(
+            !home && !full_graph_active && self.tag_page.is_none() && !self.editing_ui.active(),
+            self.shell
+                .reader_focus
+                .as_ref()
+                .is_some_and(|focus| focus.is_focused(window))
+                || self
+                    .shell
+                    .code_focus
+                    .values()
+                    .any(|focus| focus.is_focused(window)),
+            home || self.shell.search_open,
+            self.search.focus_handle(cx).is_focused(window),
+            full_graph_active
+                || (!home
+                    && self.tag_page.is_none()
+                    && !self.editing_ui.active()
+                    && self.show_graph),
+            self.graph_view.read(cx).canvas_has_focus(window),
+        );
+        if workspace_root_focus_allowed(
+            window.is_window_active(),
+            window.focused(cx).is_some() && !stale_focus,
+            self.native_history_owner_blocked(cx),
+        ) {
+            window.focus(&workspace_focus);
+        }
         div()
             .id("workspace-shell")
+            .track_focus(&workspace_focus)
+            .when(self.native_history_available(false, cx), |root| {
+                root.on_action(cx.listener(|this, _: &HistoryBack, window, cx| {
+                    if native_history_dispatch_allowed(
+                        window.is_window_active(),
+                        cx.active_window().and_then(shortcut_workspace).is_some(),
+                        this.native_history_available(false, cx),
+                    ) {
+                        this.navigate_history(false, cx);
+                    }
+                }))
+            })
+            .when(self.native_history_available(true, cx), |root| {
+                root.on_action(cx.listener(|this, _: &HistoryForward, window, cx| {
+                    if native_history_dispatch_allowed(
+                        window.is_window_active(),
+                        cx.active_window().and_then(shortcut_workspace).is_some(),
+                        this.native_history_available(true, cx),
+                    ) {
+                        this.navigate_history(true, cx);
+                    }
+                }))
+            })
             .child(self.handoff_entry(cx))
             .child(self.render_follow_controls(cx))
             .on_action(
@@ -3791,15 +3905,7 @@ impl Render for Workspace {
                     return;
                 }
                 let modifiers = event.keystroke.modifiers;
-                if matches!(event.keystroke.key.as_str(), "[" | "]")
-                    && modifiers.platform
-                    && !modifiers.control
-                    && !modifiers.alt
-                    && !modifiers.shift
-                {
-                    this.navigate_history(event.keystroke.key == "]", cx);
-                    cx.stop_propagation();
-                } else if event.keystroke.key == "tab"
+                if event.keystroke.key == "tab"
                     && !modifiers.platform
                     && !modifiers.control
                     && !modifiers.alt
@@ -5201,6 +5307,94 @@ mod reader_key_ownership_tests {
         let mut shell = ShellState::default();
         shell.reader_keys = Some(owner);
         shell.detach_reader_scroll(&tab);
+        assert!(shell.reader_keys.is_none());
+    }
+}
+
+#[cfg(test)]
+mod native_history_menu_tests {
+    use super::*;
+    #[test]
+    fn history_controls_follow_home_tag_graph_boundaries_and_current_runtime_state() {
+        let mut history = navigation::History::default();
+        assert!(!native_history_enabled(&history, false, false, false));
+        assert!(!native_history_enabled(&history, true, false, false));
+        history.record(Some(tabs::TabKey::Tag {
+            tag: "alpha".into(),
+            scope: String::new(),
+        }));
+        history.record(Some(tabs::TabKey::Graph));
+        assert!(native_history_enabled(&history, false, false, false));
+        assert!(!native_history_enabled(&history, true, false, false));
+        let back = history.peek(false).unwrap();
+        assert!(history.commit(&back));
+        assert!(native_history_enabled(&history, false, false, false));
+        assert!(native_history_enabled(&history, true, false, false));
+        assert!(history.commit(&history.peek(false).unwrap()));
+        assert!(!native_history_enabled(&history, false, false, false));
+        assert!(native_history_enabled(&history, true, false, false));
+        // The same fresh predicate drives menu registration and runtime dispatch.
+        assert!(!native_history_enabled(&history, true, false, true));
+        assert!(native_history_enabled(&history, false, true, false)); // invalid tag returns to source
+        assert!(!native_history_enabled(&history, true, true, false));
+    }
+    #[test]
+    fn unmounted_known_focus_is_repaired_without_taking_live_or_unknown_focus() {
+        assert!(stale_workspace_focus(
+            false, true, true, false, false, false
+        )); // reader -> Home
+        assert!(stale_workspace_focus(
+            true, false, false, true, false, false
+        )); // search -> note
+        assert!(stale_workspace_focus(
+            false, false, true, false, false, true
+        )); // graph -> Home
+        assert!(!stale_workspace_focus(
+            true, true, false, false, false, false
+        )); // live reader/code
+        assert!(!stale_workspace_focus(
+            false, false, true, true, false, false
+        )); // live Home search
+        assert!(!stale_workspace_focus(
+            false, false, false, false, true, true
+        )); // live graph
+        assert!(!stale_workspace_focus(
+            false, false, false, false, false, false
+        )); // unknown/input focus
+        let stale = stale_workspace_focus(false, true, true, false, false, false);
+        assert!(workspace_root_focus_allowed(true, !stale, false));
+        assert!(!workspace_root_focus_allowed(false, !stale, false));
+        assert!(!workspace_root_focus_allowed(true, !stale, true)); // owner/composition still wins
+        assert!(!workspace_root_focus_allowed(true, true, false)); // repaired root settles
+    }
+    #[test]
+    fn history_dispatch_requires_active_workspace_and_fresh_admission() {
+        assert!(native_history_dispatch_allowed(true, true, true));
+        for args in [
+            (false, true, true),
+            (true, false, true),
+            (true, true, false),
+            (false, false, false),
+        ] {
+            assert!(!native_history_dispatch_allowed(args.0, args.1, args.2));
+        }
+    }
+    #[test]
+    fn root_focus_never_steals_existing_input_or_background_focus_or_reacquires_reader_keys() {
+        assert!(workspace_root_focus_allowed(true, false, false));
+        for args in [
+            (false, false, false),
+            (true, true, false),
+            (true, false, true),
+            (false, true, true),
+        ] {
+            assert!(!workspace_root_focus_allowed(args.0, args.1, args.2));
+        }
+        let shell = ShellState::default();
+        assert!(shell.reader_keys.is_none());
+        // The fallback policy grants only the separate workspace handle. Once
+        // focus exists the predicate is false, so renders cannot repeatedly focus.
+        assert!(!workspace_root_focus_allowed(true, true, false));
         assert!(shell.reader_keys.is_none());
     }
 }

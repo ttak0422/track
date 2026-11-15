@@ -69,7 +69,9 @@ actions!(
         ZoomWindow,
         ToggleFullscreen,
         CopyBuildInfo,
-        ShowAbout
+        ShowAbout,
+        HistoryBack,
+        HistoryForward
     ]
 );
 
@@ -78,6 +80,8 @@ fn workspace_key_bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-q", Quit, None),
         KeyBinding::new("cmd-s", Save, None),
         KeyBinding::new("cmd-w", CloseTab, None),
+        KeyBinding::new("cmd-[", HistoryBack, None),
+        KeyBinding::new("cmd-]", HistoryForward, None),
         KeyBinding::new("cmd-m", MinimizeWindow, None),
         KeyBinding::new("ctrl-cmd-f", ToggleFullscreen, None),
     ]
@@ -659,6 +663,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ],
             },
             Menu {
+                name: "View".into(),
+                items: vec![
+                    MenuItem::action("Back", HistoryBack),
+                    MenuItem::action("Forward", HistoryForward),
+                ],
+            },
+            Menu {
                 name: "Window".into(),
                 items: vec![
                     MenuItem::action("Close Window", CloseWindow),
@@ -822,6 +833,29 @@ mod tests {
                 assert!(!pending);
                 assert_eq!(matches.len(), 1);
                 assert!(matches[0].action().partial_eq(action.as_ref()));
+            }
+        }
+    }
+
+    #[test]
+    fn history_bracket_bindings_are_workspace_actions_not_reader_local_aliases() {
+        let keymap = gpui::Keymap::new(workspace_key_bindings());
+        for context in ["", "TrackSourceEditor", "TrackSearch composing"] {
+            let contexts = [gpui::KeyContext::parse(context).unwrap()];
+            for (key, action) in [
+                ("cmd-[", Box::new(HistoryBack) as Box<dyn gpui::Action>),
+                ("cmd-]", Box::new(HistoryForward)),
+            ] {
+                let (bindings, pending) =
+                    keymap.bindings_for_input(&[gpui::Keystroke::parse(key).unwrap()], &contexts);
+                assert!(!pending);
+                assert_eq!(bindings.len(), 1);
+                assert!(bindings[0].action().partial_eq(action.as_ref()));
+            }
+            for key in ["[", "]", "cmd-shift-[", "ctrl-]"] {
+                let (bindings, _) =
+                    keymap.bindings_for_input(&[gpui::Keystroke::parse(key).unwrap()], &contexts);
+                assert!(bindings.is_empty());
             }
         }
     }

@@ -456,7 +456,9 @@ and clicks. Home/day/zone state is untouched. Existing two-read concurrency and
 4096-note transport bounds apply; the first 100 rows have explicit truncation.
 Success-empty, partial/cache and errors differ, with bounded explicit retry.
 No mutations, NEW inference, anniversary expansion, hover previews or pagination.
-Eligibility/identity/order/empty/stale models are covered; native QA is pending.
+Eligibility/identity/order/empty/stale models are covered. Native daily list
+result navigation/Back and ordinary/month/year exclusion were verified; named
+vault, empty/partial failure, layout and interruption cases remain unverified.
 
 ### Focused plain-reader j/k
 
@@ -467,4 +469,16 @@ edge clamps. Escape/other owners/source or layout changes revoke ownership;
 interactive content never acquires it. No new requests, writes or persistence.
 Selection-style gestures and marked-text owners are excluded rather than adding
 a reader selection/input framework. Models cover commands, clamp/fallback and
-click/focus/source rejection. Native keyboard and actual IME remain unverified.
+click/focus/source rejection. Native j/k steps, edge clamps, Escape/reacquire
+and Shift rejection were verified. OS-generated key repeat and actual IME remain
+unverified.
+
+### Native View history controls
+
+Conditional workspace-root Back/Forward actions drive native menu availability
+and bracket accelerators, with fresh boundary/owner checks before the existing
+guarded history path. A separate root focus fills only an active, unowned focus
+vacancy; it never grants reader j/k ownership. No app-global history listener or
+reader-local duplicate bracket handler remains. About/background dispatch is
+excluded. Home/Tag/Graph boundary and key/focus models are covered; native menu,
+unfocused-window and interrupted-flow verification is pending. Reload is excluded.
