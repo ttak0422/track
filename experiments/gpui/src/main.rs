@@ -57,6 +57,7 @@ mod selection_lines;
 mod session_store;
 mod shell;
 mod tabs;
+mod task_date_sort;
 mod title_copy;
 mod weekly_tasks;
 mod workspace_activity;

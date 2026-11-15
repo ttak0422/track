@@ -2531,6 +2531,55 @@ fn task_cell(task: &crate::live::NoteTask, depth: usize) -> Option<Cell> {
     }
     Some(cell)
 }
+/// One independently sortable inspector list, never an in-reader permutation.
+/// Exact rich-list admission proves source/task correspondence and top-level depth.
+pub(crate) fn sortable_task_rows(
+    source: &str,
+    current: &[Block],
+    tasks: &[crate::live::NoteTask],
+) -> Option<Vec<crate::task_date_sort::Row>> {
+    let lists = rich_task_lists(source, tasks);
+    if lists.len() != 1
+        || lists[0].rows.len() != tasks.len()
+        || lists[0].rows.iter().any(|row| row.depth != 0)
+        || parse_mode_tasks(source, true, Some(tasks)) != current
+    {
+        return None;
+    }
+    let mut rows = Vec::new();
+    for row in &lists[0].rows {
+        let task = tasks.get(row.task_index)?;
+        let matching: Vec<_> = current
+            .iter()
+            .enumerate()
+            .filter(|(_, block)| {
+                block
+                    .table
+                    .as_ref()
+                    .is_some_and(|table| table.task_line == Some(row.line))
+            })
+            .collect();
+        if matching.len() != 1 {
+            return None;
+        }
+        rows.push(crate::task_date_sort::Row {
+            block: matching[0].0,
+            line: row.line,
+            depth: row.depth,
+            scheduled: task.scheduled.clone(),
+            due: task.due.clone(),
+        });
+    }
+    crate::task_date_sort::permutation(
+        &rows,
+        crate::task_date_sort::Order {
+            field: crate::task_date_sort::Field::Scheduled,
+            direction: crate::task_date_sort::Direction::Source,
+        },
+    )?;
+    Some(rows)
+}
+
 fn project_task_rows(
     original: &[Block],
     list: &RichTaskList,
@@ -6611,5 +6660,70 @@ mod selection_measurement_tests {
         assert!(registry.snapshot().unwrap().is_empty());
         registry.begin();
         assert!(registry.snapshot().is_none());
+    }
+}
+
+#[cfg(test)]
+mod sortable_task_tests {
+    use super::*;
+    #[test]
+    fn independent_inspector_sort_leaves_reader_model_and_links_unchanged() {
+        let source =
+            "Before\n\n- [/] [[One]] [due:2026-03-02]\n- [?] [[Two]] [due:2026-03-01]\n\n# After";
+        let metadata = serde_json::json!({"items":[
+            {"line":3,"state":"DOING","done":false,"text":"[[One]]","due":"2026-03-02"},
+            {"line":4,"state":"WAITING","done":false,"text":"[[Two]]","due":"2026-03-01"}]});
+        let tasks = crate::live::note_tasks(Some(&metadata)).unwrap();
+        let displayed = parse_accepted_reader(source, Some(&metadata));
+        let before = displayed.clone();
+        let rows = sortable_task_rows(source, &displayed, &tasks).unwrap();
+        assert_eq!(rows.iter().map(|r| r.block).collect::<Vec<_>>(), vec![1, 2]);
+        let sorted = crate::task_date_sort::permutation(
+            &rows,
+            crate::task_date_sort::Order::next(None, crate::task_date_sort::Field::Due),
+        )
+        .unwrap();
+        assert_eq!(sorted, vec![2, 1]);
+        assert_eq!(displayed, before);
+        assert_eq!(outline(&displayed)[0].block_index, 3);
+        assert!(
+            !displayed[1].table.as_ref().unwrap().rows[1][1]
+                .links
+                .is_empty()
+        );
+    }
+    #[test]
+    fn nested_multiple_lists_and_metadata_mismatch_are_unavailable() {
+        let nested = "- [/] parent\n  - [?] child";
+        let metadata = serde_json::json!({"items":[{"line":1,"state":"DOING","done":false,"text":"parent"},{"line":2,"state":"WAITING","done":false,"text":"child"}]});
+        let tasks = crate::live::note_tasks(Some(&metadata)).unwrap();
+        assert!(
+            sortable_task_rows(
+                nested,
+                &parse_accepted_reader(nested, Some(&metadata)),
+                &tasks
+            )
+            .is_none()
+        );
+        let source = "- [/] parent\n\nseparator\n\n- [?] child";
+        let metadata = serde_json::json!({"items":[{"line":1,"state":"DOING","done":false,"text":"parent"},{"line":5,"state":"WAITING","done":false,"text":"child"}]});
+        let tasks = crate::live::note_tasks(Some(&metadata)).unwrap();
+        assert!(
+            sortable_task_rows(
+                source,
+                &parse_accepted_reader(source, Some(&metadata)),
+                &tasks
+            )
+            .is_none()
+        );
+        let source = "- [/] parent\n- [?] child";
+        let metadata = serde_json::json!({"items":[
+            {"line":1,"state":"DOING","done":false,"text":"parent"},
+            {"line":2,"state":"WAITING","done":false,"text":"child"}]});
+        let mut tasks = crate::live::note_tasks(Some(&metadata)).unwrap();
+        let accepted = parse_accepted_reader(source, Some(&metadata));
+        assert!(sortable_task_rows(source, &accepted, &tasks).is_some());
+        tasks[0].text = "injected".into();
+        assert!(sortable_task_rows(source, &accepted, &tasks).is_none());
     }
 }

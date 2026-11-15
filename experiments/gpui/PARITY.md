@@ -534,7 +534,7 @@ Conditional workspace-root View → Reload / `Cmd-R` availability and action-tim
 Native Reload validation: 730 Rust tests passed (7 ignored), formatting/native build passed. Disposable note/Home/history/search-menu smoke is recorded in NATIVE-QA.md; pending/failure/IME native cases remain unverified. Home requires a recorded Home reload route or safe-session Home; route-less initial Home without session opt-in remains disabled to avoid the existing first-note fallback.
 
 ### Plain-paragraph selection candidate
-One accepted live unstyled paragraph supports paint-only forward/backward range selection and explicit plain-text Copy selection. Grapheme-safe endpoints preserve authored displayed linebreaks, not soft wraps. Source/tab/request/revision/launch/storage, displayed-content identity, reader bounds/offset, scale, viewport and working scope are revalidated before copy. Drag cancels competing automatic positioning without replacing ScrollHandle; no global Cmd-C, input handler, auto-copy, request, persistence or vault write. Copy reports submission only with token-qualified feedback. Other owners, unsupported blocks and geometry changes cancel rather than guess. Cross-block/rich/keyboard/accessibility parity and actual IME remain unverified; model checks do not prove native hit testing.
+One accepted live unstyled paragraph supports paint-only forward/backward range selection and explicit plain-text Copy selection. Grapheme-safe endpoints preserve authored displayed linebreaks, not soft wraps. Source/tab/request/revision/launch/storage, displayed-content identity, reader bounds/offset, scale, viewport and working scope are revalidated before copy. Drag cancels competing automatic positioning without replacing ScrollHandle; no global Cmd-C, input handler, auto-copy, request, persistence or vault write. Copy reports submission only with token-qualified feedback. Other owners, unsupported blocks and geometry changes cancel rather than guess. The bounded adjacent-paragraph extension is described below; rich/keyboard/accessibility parity and actual IME remain unverified. Earlier single-paragraph smoke does not validate the extension’s native event sequencing; model checks do not prove native hit testing.
 
 ### Recent notes and fixture restart continuity
 
@@ -792,3 +792,10 @@ regressions are added; final GPUI/native layout and interruption QA is pending.
   owner/geometry/source checks remain action-time. One-entry data-only source-map
   cache avoids repeat parsing. Pure model regressions pass; full native event-order
   and clipboard validation remain pending.
+
+- Task date order: the existing read-only Note tasks inspector cycles SCHED/DUE
+  ascending, descending and source order. Stable equal dates and missing-last
+  ordering retain original line identities. Only one fully matched top-level rich
+  list (256 rows maximum) is admitted. Nested/multiple/ambiguous inputs remain in
+  source order. This deliberately does not sort the in-reader checklist, avoiding
+  changes to body anchors, Find, links or selection. Native control QA is pending.

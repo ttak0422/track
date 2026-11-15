@@ -7,9 +7,34 @@ pub(crate) struct NoteTasksState {
     source: LinkSource,
     body: String,
     invalidated: bool,
+    metadata: Option<serde_json::Value>,
     open: bool,
     page: usize,
+    scope_revision: u64,
+    epoch: u64,
+    sort: Option<crate::task_date_sort::Order>,
+    sort_rows: Option<Vec<crate::task_date_sort::Row>>,
+    indices: Vec<usize>,
     items: Result<std::sync::Arc<Vec<live::NoteTask>>, String>,
+}
+fn next_epoch() -> u64 {
+    static EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    EPOCH.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+fn sort_snapshot_current(
+    epoch: u64,
+    captured_epoch: u64,
+    scope: u64,
+    captured_scope: u64,
+    body: &str,
+    current_body: &str,
+    metadata: Option<&serde_json::Value>,
+    current_metadata: Option<&serde_json::Value>,
+) -> bool {
+    epoch == captured_epoch
+        && scope == captured_scope
+        && body == current_body
+        && metadata == current_metadata
 }
 fn source_matches(
     source: &LinkSource,
@@ -29,7 +54,8 @@ fn page_range(total: usize, requested: usize) -> (usize, usize, std::ops::Range<
 
 impl Workspace {
     fn tasks_source(&self) -> Option<LinkSource> {
-        if self.editing_ui.active()
+        if self.shell.accepted_title_request != Some(self.request)
+            || self.editing_ui.active()
             || self.editing_ui.has_pending()
             || self.shell.home
             || self.quit_session.is_closing()
@@ -46,7 +72,43 @@ impl Workspace {
         ) {
             return None;
         }
+        let storage = self.live.as_ref()?.initial_storage.as_ref()?;
+        if storage.phase != "ready" || storage.generation != source.storage_generation {
+            return None;
+        }
         Some(source)
+    }
+    fn tasks_control_available(
+        &self,
+        source: &LinkSource,
+        epoch: u64,
+        scope: u64,
+        window: &Window,
+        cx: &App,
+        require_open: bool,
+    ) -> bool {
+        window.is_window_active()
+            && self.tasks_source().as_ref() == Some(source)
+            && self.footnote_reader_available(cx)
+            && !self.reader_preview_routing_blocked(cx)
+            && !self.reader_selection_dragging()
+            && !self.shell.find.is_composing(cx)
+            && self.shell.scope_revision == scope
+            && self.shell.note_tasks.as_ref().is_some_and(|s| {
+                (!require_open || s.open)
+                    && self.current_note.as_ref().is_some_and(|n| {
+                        sort_snapshot_current(
+                            s.epoch,
+                            epoch,
+                            s.scope_revision,
+                            scope,
+                            &s.body,
+                            &n.body,
+                            s.metadata.as_ref(),
+                            n.note.additional.get("tasks"),
+                        )
+                    })
+            })
     }
     pub(crate) fn accepted_tasks(&mut self) -> Result<std::sync::Arc<Vec<live::NoteTask>>, String> {
         let source = self.tasks_source().ok_or("Task source unavailable")?;
@@ -57,7 +119,11 @@ impl Workspace {
             .get("tasks")
             .is_some_and(serde_json::Value::is_null);
         if self.shell.note_tasks.as_ref().is_none_or(|s| {
-            s.source != source || s.body != note.body || s.invalidated != invalidated
+            s.source != source
+                || s.body != note.body
+                || s.invalidated != invalidated
+                || s.scope_revision != self.shell.scope_revision
+                || s.metadata.as_ref() != note.note.additional.get("tasks")
         }) {
             let items = live::note_tasks(
                 self.current_note
@@ -69,12 +135,23 @@ impl Workspace {
             )
             .map(std::sync::Arc::new)
             .map_err(|e| e.to_string());
+            let sort_rows = items
+                .as_ref()
+                .ok()
+                .and_then(|tasks| markdown::sortable_task_rows(&note.body, &self.content, tasks));
+            let indices = (0..items.as_ref().map_or(0, |v| v.len())).collect();
             self.shell.note_tasks = Some(NoteTasksState {
                 source: source.clone(),
                 body: note.body.clone(),
                 invalidated,
+                metadata: note.note.additional.get("tasks").cloned(),
                 open: false,
                 page: 0,
+                scope_revision: self.shell.scope_revision,
+                epoch: next_epoch(),
+                sort: None,
+                sort_rows,
+                indices,
                 items,
             });
         }
@@ -90,6 +167,8 @@ impl Workspace {
         let state = self.shell.note_tasks.as_ref().unwrap();
         let open = state.open;
         let captured = source.clone();
+        let epoch = state.epoch;
+        let scope = state.scope_revision;
         view = view.child(
             div()
                 .id("reader-tasks-toggle")
@@ -99,8 +178,8 @@ impl Workspace {
                 } else {
                     "▸ Note tasks (read-only)"
                 })
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    if this.tasks_source().as_ref() != Some(&captured) || !this.find_available() {
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    if !this.tasks_control_available(&captured, epoch, scope, window, cx, false) {
                         return;
                     }
                     if let Some(state) = this
@@ -111,6 +190,7 @@ impl Workspace {
                     {
                         state.open = !state.open;
                         state.page = 0;
+                        state.epoch = next_epoch();
                     }
                     cx.notify();
                 })),
@@ -126,6 +206,74 @@ impl Workspace {
         if items.is_empty() {
             return view.child("No parsed task lines in this accepted source.");
         }
+        if state.sort_rows.is_some() {
+            let mut sort_controls = div()
+                .flex()
+                .flex_wrap()
+                .gap_2()
+                .child("Inspector order (body unchanged):");
+            for (label, field) in [
+                ("SCHED", crate::task_date_sort::Field::Scheduled),
+                ("DUE", crate::task_date_sort::Field::Due),
+            ] {
+                let captured = source.clone();
+                let epoch = state.epoch;
+                let scope = state.scope_revision;
+                let previous = state.sort;
+                let direction = previous.filter(|o| o.field == field).map(|o| o.direction);
+                let suffix = match direction {
+                    Some(crate::task_date_sort::Direction::Ascending) => " ↑",
+                    Some(crate::task_date_sort::Direction::Descending) => " ↓",
+                    _ => " · source",
+                };
+                sort_controls = sort_controls.child(
+                    div()
+                        .id(gpui::SharedString::from(format!("note-task-sort-{label}")))
+                        .cursor_pointer()
+                        .child(format!("{label}{suffix}"))
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            if !this
+                                .tasks_control_available(&captured, epoch, scope, window, cx, true)
+                            {
+                                return;
+                            }
+                            let state = this.shell.note_tasks.as_mut().unwrap();
+                            if state.sort != previous {
+                                return;
+                            }
+                            let Some(rows) = &state.sort_rows else {
+                                return;
+                            };
+                            let order = crate::task_date_sort::Order::next(previous, field);
+                            let Some(blocks) = crate::task_date_sort::permutation(rows, order)
+                            else {
+                                return;
+                            };
+                            let Ok(items) = &state.items else {
+                                return;
+                            };
+                            let indices: Option<Vec<_>> = blocks
+                                .iter()
+                                .map(|block| {
+                                    let line = rows.iter().find(|r| r.block == *block)?.line;
+                                    items.iter().position(|t| t.line == line)
+                                })
+                                .collect();
+                            let Some(indices) = indices else {
+                                return;
+                            };
+                            state.epoch = next_epoch();
+                            state.sort = Some(order);
+                            state.indices = indices;
+                            state.page = 0;
+                            cx.notify();
+                        })),
+                );
+            }
+            view = view.child(sort_controls);
+        } else {
+            view = view.child("Date sorting unavailable: requires one fully matched top-level rich task list with valid dates.");
+        }
         let (page, pages, range) = page_range(items.len(), state.page);
         let mut controls = div().flex().gap_3().child(format!(
             "{} tasks · page {}/{} · source lines, not navigation",
@@ -139,6 +287,8 @@ impl Workspace {
         ] {
             if let Some(target) = target {
                 let captured = source.clone();
+                let epoch = state.epoch;
+                let scope = state.scope_revision;
                 controls = controls.child(
                     div()
                         .id(if label == "Previous" {
@@ -148,9 +298,9 @@ impl Workspace {
                         })
                         .cursor_pointer()
                         .child(label)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            if this.tasks_source().as_ref() != Some(&captured)
-                                || !this.find_available()
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            if !this
+                                .tasks_control_available(&captured, epoch, scope, window, cx, true)
                             {
                                 return;
                             }
@@ -161,6 +311,7 @@ impl Workspace {
                                 .filter(|s| s.source == captured && s.open)
                             {
                                 state.page = target;
+                                state.epoch = next_epoch();
                             }
                             cx.notify();
                         })),
@@ -171,7 +322,8 @@ impl Workspace {
             .id("reader-tasks-scroll")
             .max_h(px(240.))
             .overflow_y_scroll();
-        for task in &items[range] {
+        for index in &state.indices[range] {
+            let task = &items[*index];
             let mut metadata = format!("L{} · {}", task.line, task.state);
             for (label, value) in [
                 ("priority", &task.priority),
@@ -197,6 +349,70 @@ impl Workspace {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn sort_snapshot_rejects_old_scope_epoch_body_and_metadata() {
+        let metadata = serde_json::json!({"items":[]});
+        assert!(sort_snapshot_current(
+            3,
+            3,
+            7,
+            7,
+            "body",
+            "body",
+            Some(&metadata),
+            Some(&metadata)
+        ));
+        assert!(!sort_snapshot_current(
+            4,
+            3,
+            7,
+            7,
+            "body",
+            "body",
+            Some(&metadata),
+            Some(&metadata)
+        ));
+        assert!(!sort_snapshot_current(
+            3,
+            3,
+            8,
+            7,
+            "body",
+            "body",
+            Some(&metadata),
+            Some(&metadata)
+        ));
+        assert!(!sort_snapshot_current(
+            3,
+            3,
+            7,
+            7,
+            "old",
+            "new",
+            Some(&metadata),
+            Some(&metadata)
+        ));
+        assert!(!sort_snapshot_current(
+            3,
+            3,
+            7,
+            7,
+            "body",
+            "body",
+            Some(&metadata),
+            None
+        ));
+        assert!(!sort_snapshot_current(
+            3,
+            3,
+            7,
+            7,
+            "body",
+            "body",
+            Some(&metadata),
+            Some(&serde_json::Value::Null)
+        ));
+    }
     #[test]
     fn note_tasks_local_source_replacement_invalidates_until_fresh_projection() {
         for initial in [
