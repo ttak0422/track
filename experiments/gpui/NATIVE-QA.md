@@ -1175,7 +1175,7 @@ the baseline. Four model regressions supplement these pointer checks. Native
 resize/reflow, keyboard activation, accessibility and IME were not verified here.
 Ordinary vault editing remains disabled.
 
-### Selected-day Previous/Next candidate (not yet native-verified)
+### Selected-day Previous/Next
 
 - Model coverage: civil month/year/leap/DST-date stepping, range limits, stale
   controls/results including ABA, all-section reset and busy/retry state.
@@ -1185,3 +1185,15 @@ Ordinary vault editing remains disabled.
 - Verify scope and accepted display zone remain unchanged, and menu/dialog,
   composition, dirty-editor and quit ownership block input. Actual GUI/IME,
   keyboard and accessibility are unverified. No new mutation endpoints.
+
+Native macOS pointer smoke on 2026-11-15 used an isolated read-only fixture.
+Today showed two activity notes plus its scheduled task and all-day event.
+Previous selected yesterday with no activity and its own task/event; another
+Previous showed the completely empty day without old rows. Next twice restored
+each date and its matching results. The latest-day Next and earliest-range
+Previous controls were disabled, and clicking the earliest boundary did not
+change the date. Display zone remained UTC. Cmd-Q exited, both owned ports
+closed, and all 12 canonical fixture files retained their baseline hashes.
+Rapid/delayed/failing native reads, scope/owner interruption, keyboard, narrow
+layout and actual IME remain unverified. Rust tests: 658 passed, 7 ignored;
+formatting, native build and help-site generation passed.
