@@ -1990,7 +1990,10 @@ impl LinkResolutionCache {
         authored: &[markdown::Block],
         titles: &std::collections::HashMap<String, String>,
     ) {
-        self.displayed = std::rc::Rc::new(markdown::with_resolved_titles(authored, titles));
+        // Compose host-only visual projections; the authored snapshot/targets stay intact.
+        self.displayed = std::rc::Rc::new(markdown::with_footnote_numbers(
+            &markdown::with_resolved_titles(authored, titles),
+        ));
     }
 }
 impl Drop for LinkResolutionCache {
@@ -3007,7 +3010,7 @@ impl Workspace {
             deferred_targets,
             canceled: Default::default(),
             resolved: Default::default(),
-            displayed: std::rc::Rc::new(self.content.clone()),
+            displayed: std::rc::Rc::new(markdown::with_footnote_numbers(&self.content)),
             warnings,
         });
         if terms.is_empty() {

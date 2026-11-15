@@ -158,6 +158,126 @@ pub fn with_resolved_titles(
     displayed
 }
 
+/// Host display-only numbering, composed after title resolution. Never reorder blocks.
+/// Scan order is block order, then table row/cell order (including definition bodies).
+/// Missing/duplicate definitions stay raw; excessive or malformed input stays wholly raw.
+pub fn with_footnote_numbers(blocks: &[Block]) -> Vec<Block> {
+    const LIMIT: usize = 256;
+    let targets = footnote_targets(blocks);
+    let definitions = blocks
+        .iter()
+        .filter(|b| matches!(b.kind, BlockKind::FootnoteDefinition(_)))
+        .count();
+    if definitions > LIMIT {
+        return blocks.to_vec();
+    }
+    let mut numbers = std::collections::BTreeMap::new();
+    let mut count = 0;
+    let mut inspect = |text: &str, spans: &[Span], links: &[Link]| -> bool {
+        let valid = |r: &Range<usize>| {
+            r.start <= r.end
+                && r.end <= text.len()
+                && text.is_char_boundary(r.start)
+                && text.is_char_boundary(r.end)
+        };
+        if spans.iter().any(|s| !valid(&s.range))
+            || links.iter().any(|l| !valid(&l.range))
+            || links.windows(2).any(|p| p[0].range.end > p[1].range.start)
+        {
+            return false;
+        }
+        for link in links {
+            if let LinkTarget::Footnote { label } = &link.target {
+                count += 1;
+                if count > LIMIT {
+                    return false;
+                }
+                if targets.contains_key(label) && !numbers.contains_key(label) {
+                    numbers.insert(label.clone(), numbers.len() + 1);
+                }
+            }
+        }
+        true
+    };
+    for block in blocks {
+        // Only the parser's dedicated, link-free definition label may be replaced.
+        if matches!(block.kind, BlockKind::FootnoteDefinition(_))
+            && (!block.links.is_empty() || block.table.is_some())
+        {
+            return blocks.to_vec();
+        }
+        if !inspect(&block.text, &block.spans, &block.links) {
+            return blocks.to_vec();
+        }
+        if let Some(table) = &block.table {
+            for cell in table.rows.iter().flatten() {
+                if !inspect(&cell.text, &cell.spans, &cell.links) {
+                    return blocks.to_vec();
+                }
+            }
+        }
+    }
+    fn replace(
+        text: &mut String,
+        spans: &mut [Span],
+        links: &mut [Link],
+        numbers: &std::collections::BTreeMap<String, usize>,
+    ) {
+        for index in (0..links.len()).rev() {
+            let LinkTarget::Footnote { label } = &links[index].target else {
+                continue;
+            };
+            let Some(number) = numbers.get(label) else {
+                continue;
+            };
+            let replacement = format!("[{number}]");
+            let old = links[index].range.clone();
+            text.replace_range(old.clone(), &replacement);
+            let shift = |offset: usize, end: bool| {
+                if offset <= old.start {
+                    offset
+                } else if offset >= old.end {
+                    old.start + replacement.len() + offset - old.end
+                } else if end {
+                    old.start + replacement.len()
+                } else {
+                    old.start
+                }
+            };
+            for span in spans.iter_mut() {
+                span.range = shift(span.range.start, false)..shift(span.range.end, true);
+            }
+            for link in links.iter_mut() {
+                link.range = shift(link.range.start, false)..shift(link.range.end, true);
+            }
+        }
+    }
+    let mut displayed = blocks.to_vec();
+    for block in &mut displayed {
+        replace(
+            &mut block.text,
+            &mut block.spans,
+            &mut block.links,
+            &numbers,
+        );
+        if let Some(table) = &mut block.table {
+            for cell in table.rows.iter_mut().flatten() {
+                replace(&mut cell.text, &mut cell.spans, &mut cell.links, &numbers);
+            }
+        }
+        if let BlockKind::FootnoteDefinition(label) = &block.kind {
+            if let Some(number) = numbers.get(label) {
+                block.text = format!("[{number}]:");
+                block.spans = vec![Span {
+                    range: 0..block.text.len(),
+                    style: InlineStyle::default(),
+                }];
+            }
+        }
+    }
+    displayed
+}
+
 #[derive(Clone, Copy)]
 pub enum SelectionPhase {
     Begin,
@@ -6725,5 +6845,91 @@ mod sortable_task_tests {
         assert!(sortable_task_rows(source, &accepted, &tasks).is_some());
         tasks[0].text = "injected".into();
         assert!(sortable_task_rows(source, &accepted, &tasks).is_none());
+    }
+}
+
+#[cfg(test)]
+mod footnote_number_tests {
+    use super::*;
+    #[test]
+    fn numbering_keeps_blocks_targets_and_original_snapshot() {
+        let raw = parse(
+            "日本語[^b] then **A[^a]** and [link](Note.md), again[^b].\n\n[^a]: Alpha\n\n[^b]: Beta",
+        );
+        let before = raw.clone();
+        let shown = with_footnote_numbers(&raw);
+        assert_eq!(shown.len(), raw.len());
+        assert_eq!(raw, before);
+        assert_eq!(shown[0].text, "日本語[1] then A[2] and link, again[1].");
+        assert_eq!(footnote_targets(&shown), footnote_targets(&raw));
+        for (old, new) in raw.iter().zip(&shown) {
+            assert_eq!(old.kind, new.kind);
+            assert_eq!(
+                old.links.iter().map(|l| &l.target).collect::<Vec<_>>(),
+                new.links.iter().map(|l| &l.target).collect::<Vec<_>>()
+            );
+            for link in &new.links {
+                assert!(new.text.get(link.range.clone()).is_some());
+            }
+        }
+        assert!(footnote_link_valid(&shown, &shown[0].links[0]));
+        assert!(!footnote_link_valid(&shown, &raw[0].links[0]));
+        assert!(!crate::reader_find::search(&shown, "[1]").hits.is_empty());
+        assert_eq!(shown[1].text, "[2]:");
+        assert_eq!(shown[3].text, "[1]:");
+        assert!(crate::reader_find::search(&shown, "日本語").hits.len() > 0);
+        assert!(crate::reader_find::search(&shown, "[^b]").hits.is_empty());
+        assert_eq!(with_footnote_numbers(&shown), shown);
+    }
+    #[test]
+    fn numbering_composes_after_unicode_title_resolution_without_retargeting() {
+        let raw = parse("[[id:1]] before[^long] [[id:2]] after[^long]\n\n[^long]: Detail");
+        let titles = std::collections::HashMap::from([
+            ("id:1".into(), "前の題名".into()),
+            ("id:2".into(), "Longer 後の題名".into()),
+        ]);
+        let titled = with_resolved_titles(&raw, &titles);
+        let shown = with_footnote_numbers(&titled);
+        assert_eq!(shown[0].text, "前の題名 before[1] Longer 後の題名 after[1]");
+        for link in &shown[0].links {
+            let text = &shown[0].text[link.range.clone()];
+            match &link.target {
+                LinkTarget::Footnote { .. } => {
+                    assert_eq!(text, "[1]");
+                    assert!(footnote_link_valid(&shown, link));
+                }
+                LinkTarget::Wiki { key, .. } => assert_eq!(text, titles[key]),
+                _ => panic!("unexpected link"),
+            }
+        }
+        assert_eq!(footnote_targets(&shown), footnote_targets(&raw));
+        assert!(!crate::reader_find::search(&shown, "[1]").hits.is_empty());
+        let mut malformed = raw.clone();
+        malformed[1].links.push(raw[0].links[0].clone());
+        assert_eq!(with_footnote_numbers(&malformed), malformed);
+    }
+    #[test]
+    fn tables_and_definition_body_references_use_deterministic_display_order() {
+        let raw = parse(
+            "| X | Y |\n|---|---|\n| [^b] | [^a] |\n\n[^b]: nested[^c]\n\n[^a]: Alpha\n\n[^c]: C",
+        );
+        let shown = with_footnote_numbers(&raw);
+        let table = shown[0].table.as_ref().unwrap();
+        assert_eq!(table.rows[1][0].text, "[1]");
+        assert_eq!(table.rows[1][1].text, "[2]");
+        assert!(shown.iter().any(|b| b.text == "nested[3]"));
+        assert_eq!(footnote_targets(&raw), footnote_targets(&shown));
+    }
+    #[test]
+    fn missing_duplicate_unused_and_over_limit_retain_raw_labels() {
+        let raw =
+            parse("Missing[^missing] repeated[^x]\n\n[^unused]: Unused\n\n[^x]: One\n\n[^x]: Two");
+        assert_eq!(with_footnote_numbers(&raw), raw);
+        let source = format!("{}\n\n[^x]: X", "again[^x] ".repeat(257));
+        let raw = parse(&source);
+        assert_eq!(with_footnote_numbers(&raw), raw);
+        let mut malformed = parse("Read[^x]\n\n[^x]: X");
+        malformed[0].links[0].range.end = usize::MAX;
+        assert_eq!(with_footnote_numbers(&malformed), malformed);
     }
 }

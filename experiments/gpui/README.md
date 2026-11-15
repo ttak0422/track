@@ -543,10 +543,18 @@ refresh is added. Native layout/accessibility validation remains pending.
 
 ### Read-only footnote display
 
-The native reader displays footnote references as `[^label]` and definitions with
-that same label followed by their formatted content. Definitions stay at their
-source position, including unused definitions. Their paragraphs, lists, quotes
-and ordinary links remain readable and searchable.
+The live reader displays references to unique footnote definitions as `[1]`,
+`[2]`, and so on, in first-reference order. Repeated references share a number;
+the matching definition label uses that number too. Numbering follows displayed
+block order and then table row/cell order, including references inside definitions.
+Definitions stay at their source position. Unused, missing or duplicate definitions
+retain their authored labels. Their formatted content and ordinary links remain
+readable and searchable. Find uses the displayed labels; Copy MD keeps the original
+source. Snapshots and included-note previews retain their original labels.
+
+Numbering is limited to 256 definitions and 256 reference occurrences per note.
+Larger or malformed display snapshots retain all original labels rather than
+showing a partially numbered result.
 
 In the current live reader, click a reference to jump to its unique definition.
 Undefined or duplicate labels stay inactive. The jump is local: it does not reload
@@ -556,8 +564,8 @@ control restores the position where you clicked, including repeated and table
 references. It is one-use and session-only, with no history or saved state.
 Changing the note, reader mode, layout or competing reader action clears it.
 
-This is not full web footnote parity: references are not renumbered, definitions
-are not collected at the end, and automatic definition backlinks are not added. Unresolved
+This is not full web footnote parity: definitions are not collected at the end,
+and automatic definition backlinks are not added. Unresolved
 references remain visible. No source is rewritten.
 Native layout, selection and accessibility validation remains pending.
 
