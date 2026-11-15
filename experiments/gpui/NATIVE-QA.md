@@ -1156,3 +1156,21 @@ All 18 canonical fixture files remained unchanged. Synthetic transport/model
 tests cover subsequent EOF/rejected reconnects and stale dismissal without
 weakening total-gap/editor-follow invalidation. Actual interrupted-stream GUI
 behavior and IME composition were not tested in this pass.
+
+
+## Footnote origin return (2026-11-15)
+
+A new read-only fixture has three references to the same definition: at the top,
+after 20 paragraphs, and in a table after 35 paragraphs. After positioning the
+middle reference near the viewport center, a single click jumped to the bottom
+definition; Return to reference restored the same middle context without extra
+input, not the first reference. The table reference independently restored its
+original table context, including after ordinary scrolling at the destination.
+The one-shot Return control disappeared after use.
+
+Following the table reference again and opening Beta from backlinks removed the
+Return control. Normal Back restored Alpha without reviving that stale action.
+Cmd-Q exited, ports 24462/24463 closed, and all 10 canonical fixture files matched
+the baseline. Four model regressions supplement these pointer checks. Native
+resize/reflow, keyboard activation, accessibility and IME were not verified here.
+Ordinary vault editing remains disabled.

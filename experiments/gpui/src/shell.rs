@@ -53,6 +53,7 @@ impl Workspace {
         }
     }
     pub(crate) fn cancel_position_resume(&mut self) {
+        self.shell.footnote_return = None;
         self.cancel_follow_reveal();
         self.shell.positions.interaction = self.shell.positions.interaction.wrapping_add(1);
     }
@@ -394,6 +395,7 @@ fn position_compatible(
 pub struct ShellState {
     pub(crate) handoff: workspace_handoff::HandoffUi,
     positions: ReadingPositions,
+    footnote_return: Option<std::rc::Rc<FootnoteReturn>>,
     code_copy: code_copy::State,
     code_anchors: Option<std::rc::Rc<markdown::FindAnchors>>,
     code_focus: std::collections::BTreeMap<usize, gpui::FocusHandle>,
@@ -432,10 +434,22 @@ pub struct ShellState {
 }
 
 impl ShellState {
+    fn take_footnote_return(&mut self, ticket: &std::rc::Rc<FootnoteReturn>) -> bool {
+        if !self
+            .footnote_return
+            .as_ref()
+            .is_some_and(|current| std::rc::Rc::ptr_eq(current, ticket))
+        {
+            return false;
+        }
+        self.footnote_return = None;
+        true
+    }
     /// GPUI ScrollAnchor queues its own unguarded next-frame callback. Retire the
     /// entire handle so callbacks already queued can only move an abandoned reader.
     /// Preserve the offset in a fresh handle and rebind every host anchor namespace.
     fn detach_reader_scroll(&mut self, key: &tabs::TabKey) {
+        self.footnote_return = None;
         let replacement = gpui::ScrollHandle::new();
         if let Some(previous) = self.reader_scrolls.get(key) {
             replacement.set_offset(previous.offset());
@@ -488,6 +502,7 @@ impl Default for ShellState {
         Self {
             handoff: Default::default(),
             positions: Default::default(),
+            footnote_return: None,
             code_copy: Default::default(),
             code_anchors: None,
             code_focus: Default::default(),
@@ -577,6 +592,153 @@ fn footnote_jump_allowed(
         && current == Some(source)
         && displayed == current_displayed
         && markdown::footnote_link_valid(current_displayed, link)
+}
+
+/// One explicit local return, never a route-history entry or persisted position.
+struct FootnoteReturn {
+    source: LinkSource,
+    tab: tabs::TabKey,
+    displayed: std::rc::Rc<Vec<markdown::Block>>,
+    anchors: std::rc::Rc<markdown::HeadingAnchors>,
+    interaction: u64,
+    geometry: FootnoteGeometry,
+    origin: gpui::Point<gpui::Pixels>,
+}
+impl FootnoteReturn {
+    fn matches(
+        &self,
+        source: Option<&LinkSource>,
+        tab: Option<&tabs::TabKey>,
+        displayed: &[markdown::Block],
+        anchors: Option<&std::rc::Rc<markdown::HeadingAnchors>>,
+        geometry: Option<&FootnoteGeometry>,
+        available: bool,
+    ) -> bool {
+        available
+            && source == Some(&self.source)
+            && tab == Some(&self.tab)
+            && displayed == self.displayed.as_ref()
+            && anchors.is_some_and(|anchors| std::rc::Rc::ptr_eq(anchors, &self.anchors))
+            && geometry == Some(&self.geometry)
+    }
+}
+#[derive(Clone, Debug, PartialEq)]
+struct FootnoteGeometry {
+    reader: gpui::Bounds<gpui::Pixels>,
+    extent: gpui::Size<gpui::Pixels>,
+    viewport: gpui::Size<gpui::Pixels>,
+    scale: f32,
+}
+impl FootnoteGeometry {
+    fn capture(handle: &gpui::ScrollHandle, window: &Window) -> Option<Self> {
+        let geometry = Self {
+            reader: handle.bounds(),
+            extent: handle.max_offset(),
+            viewport: window.viewport_size(),
+            scale: window.scale_factor(),
+        };
+        geometry.valid().then_some(geometry)
+    }
+    fn valid(&self) -> bool {
+        [
+            self.reader.origin.x,
+            self.reader.origin.y,
+            self.extent.width,
+            self.extent.height,
+        ]
+        .into_iter()
+        .all(|v| f32::from(v).is_finite())
+            && [
+                self.reader.size.width,
+                self.reader.size.height,
+                self.viewport.width,
+                self.viewport.height,
+            ]
+            .into_iter()
+            .all(|v| f32::from(v).is_finite() && v > px(0.))
+            && self.extent.width >= px(0.)
+            && self.extent.height >= px(0.)
+            && self.scale.is_finite()
+            && self.scale > 0.
+    }
+    fn bounded_origin(
+        &self,
+        origin: gpui::Point<gpui::Pixels>,
+    ) -> Option<gpui::Point<gpui::Pixels>> {
+        if !self.valid() || !f32::from(origin.x).is_finite() || !f32::from(origin.y).is_finite() {
+            return None;
+        }
+        Some(point(
+            origin.x.max(-self.extent.width).min(px(0.)),
+            origin.y.max(-self.extent.height).min(px(0.)),
+        ))
+    }
+}
+impl Workspace {
+    fn footnote_reader_available(&self, cx: &App) -> bool {
+        self.find_available()
+            && self.editing_ui.follow_safe()
+            && !self.creation_open()
+            && self.tag_page.is_none()
+            && !self.shell.find.open
+            && !self.shell.find.highlighted
+            && !self.partial_read
+            && self.read_error.is_none()
+            && !self.quit_session.is_closing()
+            && self.quit_session.failure().is_none()
+            && self.shell.pending_fragment.is_none()
+            && self.previews.model.transient.is_none()
+            && !self.previews.model.geometry_active()
+            && !self.search.read(cx).is_composing()
+            && !self.shell.calendar_zone.is_composing(cx)
+    }
+    fn footnote_return_current(&self, ticket: &FootnoteReturn, window: &Window, cx: &App) -> bool {
+        ticket.matches(
+            self.current_link_source().as_ref(),
+            self.tabs.active().map(|tab| &tab.key),
+            &self.displayed_content(),
+            self.shell
+                .heading_anchors
+                .get(&ticket.tab)
+                .map(|(_, anchors)| anchors),
+            self.shell
+                .reader_scrolls
+                .get(&ticket.tab)
+                .and_then(|handle| FootnoteGeometry::capture(handle, window))
+                .as_ref(),
+            self.footnote_reader_available(cx),
+        )
+    }
+    fn footnote_jump_pending_current(
+        &self,
+        ticket: &FootnoteReturn,
+        window: &Window,
+        cx: &App,
+    ) -> bool {
+        self.shell.positions.interaction == ticket.interaction
+            && self.footnote_return_current(ticket, window, cx)
+    }
+    fn return_from_footnote(
+        &mut self,
+        ticket: &std::rc::Rc<FootnoteReturn>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.shell.take_footnote_return(ticket) {
+            return; // a stale control cannot consume a newer return
+        }
+        let valid = self.footnote_return_current(ticket, window, cx);
+        if valid {
+            if let Some(origin) = ticket.geometry.bounded_origin(ticket.origin) {
+                self.cancel_position_resume();
+                if let Some(handle) = self.shell.reader_scrolls.get(&ticket.tab) {
+                    handle.set_offset(origin);
+                }
+                window.refresh();
+            }
+        }
+        cx.notify();
+    }
 }
 
 struct LinkResolutionCache {
@@ -2101,6 +2263,14 @@ impl Workspace {
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_creation_journal(cx);
+        if self
+            .shell
+            .footnote_return
+            .as_ref()
+            .is_some_and(|ticket| !self.footnote_return_current(ticket, window, cx))
+        {
+            self.shell.footnote_return = None;
+        }
         let dark = self.shell.dark.unwrap_or(matches!(
             window.appearance(),
             WindowAppearance::Dark | WindowAppearance::VibrantDark
@@ -2151,47 +2321,85 @@ impl Render for Workspace {
                                 &external_displayed,
                                 &this.displayed_content(),
                                 link,
-                                this.find_available()
-                                    && this.read_error.is_none()
-                                    && !this.quit_session.is_closing(),
+                                this.footnote_reader_available(cx),
                             ) {
                                 return;
                             }
+                            let Some(tab) = this.tabs.active().map(|tab| tab.key.clone()) else {
+                                return;
+                            };
+                            let Some(handle) = this.shell.reader_scrolls.get(&tab) else {
+                                return;
+                            };
+                            let Some(geometry) = FootnoteGeometry::capture(handle, window) else {
+                                return;
+                            };
+                            let origin = handle.offset();
+                            if geometry.bounded_origin(origin) != Some(origin) {
+                                return;
+                            }
+                            let Some((_, anchors)) = this.shell.heading_anchors.get(&tab) else {
+                                return;
+                            };
+                            let anchors = anchors.clone();
+                            this.cancel_position_resume();
+                            let ticket = std::rc::Rc::new(FootnoteReturn {
+                                source: source.clone(),
+                                tab,
+                                displayed: external_displayed.clone(),
+                                anchors,
+                                interaction: this.shell.positions.interaction,
+                                geometry,
+                                origin,
+                            });
                             let source = source.clone();
                             let displayed = external_displayed.clone();
                             let link = link.clone();
                             let weak = cx.entity().downgrade();
                             window.on_next_frame(move |window, cx| {
-                                let _ =
-                                    weak.update(cx, |this, cx| {
-                                        if !footnote_jump_allowed(
-                                            &source,
-                                            this.current_link_source().as_ref(),
-                                            &displayed,
-                                            &this.displayed_content(),
-                                            &link,
-                                            this.find_available()
-                                                && this.read_error.is_none()
-                                                && !this.quit_session.is_closing(),
-                                        ) {
-                                            return;
-                                        }
-                                        let markdown::LinkTarget::Footnote { label } = &link.target
-                                        else {
-                                            return;
-                                        };
-                                        this.cancel_position_resume();
-                                        if let Some(anchors) = this.tabs.active().and_then(|tab| {
-                                            this.shell.heading_anchors.get(&tab.key)
-                                        }) {
-                                            if anchors.1.scroll_to_footnote(label, window, cx) {
-                                                // The anchor applies on the following frame;
-                                                // repaint after its deferred offset change.
-                                                window.on_next_frame(|window, _| window.refresh());
-                                            }
-                                            cx.notify();
-                                        }
-                                    });
+                                let _ = weak.update(cx, |this, cx| {
+                                    if !footnote_jump_allowed(
+                                        &source,
+                                        this.current_link_source().as_ref(),
+                                        &displayed,
+                                        &this.displayed_content(),
+                                        &link,
+                                        this.footnote_reader_available(cx),
+                                    ) {
+                                        return;
+                                    }
+                                    let markdown::LinkTarget::Footnote { label } = &link.target
+                                    else {
+                                        return;
+                                    };
+                                    if !this.footnote_jump_pending_current(&ticket, window, cx)
+                                        || this
+                                            .shell
+                                            .reader_scrolls
+                                            .get(&ticket.tab)
+                                            .map(|h| h.offset())
+                                            != Some(ticket.origin)
+                                    {
+                                        return;
+                                    }
+                                    if ticket.anchors.scroll_to_footnote(label, window, cx) {
+                                        // A return restores the actual clicked origin. Scheduling
+                                        // the target does not claim its movement has completed.
+                                        let weak = cx.entity().downgrade();
+                                        window.on_next_frame(move |window, cx| {
+                                            let _ = weak.update(cx, |this, cx| {
+                                                if this.footnote_jump_pending_current(
+                                                    &ticket, window, cx,
+                                                ) {
+                                                    this.shell.footnote_return = Some(ticket);
+                                                    cx.notify();
+                                                }
+                                            });
+                                            window.refresh();
+                                        });
+                                        cx.notify();
+                                    }
+                                });
                             });
                             window.refresh();
                         } else if external_links::destination(&link.target).is_some() {
@@ -2652,6 +2860,21 @@ impl Render for Workspace {
                         .cursor_pointer()
                         .child("Find")
                         .on_click(cx.listener(|this, _, window, cx| this.open_find(window, cx))),
+                )
+            })
+            .when_some(self.shell.footnote_return.clone(), |rail, ticket| {
+                rail.child(
+                    div()
+                        .id("footnote-return")
+                        .w(px(46.))
+                        .py_1()
+                        .text_size(px(9.))
+                        .text_color(rgb(p.mark))
+                        .cursor_pointer()
+                        .child("Return to reference")
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.return_from_footnote(&ticket, window, cx);
+                        })),
                 )
             })
             .when(self.creation_available(), |rail| {
@@ -4325,5 +4548,179 @@ mod reading_position_tests {
                 note_id: 7
             }
         ));
+    }
+}
+
+#[cfg(test)]
+mod footnote_return_tests {
+    use super::*;
+    fn ticket(y: f32) -> FootnoteReturn {
+        let displayed = std::rc::Rc::new(markdown::parse(
+            "First[^x].\n\nSecond[^x].\n\n| Ref |\n| --- |\n| table[^x] |\n\n[^x]: definition",
+        ));
+        FootnoteReturn {
+            source: LinkSource {
+                note: live::NoteKey {
+                    vault: "work".into(),
+                    note_id: 7,
+                },
+                etag: "a".into(),
+                storage_generation: 2,
+                launch_generation: 3,
+                request: 4,
+            },
+            tab: tabs::TabKey::Note {
+                vault: "work".into(),
+                note_id: 7,
+            },
+            anchors: std::rc::Rc::new(markdown::HeadingAnchors::new(
+                &displayed,
+                &gpui::ScrollHandle::new(),
+            )),
+            displayed,
+            interaction: 5,
+            geometry: FootnoteGeometry {
+                reader: gpui::Bounds::new(point(px(60.), px(40.)), gpui::size(px(800.), px(600.))),
+                extent: gpui::size(px(0.), px(4000.)),
+                viewport: gpui::size(px(1000.), px(800.)),
+                scale: 2.,
+            },
+            origin: point(px(0.), px(y)),
+        }
+    }
+    fn matches(ticket: &FootnoteReturn, source: &LinkSource, geometry: &FootnoteGeometry) -> bool {
+        ticket.matches(
+            Some(source),
+            Some(&ticket.tab),
+            &ticket.displayed,
+            Some(&ticket.anchors),
+            Some(geometry),
+            true,
+        )
+    }
+    #[test]
+    fn return_rejects_revisions_owner_geometry_and_detached_reader() {
+        let ticket = ticket(-100.);
+        assert!(matches(&ticket, &ticket.source, &ticket.geometry));
+        for field in 0..6 {
+            let mut source = ticket.source.clone();
+            match field {
+                0 => source.note.vault = "other".into(),
+                1 => source.note.note_id += 1,
+                2 => source.etag.push('b'),
+                3 => source.storage_generation += 1,
+                4 => source.launch_generation += 1,
+                _ => source.request += 1,
+            }
+            assert!(!matches(&ticket, &source, &ticket.geometry));
+        }
+        let mut geometry = ticket.geometry.clone();
+        geometry.scale = 1.;
+        assert!(!matches(&ticket, &ticket.source, &geometry));
+        let detached = std::rc::Rc::new(markdown::HeadingAnchors::new(
+            &ticket.displayed,
+            &gpui::ScrollHandle::new(),
+        ));
+        assert!(!ticket.matches(
+            Some(&ticket.source),
+            Some(&ticket.tab),
+            &ticket.displayed,
+            Some(&detached),
+            Some(&ticket.geometry),
+            true
+        ));
+        assert!(!ticket.matches(
+            Some(&ticket.source),
+            Some(&tabs::TabKey::Home),
+            &ticket.displayed,
+            Some(&ticket.anchors),
+            Some(&ticket.geometry),
+            true
+        ));
+        assert!(!ticket.matches(
+            Some(&ticket.source),
+            Some(&ticket.tab),
+            &markdown::parse("changed display"),
+            Some(&ticket.anchors),
+            Some(&ticket.geometry),
+            true
+        ));
+        assert!(!ticket.matches(
+            Some(&ticket.source),
+            Some(&ticket.tab),
+            &ticket.displayed,
+            Some(&ticket.anchors),
+            Some(&ticket.geometry),
+            false
+        ));
+    }
+    #[test]
+    fn repeated_and_table_references_keep_clicked_origin_not_first_reference() {
+        for y in [-20., -700., -1600.] {
+            let ticket = ticket(y);
+            assert_eq!(
+                ticket.geometry.bounded_origin(ticket.origin),
+                Some(point(px(0.), px(y)))
+            );
+        }
+        let ticket = ticket(-1600.);
+        let links: Vec<_> = ticket
+            .displayed
+            .iter()
+            .flat_map(|b| {
+                b.links.iter().chain(
+                    b.table
+                        .iter()
+                        .flat_map(|t| t.rows.iter().flatten().flat_map(|c| c.links.iter())),
+                )
+            })
+            .collect();
+        assert_eq!(
+            links
+                .iter()
+                .filter(|link| matches!(link.target, markdown::LinkTarget::Footnote { .. }))
+                .count(),
+            3
+        );
+        for link in links {
+            if matches!(link.target, markdown::LinkTarget::Footnote { .. }) {
+                assert!(markdown::footnote_link_valid(&ticket.displayed, link));
+            }
+        }
+    }
+    #[test]
+    fn stale_return_control_cannot_consume_new_ticket_and_return_is_one_shot() {
+        let old = std::rc::Rc::new(ticket(-10.));
+        let new = std::rc::Rc::new(ticket(-700.));
+        let mut shell = ShellState::default();
+        shell.footnote_return = Some(new.clone());
+        // Root mouse-down / wheel / key handlers increment the pending-action
+        // counter. Retained Return survives ordinary reading and its own click.
+        shell.positions.interaction = new.interaction.wrapping_add(3);
+        assert!(matches(&new, &new.source, &new.geometry));
+        assert!(!shell.take_footnote_return(&old));
+        assert!(shell.take_footnote_return(&new));
+        assert!(!shell.take_footnote_return(&new));
+    }
+    #[test]
+    fn return_offset_is_finite_bounded_and_detachment_discards_ticket() {
+        let ticket = std::rc::Rc::new(ticket(-100.));
+        assert_eq!(
+            ticket.geometry.bounded_origin(point(px(20.), px(-5000.))),
+            Some(point(px(0.), px(-4000.)))
+        );
+        assert!(
+            ticket
+                .geometry
+                .bounded_origin(point(px(0.), px(f32::NAN)))
+                .is_none()
+        );
+        let mut invalid = ticket.geometry.clone();
+        invalid.extent.height = px(f32::INFINITY);
+        assert!(invalid.bounded_origin(ticket.origin).is_none());
+        let mut shell = ShellState::default();
+        shell.footnote_return = Some(ticket.clone());
+        shell.detach_reader_scroll(&ticket.tab);
+        assert!(shell.footnote_return.is_none()); // revisiting the note cannot revive it
     }
 }

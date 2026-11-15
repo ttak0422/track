@@ -366,8 +366,14 @@ Native rendering, color/orientation, reflow/scroll and accessibility remain open
 
 Parser-backed references and labeled definitions preserve readable nested content
 and Find ranges. Definitions remain in source order, not web-style reference
-numbering/end collection. One-way current-reader jumps to unique definitions
-use dedicated parser targets and accepted-source guards. Return links remain unsupported;
+numbering/end collection. Current-reader jumps to unique definitions
+use dedicated parser targets and accepted-source guards. An explicit one-use
+Return control retains the clicked scroll position only for the same source, tab,
+reader identity and geometry; no route history, fetch or persistence is added.
+Repeated/table-reference origins and stale/geometry rejection have model tests;
+native middle/table Return, ordinary scrolling and note-navigation invalidation
+were checked in an isolated fixture. Native reflow/keyboard QA remains pending.
+Automatic backlinks are unsupported;
 ordinary links inside definitions retain existing resolution rules. Native
 layout, selection and accessibility validation remains pending.
 

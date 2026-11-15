@@ -542,10 +542,13 @@ and ordinary links remain readable and searchable.
 In the current live reader, click a reference to jump to its unique definition.
 Undefined or duplicate labels stay inactive. The jump is local: it does not reload
 the note, open another tab or write anything. Changed source and blocked reader
-interactions cancel stale clicks.
+interactions cancel stale clicks. After a jump, the small **Return to reference**
+control restores the position where you clicked, including repeated and table
+references. It is one-use and session-only, with no history or saved state.
+Changing the note, reader mode, layout or competing reader action clears it.
 
 This is not full web footnote parity: references are not renumbered, definitions
-are not collected at the end, and return links are not added. Unresolved
+are not collected at the end, and automatic definition backlinks are not added. Unresolved
 references remain visible. No source is rewritten.
 Native layout, selection and accessibility validation remains pending.
 
