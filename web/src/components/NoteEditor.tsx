@@ -1,3 +1,4 @@
+import { TaskTimelinePanel } from "./TaskTimelinePanel";
 import { ReadingPositionBoundary } from "./ReadingPositionBoundary";
 import { RenderFailure } from "./RenderFailure";
 import { useBlocker, useNavigate } from "@tanstack/react-router";
@@ -603,6 +604,7 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
               </div>
             ) : null}
           </form>
+          <TaskTimelinePanel key={noteID} noteID={noteID} />
         </div>
 
         <NoteAside

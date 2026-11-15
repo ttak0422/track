@@ -357,3 +357,11 @@ produce the standard JSON error with exit code 1. There is no fallback to anothe
 version, the live URL, or a search snippet. ID references are vault-local: use the
 same vault (or `--vault NAME`) for save/list/cite. Renaming is supported; moving the
 note into a different vault does not migrate its source versions.
+
+## Reading a task timeline
+
+`track timeline --id N` (or `--title S` / `--path P`) returns the current per-note task tree,
+explicit checkbox counts, and persisted state transitions in one JSON snapshot. The
+`schema_version: 1` contract is described in [task-timeline.md](task-timeline.md). This is a
+read model, not an agent-run recorder: do not treat task line numbers as stable identities or
+use recorded history as a cursor. Mutations still use the ordinary task commands.

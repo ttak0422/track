@@ -6033,3 +6033,37 @@ textarea.modal-input:focus-visible {
 .metrics-dashboard-meta dl > div { display: grid; grid-template-columns: minmax(6em, 1fr) 3fr; gap: 12px; }
 .metrics-dashboard-meta dd { margin: 0; white-space: pre-wrap; }
 
+
+/* Timeline controls use the text-control variant; content stays on the reader sheet. */
+.task-timeline {
+  margin-block: 1.5em;
+}
+.task-timeline-toggle {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+.task-timeline-toggle:hover,
+.task-timeline-toggle:focus-visible {
+  color: var(--text);
+}
+.task-timeline-toggle[aria-expanded="true"] {
+  color: var(--text);
+  font-weight: 500;
+}
+.task-timeline-items,
+.task-timeline-history {
+  padding-inline-start: 0;
+  list-style: none;
+}
+.task-timeline-items li,
+.task-timeline-history li {
+  margin-block: 0.5em;
+  overflow-wrap: anywhere;
+}
+.task-timeline-history time {
+  color: var(--muted);
+}

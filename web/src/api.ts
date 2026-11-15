@@ -30,6 +30,7 @@ import type {
   SearchResult,
   SiteResponse,
   TasksResponse,
+  TaskTimeline,
   ViewSpecResponse,
   TaskListResponse,
   VaultsResponse,} from "./types";
@@ -541,4 +542,9 @@ export function renderMetricsDashboard(text: string, days: number, vault = ""): 
   return api<MetricsDashboardResponse>(`/api/metrics-dashboard${vaultParams(vault, "?")}`, {
     method: "POST", body: { dashboard, days },
   });
+}
+
+// Timeline data is live-only and never bundled into a published site.
+export function getTaskTimeline(noteID: NoteID, signal?: AbortSignal): Promise<TaskTimeline> {
+  return api<TaskTimeline>(`/api/timeline?${idParams(noteID)}`, { signal });
 }
