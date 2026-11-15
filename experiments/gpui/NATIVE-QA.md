@@ -921,3 +921,10 @@ lifecycle establish completion of the guarded Save-and-continue path.
 Native IME composition remains unverified. Looking up the existing input-source
 menu timed out in Computer Use; no IME configuration was changed. The separate
 IME attempt's clean fixture window was closed without modifying its source.
+
+Source review found that switching Edit/Split to Preview could unmount the
+marked-text owner without consulting the live input handler. Mode changes now
+fail closed while that handler reports composition; same-mode selection and
+changes after commit/cancel remain allowed. A pure admission-matrix regression
+covers the rule. It is not Workspace/input-method integration evidence, and
+native IME acceptance remains open.

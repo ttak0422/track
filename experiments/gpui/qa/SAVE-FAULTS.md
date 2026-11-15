@@ -141,3 +141,10 @@ cancelled Quit. Read-only inspection did not retry the PUT. Subsequent explicit
 Discard and continue exited; adapter SIGTERM recorded child `reaped` status 0
 in 9 ms and all four ports were free. This supersedes the earlier unresolved
 GUI cleanup evidence limit for this run; pending-success remains unverified.
+
+Held-success Save-and-continue, 2026-11-15: a fixture edit used `hold` with a
+watcher releasing 1.7 seconds after `held`. The GUI showed its saving/locked
+state; acknowledged completion cleared the checkpoint and terminated the owned
+adapter/child (reaped status 0 in 11 ms), retaining the submitted source. See
+`../NATIVE-QA.md` for the subsequent inspection-startup caveat. This validates
+that specific guarded quit path, not every possible quit/save race or IME path.

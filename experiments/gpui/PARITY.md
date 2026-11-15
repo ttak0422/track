@@ -31,7 +31,7 @@ of support. Use disposable fixture vaults, never a configured personal vault, fo
 | Simple tables and inline emphasis/code/link styling | [x] | [ ] | `markdown.rs`; code/emphasis native smoke, tables tests |
 | Read-only plain task indicators and inline strike | [x] | [ ] | `markdown.rs`; parser/style/Find/link tests; native glyph/AX pending; rich task notation excluded |
 | Ordinary code-fence caption and explicit Copy | [x] | [ ] | `code_copy.rs`, `markdown.rs`; parsed-body/lifecycle tests, native clipboard and accessibility pending |
-| Explicit rendered-preview code/source Copy | [x] | [ ] | Snapshot-qualified, bounded plain-text clipboard submission; included snippets and retained input only, native clipboard/focus/AX pending |
+| Explicit rendered-preview code/source Copy | [x] | [ ] | Snapshot-qualified, bounded plain-text clipboard submission; included snippets and retained input only; Unicode code clipboard round trip verified, general focus/AX pending |
 | Bounded JS-family/Lua/JSON/Python/shell fenced-code lexical styles | [x] | [ ] | `code_highlight.rs`, `markdown.rs`; bounded lossless ranges, Find/Copy and ingestion cache tests; native GUI unvalidated |
 | Full code syntax highlighting and math | [ ] | [ ] | `MarkdownView`, `components/markdown` |
 | Verified internal wiki/Markdown links and outline jumps | [x] | [ ] | `markdown.rs`, `shell.rs`; scoped resolver and heading-fragment subset; same-note plain fragment native smoke; cross-note/dirty transitions pending |
@@ -81,14 +81,16 @@ read-only. It supports one draft, with separately gated fixture checkpoints, not
 parity. Independent source review and unit tests cover stale callbacks, save
 locking, and transition guards. Disposable native checks cover app-menu quit,
 Cancel, explicit Save, stale-source refusal, dirty Window Close/repeated Cmd-Q and Discard, with child-port cleanup.
-Dock Quit, active IME and pending/uncertain native-event checks remain open.
+Native uncertain acknowledgement and held-success Save-and-continue checks are also recorded.
+Dock Quit and active IME remain open.
 See `NATIVE-QA.md` for evidence and the README for the fixture-only opt-in.
 
 Fixture-only recovery is separately opt-in. It connects protected checkpoints,
 explicit same-source recovery and ordered save/discard clears to the existing
 editor gates. Ordinary editing remains disabled. Filesystem/model and headless
-integration tests do not establish native Dock Quit, IME, pending-save or
-power-loss durability; these remain separate validation gates.
+integration tests do not establish native Dock Quit, IME or power-loss durability.
+Separate native evidence covers crash recovery, Discard, lost acknowledgement and
+held-success Save-and-continue; these do not imply complete editor acceptance.
 
 ## Reuse the engine boundary
 

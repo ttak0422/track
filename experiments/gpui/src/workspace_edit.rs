@@ -13,6 +13,21 @@ pub enum EditorMode {
     Edit,
     Split,
 }
+
+// Keep the platform's marked-text owner mounted and its layout stable until
+// composition finishes. No-op selection of the current mode remains harmless.
+fn admit_editor_mode(
+    current: EditorMode,
+    next: EditorMode,
+    composing: bool,
+) -> Result<(), &'static str> {
+    if composing && current != next {
+        Err("Finish or cancel IME composition before changing editor mode.")
+    } else {
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Transition {
     InternalLink(shell::InternalLinkIntent),
@@ -455,6 +470,17 @@ impl Workspace {
         ))
     }
     pub(crate) fn set_editor_mode(&mut self, mode: EditorMode, cx: &mut Context<Self>) {
+        let composing = self
+            .editing_ui
+            .active
+            .as_ref()
+            .is_some_and(|active| active.input.read(cx).is_composing());
+        if let Err(message) = admit_editor_mode(self.editing_ui.mode, mode, composing) {
+            self.editing_ui.message = message.into();
+            self.editing_ui.mode_menu = false;
+            cx.notify();
+            return;
+        }
         self.stop_editor_follow();
         if self.editing_ui.pending.is_some() {
             return;
@@ -1167,6 +1193,28 @@ impl Workspace {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn mode_changes_preserve_composition_until_platform_finishes() {
+        let modes = [EditorMode::Preview, EditorMode::Edit, EditorMode::Split];
+        for current in modes {
+            for next in modes {
+                assert_eq!(
+                    admit_editor_mode(current, next, true).is_ok(),
+                    current == next
+                );
+                assert!(admit_editor_mode(current, next, false).is_ok());
+            }
+        }
+        let mut current = EditorMode::Edit;
+        if admit_editor_mode(current, EditorMode::Preview, true).is_ok() {
+            current = EditorMode::Preview;
+        }
+        assert_eq!(current, EditorMode::Edit);
+        // Both unmark-only commit and cancellation are observed from the live
+        // input handler, not a potentially stale EditSession composition flag.
+        assert!(admit_editor_mode(current, EditorMode::Preview, false).is_ok());
+    }
+
     #[test]
     fn recovery_launch_wire_identity_stays_empty_for_save() {
         let source: live::NoteResponse = serde_json::from_value(serde_json::json!({
