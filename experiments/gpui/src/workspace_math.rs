@@ -29,6 +29,49 @@ struct Identity {
     canonical: String,
 }
 
+/// Parsed data only, never navigation/registry authority. Single-entry storage
+/// prevents retained documents accumulating as the reader changes notes.
+#[derive(Default)]
+pub(crate) struct ReferenceCache {
+    entry: Option<ReferenceEntry>,
+}
+struct ReferenceEntry {
+    source: shell::LinkSource,
+    body: String,
+    content: Vec<markdown::Block>,
+    references: Arc<[markdown::MathReference]>,
+}
+impl ReferenceCache {
+    fn clear(&mut self) {
+        self.entry = None;
+    }
+    fn get_with(
+        &mut self,
+        source: &shell::LinkSource,
+        body: &str,
+        content: &[markdown::Block],
+        compute: impl FnOnce(&str, &[markdown::Block]) -> Vec<markdown::MathReference>,
+    ) -> Arc<[markdown::MathReference]> {
+        // No parser work, even on the first frame, for the common no-math case.
+        if !body.contains("$$") {
+            self.clear();
+            return Arc::from([]);
+        }
+        if let Some(entry) = &self.entry {
+            if &entry.source == source && entry.body == body && entry.content == content {
+                return entry.references.clone();
+            }
+        }
+        let references: Arc<[markdown::MathReference]> = compute(body, content).into();
+        self.entry = Some(ReferenceEntry {
+            source: source.clone(),
+            body: body.into(),
+            content: content.to_vec(),
+            references: references.clone(),
+        });
+        references
+    }
+}
 pub(crate) struct State {
     identity: Identity,
     reference: markdown::MathReference,
@@ -165,11 +208,21 @@ impl Workspace {
             && !self.reader_selection_dragging()
     }
 
-    fn math_references(&self) -> Vec<markdown::MathReference> {
-        self.current_note
-            .as_ref()
-            .map(|n| markdown::display_math_references(&n.body, &self.content))
-            .unwrap_or_default()
+    fn math_references(&self) -> Arc<[markdown::MathReference]> {
+        let Some(identity) = self.math_identity() else {
+            self.math_reference_cache.borrow_mut().clear();
+            return Arc::from([]);
+        };
+        let Some(note) = self.current_note.as_ref() else {
+            self.math_reference_cache.borrow_mut().clear();
+            return Arc::from([]);
+        };
+        self.math_reference_cache.borrow_mut().get_with(
+            &identity.source,
+            &note.body,
+            &self.content,
+            markdown::display_math_references,
+        )
     }
     pub(crate) fn sync_math(&mut self) {
         let id = self.math_identity();
@@ -362,7 +415,7 @@ impl Workspace {
             .gap_2()
             .text_size(px(12.))
             .child("DISPLAY MATH · local · source retained");
-        for reference in refs {
+        for reference in refs.iter().cloned() {
             let source = id.clone();
             let blocked = self.reader_math.as_ref().is_some_and(|s| s.inline);
             view = view.child(
@@ -474,5 +527,107 @@ mod occurrence_tests {
         b = a.clone();
         b.formula = "x^3".into();
         assert!(!occurrence_current(7, 7, &b, &a, false));
+    }
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+    fn source() -> shell::LinkSource {
+        shell::LinkSource {
+            note: live::NoteKey {
+                vault: "host".into(),
+                note_id: 1,
+            },
+            etag: "one".into(),
+            storage_generation: 1,
+            launch_generation: 1,
+            request: 1,
+        }
+    }
+    #[test]
+    fn repeated_render_consumers_share_one_parse_even_for_empty_results() {
+        let mut cache = ReferenceCache::default();
+        let calls = std::cell::Cell::new(0);
+        let body = "$$x$$\n";
+        let model = markdown::parse_reader(body);
+        let source = source();
+        let mut read = || {
+            cache.get_with(&source, body, &model, |body, model| {
+                calls.set(calls.get() + 1);
+                markdown::display_math_references(body, model)
+            })
+        };
+        let first = read();
+        for _ in 0..20 {
+            assert!(Arc::ptr_eq(&first, &read()));
+        }
+        assert_eq!(calls.get(), 1);
+        let body = "```tex\n$$x$$\n```\n";
+        let model = markdown::parse_reader(body);
+        for _ in 0..5 {
+            assert!(
+                cache
+                    .get_with(&source, body, &model, |body, model| {
+                        calls.set(calls.get() + 1);
+                        markdown::display_math_references(body, model)
+                    })
+                    .is_empty()
+            );
+        }
+        assert_eq!(calls.get(), 2);
+    }
+    #[test]
+    fn exact_body_model_and_accepted_source_changes_recompute() {
+        let mut cache = ReferenceCache::default();
+        let calls = std::cell::Cell::new(0);
+        let mut source = source();
+        let body = "$$x$$\n";
+        let mut model = markdown::parse_reader(body);
+        let mut compute = |body: &str, model: &[markdown::Block]| {
+            calls.set(calls.get() + 1);
+            markdown::display_math_references(body, model)
+        };
+        assert_eq!(cache.get_with(&source, body, &model, &mut compute).len(), 1);
+        model[0].text.push('!');
+        assert!(
+            cache
+                .get_with(&source, body, &model, &mut compute)
+                .is_empty()
+        );
+        model = markdown::parse_reader(body);
+        assert_eq!(cache.get_with(&source, body, &model, &mut compute).len(), 1);
+        // Identical metadata cannot hide a locally replaced accepted body.
+        let body = "$$y$$\n";
+        model = markdown::parse_reader(body);
+        cache.get_with(&source, body, &model, &mut compute);
+        source.request += 1;
+        cache.get_with(&source, body, &model, &mut compute);
+        source.storage_generation += 1;
+        cache.get_with(&source, body, &model, &mut compute);
+        assert_eq!(calls.get(), 6);
+        cache.clear();
+        cache.get_with(&source, body, &model, &mut compute);
+        assert_eq!(calls.get(), 7);
+    }
+    #[test]
+    fn ordinary_notes_never_parse_and_retire_old_entry() {
+        let mut cache = ReferenceCache::default();
+        let source = source();
+        let body = "$$x$$\n";
+        cache.get_with(
+            &source,
+            body,
+            &markdown::parse_reader(body),
+            markdown::display_math_references,
+        );
+        for _ in 0..10 {
+            assert!(
+                cache
+                    .get_with(&source, "ordinary", &[], |_, _| panic!("must not parse"))
+                    .is_empty()
+            );
+        }
+        assert!(cache.entry.is_none());
     }
 }

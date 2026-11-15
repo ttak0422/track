@@ -1869,3 +1869,12 @@ gate changes are included.
 - Renderer code is MIT OR Apache-2.0; embedded STIX Two Math is SIL OFL 1.1 with the
   license retained under `licenses/`. Rust 1.99 or newer is required. The helper uses
   input/depth/dimension/output/time limits, not a complete OS sandbox or RSS cap.
+
+The display-math admission cache reuses immutable references only for an exact
+accepted source, body and reader-model match. Notes without `$$` do not invoke
+the math parser; negative results are also cached. Registry/action ownership is
+still checked on every use and never granted by the cache. Three additional
+exact-source cache regressions passed in the limited parser harness (six tests
+including mapping). Independent review found no P1/P2. This is an internal
+performance correction with no control or syntax change; native performance
+measurements and full GPUI compilation remain pending.
