@@ -263,3 +263,11 @@ do not remove or replace this file while writers run. Each version directory is
 published atomically after verification.
 Unfinished `.pending-*` directories are ignored, and corrupt versions return errors.
 No retention limit or automatic cleanup is applied. See ADR 0077.
+
+## Agent timeline journals
+
+Explicit agent projects live in `.track/timelines/<project-id>.json`, separate from checkbox
+metadata and archived requests. These schema-versioned append-only event documents are authoritative;
+CLI/API rebuild snapshots on read. Cross-process lock files and temporary replacements are not
+records. Vault backups include journals, while static publication excludes them. See
+[ADR 0084](../adr/0084-explicit-agent-timeline-records.md) and the Agent timelines help page.

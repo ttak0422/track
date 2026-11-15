@@ -96,6 +96,7 @@ func WriteAt(vaults []Vault, destination *os.Root, stage string, protectedFiles 
 			"configured machine file and hard links; environment overrides (no content redaction)",
 			"external SQLite indexes and caches",
 			"root .git and regular .DS_Store files",
+			"timeline advisory locks and temporary writes (.track/timelines/.*.lock, .*.tmp)",
 		},
 	}
 	type source struct {
@@ -301,6 +302,16 @@ func inventory(root *os.Root, protected ...fs.FileInfo) (map[string]fs.FileInfo,
 		}
 		if isPlaceholder(info) || (strings.HasPrefix(path.Base(name), ".") && strings.HasSuffix(name, ".icloud")) {
 			return fmt.Errorf("cloud placeholder is not locally available: %s; finish syncing first", name)
+		}
+		// Timeline snapshots are canonical; advisory locks and interrupted atomic
+		// writes are not. Validate types and protected files before excluding them.
+		base := path.Base(name)
+		if path.Dir(name) == ".track/timelines" && strings.HasPrefix(base, ".") &&
+			(strings.HasSuffix(base, ".lock") || strings.HasSuffix(base, ".tmp")) {
+			if !info.Mode().IsRegular() {
+				return fmt.Errorf("timeline transient entry must be a regular file: %s", name)
+			}
+			return nil
 		}
 		files[name] = info
 		return nil
