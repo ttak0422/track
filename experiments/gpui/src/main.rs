@@ -28,6 +28,7 @@ mod mindmap;
 mod mindmap_view;
 mod native_window;
 mod navigation;
+mod note_creation;
 mod note_metadata;
 mod numeric_chart;
 mod numeric_chart_view;
@@ -537,6 +538,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
             config_live.config = config.clone();
             config_live.cache = cache.clone();
+            if let Some(root) = developer_fixture.as_ref() {
+                config_live.creation_fixture = Some(live::CreateFixture::capture(
+                    root,
+                    vault.as_deref().ok_or("--vault is required")?,
+                    config.as_deref(),
+                    cache.as_deref(),
+                )?);
+            }
             live_config = Some(config_live);
         }
         let mut backend = Backend::new(

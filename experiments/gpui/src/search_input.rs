@@ -43,6 +43,7 @@ pub enum InputPurpose {
     WorkspaceSearch,
     ReaderFind,
     CalendarZone,
+    CreateTitle,
 }
 impl InputPurpose {
     fn context(self, composing: bool) -> &'static str {
@@ -53,6 +54,8 @@ impl InputPurpose {
             (Self::ReaderFind, true) => "TrackReaderFind composing",
             (Self::CalendarZone, false) => "TrackCalendarZone",
             (Self::CalendarZone, true) => "TrackCalendarZone composing",
+            (Self::CreateTitle, false) => "TrackCreateTitle",
+            (Self::CreateTitle, true) => "TrackCreateTitle composing",
         }
     }
     fn placeholder(self) -> &'static str {
@@ -60,6 +63,7 @@ impl InputPurpose {
             Self::WorkspaceSearch => "Search notes…",
             Self::ReaderFind => "Find in page",
             Self::CalendarZone => "IANA display zone (e.g. Asia/Tokyo)",
+            Self::CreateTitle => "New note title",
         }
     }
 }
@@ -166,92 +170,92 @@ fn search_bindings() -> Vec<KeyBinding> {
         KeyBinding::new(
             "backspace",
             Backspace,
-            Some("TrackSearch || TrackReaderFind || TrackCalendarZone"),
+            Some("TrackSearch || TrackReaderFind || TrackCalendarZone || TrackCreateTitle"),
         ),
         KeyBinding::new(
             "delete",
             Delete,
-            Some("TrackSearch || TrackReaderFind || TrackCalendarZone"),
+            Some("TrackSearch || TrackReaderFind || TrackCalendarZone || TrackCreateTitle"),
         ),
         KeyBinding::new(
             "left",
             Left,
-            Some("TrackSearch || TrackReaderFind || TrackCalendarZone"),
+            Some("TrackSearch || TrackReaderFind || TrackCalendarZone || TrackCreateTitle"),
         ),
         KeyBinding::new(
             "right",
             Right,
-            Some("TrackSearch || TrackReaderFind || TrackCalendarZone"),
+            Some("TrackSearch || TrackReaderFind || TrackCalendarZone || TrackCreateTitle"),
         ),
         KeyBinding::new(
             "shift-left",
             ExtendLeft,
-            Some("TrackSearch || TrackReaderFind || TrackCalendarZone"),
+            Some("TrackSearch || TrackReaderFind || TrackCalendarZone || TrackCreateTitle"),
         ),
         KeyBinding::new(
             "shift-right",
             ExtendRight,
-            Some("TrackSearch || TrackReaderFind || TrackCalendarZone"),
+            Some("TrackSearch || TrackReaderFind || TrackCalendarZone || TrackCreateTitle"),
         ),
         KeyBinding::new(
             "home",
             Home,
-            Some("TrackSearch || TrackReaderFind || TrackCalendarZone"),
+            Some("TrackSearch || TrackReaderFind || TrackCalendarZone || TrackCreateTitle"),
         ),
         KeyBinding::new(
             "end",
             End,
-            Some("TrackSearch || TrackReaderFind || TrackCalendarZone"),
+            Some("TrackSearch || TrackReaderFind || TrackCalendarZone || TrackCreateTitle"),
         ),
         KeyBinding::new(
             "cmd-left",
             Home,
-            Some("TrackSearch || TrackReaderFind || TrackCalendarZone"),
+            Some("TrackSearch || TrackReaderFind || TrackCalendarZone || TrackCreateTitle"),
         ),
         KeyBinding::new(
             "cmd-right",
             End,
-            Some("TrackSearch || TrackReaderFind || TrackCalendarZone"),
+            Some("TrackSearch || TrackReaderFind || TrackCalendarZone || TrackCreateTitle"),
         ),
         KeyBinding::new(
             "shift-home",
             ExtendHome,
-            Some("TrackSearch || TrackReaderFind || TrackCalendarZone"),
+            Some("TrackSearch || TrackReaderFind || TrackCalendarZone || TrackCreateTitle"),
         ),
         KeyBinding::new(
             "shift-end",
             ExtendEnd,
-            Some("TrackSearch || TrackReaderFind || TrackCalendarZone"),
+            Some("TrackSearch || TrackReaderFind || TrackCalendarZone || TrackCreateTitle"),
         ),
         KeyBinding::new(
             "cmd-shift-left",
             ExtendHome,
-            Some("TrackSearch || TrackReaderFind || TrackCalendarZone"),
+            Some("TrackSearch || TrackReaderFind || TrackCalendarZone || TrackCreateTitle"),
         ),
         KeyBinding::new(
             "cmd-shift-right",
             ExtendEnd,
-            Some("TrackSearch || TrackReaderFind || TrackCalendarZone"),
+            Some("TrackSearch || TrackReaderFind || TrackCalendarZone || TrackCreateTitle"),
         ),
         KeyBinding::new(
             "cmd-a",
             SelectAll,
-            Some("TrackSearch || TrackReaderFind || TrackCalendarZone"),
+            Some("TrackSearch || TrackReaderFind || TrackCalendarZone || TrackCreateTitle"),
         ),
         KeyBinding::new(
             "cmd-c",
             Copy,
-            Some("TrackSearch || TrackReaderFind || TrackCalendarZone"),
+            Some("TrackSearch || TrackReaderFind || TrackCalendarZone || TrackCreateTitle"),
         ),
         KeyBinding::new(
             "cmd-x",
             Cut,
-            Some("TrackSearch || TrackReaderFind || TrackCalendarZone"),
+            Some("TrackSearch || TrackReaderFind || TrackCalendarZone || TrackCreateTitle"),
         ),
         KeyBinding::new(
             "cmd-v",
             Paste,
-            Some("TrackSearch || TrackReaderFind || TrackCalendarZone"),
+            Some("TrackSearch || TrackReaderFind || TrackCalendarZone || TrackCreateTitle"),
         ),
     ]
 }

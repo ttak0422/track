@@ -898,3 +898,20 @@ but is not a tab. Existing tabs remain available; Cmd-W on the tag page does
 nothing. Fixture sessions may retain bounded tag history while still restoring
 to safe Home. Ordinary persistence and editing remain disabled. Offline tag
 listing and native layout/interaction acceptance remain incomplete.
+
+
+## Fixture-only title creation (experimental)
+
+With the existing explicit `--developer-edit-fixture` owned-server launch, **New**
+opens a title-only dialog, including in an empty fixture. The launch fixture's
+**default template** supplies the body; no blank-body promise or follow-up PUT.
+Dirty drafts use Save/Discard/Cancel. Success shows a receipt; **Open created note**
+verifies fresh source before opening Preview. Ordinary/named vaults and snapshots
+cannot create. Root/config/cache/marker changes or symlinks in the controlled
+fixture refuse the request.
+
+Uncertain results never retry and deliberately block navigation/quit pending
+resolution. Durable uncertainty recovery remains a release prerequisite. See
+[PARITY.md](PARITY.md) for scope and [NATIVE-QA.md](NATIVE-QA.md) for required checks.
+A bounded native creation smoke passed; actual IME and interrupted creation QA
+remain open. Normal-vault editing stays disabled.

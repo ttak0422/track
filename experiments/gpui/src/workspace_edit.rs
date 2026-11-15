@@ -1,5 +1,7 @@
 //! Developer-only disposable-fixture editing. One active draft, no autosave/retry.
 //! All transitions pass the same gate before any note/tab/reader state changes.
+#[path = "workspace_create.rs"]
+mod creation;
 #[path = "workspace_recovery.rs"]
 mod recovery;
 use super::*;
@@ -42,6 +44,7 @@ pub enum Transition {
     Graph,
     FullGraph,
     WorkingVault(String),
+    CreateNote,
     Quit,
 }
 fn acknowledge_saved_transition(intent: &mut Transition) {
@@ -180,6 +183,7 @@ struct ActiveDraft {
     recovery: Option<draft_recovery::Record>,
 }
 pub struct EditingUi {
+    creation: creation::CreationUi,
     fixture_root: Option<PathBuf>,
     active: Option<ActiveDraft>,
     mode: EditorMode,
@@ -199,6 +203,7 @@ pub struct EditingUi {
 impl EditingUi {
     pub fn new(fixture_root: Option<PathBuf>) -> Self {
         Self {
+            creation: Default::default(),
             fixture_root,
             active: None,
             mode: EditorMode::Preview,
@@ -225,7 +230,8 @@ impl EditingUi {
         self.active.is_some()
     }
     pub(crate) fn follow_safe(&self) -> bool {
-        self.active.is_none()
+        !self.creation.open
+            && self.active.is_none()
             && !self.pending.is_some()
             && !self.exit_requested
             && !self.recovery_clearing
@@ -233,7 +239,8 @@ impl EditingUi {
             && !self.mode_menu
     }
     fn shortcut_blocked(&self, input_busy: bool) -> bool {
-        self.pending.is_some()
+        self.creation.open
+            || self.pending.is_some()
             || self.exit_requested
             || self.recovery_clearing
             || self.inspecting
@@ -241,7 +248,7 @@ impl EditingUi {
             || input_busy
     }
     pub(crate) fn tag_owner_busy(&self) -> bool {
-        self.mode_menu || self.inspecting
+        self.creation.open || self.mode_menu || self.inspecting
     }
     pub fn has_pending(&self) -> bool {
         self.pending.is_some()
@@ -327,6 +334,15 @@ fn fixture_note(root: &Path, path: &Path) -> bool {
 impl Workspace {
     /// true means caller must stop before changing any navigation state.
     pub(crate) fn guard_transition(&mut self, intent: Transition, cx: &mut Context<Self>) -> bool {
+        if self.editing_ui.creation.open {
+            self.editing_ui.creation.message = if self.editing_ui.creation.flow.can_dismiss() {
+                "Close the creation dialog before navigating or quitting."
+            } else {
+                "Creation is pending or may have happened. Quitting and navigation are blocked; cancellation is not rollback. No automatic retry."
+            }.into();
+            cx.notify();
+            return true;
+        }
         if self.tag_transition_blocked(&intent, cx) {
             return true;
         }
@@ -435,6 +451,7 @@ impl Workspace {
             Transition::Graph => self.load_graph(cx),
             Transition::FullGraph => self.open_full_graph(cx),
             Transition::WorkingVault(scope) => self.change_working_vault(scope, cx),
+            Transition::CreateNote => self.open_creation_form(cx),
             Transition::Quit => {
                 self.editing_ui.exit_requested = true;
                 let target = cx.entity().downgrade();
@@ -510,6 +527,9 @@ impl Workspace {
         ))
     }
     pub(crate) fn set_editor_mode(&mut self, mode: EditorMode, cx: &mut Context<Self>) {
+        if self.editing_ui.creation.open {
+            return;
+        }
         let composing = self
             .editing_ui
             .active
@@ -620,6 +640,9 @@ impl Workspace {
     }
 
     pub(crate) fn editor_save(&mut self, leaving: bool, cx: &mut Context<Self>) {
+        if self.editing_ui.creation.open {
+            return;
+        }
         if self.editing_ui.recovery_clearing {
             return;
         }
@@ -1677,6 +1700,50 @@ mod pending_transition_tests {
         let b = tabs.open_note("two", 7, "B");
         let a = tabs.open_note("one", 7, "A");
         (tabs, a, b)
+    }
+    #[test]
+    fn create_cancel_preserves_dirty_text_and_consumes_no_transition() {
+        let mut edit = draft();
+        let mut pending = PendingTransition::default();
+        pending.capture(Transition::CreateNote);
+        assert!(matches!(
+            edit.choose_leave(LeaveChoice::Cancel, 1, &storage())
+                .unwrap(),
+            LeaveAction::Stay
+        ));
+        pending.cancel();
+        assert_eq!(edit.draft(), "exact draft\n\n");
+        assert!(edit.dirty());
+        assert!(pending.take().is_none());
+    }
+    #[test]
+    fn create_failed_save_never_replays_and_keeps_draft() {
+        let mut edit = draft();
+        let mut pending = PendingTransition::default();
+        pending.capture(Transition::CreateNote);
+        let attempt = start(&mut edit, &mut pending);
+        let outcome = edit.finish_save(
+            attempt,
+            1,
+            2,
+            Err(live::Error::Transport("lost save response".into())),
+        );
+        assert!(pending.finish_save(attempt, &outcome, false).is_none());
+        assert!(pending.take().is_none());
+        assert_eq!(edit.draft(), "exact draft\n\n");
+    }
+    #[test]
+    fn create_after_saved_draft_replays_exactly_once() {
+        let mut edit = draft();
+        let mut pending = PendingTransition::default();
+        pending.capture(Transition::CreateNote);
+        let attempt = start(&mut edit, &mut pending);
+        let outcome = edit.finish_save(attempt, 1, 2, Ok(ack()));
+        assert_eq!(
+            pending.finish_save(attempt, &outcome, true),
+            Some(Transition::CreateNote)
+        );
+        assert!(pending.finish_save(attempt, &outcome, true).is_none());
     }
     #[test]
     fn history_cancel_repeated_back_and_stale_save_preserve_destination() {

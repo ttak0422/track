@@ -995,3 +995,40 @@ macOS build and full Rust suite passed: 602 passed, 7 ignored. Formatting and
 whitespace checks passed. No new GUI acceptance is claimed: note-to-tag-to-note
 Back/Forward, Reload, retained-tab interaction, long tag/title layout and actual
 IME remain pending. Ordinary vault editing stays disabled.
+
+
+## Fixture title creation: bounded native smoke (2026-11-15)
+
+The title-only developer-fixture dialog uses the launch vault's default template.
+Ordinary vault writes remain disabled. Uncertain POST outcomes deliberately retain
+the title/destination and block navigation/quit; durable unresolved receipts and
+read-only reconciliation remain required before normal release.
+
+Validation on an isolated empty fixture with a controlled default template:
+- Click New, focus the title field, paste a title and press Enter: a created receipt
+  with an engine-allocated ID appears.
+- Explicit Open verifies and displays the nonblank generated template in Preview.
+  Back returns to Home and retains the created-note tab.
+- Repeating the title displays HTTP 409, retains input and does not overwrite the
+  original. Escape returns to Home. Cmd-Q while the dialog is open is blocked;
+  Cmd-Q after dismissal exits and both owned ports are closed.
+- Post-quit disk inspection finds exactly one note with the expected template bytes.
+- A separate real-engine fixture confirms first-note creation, default-template
+  output, duplicate 409 with unchanged bytes and blank-title 400.
+
+The full native Rust suite passes (623 passed, 7 ignored), as do build, formatting
+and whitespace checks. Synthetic transport tests assert exact title-only POST
+payload/count and zero PUT, malformed/lost acknowledgements, readiness, changed
+fixture bindings, linked outputs and post-success read failure. The GUI smoke did
+not record an HTTP method transcript, so it does not independently prove zero PUT.
+
+Still unverified: actual Japanese IME composition, dirty Create dialogs in native
+UI, held/lost POST responses through native quit/window-close, double activation
+under a held response, accessibility/focus traversal and full layout parity.
+Pasting text is not evidence of IME composition. No generic creation-parity claim.
+
+The smoke exposed a pre-existing empty-list decode failure: the real engine emits
+`{"notes":null}` for an empty vault. Notes now accepts that explicit null as an
+empty list, while missing/malformed list shapes still fail. Exact wire evidence
+and HTTP/model regressions cover the correction; the final null-decoder change
+was rebuilt/tested but not re-run through the GUI.

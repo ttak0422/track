@@ -2643,6 +2643,18 @@ impl Render for Workspace {
                         .on_click(cx.listener(|this, _, window, cx| this.open_find(window, cx))),
                 )
             })
+            .when(self.creation_available(), |rail| {
+                rail.child(
+                    div()
+                        .id("create-note-open")
+                        .px_1()
+                        .py_2()
+                        .text_xs()
+                        .cursor_pointer()
+                        .child("New")
+                        .on_click(cx.listener(|this, _, _, cx| this.request_create_note(cx))),
+                )
+            })
             .child(
                 rail_button("reload", "reload", p, false)
                     .on_click(cx.listener(|this, _, _, cx| this.load_notes(cx))),
@@ -3165,6 +3177,10 @@ impl Render for Workspace {
                 this.shell.positions.interaction = this.shell.positions.interaction.wrapping_add(1);
             }))
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
+                if this.creation_open() {
+                    cx.stop_propagation();
+                    return;
+                }
                 this.cancel_follow_reveal();
                 this.shell.positions.interaction = this.shell.positions.interaction.wrapping_add(1);
                 if this.graph_entry_keyboard(event, window, cx) {
@@ -3508,6 +3524,9 @@ impl Render for Workspace {
             })
             .when(self.editing_ui.has_pending(), |root| {
                 root.child(self.render_leave_prompt(dark, cx))
+            })
+            .when(self.creation_open(), |root| {
+                root.child(self.render_creation(dark, cx))
             })
     }
 }

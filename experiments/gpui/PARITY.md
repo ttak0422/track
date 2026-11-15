@@ -387,3 +387,24 @@ note response, including undated and completed tasks in source order. No extra
 request, parser reimplementation or task mutation is introduced. Source-qualified
 controls reset across note revisions. This is not taskboard editing, line jumps
 or native task interaction/accessibility validation.
+
+
+## Fixture creation slice: bounded, not general creation parity
+
+Implemented: explicit developer-fixture launch-only title dialog, empty-fixture
+admission, default-template POST, strict receipt and fresh source verification,
+explicit reader opening, single-flight pending ownership, dirty/recovery/IME
+and competing-owner guards. No automatic retry, body override, template picker,
+named-vault creation, voice-selection/pinned-preview parity or ordinary-vault writes.
+
+Uncertain mutations retain title/destination and block navigation/quit; durable
+unresolved receipts and reconciliation are still required before normal release.
+Success with GET failure remains “created, unable to open/verify,” never a second
+POST. Fixture bindings and linked output directories are checked before dispatch,
+but this is a controlled disposable-fixture gate, not a filesystem sandbox against
+concurrent hostile changes.
+
+Model/transport tests and a bounded native first-note/duplicate/navigation smoke
+passed, including real-engine default-template checks. Actual IME and interrupted
+mutation GUI flows remain unverified; see [NATIVE-QA.md](NATIVE-QA.md).
+No general new-note parity claim.

@@ -90,6 +90,7 @@ pub struct LaunchConfig {
     pub port: u16,
     pub startup_timeout: Duration,
     pub request_timeout: Duration,
+    pub creation_fixture: Option<CreateFixture>,
 }
 impl LaunchConfig {
     pub fn new(executable: PathBuf, vault: Vault, port: u16) -> Self {
@@ -101,6 +102,7 @@ impl LaunchConfig {
             cache: None,
             startup_timeout: Duration::from_secs(20),
             request_timeout: Duration::from_secs(3),
+            creation_fixture: None,
         }
     }
     fn validate(&self) -> Result<(), Error> {
@@ -171,6 +173,7 @@ impl Note {
 }
 #[derive(Clone, Debug, Deserialize)]
 pub struct Notes {
+    #[serde(deserialize_with = "nullable_vec")]
     pub notes: Vec<Note>,
     #[serde(flatten)]
     pub diagnostics: Fields,
@@ -693,6 +696,7 @@ pub struct Storage {
 
 #[derive(Clone)]
 pub struct ReadClient {
+    creation_fixture: Option<CreateFixture>,
     http: reqwest::blocking::Client,
     origin: String,
     alive: Arc<AtomicBool>,
@@ -1490,6 +1494,316 @@ impl ReadClient {
         Ok(data)
     }
 }
+/// Captured only for explicit disposable developer opt-in, then bound to the
+/// owned launch config before spawning. Independent of any existing note path.
+#[derive(Clone, Debug)]
+pub struct CreateFixture {
+    root: FileIdentity,
+    vault_input: PathBuf,
+    config: FileIdentity,
+    cache: FileIdentity,
+    marker: FileIdentity,
+    config_bytes: Vec<u8>,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct FileIdentity {
+    path: PathBuf,
+    input: PathBuf,
+    device: u64,
+    inode: u64,
+}
+impl FileIdentity {
+    fn capture(path: &std::path::Path) -> Result<Self, String> {
+        use std::os::unix::fs::MetadataExt;
+        let canonical = path
+            .canonicalize()
+            .map_err(|e| format!("Fixture binding: {e}"))?;
+        let metadata = std::fs::metadata(path).map_err(|e| format!("Fixture binding: {e}"))?;
+        Ok(Self {
+            path: canonical,
+            input: path.to_owned(),
+            device: metadata.dev(),
+            inode: metadata.ino(),
+        })
+    }
+    fn unchanged(&self) -> bool {
+        Self::capture(&self.input).as_ref() == Ok(self)
+    }
+}
+impl CreateFixture {
+    pub fn capture(
+        root: &std::path::Path,
+        vault: &std::path::Path,
+        config: Option<&std::path::Path>,
+        cache: Option<&std::path::Path>,
+    ) -> Result<Self, String> {
+        let root = crate::workspace_edit::validate_fixture(root, vault, config, cache)?;
+        let config = config.ok_or("Creation requires isolated config.")?;
+        let cache = cache.ok_or("Creation requires isolated cache.")?;
+        let config_bytes = Self::read_config(config)?;
+        let result = Self {
+            marker: FileIdentity::capture(&root.join(".track-native-edit-fixture"))?,
+            root: FileIdentity::capture(&root)?,
+            vault_input: vault.to_owned(),
+            config: FileIdentity::capture(config)?,
+            cache: FileIdentity::capture(cache)?,
+            config_bytes,
+        };
+        result.verify()?;
+        Ok(result)
+    }
+    fn read_config(path: &std::path::Path) -> Result<Vec<u8>, String> {
+        let mut bytes = Vec::new();
+        std::fs::File::open(path)
+            .map_err(|e| e.to_string())?
+            .take(1024 * 1024 + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|e| e.to_string())?;
+        if bytes.len() > 1024 * 1024 {
+            return Err("Fixture config exceeds creation verification limit.".into());
+        }
+        Ok(bytes)
+    }
+    /// Creation chooses a new path, so checking only an existing note would miss
+    /// symlinked output directories. Small disposable trees only; never follow
+    /// links or special files while proving this conservative fixture boundary.
+    fn verify_tree(&self) -> Result<(), String> {
+        let mut pending = vec![(self.root.path.clone(), 0usize)];
+        let mut count = 0usize;
+        while let Some((directory, depth)) = pending.pop() {
+            if depth > 64 {
+                return Err("Fixture traversal depth exceeded.".into());
+            }
+            for entry in std::fs::read_dir(directory).map_err(|e| e.to_string())? {
+                let entry = entry.map_err(|e| e.to_string())?;
+                count += 1;
+                if count > 50_000 {
+                    return Err("Fixture traversal entry limit exceeded.".into());
+                }
+                let kind = entry.file_type().map_err(|e| e.to_string())?;
+                if kind.is_symlink() || !(kind.is_file() || kind.is_dir()) {
+                    return Err(
+                        "Creation fixture must not contain symlinks or special files.".into(),
+                    );
+                }
+                if kind.is_dir() {
+                    pending.push((entry.path(), depth + 1));
+                }
+            }
+        }
+        Ok(())
+    }
+    fn verify(&self) -> Result<(), String> {
+        if self.vault_input.canonicalize().ok().as_ref() != Some(&self.root.path)
+            || !self.root.unchanged()
+            || !self.config.unchanged()
+            || !self.cache.unchanged()
+            || !self.marker.unchanged()
+            || Self::read_config(&self.config.path)? != self.config_bytes
+        {
+            return Err(
+                "Fixture root/config/cache binding changed; no creation is permitted.".into(),
+            );
+        }
+        crate::workspace_edit::validate_fixture(
+            &self.root.path,
+            &self.root.path,
+            Some(&self.config.path),
+            Some(&self.cache.path),
+        )?;
+        self.verify_tree()?;
+        Ok(())
+    }
+    fn verify_launch(&self, launch: &LaunchConfig) -> Result<(), String> {
+        if !matches!(&launch.vault, Vault::Path(path) if path == &self.vault_input)
+            || launch.config.as_ref() != Some(&self.config.input)
+            || launch.cache.as_ref() != Some(&self.cache.input)
+        {
+            return Err("Creation fixture does not match exact owned launch paths.".into());
+        }
+        self.verify()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CreateAck {
+    pub launch_generation: u64,
+    pub vault: String,
+    pub note_id: i64,
+    pub title: String,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CreateError {
+    NotSent(String),
+    Rejected { status: u16 },
+    Uncertain(String),
+}
+impl fmt::Display for CreateError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NotSent(reason) => write!(f, "Not created: request not sent. {reason}"),
+            Self::Rejected { status: 409 } => {
+                f.write_str("Creation conflict (HTTP 409); no overwrite or automatic retry.")
+            }
+            Self::Rejected { status } => {
+                write!(f, "Creation rejected (HTTP {status}); title retained.")
+            }
+            Self::Uncertain(reason) => write!(
+                f,
+                "Creation may have happened. {reason} Do not retry automatically."
+            ),
+        }
+    }
+}
+impl ReadClient {
+    pub fn creation_available(&self) -> bool {
+        self.is_alive() && self.creation_fixture.is_some()
+    }
+    /// One title-only POST. No body override, implicit PUT, redirect or retry.
+    /// The Workspace owns pending/uncertain outcomes and prevents close/quit.
+    pub fn create_note(
+        &self,
+        title: &str,
+        scope: &str,
+        expected_launch: u64,
+    ) -> Result<CreateAck, CreateError> {
+        let title = title.trim();
+        let preflight = (|| -> Result<(), String> {
+            if title.is_empty() || !scope.is_empty() {
+                return Err("A nonblank title and launch-vault scope are required.".into());
+            }
+            if !self.is_alive() || self.launch_generation != expected_launch {
+                return Err("Owned launch changed.".into());
+            }
+            let fixture = self
+                .creation_fixture
+                .as_ref()
+                .ok_or("Disposable fixture creation is not enabled.")?;
+            fixture.verify()?;
+            let storage = self.storage().map_err(|e| e.to_string())?;
+            if storage.phase != "ready"
+                || storage.read_only
+                || degraded_save_data(&serde_json::to_value(&storage.additional).unwrap())
+            {
+                return Err("Storage must explicitly be ready and writable.".into());
+            }
+            // Recheck after blocking read. This is not a filesystem sandbox; the
+            // fixture must not be concurrently reconfigured by another process.
+            fixture.verify()?;
+            if !self.is_alive() {
+                return Err("Owned launch changed.".into());
+            }
+            Ok(())
+        })();
+        preflight.map_err(CreateError::NotSent)?;
+        let mut response = self
+            .http
+            .post(format!("{}/api/note", self.origin))
+            .json(&serde_json::json!({"title": title}))
+            .send()
+            .map_err(|_| CreateError::Uncertain("Response unavailable.".into()))?;
+        let status = response.status().as_u16();
+        let mut bytes = Vec::new();
+        (&mut response)
+            .take(64 * 1024 + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|_| CreateError::Uncertain("Response was interrupted.".into()))?;
+        if !self.is_alive() || bytes.len() > 64 * 1024 {
+            return Err(CreateError::Uncertain(
+                "Response or launch could not be verified.".into(),
+            ));
+        }
+        if matches!(status, 400 | 403 | 404 | 405 | 409) {
+            return Err(CreateError::Rejected { status });
+        }
+        if status != 200 {
+            return Err(CreateError::Uncertain(format!(
+                "Server returned HTTP {status}."
+            )));
+        }
+        #[derive(Deserialize)]
+        struct Ack {
+            created: bool,
+            vault: String,
+            note_id: i64,
+            title: String,
+        }
+        let ack: Ack = serde_json::from_slice(&bytes)
+            .map_err(|_| CreateError::Uncertain("Malformed acknowledgement.".into()))?;
+        if !ack.created
+            || !ack.vault.is_empty()
+            || ack.note_id <= 0
+            || ack.note_id > 9_007_199_254_740_991
+            || ack.title != title
+        {
+            return Err(CreateError::Uncertain(
+                "Acknowledgement identity mismatch.".into(),
+            ));
+        }
+        Ok(CreateAck {
+            launch_generation: self.launch_generation,
+            vault: ack.vault,
+            note_id: ack.note_id,
+            title: ack.title,
+        })
+    }
+    /// Read-only verification after an accepted receipt. Failure MUST retain the
+    /// receipt as created, not issue another POST. Storage may advance on create.
+    pub fn verify_created(&self, ack: &CreateAck) -> Result<(NoteResponse, Storage), Error> {
+        if !self.is_alive()
+            || ack.launch_generation != self.launch_generation
+            || !ack.vault.is_empty()
+            || ack.note_id <= 0
+        {
+            return Err(Error::Stale);
+        }
+        let fixture = self
+            .creation_fixture
+            .as_ref()
+            .ok_or_else(|| Error::Config("Creation fixture unavailable.".into()))?;
+        fixture.verify().map_err(Error::Config)?;
+        let before = self.storage()?;
+        let raw: Value = self.get("/api/note", &[("id", ack.note_id.to_string())])?;
+        if raw
+            .get("note")
+            .and_then(|n| n.get("read_only"))
+            .and_then(Value::as_bool)
+            != Some(false)
+        {
+            return Err(Error::Shape(
+                "Created source must explicitly confirm read_only=false.".into(),
+            ));
+        }
+        let source: NoteResponse =
+            serde_json::from_value(raw).map_err(|e| Error::Shape(e.to_string()))?;
+        let after = self.storage()?;
+        fixture.verify().map_err(Error::Config)?;
+        writable_source(&after, &source)?;
+        let path = std::path::Path::new(&source.note.note.path);
+        let path = if path.is_absolute() {
+            path.to_owned()
+        } else {
+            fixture.root.path.join(path)
+        };
+        if before.generation != after.generation
+            || !self.is_alive()
+            || source.note.note.note_id != ack.note_id
+            || source.note.note.vault != ack.vault
+            || source.note.note.title != ack.title
+            || source.note.note.file_kind != "note"
+            || !path
+                .canonicalize()
+                .ok()
+                .is_some_and(|p| p.is_file() && p.starts_with(&fixture.root.path))
+        {
+            return Err(Error::Shape(
+                "Created source is not verified in the same fixture.".into(),
+            ));
+        }
+        Ok((source, after))
+    }
+}
+
 /// A complete raw-source replacement bound to its original server, vault and revision.
 /// Prefer from_source; the transport revalidates safety even for literal construction.
 #[derive(Clone, Debug)]
@@ -1695,6 +2009,9 @@ impl OwnedServer {
     }
     fn start_cancelable(config: LaunchConfig, canceled: &AtomicBool) -> Result<Self, Error> {
         config.validate()?;
+        if let Some(fixture) = &config.creation_fixture {
+            fixture.verify_launch(&config).map_err(Error::Config)?;
+        }
         if canceled.load(Ordering::Acquire) {
             return Err(Error::Stale);
         }
@@ -1716,6 +2033,7 @@ impl OwnedServer {
             .map_err(|e| Error::Transport(e.to_string()))?;
         let alive = Arc::new(AtomicBool::new(true));
         let client = ReadClient {
+            creation_fixture: config.creation_fixture.clone(),
             http,
             origin: format!("http://127.0.0.1:{}", config.port),
             alive,
@@ -2284,7 +2602,7 @@ mod tests {
         let pid = child.id();
         let server = OwnedServer {
             child: Some(child),
-            client: ReadClient { http: reqwest::blocking::Client::new(), origin: "http://127.0.0.1:1".into(), alive: Arc::new(AtomicBool::new(true)), launch_generation: 1 },
+            client: ReadClient { creation_fixture: None, http: reqwest::blocking::Client::new(), origin: "http://127.0.0.1:1".into(), alive: Arc::new(AtomicBool::new(true)), launch_generation: 1 },
             logs: Arc::new(Mutex::new(VecDeque::new())), initial_vaults: serde_json::json!({"active":{},"vaults":[]}),
             initial_storage: Some(serde_json::from_value(serde_json::json!({"phase":"initializing","read_only":true,"verified":0,"generation":1})).unwrap()), storage_error: None,
         };
@@ -2391,6 +2709,7 @@ mod tests {
         });
         (
             ReadClient {
+                creation_fixture: None,
                 http: reqwest::blocking::Client::builder()
                     .no_proxy()
                     .retry(reqwest::retry::never())
@@ -2413,6 +2732,363 @@ mod tests {
             last.map(|(status, body)| (status, body.into())),
         ]
     }
+    struct CreationFixtureTest {
+        root: PathBuf,
+        binding: CreateFixture,
+    }
+    impl CreationFixtureTest {
+        fn new() -> Self {
+            let root = std::env::temp_dir().join(format!(
+                "track-create-{}-{}",
+                std::process::id(),
+                NEXT_LAUNCH.fetch_add(1, Ordering::Relaxed)
+            ));
+            std::fs::create_dir_all(root.join("vault")).unwrap();
+            std::fs::create_dir(root.join("cache")).unwrap();
+            std::fs::write(root.join("config"), "{}\n").unwrap();
+            std::fs::write(
+                root.join("vault/.track-native-edit-fixture"),
+                "disposable-fixture-only\n",
+            )
+            .unwrap();
+            let binding = CreateFixture::capture(
+                &root.join("vault"),
+                &root.join("vault"),
+                Some(&root.join("config")),
+                Some(&root.join("cache")),
+            )
+            .unwrap();
+            Self { root, binding }
+        }
+        fn client(
+            &self,
+            replies: Vec<Option<(u16, String)>>,
+        ) -> (ReadClient, thread::JoinHandle<Vec<String>>) {
+            let (mut client, requests) = save_mock(replies);
+            client.creation_fixture = Some(self.binding.clone());
+            (client, requests)
+        }
+    }
+    impl Drop for CreationFixtureTest {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+    const CREATE_STORAGE: &str =
+        r#"{"phase":"ready","read_only":false,"verified":0,"generation":2}"#;
+    const CREATE_OK: &str = r#"{"created":true,"vault":"","note_id":42,"title":"Alpha"}"#;
+    #[test]
+    fn create_first_note_posts_title_only_once_and_never_puts() {
+        let fixture = CreationFixtureTest::new();
+        let (client, requests) = fixture.client(vec![
+            Some((200, CREATE_STORAGE.into())),
+            Some((200, CREATE_OK.into())),
+        ]);
+        let ack = client.create_note(" Alpha ", "", 1).unwrap();
+        assert_eq!(ack.note_id, 42);
+        assert_eq!(ack.vault, "");
+        let requests = requests.join().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(requests[0].starts_with("GET /api/storage "));
+        assert!(requests[1].starts_with("POST /api/note "));
+        assert_eq!(
+            serde_json::from_str::<Value>(requests[1].split("\r\n\r\n").nth(1).unwrap()).unwrap(),
+            serde_json::json!({"title":"Alpha"})
+        );
+        assert!(!requests.iter().any(|r| r.starts_with("PUT ")));
+    }
+    #[test]
+    fn create_is_disabled_without_bound_fixture_and_for_invalid_scope_or_title() {
+        let fixture = CreationFixtureTest::new();
+        for (title, scope, launch, enabled) in [
+            ("Alpha", "", 1, false),
+            (" \n", "", 1, true),
+            ("Alpha", "named", 1, true),
+            ("Alpha", "", 99, true),
+        ] {
+            let (mut client, requests) = fixture.client(vec![]);
+            if !enabled {
+                client.creation_fixture = None;
+            }
+            assert!(matches!(
+                client.create_note(title, scope, launch),
+                Err(CreateError::NotSent(_))
+            ));
+            assert!(requests.join().unwrap().is_empty());
+        }
+    }
+    #[test]
+    fn create_binding_changes_send_no_request() {
+        for change in ["config-content", "config-inode", "cache", "root", "marker"] {
+            let fixture = CreationFixtureTest::new();
+            let (client, requests) = fixture.client(vec![]);
+            match change {
+                "config-content" => {
+                    std::fs::write(fixture.root.join("config"), "changed: true\n").unwrap()
+                }
+                "config-inode" => {
+                    std::fs::rename(fixture.root.join("config"), fixture.root.join("old-config"))
+                        .unwrap();
+                    std::fs::write(fixture.root.join("config"), "{}\n").unwrap();
+                }
+                "cache" => {
+                    std::fs::rename(fixture.root.join("cache"), fixture.root.join("old-cache"))
+                        .unwrap();
+                    std::fs::create_dir(fixture.root.join("cache")).unwrap();
+                }
+                "root" => {
+                    std::fs::rename(fixture.root.join("vault"), fixture.root.join("old-vault"))
+                        .unwrap();
+                    std::fs::create_dir(fixture.root.join("vault")).unwrap();
+                    std::fs::write(
+                        fixture.root.join("vault/.track-native-edit-fixture"),
+                        "disposable-fixture-only\n",
+                    )
+                    .unwrap();
+                }
+                _ => std::fs::remove_file(fixture.root.join("vault/.track-native-edit-fixture"))
+                    .unwrap(),
+            }
+            assert!(matches!(
+                client.create_note("Alpha", "", 1),
+                Err(CreateError::NotSent(_))
+            ));
+            assert!(requests.join().unwrap().is_empty());
+        }
+    }
+    #[test]
+    fn symlinked_output_directory_or_file_never_receives_create() {
+        use std::os::unix::fs::symlink;
+        for directory in [true, false] {
+            let fixture = CreationFixtureTest::new();
+            let (client, requests) = fixture.client(vec![]);
+            if directory {
+                symlink(fixture.root.join("cache"), fixture.root.join("vault/note")).unwrap();
+            } else {
+                std::fs::create_dir(fixture.root.join("vault/note")).unwrap();
+                symlink(
+                    fixture.root.join("config"),
+                    fixture.root.join("vault/note/escape.md"),
+                )
+                .unwrap();
+            }
+            assert!(matches!(
+                client.create_note("Alpha", "", 1),
+                Err(CreateError::NotSent(_))
+            ));
+            assert!(requests.join().unwrap().is_empty());
+        }
+    }
+    #[test]
+    fn two_explicit_sequential_creations_use_only_engine_returned_ids() {
+        let fixture = CreationFixtureTest::new();
+        let title = "雪 / \"quoted\"";
+        let second =
+            serde_json::json!({"created":true,"vault":"","note_id":43,"title":title}).to_string();
+        let (client, requests) = fixture.client(vec![
+            Some((200, CREATE_STORAGE.into())),
+            Some((200, CREATE_OK.into())),
+            Some((200, CREATE_STORAGE.into())),
+            Some((200, second)),
+        ]);
+        let first = client.create_note("Alpha", "", 1).unwrap();
+        let second = client.create_note(title, "", 1).unwrap();
+        assert_ne!(first.note_id, second.note_id);
+        assert_eq!(second.title, title);
+        let requests = requests.join().unwrap();
+        assert_eq!(
+            requests.iter().filter(|r| r.starts_with("POST ")).count(),
+            2
+        );
+        assert_eq!(
+            serde_json::from_str::<Value>(requests[3].split("\r\n\r\n").nth(1).unwrap()).unwrap(),
+            serde_json::json!({"title":title})
+        );
+        assert!(!requests.iter().any(|r| r.starts_with("PUT ")));
+    }
+    #[test]
+    fn create_binding_cannot_authorize_a_different_launch() {
+        let fixture = CreationFixtureTest::new();
+        let mut launch = LaunchConfig::new(
+            "/not-executed".into(),
+            Vault::Path(fixture.root.join("vault")),
+            20000,
+        );
+        launch.config = Some(fixture.root.join("config"));
+        launch.cache = Some(fixture.root.join("cache"));
+        assert!(fixture.binding.verify_launch(&launch).is_ok());
+        launch.vault = Vault::Registered("other".into());
+        assert!(fixture.binding.verify_launch(&launch).is_err());
+    }
+    #[test]
+    fn create_read_only_unknown_or_unready_storage_never_posts() {
+        let fixture = CreationFixtureTest::new();
+        for storage in [
+            CREATE_STORAGE.replace("false", "true"),
+            CREATE_STORAGE.replace("ready", "initializing"),
+            r#"{"phase":"ready","verified":0,"generation":2}"#.into(),
+        ] {
+            let (client, requests) = fixture.client(vec![Some((200, storage))]);
+            assert!(matches!(
+                client.create_note("Alpha", "", 1),
+                Err(CreateError::NotSent(_))
+            ));
+            let requests = requests.join().unwrap();
+            assert_eq!(requests.len(), 1);
+            assert!(requests[0].starts_with("GET "));
+        }
+    }
+    #[test]
+    fn create_lost_malformed_mismatched_and_server_error_responses_never_retry() {
+        let fixture = CreationFixtureTest::new();
+        let replies = [
+            None,
+            Some((500, "failure".into())),
+            Some((503, "unavailable".into())),
+            Some((201, CREATE_OK.into())),
+            Some((200, "{}".into())),
+            Some((200, CREATE_OK.replace("true", "false"))),
+            Some((200, CREATE_OK.replace("42", "0"))),
+            Some((200, CREATE_OK.replace("42", "42.5"))),
+            Some((200, CREATE_OK.replace("42", "9007199254740992"))),
+            Some((
+                200,
+                CREATE_OK.replace("\"vault\":\"\"", "\"vault\":\"other\""),
+            )),
+            Some((200, CREATE_OK.replace("Alpha", "Other"))),
+        ];
+        for reply in replies {
+            let (client, requests) =
+                fixture.client(vec![Some((200, CREATE_STORAGE.into())), reply]);
+            assert!(matches!(
+                client.create_note("Alpha", "", 1),
+                Err(CreateError::Uncertain(_))
+            ));
+            let requests = requests.join().unwrap();
+            assert_eq!(requests.len(), 2);
+            assert_eq!(
+                requests.iter().filter(|r| r.starts_with("POST ")).count(),
+                1
+            );
+        }
+    }
+    #[test]
+    fn create_conflict_is_not_success_and_does_not_overwrite() {
+        let fixture = CreationFixtureTest::new();
+        let original = fixture.root.join("vault/original.md");
+        std::fs::write(&original, "unchanged\n").unwrap();
+        let (client, requests) = fixture.client(vec![
+            Some((200, CREATE_STORAGE.into())),
+            Some((409, "conflict".into())),
+        ]);
+        assert_eq!(
+            client.create_note("Alpha", "", 1),
+            Err(CreateError::Rejected { status: 409 })
+        );
+        let requests = requests.join().unwrap();
+        assert_eq!(
+            requests.iter().filter(|r| r.starts_with("POST ")).count(),
+            1
+        );
+        assert!(!requests.iter().any(|r| r.starts_with("PUT ")));
+        assert_eq!(std::fs::read_to_string(original).unwrap(), "unchanged\n");
+    }
+    #[test]
+    fn acknowledged_creation_reads_actual_template_with_new_storage_generation() {
+        let fixture = CreationFixtureTest::new();
+        let path = fixture.root.join("vault/42.md");
+        std::fs::write(&path, "Default template\n").unwrap();
+        let source = serde_json::json!({"note":{"note_id":42,"vault":"","file_kind":"note","path":path,"title":"Alpha","body":"Default template\n","etag":"created-etag","read_only":false}}).to_string();
+        let fresh_storage = CREATE_STORAGE.replace("generation\":2", "generation\":3");
+        let (client, requests) = fixture.client(vec![
+            Some((200, CREATE_STORAGE.into())),
+            Some((200, CREATE_OK.into())),
+            Some((200, fresh_storage.clone())),
+            Some((200, source)),
+            Some((200, fresh_storage)),
+        ]);
+        let ack = client.create_note("Alpha", "", 1).unwrap();
+        let (note, storage) = client.verify_created(&ack).unwrap();
+        assert_eq!(note.note.body, "Default template\n");
+        assert_eq!(storage.generation, 3);
+        let requests = requests.join().unwrap();
+        assert_eq!(requests.len(), 5);
+        assert_eq!(
+            requests.iter().filter(|r| r.starts_with("POST ")).count(),
+            1
+        );
+        assert!(!requests.iter().any(|r| r.starts_with("PUT ")));
+    }
+    #[test]
+    fn created_source_requires_exact_identity_kind_fixture_path_and_stable_fresh_storage() {
+        let fixture = CreationFixtureTest::new();
+        let path = fixture.root.join("vault/42.md");
+        std::fs::write(&path, "Default template\n").unwrap();
+        let ack = CreateAck {
+            launch_generation: 1,
+            vault: String::new(),
+            note_id: 42,
+            title: "Alpha".into(),
+        };
+        for field in ["note_id", "vault", "file_kind", "path", "generation"] {
+            let mut source = serde_json::json!({"note":{"note_id":42,"vault":"","file_kind":"note","path":path,"title":"Alpha","body":"Default template\n","etag":"created-etag","read_only":false}});
+            match field {
+                "note_id" => source["note"][field] = 99.into(),
+                "vault" => source["note"][field] = "other".into(),
+                "file_kind" => source["note"][field] = "journal".into(),
+                "path" => {
+                    source["note"][field] = fixture
+                        .root
+                        .join("config")
+                        .to_string_lossy()
+                        .into_owned()
+                        .into()
+                }
+                _ => (),
+            }
+            let after = if field == "generation" {
+                CREATE_STORAGE.replace("generation\":2", "generation\":3")
+            } else {
+                CREATE_STORAGE.into()
+            };
+            let (client, requests) = fixture.client(vec![
+                Some((200, CREATE_STORAGE.into())),
+                Some((200, source.to_string())),
+                Some((200, after)),
+            ]);
+            assert!(client.verify_created(&ack).is_err());
+            assert!(
+                requests
+                    .join()
+                    .unwrap()
+                    .iter()
+                    .all(|r| r.starts_with("GET "))
+            );
+        }
+    }
+    #[test]
+    fn acknowledged_creation_get_failure_never_reposts() {
+        let fixture = CreationFixtureTest::new();
+        let (client, requests) = fixture.client(vec![
+            Some((200, CREATE_STORAGE.into())),
+            Some((200, CREATE_OK.into())),
+            Some((200, CREATE_STORAGE.into())),
+            Some((500, "read failed".into())),
+        ]);
+        let ack = client.create_note("Alpha", "", 1).unwrap();
+        assert!(client.verify_created(&ack).is_err());
+        assert_eq!(ack.note_id, 42);
+        assert_eq!(
+            requests
+                .join()
+                .unwrap()
+                .iter()
+                .filter(|r| r.starts_with("POST "))
+                .count(),
+            1
+        );
+    }
+
     #[test]
     fn pending_quit_waits_for_real_save_response_and_cancel_does_not_cancel_put() {
         use crate::editing::{EditSession, LeaveAction, LeaveChoice, LeavePrompt, SaveOutcome};
@@ -2937,6 +3613,22 @@ mod tests {
     }
 
     #[test]
+    fn empty_engine_note_list_accepts_null_without_hiding_bad_shapes() {
+        for wire in [r#"{"notes":null}"#, r#"{"notes":[]}"#] {
+            let (client, request) = mock(200, wire);
+            assert!(client.notes("").unwrap().notes.is_empty());
+            request.join().unwrap();
+        }
+        let data: Notes =
+            serde_json::from_str(r#"{"notes":null,"read_state":{"partial":true}}"#).unwrap();
+        assert!(data.notes.is_empty());
+        assert_eq!(data.diagnostics["read_state"]["partial"], true);
+        for wire in ["{}", r#"{"notes":{}}"#, r#"{"notes":""}"#] {
+            assert!(serde_json::from_str::<Notes>(wire).is_err());
+        }
+    }
+
+    #[test]
     fn null_metadata_and_diagnostics_survive() {
         let data: Notes = serde_json::from_str(r#"{"notes":[{"note_id":42,"title":"日本語","file_kind":"note","path":"x","tags":null,"days":null,"flags":null}],"read_state":{"partial":true},"storage_state":"partial"}"#).unwrap();
         assert!(data.notes[0].tags.is_empty());
@@ -3070,6 +3762,7 @@ mod tests {
         });
         (
             ReadClient {
+                creation_fixture: None,
                 http: reqwest::blocking::Client::builder()
                     .no_proxy()
                     .retry(reqwest::retry::never())
@@ -3125,6 +3818,7 @@ mod tests {
         });
         (
             ReadClient {
+                creation_fixture: None,
                 http: reqwest::blocking::Client::builder()
                     .no_proxy()
                     .retry(reqwest::retry::never())
@@ -3191,6 +3885,7 @@ mod tests {
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         listener.set_nonblocking(true).unwrap();
         let client = ReadClient {
+            creation_fixture: None,
             http: reqwest::blocking::Client::builder()
                 .no_proxy()
                 .build()
@@ -3331,6 +4026,7 @@ mod tests {
                 String::from_utf8(request).unwrap()
             });
             let client = ReadClient {
+                creation_fixture: None,
                 http: reqwest::blocking::Client::builder()
                     .no_proxy()
                     .redirect(reqwest::redirect::Policy::none())
@@ -3398,6 +4094,7 @@ mod tests {
                 }
             });
             let client = ReadClient {
+                creation_fixture: None,
                 http: reqwest::blocking::Client::builder()
                     .no_proxy()
                     .redirect(reqwest::redirect::Policy::none())
@@ -3985,6 +4682,7 @@ mod tests {
             String::from_utf8(request).unwrap()
         });
         let client = ReadClient {
+            creation_fixture: None,
             http: reqwest::blocking::Client::builder()
                 .no_proxy()
                 .retry(reqwest::retry::never())
@@ -4413,6 +5111,7 @@ mod tests {
         }
         thread::sleep(Duration::from_millis(50));
         let client = ReadClient {
+            creation_fixture: None,
             http: reqwest::blocking::Client::new(),
             origin: "http://127.0.0.1:1".into(),
             alive: Arc::new(AtomicBool::new(true)),
@@ -4516,6 +5215,7 @@ mod markdown_consume_tests {
         });
         (
             ReadClient {
+                creation_fixture: None,
                 http: reqwest::blocking::Client::builder()
                     .no_proxy()
                     .retry(reqwest::retry::never())
