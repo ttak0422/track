@@ -212,7 +212,7 @@ fn fitted_image(width: u32, height: u32, viewport: (f32, f32)) -> (f32, f32) {
 }
 impl Workspace {
     pub(crate) fn enlarged_image_open(&self) -> bool {
-        self.reader_images.modal.is_some()
+        self.reader_images.modal.is_some() || self.enlarged_pdf_open()
     }
     fn image_ticket_current(&self, ticket: &ImageTicket) -> bool {
         !self.full_graph_active()
@@ -311,6 +311,7 @@ impl Workspace {
         }))
     }
     pub(crate) fn sync_enlarged_image(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.sync_enlarged_pdf(window, cx);
         if self
             .reader_images
             .modal
@@ -352,6 +353,9 @@ impl Workspace {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
+        if self.enlarged_pdf_open() {
+            return self.render_enlarged_pdf(window, cx);
+        }
         let modal = self.reader_images.modal.as_ref().unwrap();
         let viewport = window.viewport_size();
         let (width, height) = fitted_image(
@@ -424,6 +428,7 @@ impl Workspace {
                             })),
                     ),
             )
+            .into_any_element()
     }
 }
 

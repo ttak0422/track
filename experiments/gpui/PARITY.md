@@ -568,3 +568,10 @@ viewport; PDF fences, inline embeds, text/search/forms/actions and persistent
 cache remain unsupported. Isolated Japanese/Latin page navigation, encrypted
 rejection, Close and Home/tab return passed; cross-vault races, resize stress
 and accessibility remain unverified.
+
+PDF enlargement reuses the accepted current-page image without new I/O. It is a
+static snapshot modal, not the reference's independently paged PDF viewer. No
+page navigation/actions/zoom; Close, Escape and backdrop dismiss. Reader media
+input/routing guards cover both image and PDF overlays. Isolated current-page
+enlargement, dismissal, routing containment and guarded Quit passed. Narrow
+layout scroll retention and native storage races remain unverified.

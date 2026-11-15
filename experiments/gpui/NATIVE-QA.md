@@ -1596,3 +1596,19 @@ note/metadata/asset hashes; no ordinary session or PDF-cache writes are allowed.
   after Quit. No ordinary vault was opened or written.
 - Cross-vault/native reload races, resize stress, accessibility and actual IME
   composition were not verified. No claim of full PDF embed parity is made.
+
+## Static PDF enlargement native check
+
+- Disposable read-only PDF fixture: Japanese landscape page 1 enlarged with its
+  aspect preserved; accepted page 2 enlarged as page 2, without resetting the
+  inspector. Escape, Close and backdrop dismissal preserved the underlying page.
+- Find, reader j and an image click did not route or advance behind the overlay.
+  Guarded Quit remained available while the overlay was open.
+- The accepted inspector control retains its footprint while disabled behind the
+  overlay, avoiding a scroll-height change when the aside is in the reader.
+- All 13 fixture note/sidecar/asset hashes remained unchanged and both owned ports
+  closed after Quit. No ordinary vault was opened or written.
+- Narrow-window bottom-scroll retention, resize stress, native storage races,
+  accessibility and actual IME composition remain unverified. The overlay reuses
+  the accepted image by construction; native request counts were not measured.
+  This is a static snapshot, not a separately paged PDF viewer.

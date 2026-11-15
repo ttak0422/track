@@ -1,5 +1,8 @@
 //! Explicit read-only local PDF inspector. No document actions or persistent cache.
+#[path = "workspace_pdf_enlarge.rs"]
+mod enlarge;
 use super::*;
+pub(crate) use enlarge::Modal;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicU64, Ordering},
@@ -345,6 +348,9 @@ impl Workspace {
             if let Some(notice) = &state.notice {
                 view = view.child(notice.clone());
             }
+            view = view.when_some(self.pdf_enlarge_control(cx), |view, control| {
+                view.child(control)
+            });
             if let Some(display) = &state.display {
                 view = view.child(format!("Page {} / {}", display.page, display.pages));
                 let width =
@@ -406,7 +412,7 @@ mod tests {
         reloaded.source.request = 5;
         assert_ne!(identity(), reloaded);
     }
-    fn identity() -> Identity {
+    pub(super) fn identity() -> Identity {
         Identity {
             source: shell::LinkSource {
                 note: live::NoteKey {
