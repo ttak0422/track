@@ -758,3 +758,8 @@ transformed readers and unsupported syntax remain literal. No equation actions,
 remote services, imports or vault writes. Source Find/Copy semantics remain
 visible; this is not full reference math parity. Pure correspondence/bounds
 regressions are added; final GPUI/native layout and interruption QA is pending.
+
+- Flowcharts: bounded read-only Mermaid flowchart TD/TB/LR subset, rectangles and
+  decisions with explicit arrows/labels, stable DAG placement and outer-lane
+  skip-rank routes. No cycles, other Mermaid diagram types, markup, interaction or
+  full Mermaid parity. Original source retained; native visual QA pending.

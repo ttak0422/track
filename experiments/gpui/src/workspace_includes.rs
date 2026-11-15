@@ -56,6 +56,7 @@ pub(crate) struct IncludesState {
     query_sources: std::collections::BTreeSet<(usize, usize)>,
     gallery: gallery_covers::Gallery,
     viewspecs: viewspec_preview::Resolved,
+    flowchart_cache: crate::flowchart_view::Cache,
     mindmap_cache: crate::mindmap_view::Cache,
     copy: preview_copy::CopyUi,
 }
@@ -118,6 +119,7 @@ impl IncludesState {
             query_sources: Default::default(),
             gallery: Default::default(),
             viewspecs: Default::default(),
+            flowchart_cache: Default::default(),
             mindmap_cache: Default::default(),
             copy: Default::default(),
         }
@@ -306,6 +308,7 @@ impl Workspace {
         state.preview_open = false;
         state.copy = Default::default();
         state.mindmap_cache.clear();
+        state.flowchart_cache.clear();
         state.gallery.cancel();
         state.viewspecs.cancel();
         state.query_nav = Default::default();
@@ -500,6 +503,7 @@ impl Workspace {
         state.serial = serial;
         state.result = None;
         state.mindmap_cache.clear();
+        state.flowchart_cache.clear();
         state.gallery = Default::default();
         state.viewspecs = Default::default();
         state.preview_open = false;
@@ -770,6 +774,7 @@ impl Workspace {
                     state.serial = SERIAL.fetch_add(1, Ordering::Relaxed);
                     state.result = None;
                     state.mindmap_cache.clear();
+                    state.flowchart_cache.clear();
                     state.gallery.cancel();
                     state.viewspecs.cancel();
                     if state.open {
@@ -969,6 +974,7 @@ mod tests {
         state.open = false;
         state.result = None;
         state.mindmap_cache.clear();
+        state.flowchart_cache.clear();
         assert!(!state.accepts(&id, 5));
         state.open = true;
         state.serial = 6;
@@ -1384,6 +1390,51 @@ impl Workspace {
                     Err(reason) => visual.child(reason.clone()),
                     Ok(()) => self.viewspec_face(visual, key, dark),
                 };
+                body = body.child(visual.child(self.render_preview_copy(
+                    item,
+                    block_index,
+                    std::slice::from_ref(block),
+                    dark,
+                    cx,
+                )));
+                continue;
+            }
+            if let Some(map) = snapshot.boards.flowcharts.get(&key) {
+                if ordinary_start < block_index {
+                    body = body.child(self.render_preview_copy(
+                        item,
+                        ordinary_start,
+                        &blocks[ordinary_start..block_index],
+                        dark,
+                        cx,
+                    ));
+                }
+                ordinary_start = block_index + 1;
+                let mut visual = div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .ml(px(block.indent as f32 * 16.));
+                if block.quoted {
+                    visual = visual.border_l_2().border_color(rgb(line)).pl_3();
+                }
+                if let Some(marker) = &block.marker {
+                    visual = visual.child(marker.clone());
+                }
+                visual = match map {
+                    Ok(tree) => visual.child(crate::flowchart_view::render(
+                        tree.clone(),
+                        dark,
+                        format!(
+                            "flowchart-{}-{}-{item}-{block_index}",
+                            state.serial, state.preview_epoch
+                        ),
+                        &state.flowchart_cache,
+                        window,
+                    )),
+                    Err(reason) => visual.child(format!("Flowchart unavailable: {reason}")),
+                };
+                // Inert original source remains visible; raw-reader Copy is unchanged.
                 body = body.child(visual.child(self.render_preview_copy(
                     item,
                     block_index,

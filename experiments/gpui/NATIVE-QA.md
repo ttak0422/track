@@ -1878,3 +1878,23 @@ exact-source cache regressions passed in the limited parser harness (six tests
 including mapping). Independent review found no P1/P2. This is an internal
 performance correction with no control or syntax change; native performance
 measurements and full GPUI compilation remain pending.
+
+## Native static flowchart candidate (cloud verification)
+
+Rendered previews admit a strict Mermaid flowchart DAG subset with plain labels,
+rectangles/decisions and directed edges. Unsupported shapes/entities, directives,
+other diagram types and cycles retain the entire source. Source Copy remains
+unchanged; no links, external renderer or document mutation is introduced.
+
+Seven pure Rust tests passed independently. A separate deterministic 1,000-DAG
+probe using the actual model checked top-down and left-to-right orthogonal routes
+for node-interior crossings. Independent review resolved unsupported-shape and
+entity misinterpretation findings and found no remaining P1/P2. Preview resource
+and cache regressions are added but were not executed without full GPUI.
+
+The native renderer uses measured text, theme colors, a separate scroll region
+and outer lanes for skip-rank edges. Narrow layouts, edge-label legibility,
+high-DPI rendering and native pointer/scroll behavior remain unverified. Full
+GPUI compilation remains blocked in the cloud Linux dependency chain; no macOS
+build or help-site build was run for this increment. Normal vault editing remains
+disabled. This is not complete Mermaid compatibility or web interaction parity.

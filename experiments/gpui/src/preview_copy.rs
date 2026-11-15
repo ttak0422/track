@@ -272,7 +272,9 @@ impl Workspace {
                 );
                 let label = state.copy.feedback.get(&key).copied().unwrap_or_else(|| {
                     match block.fence_info.as_deref() {
-                        Some("viewspec" | "echarts" | "mindmap" | "taskboard") => "Copy source",
+                        Some("viewspec" | "echarts" | "mindmap" | "taskboard" | "mermaid") => {
+                            "Copy source"
+                        }
                         _ => "Copy code",
                     }
                 });

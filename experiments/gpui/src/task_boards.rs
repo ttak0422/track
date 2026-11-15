@@ -10,6 +10,7 @@ type Queries = BTreeMap<Key, Result<crate::query_view::View, String>>;
 pub(super) struct Boards {
     pub blocks: BTreeMap<Key, Result<(), String>>,
     pub viewspecs: BTreeMap<Key, Result<(), String>>,
+    pub flowcharts: BTreeMap<Key, Result<std::sync::Arc<crate::flowchart::Graph>, String>>,
     pub mindmaps: BTreeMap<Key, Result<std::sync::Arc<crate::mindmap::Tree>, String>>,
     pub charts: BTreeMap<Key, Result<std::sync::Arc<crate::numeric_chart::Chart>, String>>,
     tasks: Arc<Vec<live::NoteTask>>,
@@ -51,7 +52,21 @@ pub(super) fn project_with_source(
             }
             let key = (item, block);
             let info = content.fence_info.as_deref();
-            if content.language.as_deref() == Some("mindmap") {
+            if content.language.as_deref() == Some("mermaid") {
+                let result = if info != Some("mermaid") {
+                    Err("Unsupported mermaid options; source retained.".into())
+                } else if visuals >= 8 {
+                    Err("Combined visual resource limit (8 blocks); source retained.".into())
+                } else {
+                    crate::flowchart::parse(&content.text)
+                        .map(std::sync::Arc::new)
+                        .map_err(|e| e.0.to_owned())
+                };
+                if result.is_ok() {
+                    visuals += 1;
+                }
+                boards.flowcharts.insert(key, result);
+            } else if content.language.as_deref() == Some("mindmap") {
                 let result = if info != Some("mindmap") {
                     Err("Unsupported mindmap options; source retained.".into())
                 } else if visuals >= 8 {
@@ -641,5 +656,55 @@ mod mindmap_tests {
                 .unwrap_err()
                 .contains("8 blocks")
         );
+    }
+}
+
+#[cfg(test)]
+mod flowchart_tests {
+    use super::*;
+    fn project_body(body: &str) -> (markdown::IncludePreview, Boards) {
+        let response = crate::included_notes::decode(
+            serde_json::json!({"markdown":body,"includes":[]}),
+            "host",
+        )
+        .unwrap();
+        let preview = markdown::included_preview(&response);
+        let (_, boards) = project_with_source(&preview, Ok(Arc::new(vec![])), Some(body));
+        (preview.unwrap(), boards)
+    }
+    #[test]
+    fn strict_activation_original_source_and_combined_budget() {
+        let chart = "```mermaid\ngraph TD;A[Start] -->|yes| B{Ready}\n```\n";
+        let (preview, boards) = project_body(chart);
+        assert_eq!(boards.flowcharts.len(), 1);
+        assert!(boards.flowcharts[&(0, 0)].is_ok());
+        let markdown::PreviewItem::Host(blocks) = &preview.items[0] else {
+            panic!()
+        };
+        assert!(blocks[0].text.contains("A[Start] -->|yes| B{Ready}"));
+        for source in [
+            "```mermaid extra\ngraph TD;A-->B\n```",
+            "```mermaid\ngraph TD;A-->A\n```",
+            "```mermaid\nsequenceDiagram\n```",
+        ] {
+            assert!(
+                project_body(source)
+                    .1
+                    .flowcharts
+                    .values()
+                    .all(Result::is_err)
+            );
+        }
+        assert!(
+            project_body(&format!("````text\n{chart}````\n"))
+                .1
+                .flowcharts
+                .is_empty()
+        );
+        let source = "```mindmap\n# root\n```\n".repeat(3) + &chart.repeat(6);
+        let (_, b) = project_body(&source);
+        assert_eq!(b.mindmaps.values().filter(|v| v.is_ok()).count(), 3);
+        assert_eq!(b.flowcharts.values().filter(|v| v.is_ok()).count(), 5);
+        assert_eq!(b.flowcharts.values().filter(|v| v.is_err()).count(), 1);
     }
 }

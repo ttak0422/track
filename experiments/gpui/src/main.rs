@@ -22,6 +22,8 @@ mod editor_input;
 mod event_awareness;
 mod external_links;
 mod external_refs;
+mod flowchart;
+mod flowchart_view;
 mod graph;
 mod graph_preview;
 mod graph_view;
