@@ -45,6 +45,7 @@ async function search() {
   expect(field).toHaveFocus();
   fireEvent.change(field, { target: { value: "a" } });
   await screen.findByRole("link", { name: /^Alpha/ });
+  await waitFor(() => expect(field).toHaveAttribute("aria-activedescendant", "search-result-a"));
   return field;
 }
 beforeEach(() => {
