@@ -123,6 +123,7 @@ pub struct GraphView {
     layout_generation: u64,
     layout_cancelled: Arc<AtomicBool>,
     camera_intent: graph::CameraIntent,
+    pending_fit: Option<(u64, u64)>, // layout generation, camera revision
     layout_status: &'static str,
 }
 impl gpui::EventEmitter<OpenNote> for GraphView {}
@@ -155,6 +156,7 @@ impl GraphView {
             layout_generation: 0,
             layout_cancelled: Arc::new(AtomicBool::new(false)),
             camera_intent: graph::CameraIntent::default(),
+            pending_fit: None,
             layout_status: "circular initial layout",
         }
     }
@@ -162,22 +164,7 @@ impl GraphView {
         if self.overview {
             cx.emit(PreviewIntent::Cancel);
         }
-        let generation = self.layout_generation.wrapping_add(1);
-        let dark = self.dark;
-        let compact = self.compact;
-        let overview = self.overview;
-        let titles = self.titles;
-        let focus = self.focus.clone();
-        let keyboard_allowed = self.keyboard_allowed.clone();
-        // Dropping the old view cancels its worker, including on graph replacement.
-        *self = Self::new(graph);
-        self.focus = focus;
-        self.keyboard_allowed = keyboard_allowed;
-        self.dark = dark;
-        self.compact = compact;
-        self.overview = overview;
-        self.titles = titles;
-        self.layout_generation = generation;
+        let generation = self.replace_graph_state(graph);
         // Keep oversized local graphs intact; do not silently apply overview filtering.
         if self.nodes.len() > 1000 {
             self.layout_status = "circular fallback · force limit 1,000 nodes";
@@ -206,9 +193,7 @@ impl GraphView {
                     return;
                 }
                 this.nodes = nodes;
-                if this.overview && this.camera_intent.permits_auto_fit(camera_revision) {
-                    this.reset_view(cx);
-                }
+                this.queue_auto_fit(camera_revision);
                 this.layout_status = "force snapshot · drag has no elastic physics";
                 this.hovered = None;
                 cx.notify();
@@ -217,9 +202,90 @@ impl GraphView {
         .detach();
         cx.notify();
     }
+    /// Keep the existing replacement policy: a new graph resets its camera.
+    /// Only the eventual measured overview frame may fit that new snapshot.
+    fn replace_graph_state(&mut self, graph: Graph) -> u64 {
+        let generation = self.layout_generation.wrapping_add(1);
+        let dark = self.dark;
+        let compact = self.compact;
+        let overview = self.overview;
+        let titles = self.titles;
+        let focus = self.focus.clone();
+        let keyboard_allowed = self.keyboard_allowed.clone();
+        // Dropping the old view cancels its worker, including on graph replacement.
+        *self = Self::new(graph);
+        self.focus = focus;
+        self.keyboard_allowed = keyboard_allowed;
+        self.dark = dark;
+        self.compact = compact;
+        self.overview = overview;
+        self.titles = titles;
+        self.layout_generation = generation;
+        self.queue_auto_fit(self.camera_intent.revision());
+        generation
+    }
+    fn queue_auto_fit(&mut self, camera_revision: u64) {
+        if self.overview && self.camera_intent.permits_auto_fit(camera_revision) {
+            self.pending_fit = Some((self.layout_generation, camera_revision));
+        }
+    }
+    fn fit_measured_view(&mut self) -> bool {
+        if !self.viewport.width.is_finite()
+            || self.viewport.width <= 0.
+            || !self.viewport.height.is_finite()
+            || self.viewport.height <= 0.
+            || self
+                .nodes
+                .iter()
+                .any(|n| !n.position.x.is_finite() || !n.position.y.is_finite())
+        {
+            return false;
+        }
+        let extent = self.nodes.iter().fold((1_f64, 1_f64), |(x, y), n| {
+            (
+                x.max(n.position.x.abs() + 30.),
+                y.max(n.position.y.abs() + 30.),
+            )
+        });
+        self.viewport.offset = Point::default();
+        self.viewport.scale = (self.viewport.width / (extent.0 * 2.))
+            .min(self.viewport.height / (extent.1 * 2.))
+            .clamp(0.015, 4.);
+        true
+    }
+    /// One-shot admission at actual canvas prepaint, never at async completion.
+    /// A later resize alone does not override a user-owned camera.
+    fn accept_canvas_viewport(&mut self, width: f64, height: f64) -> bool {
+        if !width.is_finite() || width <= 0. || !height.is_finite() || height <= 0. {
+            return false;
+        }
+        self.viewport.width = width;
+        self.viewport.height = height;
+        let Some((generation, revision)) = self.pending_fit else {
+            return false;
+        };
+        if !self.overview
+            || generation != self.layout_generation
+            || !self.camera_intent.permits_auto_fit(revision)
+        {
+            self.pending_fit = None;
+            return false;
+        }
+        if self.fit_measured_view() {
+            self.pending_fit = None;
+            true
+        } else {
+            false
+        }
+    }
     pub fn set_overview(&mut self, overview: bool, cx: &mut Context<Self>) {
         if self.overview != overview {
             self.overview = overview;
+            if overview {
+                self.queue_auto_fit(self.camera_intent.revision());
+            } else {
+                self.pending_fit = None;
+            }
             cx.notify();
         }
     }
@@ -240,16 +306,10 @@ impl GraphView {
         self.selected = None;
         self.pan_from = None;
         self.node_drag = None;
-        self.viewport.offset = Point::default();
-        let extent = self.nodes.iter().fold((1_f64, 1_f64), |(x, y), n| {
-            (
-                x.max(n.position.x.abs() + 30.),
-                y.max(n.position.y.abs() + 30.),
-            )
-        });
-        self.viewport.scale = (self.viewport.width / (extent.0 * 2.))
-            .min(self.viewport.height / (extent.1 * 2.))
-            .clamp(0.015, 4.);
+        self.pending_fit = None;
+        if !self.fit_measured_view() {
+            self.queue_auto_fit(self.camera_intent.revision());
+        }
         cx.notify();
     }
     pub fn set_compact(&mut self, compact: bool, cx: &mut Context<Self>) {
@@ -546,20 +606,28 @@ impl Render for GraphView {
             }))
             .child(
                 canvas(
-                    move |bounds, _, cx| {
-                        viewport.width = f32::from(bounds.size.width) as f64;
-                        viewport.height = f32::from(bounds.size.height) as f64;
-                        entity.update(cx, |this, cx| {
-                            if this.viewport.width != viewport.width || this.viewport.height != viewport.height {
-                                cx.notify();
-                            }
-                            this.viewport.width = viewport.width;
-                            this.viewport.height = viewport.height;
+                    move |bounds, window, cx| {
+                        let width = f32::from(bounds.size.width) as f64;
+                        let height = f32::from(bounds.size.height) as f64;
+                        let fitted = entity.update(cx, |this, cx| {
+                            let resized = this.viewport.width != width || this.viewport.height != height;
+                            let fitted = this.accept_canvas_viewport(width, height);
+                            // Paint nodes/edges using the newly fitted camera in this
+                            // frame, not the zero/stale copy captured during render.
+                            viewport = this.viewport;
+                            if fitted { cx.emit(PreviewIntent::Cancel); }
+                            if resized || fitted { cx.notify(); }
                             this.origin = Point {
                                 x: f32::from(bounds.origin.x) as f64,
                                 y: f32::from(bounds.origin.y) as f64,
                             };
+                            fitted
                         });
+                        if fitted {
+                            // Labels were built before prepaint; give them one frame
+                            // with the accepted camera even when no input follows.
+                            window.on_next_frame(|window, _| window.refresh());
+                        }
                         viewport
                     },
                     move |bounds, viewport, window, _| {
@@ -796,6 +864,101 @@ mod cancellation_tests {
         assert_eq!(view.selected, Some(30));
     }
 
+    fn overview_camera() -> GraphView {
+        let mut view = GraphView::new(graph::fixture(8));
+        view.overview = true;
+        view.queue_auto_fit(view.camera_intent.revision());
+        view
+    }
+    #[test]
+    fn overview_fit_waits_for_finite_measured_canvas_and_is_consumed_once() {
+        let mut view = overview_camera();
+        for (w, h) in [
+            (0., 0.),
+            (-1., 400.),
+            (600., 0.),
+            (f64::NAN, 400.),
+            (600., f64::INFINITY),
+        ] {
+            assert!(!view.accept_canvas_viewport(w, h));
+            assert!(view.pending_fit.is_some());
+            assert_eq!(view.viewport.scale, 1.);
+        }
+        assert!(view.accept_canvas_viewport(800., 600.));
+        assert!(view.viewport.scale > 0.015);
+        assert!(view.pending_fit.is_none());
+        let scale = view.viewport.scale;
+        assert!(!view.accept_canvas_viewport(1000., 700.));
+        assert_eq!(view.viewport.scale, scale);
+    }
+    #[test]
+    fn reload_keeps_camera_reset_policy_but_fits_real_bounds_not_zero() {
+        let mut view = overview_camera();
+        assert!(view.accept_canvas_viewport(800., 600.));
+        view.viewport.pan(Point { x: 90., y: 30. });
+        view.camera_intent.changed();
+        let old_generation = view.layout_generation;
+        view.replace_graph_state(graph::fixture(8));
+        assert_ne!(view.layout_generation, old_generation);
+        assert_eq!(view.viewport.offset, Point::default());
+        assert_eq!(view.viewport.width, 0.);
+        assert_eq!(view.viewport.scale, 1.);
+        assert!(view.accept_canvas_viewport(800., 600.));
+        assert!(view.viewport.scale > 0.015);
+        assert!(view.nodes.iter().all(|n| {
+            let p = view.viewport.world_to_screen(n.position);
+            p.x >= 0. && p.x <= 800. && p.y >= 0. && p.y <= 600.
+        }));
+    }
+    #[test]
+    fn pan_zoom_or_new_layout_supersedes_queued_fit() {
+        for stale_layout in [false, true] {
+            let mut view = overview_camera();
+            view.viewport.scale = 2.;
+            view.viewport.offset = Point { x: 51., y: -23. };
+            if stale_layout {
+                view.layout_generation += 1;
+            } else {
+                view.camera_intent.changed();
+            }
+            assert!(!view.accept_canvas_viewport(800., 600.));
+            assert_eq!(view.viewport.scale, 2.);
+            assert_eq!(view.viewport.offset, Point { x: 51., y: -23. });
+            assert!(view.pending_fit.is_none());
+        }
+    }
+    #[test]
+    fn force_completion_refits_only_without_intervening_camera_intent() {
+        let mut view = overview_camera();
+        let revision = view.camera_intent.revision();
+        assert!(view.accept_canvas_viewport(800., 600.));
+        view.nodes = graph::force_layout(
+            &view.graph,
+            graph::ForceOptions::default(),
+            &BTreeMap::new(),
+        );
+        view.queue_auto_fit(revision);
+        assert!(view.accept_canvas_viewport(800., 600.));
+        view.camera_intent.changed();
+        view.viewport.scale = 2.;
+        view.queue_auto_fit(revision);
+        assert!(!view.accept_canvas_viewport(800., 600.));
+        assert_eq!(view.viewport.scale, 2.);
+    }
+    #[test]
+    fn overview_entry_refits_prior_small_canvas_only_at_new_measurement() {
+        let mut view = overview_camera();
+        view.viewport = Viewport::new(180., 160.);
+        view.fit_measured_view();
+        let small = view.viewport.scale;
+        assert!(view.accept_canvas_viewport(800., 600.));
+        assert!(view.viewport.scale > small);
+        view.nodes[0].position.x = f64::NAN;
+        view.queue_auto_fit(view.camera_intent.revision());
+        let before = view.viewport.scale;
+        assert!(!view.accept_canvas_viewport(800., 600.));
+        assert_eq!(view.viewport.scale, before);
+    }
     #[test]
     fn replacement_and_drop_cancel_only_their_own_worker() {
         let mut view = GraphView::new(Graph::default());

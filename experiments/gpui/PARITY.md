@@ -17,7 +17,7 @@ of support. Use disposable fixture vaults, never a configured personal vault, fo
 | Session-only working-vault scope selection | [x] | [ ] | `shell.rs`; existing tabs/Home/federated search remain unchanged |
 | Persistent vault scope and workspace preferences | [ ] | [ ] | Fixture-only working scope implemented; ordinary persistence and other preferences remain open |
 | Note body, tags, flags, hierarchy and backlinks | [ ] | [ ] | Accepted-source tags and typed read-only DEPRECATED/CONFIDENTIAL badges implemented; unknown flags remain literal neutral labels. Full visual/hierarchy parity and native narrow-label QA remain open. |
-| Dedicated read-only launch-vault tag page | [x] | [ ] | `workspace_tags.rs`; literal hierarchical matching, virtualized full listing, page-only history and schema 5 fixture support; native GUI pending |
+| Dedicated read-only launch-vault tag page | [x] | [ ] | `workspace_tags.rs`; literal hierarchical matching, virtualized full listing, page-only history and schema 5 fixture support; native navigation/history checked, narrow/theme layout pending |
 | In-memory vault-qualified tabs and close/overflow navigation | [x] | [ ] | `tabs.rs`, `shell.rs`; model tests, native QA pending |
 | Bounded in-memory Home/Graph/note Back/Forward | [x] | [ ] | `navigation.rs`, `shell.rs`; 100 routes, dirty-gated tickets and fixture lifecycle tests; native shortcuts/IME pending |
 | Persistent tabs, history and floating previews | [ ] | [ ] | `components/tabs`, `components/preview` |
@@ -51,8 +51,8 @@ of support. Use disposable fixture vaults, never a configured personal vault, fo
 | Read-only named-zone day event listing in selected Home day | [x] | [ ] | `live.rs`, `workspace_activity.rs`; engine civil-day projection and independent all-day dates; explicit session-local IANA zone, device-following/persistence/native QA pending |
 | Calendar, agenda, journals, event editing and time zones | [ ] | [ ] | `Calendar*`, `DayView`, `calendarEvents.ts` |
 | CLI graph canvas, camera, selection and node dragging | [x] | [ ] | `src/graph*.rs`; help graph native smoke test |
-| Full-vault Graph tab, scoped read, overview and title/reset controls | [x] | [ ] | `workspace_graph.rs`; synthetic wire/lifecycle tests; native QA pending |
-| Read-only fullgraph hover and up to four pinned previews | [x] | [ ] | `graph_preview.rs`, `workspace_preview.rs`; synthetic lifecycle/read-boundary tests; GUI unverified |
+| Full-vault Graph tab, scoped read, overview and title/reset controls | [x] | [ ] | `workspace_graph.rs`; synthetic wire/lifecycle tests; native initial/reload fit, pan/reset, title/open/Back checks; interrupted/large-graph QA pending |
+| Read-only fullgraph hover and up to four pinned previews | [x] | [ ] | `graph_preview.rs`, `workspace_preview.rs`; synthetic lifecycle/read-boundary tests; one native Pin/Close checked, capacity/interrupted GUI pending |
 | Focused full-graph keyboard selection and opening | [x] | [ ] | `graph_view.rs`; bounded deterministic selection, scoped focus and guarded navigation; native QA pending |
 | Full graph layout, previews and navigation parity | [ ] | [ ] | `GraphCanvas`, `GraphFullView`, `graphWheel` |
 | Themes, keyboard navigation, selection, clipboard and IME | [ ] | [ ] | `themeState`, `keybindings`, desktop reading shortcuts |

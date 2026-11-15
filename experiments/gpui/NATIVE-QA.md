@@ -1111,3 +1111,30 @@ and long tag labels at a wide window size. Its 18 canonical hashes were unchange
 These checks do not establish narrow-window/theme parity, full-graph interaction,
 rapid interrupted anchor transitions, dirty-fragment behavior or native IME
 composition. The ordinary-vault editing gate remains closed.
+
+## Measured full-graph camera fitting
+
+A read-only eight-node fixture reproduced a tiny initial overview and, after
+Reload graph, a nearly overlapping central dot until Reset graph view. Graph
+replacement reset viewport dimensions to zero and asynchronous force completion
+could fit before actual canvas measurement. Auto-fit now waits for a finite
+positive measured canvas and consumes a generation/camera-revision ticket once.
+Later pan, zoom, selection and reset invalidate earlier fit intent. Scope/reload
+replacement policy is unchanged; a successful fit cancels transient previews.
+
+Five new regressions cover initial/replacement measurement, invalid dimensions,
+stale layout or camera intent, one-shot fit and late force results. The native
+macOS suite passes 647 tests (7 ignored); formatting and build pass. Independent
+review found no P1/P2 issue after retaining transient-preview cancellation.
+
+The rebuilt native app showed all eight overview nodes and labels on first open
+and two Reload activations without extra input or Reset. Blank-space drag panned
+the graph and remained stable while idle; explicit Reset restored the fit.
+Earlier bounded checks also exercised single-click note opening and Back, title
+visibility and one preview Pin/Close. Canonical fixture hashes (18 files) remained
+unchanged and clean quit released both owned ports. Keyboard selection was not
+visibly confirmed; event delivery versus input-owner rejection remains unresolved.
+Pin capacity, interrupted settling gestures, native pinch, multi-monitor/narrow
+layout and performance claims remain unverified. No ordinary-vault write gate
+changed. This repairs the existing experimental graph controls, not a new public
+command or launch option; user-facing help controls remain unchanged.
