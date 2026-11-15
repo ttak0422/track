@@ -1687,3 +1687,34 @@ fragment links had no Open controls. Escape and Quit succeeded; all 20 canonical
 hashes were unchanged and both owned listener ports closed. Unicode targets,
 explicit empty-vault resolution, cap/race/keyboard/IME cases remain unverified
 natively. Normal vault editing remains disabled.
+
+
+## Fixture recent-session metadata (candidate)
+
+Schema 6 adds bounded vault-qualified Recent entries to the existing protected
+fixture-only session artifact. Regression coverage includes legacy schemas,
+invalid entries, MRU-only changes, title changes, closed tabs, and a delayed
+restore versus newer accepted visits. A rejected restore must not stage entries
+from an earlier engine launch. Ordinary profiles remain memory-only, and immediate
+quit/crash durability is not claimed.
+
+The first two isolated host/foreign native attempts safely disabled persistence:
+the initial registry contained only the host, then included the asynchronously
+opened foreign vault. Diagnostic tracing confirmed this was a real availability
+transition, not a failed initial registry request. Both apps exited; all 20
+canonical fixture hashes stayed unchanged and both owned listeners closed.
+After correcting membership to include named unavailable peers, the same fixture
+started without a persistence warning. Two notes with the same title and numeric
+ID in distinct vaults remained separate. Closing the foreign tab retained its
+Recent entry; the saved schema-6 artifact contained both entries but only the
+remaining note tab. After a completed-save quit and restart, Home was active,
+both Recent entries were restored, and the closed foreign entry opened the
+foreign body. Its accepted revisit moved it first. Both apps quit cleanly; all
+20 canonical hashes were unchanged and both listeners closed. Immediate quit,
+crash durability, offline-peer navigation, keyboard/IME and concurrent storage
+changes remain unverified natively. Normal-vault editing remains disabled.
+
+814 Rust tests passed (7 ignored), formatting/native build passed, help built 37
+routes and the changed rendered page was inspected. Independent review found no
+remaining P1/P2. The popup subtitle was corrected after this run to avoid claiming
+that fixture-restored history is always memory-only.

@@ -1,4 +1,4 @@
-//! Current-process note recency only. Deliberately has no serialization or I/O.
+//! Bounded note recency model. Fixture persistence is owned by SessionStore.
 use crate::live::NoteKey;
 const LIMIT: usize = 100;
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -20,9 +20,31 @@ impl RecentNotes {
             self.revision = self.revision.wrapping_add(1);
         }
     }
+    #[cfg(test)]
+    pub fn snapshot(&self) -> Vec<Entry> {
+        self.entries.clone()
+    }
+    /// Session metadata may only cross into the writer bound to this launch.
+    pub fn snapshot_for_launch(&self, launch: u64) -> Vec<Entry> {
+        if self.launch == Some(launch) {
+            self.entries.clone()
+        } else {
+            Vec::new()
+        }
+    }
+    /// Reset first; installing saved metadata is not a visit or a note read.
+    pub fn restore(&mut self, launch: u64, expected_revision: u64, entries: Vec<Entry>) -> bool {
+        if self.revision != expected_revision {
+            return false;
+        }
+        self.reset_launch(launch);
+        self.entries = entries;
+        self.revision = self.revision.wrapping_add(1);
+        true
+    }
     pub fn record(&mut self, launch: u64, key: NoteKey, title: &str) {
         self.reset_launch(launch);
-        if key.note_id == 0 || key.vault.len() > 1024 || key.vault.contains('\0') {
+        if key.note_id <= 0 || key.vault.len() > 1024 || key.vault.contains('\0') {
             return;
         }
         self.entries.retain(|entry| entry.key != key);
@@ -77,6 +99,44 @@ mod tests {
             vault: vault.into(),
             note_id: id,
         }
+    }
+    #[test]
+    fn rejected_restore_never_stages_previous_launch_but_keeps_newer_current_visits() {
+        let mut model = RecentNotes::default();
+        model.record(1, key("main", 1), "Previous launch");
+        assert!(model.snapshot_for_launch(2).is_empty());
+        // Rejected startup restore resets stale UI rows before staging metadata.
+        model.reset_launch(2);
+        let staged = model.snapshot_for_launch(2);
+        assert!(staged.is_empty());
+        assert!(model.rows("", "main").is_empty());
+        let startup_revision = model.revision();
+        model.record(2, key("work", 2), "New accepted visit");
+        assert!(!model.restore(2, startup_revision, vec![]));
+        // Same-launch reset is inert: a delayed restore cannot erase this visit.
+        model.reset_launch(2);
+        let staged = model.snapshot_for_launch(2);
+        assert_eq!(staged.len(), 1);
+        assert_eq!(staged[0].key, key("work", 2));
+        assert!(model.snapshot_for_launch(1).is_empty());
+    }
+    #[test]
+    fn restore_is_not_a_visit_and_cannot_replace_a_newer_acceptance() {
+        let saved = vec![Entry {
+            key: key("work", 1),
+            title: "Saved".into(),
+        }];
+        let mut model = RecentNotes::default();
+        let ticket = model.revision();
+        assert!(model.restore(7, ticket, saved.clone()));
+        model.reset_launch(7);
+        assert_eq!(model.snapshot(), saved);
+        let ticket = model.revision();
+        model.record(7, key("main", 2), "New");
+        assert!(!model.restore(7, ticket, saved));
+        assert_eq!(model.snapshot()[0].key, key("main", 2));
+        model.record(7, key("main", -1), "Invalid");
+        assert_eq!(model.snapshot().len(), 2);
     }
     #[test]
     fn accepted_revisits_dedupe_and_replace_title() {

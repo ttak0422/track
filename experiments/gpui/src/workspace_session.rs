@@ -34,6 +34,7 @@ struct Pending {
         navigation::Snapshot,
         String,
         Vec<session_store::ReadingPosition>,
+        Vec<recent_notes::Entry>,
     )>,
     completed: u64,
     error: Option<String>,
@@ -94,8 +95,9 @@ impl Writer {
                         None
                     }
                 };
-                if let Some((sequence, entries, history, scope, positions)) = snapshot {
-                    let result = store.save_with_positions(&entries, &history, &scope, &positions);
+                if let Some((sequence, entries, history, scope, positions, recents)) = snapshot {
+                    let result =
+                        store.save_with_recents(&entries, &history, &scope, &positions, &recents);
                     let mut shared = state.lock().unwrap();
                     shared.completed = sequence;
                     if let Err(error) = result {
@@ -163,9 +165,11 @@ impl Writer {
         history: navigation::Snapshot,
         scope: String,
         positions: Vec<session_store::ReadingPosition>,
+        recents: Vec<recent_notes::Entry>,
     ) {
         self.sent += 1;
-        self.shared.lock().unwrap().latest = Some((self.sent, entries, history, scope, positions));
+        self.shared.lock().unwrap().latest =
+            Some((self.sent, entries, history, scope, positions, recents));
         self.notify();
     }
 }
@@ -186,6 +190,9 @@ pub struct SessionUi {
     last: Vec<tabs::Tab>,
     last_history: navigation::Snapshot,
     last_scope: String,
+    recents: Vec<recent_notes::Entry>,
+    last_recents: Vec<recent_notes::Entry>,
+    restored_recents: Option<Vec<recent_notes::Entry>>,
     positions: Vec<session_store::ReadingPosition>,
     restored_scope: Option<String>,
     restored_history: Option<navigation::History>,
@@ -379,6 +386,9 @@ impl SessionUi {
                     .take()
                     .and_then(navigation::History::restore_home)
                     .unwrap_or_default();
+                self.recents = store.restored_recents();
+                self.last_recents = self.recents.clone();
+                self.restored_recents = Some(self.recents.clone());
                 self.positions = store.reading_positions.clone();
                 self.restored_scope = store.restored_scope.take();
                 self.last_scope = self.restored_scope.clone().unwrap_or_default();
@@ -396,10 +406,33 @@ impl SessionUi {
                 Some(tabs)
             }
             Err(error) => {
-                self.warning = Some(format!("Tab persistence disabled: {error}"));
+                self.warning
+                    .get_or_insert_with(|| format!("Tab persistence disabled: {error}"));
                 None
             }
         }
+    }
+    pub fn take_restored_recents(&mut self, current: bool) -> Option<Vec<recent_notes::Entry>> {
+        self.restored_recents.take().filter(|_| current)
+    }
+    pub fn stage_recents(&mut self, entries: Vec<recent_notes::Entry>) {
+        if self.session_available() {
+            self.recents = entries;
+        }
+    }
+    pub fn sync_recents(
+        &mut self,
+        entries: Vec<recent_notes::Entry>,
+        tabs: &tabs::Tabs,
+        history: &navigation::History,
+        scope: &str,
+    ) {
+        // Disabled launch must not even stage persistence metadata.
+        if !self.session_available() {
+            return;
+        }
+        self.recents = entries;
+        self.sync_with_scope(tabs, history, scope);
     }
     /// Consume once; startup navigation races discard, never install, saved routes.
     pub fn take_restored_history(&mut self, startup_current: bool) -> Option<navigation::History> {
@@ -446,7 +479,11 @@ impl SessionUi {
             return;
         }
         let history = history.snapshot();
-        if self.last == tabs.entries() && self.last_history == history && self.last_scope == scope {
+        if self.last == tabs.entries()
+            && self.last_history == history
+            && self.last_scope == scope
+            && self.last_recents == self.recents
+        {
             return;
         }
         if self.worker.is_some()
@@ -472,7 +509,9 @@ impl SessionUi {
             history.clone(),
             scope.to_owned(),
             self.positions.clone(),
+            self.recents.clone(),
         );
+        self.last_recents = self.recents.clone();
         self.last_scope = scope.to_owned();
         self.last_history = history;
         self.last = tabs.entries().to_vec();
@@ -517,6 +556,7 @@ impl SessionUi {
             self.last_history.clone(),
             self.last_scope.clone(),
             self.positions.clone(),
+            self.recents.clone(),
         );
         Ok(worker.sent)
     }
@@ -532,7 +572,8 @@ impl SessionUi {
             .as_ref()
             .and_then(|worker| worker.shared.lock().unwrap().error.clone());
         if let Some(error) = error {
-            self.warning = Some(format!("Tab persistence disabled: {error}"));
+            self.warning
+                .get_or_insert_with(|| format!("Tab persistence disabled: {error}"));
             self.disable_session();
         }
     }
@@ -558,7 +599,10 @@ impl SessionUi {
             }
             self.disable_session();
             self.known_vaults = known;
-            self.warning = Some("Tab persistence disabled: vault registry changed; restart with matching fixture configuration.".into());
+            // Preserve the first failure (notably failed startup restore).
+            // A later discovery must still revoke the writer, but must not
+            // disguise the cause as a registry change from an empty baseline.
+            self.warning.get_or_insert_with(|| "Tab persistence disabled: vault registry changed; restart with matching fixture configuration.".into());
         }
     }
     pub fn permits(&self, vault: &str) -> bool {
@@ -611,6 +655,145 @@ mod tests {
     }
     fn registry() -> Result<Vec<String>, String> {
         Ok(vec!["".into(), "work".into()])
+    }
+    fn recent_row(id: i64) -> recent_notes::Entry {
+        recent_notes::Entry {
+            key: live::NoteKey {
+                vault: "".into(),
+                note_id: id,
+            },
+            title: format!("Note {id}"),
+        }
+    }
+    #[test]
+    fn recovery_worker_poll_retains_registry_failure_and_stays_frozen() {
+        let f = Fixture::new();
+        let mut ui = f.ui();
+        ui.enable_recovery();
+        ui.restore(registry()).unwrap();
+        wait_recovery(&ui, RecoveryStatus::Ready(LocalStatus::Empty));
+        ui.registry_changed(vec!["".into()]);
+        let warning = ui.warning.clone();
+        assert!(warning.as_ref().unwrap().contains("vault registry changed"));
+        assert!(ui.worker.is_some());
+        assert!(!ui.session_available());
+        assert!(
+            ui.worker
+                .as_ref()
+                .unwrap()
+                .shared
+                .lock()
+                .unwrap()
+                .recovery
+                .frozen
+        );
+        ui.poll_warning();
+        ui.poll_warning();
+        assert_eq!(ui.warning, warning);
+        assert_eq!(ui.recovery_status(), RecoveryStatus::Failed);
+    }
+    #[test]
+    fn opening_registered_peer_keeps_writer_but_membership_changes_revoke_it() {
+        let pending = serde_json::json!({"active":{"name":"host"},"vaults":[{"name":"host"}],
+            "unavailable":[{"name":"foreign","path":"/foreign","error":"pending or unavailable"}]});
+        let ready = serde_json::json!({"active":{"name":"host"},"vaults":[{"name":"host"},{"name":"foreign"}],"unavailable":[]});
+        for changed in [
+            vec!["".into(), "host".into()],
+            vec!["".into(), "foreign".into(), "host".into(), "new".into()],
+        ] {
+            let f = Fixture::new();
+            let mut ui = f.ui();
+            ui.restore(crate::shell::session_registry(&pending))
+                .unwrap();
+            ui.registry_changed(crate::shell::session_registry(&ready).unwrap());
+            assert!(ui.session_available());
+            assert!(ui.warning.is_none());
+            ui.registry_changed(changed);
+            assert!(!ui.session_available());
+            assert!(
+                ui.warning
+                    .as_ref()
+                    .unwrap()
+                    .contains("vault registry changed")
+            );
+        }
+    }
+    #[test]
+    fn later_registry_discovery_preserves_original_restore_failure() {
+        let f = Fixture::new();
+        let mut ui = f.ui();
+        assert!(
+            ui.restore(Err("startup registry not ready".into()))
+                .is_none()
+        );
+        let first = ui.warning.clone();
+        assert!(
+            first
+                .as_ref()
+                .unwrap()
+                .contains("startup registry not ready")
+        );
+        ui.registry_changed(vec!["".into(), "work".into()]);
+        assert_eq!(ui.warning, first);
+        assert!(!ui.session_available());
+        assert!(ui.worker.is_none());
+    }
+    #[test]
+    fn genuine_registry_change_still_revokes_writer_and_reports_change() {
+        let f = Fixture::new();
+        let mut ui = f.ui();
+        ui.restore(Ok(vec!["".into(), "work".into()])).unwrap();
+        assert!(ui.session_available());
+        ui.registry_changed(vec!["".into(), "other".into()]);
+        assert!(!ui.session_available());
+        assert!(
+            ui.warning
+                .as_ref()
+                .unwrap()
+                .contains("vault registry changed")
+        );
+    }
+    #[test]
+    fn recents_only_changes_roundtrip_without_startup_rewrite() {
+        let f = Fixture::new();
+        let mut ui = f.ui();
+        let tabs = ui.restore(Ok(vec!["".into(), "work".into()])).unwrap();
+        let history = ui.take_restored_history(true).unwrap();
+        assert_eq!(ui.take_restored_recents(true), Some(vec![]));
+        ui.sync_recents(vec![recent_row(1)], &tabs, &history, "");
+        drop(ui);
+        let path = f.0.join("cache/track-native-tabs-v1.json");
+        let before = std::fs::read(&path).unwrap();
+        let mut ui = f.ui();
+        let tabs = ui.restore(Ok(vec!["".into(), "work".into()])).unwrap();
+        let history = ui.take_restored_history(true).unwrap();
+        assert_eq!(ui.take_restored_recents(true), Some(vec![recent_row(1)]));
+        ui.sync_with_scope(&tabs, &history, "");
+        assert_eq!(ui.worker.as_ref().unwrap().sent, 0);
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        ui.sync_recents(vec![recent_row(2), recent_row(1)], &tabs, &history, "");
+        drop(ui);
+        let mut ui = f.ui();
+        ui.restore(Ok(vec!["".into(), "work".into()])).unwrap();
+        assert_eq!(
+            ui.take_restored_recents(true),
+            Some(vec![recent_row(2), recent_row(1)])
+        );
+    }
+    #[test]
+    fn stale_restore_is_consumed_once_and_disabled_recents_do_not_start_io() {
+        let mut ui = SessionUi::default();
+        ui.restored_recents = Some(vec![recent_row(1)]);
+        assert!(ui.take_restored_recents(false).is_none());
+        assert!(ui.take_restored_recents(true).is_none());
+        ui.sync_recents(
+            vec![recent_row(2)],
+            &tabs::Tabs::default(),
+            &navigation::History::default(),
+            "",
+        );
+        assert!(ui.worker.is_none());
+        assert!(ui.recents.is_empty());
     }
     #[test]
     fn canonical_launch_alias_normalizes_without_rewriting_startup() {

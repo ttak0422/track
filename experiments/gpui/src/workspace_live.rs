@@ -150,6 +150,7 @@ impl Workspace {
         }
         self.watch_live_lifecycle(cx);
         let startup_navigation = self.startup_navigation();
+        let startup_recents = self.recent_revision();
         let owner = self.quit_session.clone();
         let mut session_ui = std::mem::take(&mut self.session_ui);
         self.session_ui.safe_home = session_ui.safe_home;
@@ -202,6 +203,11 @@ impl Workspace {
                         let apply_startup_route = startup_navigation
                             .accepts(&this.startup_navigation(), this.quit_session.is_closing());
                         this.session_ui = session_ui;
+                        this.restore_recent_notes(
+                            session.client().launch_generation,
+                            startup_recents,
+                            apply_startup_route,
+                        );
                         if let Some(name) = session
                             .initial_vaults
                             .get("active")

@@ -1,4 +1,4 @@
-//! Explicit current-run recents popup; no persistence, prefetch, or preview reads.
+//! Explicit recents popup; protected fixture metadata only, no prefetch/preview reads.
 use super::*;
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Owner {
@@ -51,6 +51,23 @@ fn recent_control_allowed(current: bool, active: bool, focused: bool) -> bool {
     current && active && focused
 }
 impl Workspace {
+    pub(crate) fn recent_revision(&self) -> u64 {
+        self.shell.recent.model.revision()
+    }
+    pub(crate) fn restore_recent_notes(&mut self, launch: u64, revision: u64, current: bool) {
+        let restored = self
+            .session_ui
+            .take_restored_recents(current)
+            .is_some_and(|entries| self.shell.recent.model.restore(launch, revision, entries));
+        if !restored {
+            // A newer accepted visit wins; unrelated tab checkpoints must not
+            // accidentally put discarded saved recents back into the artifact.
+            self.shell.recent.model.reset_launch(launch);
+            self.session_ui
+                .stage_recents(self.shell.recent.model.snapshot_for_launch(launch));
+        }
+    }
+
     pub(crate) fn recent_open(&self) -> bool {
         self.shell.recent.panel.is_some()
     }
@@ -112,6 +129,12 @@ impl Workspace {
         } else {
             self.shell.recent.model.update_title(&key, &note.title);
         }
+        self.session_ui.sync_recents(
+            self.shell.recent.model.snapshot_for_launch(launch),
+            &self.tabs,
+            &self.history,
+            &self.shell.working_scope,
+        );
     }
 
     fn recent_owner(&self) -> Option<Owner> {
@@ -334,7 +357,7 @@ impl Workspace {
                                 .text_size(px(11.))
                                 .text_color(rgb(muted))
                                 .mb_2()
-                                .child("This run only · successful visits · no restart history"),
+                                .child("Successful visits · newest first · vault-qualified"),
                         )
                         .child(
                             div()

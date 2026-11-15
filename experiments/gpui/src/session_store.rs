@@ -94,6 +94,15 @@ struct Snapshot {
     working_scope: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     reading_positions: Option<Vec<ReadingPosition>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    recent_notes: Option<Vec<RecentEntry>>,
+}
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RecentEntry {
+    vault: String,
+    note_id: i64,
+    title: String,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -144,6 +153,7 @@ pub struct SessionStore {
     pub restored_history: Option<crate::navigation::Snapshot>,
     pub restored_scope: Option<String>,
     pub reading_positions: Vec<ReadingPosition>,
+    recent_notes: Option<Vec<RecentEntry>>,
 }
 fn err(e: impl std::fmt::Display) -> String {
     format!("Fixture tab persistence disabled: {e}")
@@ -290,6 +300,7 @@ impl SessionStore {
             restored_history: None,
             restored_scope: None,
             reading_positions: vec![],
+            recent_notes: None,
         };
         let original = store.read()?;
         let tabs = if let Some(bytes) = &original {
@@ -321,9 +332,15 @@ impl SessionStore {
             {
                 return Err(err("reading positions must be a list"));
             }
+            let version = value.get("version").and_then(|v| v.as_u64());
+            if (version == Some(6) && !value.get("recent_notes").is_some_and(|v| v.is_array()))
+                || (version.is_some_and(|v| v < 6) && value.get("recent_notes").is_some())
+            {
+                return Err(err("invalid recent notes schema"));
+            }
             let s: Snapshot = serde_json::from_slice(bytes).map_err(err)?;
             if s.owner != OWNER
-                || !matches!(s.version, 1 | 2 | 3 | 4 | 5)
+                || !matches!(s.version, 1 | 2 | 3 | 4 | 5 | 6)
                 || s.binding != store.binding
                 || s.revision == 0
             {
@@ -338,17 +355,21 @@ impl SessionStore {
             }
             store.restored_history = match (s.version, s.history) {
                 (1, None) => None,
-                (2 | 3 | 4 | 5, Some(history)) => Some(store.decode_history(history)?),
+                (2 | 3 | 4 | 5 | 6, Some(history)) => Some(store.decode_history(history)?),
                 _ => return Err(err("invalid history schema")),
             };
             store.restored_scope = match (s.version, s.working_scope) {
                 (1 | 2, None) => None,
-                (3 | 4 | 5, Some(scope)) => {
+                (3 | 4 | 5 | 6, Some(scope)) => {
                     store.validate_scope(&scope)?;
                     Some(scope)
                 }
                 _ => return Err(err("invalid working scope schema")),
             };
+            if let Some(entries) = &s.recent_notes {
+                store.validate_recents(entries)?;
+            }
+            store.recent_notes = s.recent_notes;
             store.revision = s.revision;
             let tabs = store.decode(s.tabs)?;
             let positions = s.reading_positions.unwrap_or_default();
@@ -439,6 +460,63 @@ impl SessionStore {
         scope: &str,
     ) -> Result<(), String> {
         self.save_snapshot(tabs, history, Some(scope), false)
+    }
+    pub fn restored_recents(&self) -> Vec<crate::recent_notes::Entry> {
+        self.recent_notes
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .map(|e| crate::recent_notes::Entry {
+                key: crate::live::NoteKey {
+                    vault: e.vault.clone(),
+                    note_id: e.note_id,
+                },
+                title: e.title.clone(),
+            })
+            .collect()
+    }
+    fn validate_recents(&self, entries: &[RecentEntry]) -> Result<(), String> {
+        let mut seen = HashSet::new();
+        if entries.len() > 100
+            || entries.iter().any(|e| {
+                e.note_id <= 0
+                    || e.vault.len() > 1024
+                    || e.vault.contains('\0')
+                    || !self.registry.contains(&e.vault)
+                    || e.title.len() > 2048
+                    || e.title.chars().count() > 512
+                    || e.title.contains('\0')
+                    || e.title.trim().is_empty()
+                    || !seen.insert((e.vault.clone(), e.note_id))
+            })
+        {
+            return Err(err("invalid recent note metadata"));
+        }
+        Ok(())
+    }
+    pub fn save_with_recents(
+        &mut self,
+        tabs: &[Tab],
+        history: &crate::navigation::Snapshot,
+        scope: &str,
+        positions: &[ReadingPosition],
+        recents: &[crate::recent_notes::Entry],
+    ) -> Result<(), String> {
+        let entries = recents
+            .iter()
+            .map(|e| RecentEntry {
+                vault: e.key.vault.clone(),
+                note_id: e.key.note_id,
+                title: e.title.clone(),
+            })
+            .collect::<Vec<_>>();
+        self.validate_recents(&entries)?;
+        let old = self.recent_notes.replace(entries);
+        let result = self.save_with_positions(tabs, history, scope, positions);
+        if result.is_err() {
+            self.recent_notes = old;
+        }
+        result
     }
     pub fn save_with_positions(
         &mut self,
@@ -555,7 +633,9 @@ impl SessionStore {
         let bytes = serde_json::to_vec(&Snapshot {
             owner: OWNER.into(),
             // Version 5 adds page-only tag history. Keep non-tag saves compatible.
-            version: if history
+            version: if self.recent_notes.is_some() {
+                6
+            } else if history
                 .routes
                 .iter()
                 .any(|r| matches!(r, TabKey::Tag { .. }))
@@ -569,6 +649,7 @@ impl SessionStore {
             tabs: entries,
             working_scope: Some(scope.unwrap_or(&self.registry[0]).to_owned()),
             reading_positions: Some(positions.clone()),
+            recent_notes: self.recent_notes.clone(),
             history: Some(HistoryEntry {
                 routes: history.routes.iter().map(encode_kind).collect(),
                 cursor: history.cursor,
@@ -732,6 +813,110 @@ mod tests {
                 title: "Graph".into(),
             },
         ]
+    }
+    fn recent(vault: &str, id: i64) -> crate::recent_notes::Entry {
+        crate::recent_notes::Entry {
+            key: crate::live::NoteKey {
+                vault: vault.into(),
+                note_id: id,
+            },
+            title: "Saved".into(),
+        }
+    }
+    #[test]
+    fn recents_schema6_survives_closed_tabs_and_rejects_bad_metadata_without_replacement() {
+        let f = Fixture::new();
+        let (mut store, _) = f.open().unwrap();
+        let rows = vec![recent("one", 42), recent("two", 42)];
+        store
+            .save_with_recents(
+                &[],
+                &crate::navigation::Snapshot::default(),
+                "one",
+                &[],
+                &rows,
+            )
+            .unwrap();
+        drop(store);
+        let bytes = std::fs::read(f.state()).unwrap();
+        let (store, tabs) = f.open().unwrap();
+        assert!(tabs.is_empty());
+        assert_eq!(store.restored_recents(), rows);
+        assert_eq!(std::fs::read(f.state()).unwrap(), bytes);
+        drop(store);
+        let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["version"], 6);
+        for bad in [
+            serde_json::json!([{"vault":"missing","note_id":42,"title":"X"}]),
+            serde_json::json!([{"vault":"one","note_id":0,"title":"X"}]),
+            serde_json::json!([{"vault":"one","note_id":-1,"title":"X"}]),
+            serde_json::json!([{"vault":"one","note_id":42,"title":"X"},{"vault":"one","note_id":42,"title":"Y"}]),
+            serde_json::json!([{"vault":"one","note_id":42,"title":"X".repeat(513)}]),
+            serde_json::Value::Null,
+        ] {
+            let mut invalid = value.clone();
+            invalid["recent_notes"] = bad;
+            let invalid = serde_json::to_vec(&invalid).unwrap();
+            f.replace(&invalid);
+            assert!(f.open().is_err());
+            assert_eq!(std::fs::read(f.state()).unwrap(), invalid);
+        }
+        for version in 1..=5 {
+            let mut old = value.clone();
+            old["version"] = version.into();
+            assert!({
+                f.replace(&serde_json::to_vec(&old).unwrap());
+                f.open().is_err()
+            });
+            let map = old.as_object_mut().unwrap();
+            map.remove("recent_notes");
+            if version < 4 {
+                map.remove("reading_positions");
+            }
+            if version < 3 {
+                map.remove("working_scope");
+            }
+            if version < 2 {
+                map.remove("history");
+            }
+            let old = serde_json::to_vec(&old).unwrap();
+            f.replace(&old);
+            let (store, _) = f.open().unwrap();
+            assert!(store.restored_recents().is_empty());
+            assert_eq!(std::fs::read(f.state()).unwrap(), old);
+            drop(store);
+        }
+    }
+    #[test]
+    fn recents_limits_do_not_replace_prior_artifact() {
+        let f = Fixture::new();
+        let (mut store, _) = f.open().unwrap();
+        let history = crate::navigation::Snapshot::default();
+        let rows = (1..=100).map(|id| recent("one", id)).collect::<Vec<_>>();
+        store
+            .save_with_recents(&[], &history, "one", &[], &rows)
+            .unwrap();
+        let before = std::fs::read(f.state()).unwrap();
+        let mut extra = rows.clone();
+        extra.push(recent("one", 101));
+        assert!(
+            store
+                .save_with_recents(&[], &history, "one", &[], &extra)
+                .is_err()
+        );
+        let large = rows
+            .into_iter()
+            .map(|mut e| {
+                e.title = "🦀".repeat(512);
+                e
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            store
+                .save_with_recents(&[], &history, "one", &[], &large)
+                .is_err()
+        );
+        assert_eq!(std::fs::read(f.state()).unwrap(), before);
     }
     #[test]
     fn tag_history_v5_roundtrip_preserves_tabs_and_rejects_legacy_reinterpretation() {

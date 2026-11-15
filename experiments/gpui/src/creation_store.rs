@@ -126,6 +126,7 @@ impl CreationStore {
             restored_history: None,
             restored_scope: None,
             reading_positions: vec![],
+            recent_notes: None,
         };
         let mut store = Self {
             inner,

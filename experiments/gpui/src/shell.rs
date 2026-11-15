@@ -1786,6 +1786,31 @@ struct VaultDiscovery {
     unavailable: Vec<VaultChoice>,
 }
 impl VaultDiscovery {
+    /// Membership is independent of which registered peer views are open yet.
+    /// This must not be used as the available-for-navigation list.
+    fn session_membership(&self) -> Result<Vec<String>, String> {
+        if self.unavailable.iter().any(|entry| entry.name.is_empty()) {
+            return Err("Unavailable peer has no registered name".into());
+        }
+        if !self
+            .available
+            .iter()
+            .any(|entry| entry.name == self.launch_name)
+        {
+            return Err("Launch vault is absent from available registry".into());
+        }
+        let mut names = self
+            .available
+            .iter()
+            .chain(&self.unavailable)
+            .map(|entry| entry.name.clone())
+            .collect::<Vec<_>>();
+        names.push(String::new());
+        names.sort();
+        names.dedup();
+        Ok(names)
+    }
+
     fn parse(value: &serde_json::Value) -> Result<Self, String> {
         if value
             .get("storage_state")
@@ -3069,6 +3094,10 @@ impl Workspace {
                 .vaults()
                 .map_err(|error| error.to_string())
                 .and_then(|value| VaultDiscovery::parse(&value))
+                .and_then(|discovery| {
+                    let known = discovery.session_membership()?;
+                    Ok((discovery, known))
+                })
         });
         cx.spawn(async move |this, cx| {
             let result = job.await;
@@ -3083,12 +3112,7 @@ impl Workspace {
                 }
                 this.shell.vault_loading = false;
                 match result {
-                    Ok(discovery) => {
-                        let mut known: Vec<_> =
-                            discovery.available.iter().map(|v| v.name.clone()).collect();
-                        if known.contains(&discovery.launch_name) {
-                            known.push(String::new());
-                        }
+                    Ok((discovery, known)) => {
                         this.session_ui.registry_changed(known);
                         this.invalidate_gallery();
                         this.shell.working_scope =
@@ -6207,25 +6231,39 @@ mod fragment_navigation_tests {
     }
 }
 
-/// Reuse strict current discovery; only available names and the verified launch alias.
+/// Strict named registry membership, including peers not opened yet.
+/// Navigation continues to use discovery.available, never this union.
 pub(crate) fn session_registry(value: &serde_json::Value) -> Result<Vec<String>, String> {
-    let discovery = VaultDiscovery::parse(value)?;
-    if !discovery
-        .available
-        .iter()
-        .any(|entry| entry.name == discovery.launch_name)
-    {
-        return Err("Launch vault is absent from available registry".into());
+    VaultDiscovery::parse(value)?.session_membership()
+}
+
+#[cfg(test)]
+mod session_membership_tests {
+    use super::*;
+    #[test]
+    fn peer_readiness_does_not_change_membership_or_navigation_availability() {
+        let pending = serde_json::json!({"active":{"name":"host"},
+            "vaults":[{"name":"host","path":"/host"}],
+            "unavailable":[{"name":"foreign","path":"/foreign","error":"pending or unavailable"}]});
+        let ready = serde_json::json!({"active":{"name":"host"},
+            "vaults":[{"name":"host","path":"/host"},{"name":"foreign","path":"/foreign"}],"unavailable":[]});
+        let d = VaultDiscovery::parse(&pending).unwrap();
+        assert_eq!(d.available.len(), 1);
+        assert_eq!(d.unavailable.len(), 1);
+        assert_eq!(d.session_membership().unwrap(), vec!["", "foreign", "host"]);
+        assert_eq!(
+            session_registry(&pending).unwrap(),
+            session_registry(&ready).unwrap()
+        );
+        for invalid in [
+            serde_json::json!({"active":{"name":"host"},"vaults":[{"name":"host"}],"unavailable":[{"name":"","error":"pending"}]}),
+            serde_json::json!({"active":{"name":"host"},"vaults":[{"name":"host"}],"unavailable":[{"error":"initializing"}],"storage_state":"initializing"}),
+            serde_json::json!({"active":{"name":"host"},"vaults":[{"name":"host"}],"unavailable":[{"error":"pending"}]}),
+            serde_json::json!({"active":{"name":"host"},"vaults":[{"name":"host"}],"unavailable":[{"name":"host"}]}),
+        ] {
+            assert!(session_registry(&invalid).is_err());
+        }
     }
-    let mut names: Vec<String> = discovery
-        .available
-        .into_iter()
-        .map(|entry| entry.name)
-        .collect();
-    names.push(String::new());
-    names.sort();
-    names.dedup();
-    Ok(names)
 }
 
 #[cfg(test)]

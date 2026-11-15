@@ -294,9 +294,11 @@ Malformed, oversized, unsupported or mismatched snapshots remain untouched and a
 nonfatal banner explains that tabs are now memory-only. There is no reset/delete
 button or startup migration.
 
-Fixture snapshots read legacy tabs-only schema 1, tabs/history schema 2 and
-tabs/history/scope schema 3, and write schema 4 after an accepted metadata or
-checkpoint change. Legacy snapshots
+Fixture snapshots read schemas 1–5 (tabs, history, scope, reading positions and
+tag history as available), with an empty recent-note list for those versions.
+The fixture writer saves schema 6 after an accepted metadata or checkpoint change;
+startup alone never migrates a file. Schema 6 adds up to 100 distinct vault-qualified
+recent note identities and cached labels, independent of open tabs. Legacy snapshots
 start with the launch scope. The saved working scope must still be available in
 the same validated fixture registry; unknown scopes disable persistence rather
 than falling back. Scope restoration does not reinterpret note identities or
@@ -1023,3 +1025,13 @@ Drag within one unstyled plain paragraph, including its soft-wrapped lines, then
 Live search-result `#tag` buttons refine the current query without opening a note or switching vaults. Exact duplicate terms are no-ops; appended queries normalize whitespace. Invalid tags (empty, whitespace/control-containing, over 4096 bytes) and queries over 64 KiB are refused without truncation. Snapshot tags remain inert because local substring filtering is not engine tag search. Native refinement validation is pending.
 
 Result tags containing `%` or `_`, or ending in `/`, remain inert because the engine does not preserve literal tag matching for those forms.
+
+Fixture Recent metadata uses the same protected snapshot, registry binding and
+serialized worker, without a new path or ordinary-profile disk I/O. Restore does
+not open/fetch notes or add visits; newer accepted navigation wins over delayed
+startup restoration. Duplicate, malformed, unknown-vault or unknown-version data
+disables persistence and preserves the original artifact rather than pruning it.
+Labels are bounded to 512 characters / 2048 UTF-8 bytes. The unchanged 128 KiB
+total snapshot cap can reject an otherwise individually valid list; a warning
+is shown, with no truncation or replacement. Queued metadata is not guaranteed
+durable on immediate/abrupt quit; no forced writer join has been added.
