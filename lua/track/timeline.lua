@@ -31,11 +31,21 @@ function M.new(path)
       local ok, launched = pcall(function()
          return vim.system({ require("track.client").bin(), "timeline", "--path", path },
             { text = true, timeout = 10000 }, function(result)
+               local valid, data = pcall(vim.json.decode, result.stdout or "")
                if result.code ~= 0 or result.signal ~= 0 then
-                  finish("Timeline read failed: " .. (result.stderr or ""):sub(1, 512))
+                  local reason = valid and type(data) == "table" and data.error or nil
+                  if type(reason) ~= "string" or not reason:find("%S") then
+                     reason = result.stderr
+                  end
+                  if type(reason) ~= "string" or not reason:find("%S") then
+                     reason = "exit code " .. tostring(result.code)
+                     if result.signal and result.signal ~= 0 then
+                        reason = reason .. ", signal " .. tostring(result.signal)
+                     end
+                  end
+                  finish("Timeline read failed: " .. reason:sub(1, 512))
                   return
                end
-               local valid, data = pcall(vim.json.decode, result.stdout or "")
                if not valid or type(data) ~= "table" or data.schema_version ~= 1
                   or type(data.items) ~= "table" or type(data.history) ~= "table" then
                   finish("Invalid timeline response")

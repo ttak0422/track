@@ -32,7 +32,7 @@ func (s *Server) handleTimeline(v *vaultView, w http.ResponseWriter, r *http.Req
 	}
 	snapshot := task.NewTimeline(n.ID, n.Meta.Title, n.Body, n.Meta.TaskLog)
 	writeReadJSON(w, v, map[string]any{
-		"schema_version": snapshot.SchemaVersion, "note_id": snapshot.NoteID, "title": snapshot.Title,
+		"vault": v.label, "schema_version": snapshot.SchemaVersion, "note_id": snapshot.NoteID, "title": snapshot.Title,
 		"items": snapshot.Items, "progress": snapshot.Progress, "history": snapshot.History,
 	})
 }
