@@ -763,3 +763,10 @@ regressions are added; final GPUI/native layout and interruption QA is pending.
   decisions with explicit arrows/labels, stable DAG placement and outer-lane
   skip-rank routes. No cycles, other Mermaid diagram types, markup, interaction or
   full Mermaid parity. Original source retained; native visual QA pending.
+
+- Rust/Nix fenced code: bounded display-only lexical colors, lossless original
+  UTF-8 ranges and unchanged Find/Copy. Rust lifetimes/chars, nested comments and
+  raw strings are distinguished; Nix closed indented strings and escapes are
+  opaque strings. Nix interpolation/path/URI ambiguity conservatively leaves the
+  remainder plain; no injected-language or semantic-token parity. Pure source
+  regressions pass; native visual QA remains pending.

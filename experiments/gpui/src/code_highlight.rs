@@ -40,6 +40,9 @@ pub fn classify(body: &str, language: Option<&str>) -> Rc<[Token]> {
     if matches!(language.as_str(), "bash" | "sh" | "shell") {
         return shell_tokens(body);
     }
+    if matches!(language.as_str(), "rust" | "rs" | "nix") {
+        return rust_nix_tokens(body, language != "nix");
+    }
     let js = matches!(
         language.as_str(),
         "js" | "javascript" | "jsx" | "ts" | "typescript" | "tsx"
@@ -258,6 +261,305 @@ pub fn classify(body: &str, language: Option<&str>) -> Rc<[Token]> {
     tokens.into()
 }
 
+/// Deliberately lexical, not a compiler. Ambiguous Nix indented strings,
+/// interpolation and paths leave the remaining source plain. No recursive parser.
+fn rust_nix_tokens(body: &str, rust: bool) -> Rc<[Token]> {
+    let bytes = body.as_bytes();
+    let mut tokens: Vec<Token> = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        let start = i;
+        let tail = &body[i..];
+        let mut role = Role::Plain;
+        let raw_end = if rust { raw_string_end(tail) } else { None };
+        if (rust && tail.starts_with("//")) || (!rust && tail.starts_with('#')) {
+            i += tail.find(['\r', '\n']).unwrap_or(tail.len());
+            role = Role::Comment;
+        } else if tail.starts_with("/*") {
+            i += 2;
+            let mut depth = 1usize;
+            while i < bytes.len() {
+                if rust && bytes[i..].starts_with(b"/*") {
+                    depth += 1;
+                    i += 2;
+                } else if bytes[i..].starts_with(b"*/") {
+                    depth -= 1;
+                    i += 2;
+                    if depth == 0 {
+                        break;
+                    }
+                } else {
+                    i += body[i..].chars().next().unwrap().len_utf8();
+                }
+            }
+            role = Role::Comment;
+        } else if !rust && tail.starts_with("''") {
+            let (end, complete) = nix_indented_end(tail);
+            i += end;
+            if complete {
+                role = Role::String;
+            }
+        } else if !rust
+            && (tail.starts_with("${")
+                || tail.starts_with("./")
+                || tail.starts_with("../")
+                || matches!(bytes[i], b'/' | b'~' | b'<'))
+        {
+            i = bytes.len();
+        } else if raw_end.is_some() {
+            i += raw_end.unwrap();
+            role = Role::String;
+        } else if bytes[i] == b'"' {
+            i += 1;
+            role = Role::String;
+            while i < bytes.len() {
+                if !rust && bytes[i..].starts_with(b"${") {
+                    // Inner expression quotes cannot safely delimit the outer string.
+                    role = Role::Plain;
+                    i = bytes.len();
+                    break;
+                } else if bytes[i] == b'\\' {
+                    i += 1;
+                    if i < bytes.len() {
+                        i += body[i..].chars().next().unwrap().len_utf8();
+                    }
+                } else if bytes[i] == b'"' {
+                    i += 1;
+                    break;
+                } else {
+                    i += body[i..].chars().next().unwrap().len_utf8();
+                }
+            }
+        } else if rust && bytes[i] == b'\'' {
+            if let Some(end) = char_end(tail) {
+                i += end;
+                role = Role::String;
+            } else {
+                i += 1;
+                // Lifetime/label identifiers stay plain, including non-ASCII names.
+                while i < bytes.len() {
+                    let c = body[i..].chars().next().unwrap();
+                    if !(c.is_alphanumeric() || c == '_') {
+                        break;
+                    }
+                    i += c.len_utf8();
+                }
+            }
+        } else if bytes[i].is_ascii_digit() {
+            i += 1;
+            while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+                i += 1;
+            }
+            role = Role::Number;
+        } else if tail.chars().next().unwrap().is_alphabetic() || bytes[i] == b'_' {
+            i += tail.chars().next().unwrap().len_utf8();
+            while i < bytes.len() {
+                let c = body[i..].chars().next().unwrap();
+                if !(c.is_alphanumeric() || c == '_' || (!rust && matches!(c, '-' | '\''))) {
+                    break;
+                }
+                i += c.len_utf8();
+            }
+            // Raw Rust identifiers are identifiers even when their word is a keyword.
+            if rust && &body[start..i] == "r" && bytes.get(i) == Some(&b'#') {
+                i += 1;
+                while i < bytes.len() {
+                    let c = body[i..].chars().next().unwrap();
+                    if !(c.is_alphanumeric() || c == '_') {
+                        break;
+                    }
+                    i += c.len_utf8();
+                }
+            } else if !rust
+                && bytes.get(i) == Some(&b':')
+                && bytes.get(i + 1).is_some_and(|b| !b.is_ascii_whitespace())
+            {
+                // URI-like input is not a sequence of Nix keywords/comments.
+                i = bytes.len();
+            } else if if rust {
+                matches!(
+                    &body[start..i],
+                    "as" | "async"
+                        | "await"
+                        | "break"
+                        | "const"
+                        | "continue"
+                        | "crate"
+                        | "dyn"
+                        | "else"
+                        | "enum"
+                        | "extern"
+                        | "false"
+                        | "fn"
+                        | "for"
+                        | "if"
+                        | "impl"
+                        | "in"
+                        | "let"
+                        | "loop"
+                        | "match"
+                        | "mod"
+                        | "move"
+                        | "mut"
+                        | "pub"
+                        | "ref"
+                        | "return"
+                        | "self"
+                        | "Self"
+                        | "static"
+                        | "struct"
+                        | "super"
+                        | "trait"
+                        | "true"
+                        | "type"
+                        | "unsafe"
+                        | "use"
+                        | "where"
+                        | "while"
+                )
+            } else {
+                matches!(
+                    &body[start..i],
+                    "assert"
+                        | "else"
+                        | "if"
+                        | "in"
+                        | "inherit"
+                        | "let"
+                        | "or"
+                        | "rec"
+                        | "then"
+                        | "with"
+                        | "true"
+                        | "false"
+                        | "null"
+                )
+            } {
+                role = Role::Keyword;
+            }
+        } else {
+            i += tail.chars().next().unwrap().len_utf8();
+        }
+        if let Some(last) = tokens.last_mut().filter(|t| t.role == role) {
+            last.range.end = i;
+        } else {
+            if tokens.len() == MAX_TOKENS {
+                return Rc::from([]);
+            }
+            tokens.push(Token {
+                range: start..i,
+                role,
+            });
+        }
+    }
+    tokens.into()
+}
+
+/// No interpolation evaluation: an interpolation or unfinished escape makes
+/// this string and the remainder plain. Known indented escapes remain opaque.
+fn nix_indented_end(tail: &str) -> (usize, bool) {
+    let bytes = tail.as_bytes();
+    let mut i = 2;
+    while i < bytes.len() {
+        if bytes[i..].starts_with(b"${") {
+            return (bytes.len(), false);
+        }
+        if bytes[i..].starts_with(b"''") {
+            match bytes.get(i + 2) {
+                Some(b'\'' | b'$') => {
+                    i += 3;
+                    continue;
+                }
+                Some(b'\\') => {
+                    i += 3;
+                    if i == bytes.len() {
+                        return (bytes.len(), false);
+                    }
+                    i += tail[i..].chars().next().unwrap().len_utf8();
+                    continue;
+                }
+                _ => return (i + 2, true),
+            }
+        }
+        i += tail[i..].chars().next().unwrap().len_utf8();
+    }
+    (bytes.len(), false)
+}
+
+/// Return the complete raw token, or its unfinished remainder. Hash count is
+/// bounded by the Rust grammar; unsupported >255 hashes are left plain by caller.
+fn raw_string_end(tail: &str) -> Option<usize> {
+    let prefix = if tail.starts_with("br") || tail.starts_with("cr") {
+        2
+    } else if tail.starts_with('r') {
+        1
+    } else {
+        return None;
+    };
+    let hashes = tail.as_bytes()[prefix..]
+        .iter()
+        .take_while(|&&b| b == b'#')
+        .count();
+    let quote = prefix + hashes;
+    if hashes > 255 || tail.as_bytes().get(quote) != Some(&b'"') {
+        return None;
+    }
+    let bytes = tail.as_bytes();
+    let mut i = quote + 1;
+    while i < bytes.len() {
+        if bytes[i] == b'"'
+            && bytes
+                .get(i + 1..i + 1 + hashes)
+                .is_some_and(|s| s.iter().all(|&b| b == b'#'))
+        {
+            return Some(i + 1 + hashes);
+        }
+        i += 1;
+    }
+    Some(tail.len())
+}
+
+/// Only a closed single scalar or known escape is a character hint. Lifetimes
+/// are never scanned up to an unrelated apostrophe later in the document.
+fn char_end(tail: &str) -> Option<usize> {
+    let bytes = tail.as_bytes();
+    let mut i = 1;
+    if bytes.get(i) == Some(&b'\\') {
+        i += 1;
+        match *bytes.get(i)? {
+            b'n' | b'r' | b't' | b'0' | b'\\' | b'\'' | b'"' => i += 1,
+            b'x' => {
+                if !bytes.get(i + 1..i + 3)?.iter().all(u8::is_ascii_hexdigit) {
+                    return None;
+                }
+                i += 3;
+            }
+            b'u' if bytes.get(i + 1) == Some(&b'{') => {
+                i += 2;
+                let start = i;
+                while bytes
+                    .get(i)
+                    .is_some_and(|b| b.is_ascii_hexdigit() || *b == b'_')
+                {
+                    i += 1;
+                }
+                if i == start || i - start > 12 || bytes.get(i) != Some(&b'}') {
+                    return None;
+                }
+                i += 1;
+            }
+            _ => return None,
+        }
+    } else {
+        let c = tail.get(i..)?.chars().next()?;
+        if matches!(c, '\'' | '\n' | '\r' | '\t') {
+            return None;
+        }
+        i += c.len_utf8();
+    }
+    (bytes.get(i) == Some(&b'\'')).then_some(i + 1)
+}
+
 /// Shell lexical hints, not an interpreter: keyword positions and expansions are
 /// not parsed. Unquoted <<, ${, $( and backticks leave the remaining source plain. Zsh is deliberately
 /// not an alias: interactive comments and its additional syntax differ.
@@ -393,6 +695,109 @@ mod tests {
             .unwrap()
             .role
     }
+    #[test]
+    fn rust_literals_lifetimes_and_nested_comments() {
+        for lang in ["rust", "rs", "language-Rust linenums"] {
+            let body =
+                "fn f<'a>(x: &'a str) { let c = '🦀'; /* outer /* inner */ fn hidden */ return; }";
+            assert_eq!(role(body, lang, "fn"), Role::Keyword);
+            assert_eq!(role(body, lang, "'a"), Role::Plain);
+            assert_eq!(role(body, lang, "🦀"), Role::String);
+            assert_eq!(role(body, lang, "hidden"), Role::Comment);
+            assert_eq!(role(body, lang, "return"), Role::Keyword);
+            for literal in [
+                r##"r#"fn \"raw\""#"##,
+                r###"br##"/* fn */"##"###,
+                r##"cr"fn""##,
+                r"'\n'",
+                r"'\u{1f980}'",
+                r"'\x41'",
+            ] {
+                assert!(
+                    classify(literal, Some(lang))
+                        .iter()
+                        .all(|t| t.role == Role::String),
+                    "{literal}"
+                );
+            }
+            assert_eq!(role("r#type r#fn let", lang, "type"), Role::Plain);
+            assert_eq!(role("r#type r#fn let", lang, "let"), Role::Keyword);
+            assert_eq!(role("r##\"unfinished fn", lang, "fn"), Role::String);
+            assert_eq!(role("/* /* unfinished */ fn", lang, "fn"), Role::Comment);
+            assert_eq!(role("élet", lang, "let"), Role::Plain);
+        }
+    }
+
+    #[test]
+    fn nix_strings_escapes_and_conservative_remainder() {
+        let body = "let x = ''日本語 # opaque ''' ''${literal} ''\\n text''; in true";
+        assert_eq!(role(body, "nix", "let"), Role::Keyword);
+        assert_eq!(role(body, "nix", "opaque"), Role::String);
+        assert_eq!(role(body, "nix", "literal"), Role::String);
+        assert_eq!(role(body, "nix", "in true"), Role::Keyword);
+        assert_eq!(role(r#""escaped \${if}" then"#, "nix", "if"), Role::String);
+        assert_eq!(
+            role(r#""escaped \${if}" then"#, "nix", "then"),
+            Role::Keyword
+        );
+        for body in [
+            "''x ${if true then \"nested\" else \"x\"}'' in",
+            "''unfinished in",
+            "\"x ${let x = \"inner\";}\" in",
+            "./foo/if # tail",
+            "https://host/if # tail",
+        ] {
+            let t = classify(body, Some("nix"));
+            assert!(t.iter().all(|t| t.role == Role::Plain), "{body}: {t:?}");
+        }
+        assert_eq!(
+            role(
+                "let-name = 1; inherit x; # comment\r\nin x",
+                "nix",
+                "let-name"
+            ),
+            Role::Plain
+        );
+        assert_eq!(role("/* first */ let", "nix", "let"), Role::Keyword);
+    }
+
+    #[test]
+    fn rust_nix_lossless_limits_and_all_unicode_prefixes() {
+        for lang in ["rust", "rs", "nix"] {
+            for body in [
+                "fn 日本語<'a>() { '🦀'; r##\"a\"#b\"##; }",
+                "let x = ''a ''' b ''${c}''; in x",
+                "/* nested /* x */ y */\r\n",
+                "\"é\\🦀\" 'x' 42",
+            ] {
+                for end in body
+                    .char_indices()
+                    .map(|(i, _)| i)
+                    .chain(std::iter::once(body.len()))
+                {
+                    let source = &body[..end];
+                    let tokens = classify(source, Some(lang));
+                    let mut offset = 0;
+                    for t in tokens.iter() {
+                        assert_eq!(t.range.start, offset);
+                        assert!(source.get(t.range.clone()).is_some());
+                        offset = t.range.end;
+                    }
+                    assert_eq!(offset, source.len());
+                    assert_eq!(
+                        tokens
+                            .iter()
+                            .map(|t| &source[t.range.clone()])
+                            .collect::<String>(),
+                        source
+                    );
+                }
+            }
+            assert!(classify(&"x".repeat(MAX_BODY_BYTES + 1), Some(lang)).is_empty());
+            assert!(classify(&"let;".repeat(MAX_TOKENS), Some(lang)).is_empty());
+        }
+    }
+
     #[test]
     fn examples_aliases_and_shielding() {
         for lang in [
