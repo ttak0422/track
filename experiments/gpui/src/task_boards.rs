@@ -375,6 +375,7 @@ mod tests {
         s.serial = 10;
         s.preview_epoch = 11;
         s.result = Some(Ok(Snapshot {
+            query_positions: Ok(Default::default()),
             inline: Ok(Default::default()),
             response,
             preview,

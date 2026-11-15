@@ -1640,3 +1640,11 @@ pending; stale callbacks must not navigate. Included query results stay inert.
 Check no note creation, external requests, session writes or canonical changes.
 
 On 2026-11-15, an isolated title-mode fixture verified list → Alpha, board → Beta, and gallery → Alpha using explicit Open note controls. Back returned to the host, whose rendered preview could be reopened. Native Quit succeeded, all 12 canonical hashes remained unchanged, and both owned ports closed. The additional failure, id-v1, foreign-vault, race and IME cases above remain unverified natively; regression tests cover target admission, provenance and stale ticket identity. Ordinary vault editing stays disabled.
+
+## Inline host-query summary
+
+Use two identical actual `track-query :layout list` fences separated by long prose. Load accepted render, Show only selected occurrence, scroll below it, Hide/Show and verify passage retention. Check source Copy MD/Find/outline, summary empty/truncated results, successful row open/Back, failed explicit target without title fallback, Hide/source change during lookup. Verify no normal vault or session writes. Unit additions cover duplicate occurrence mapping, unchanged host structure, nested-code/additional transformation/include rejection and surface epochs.
+
+On 2026-11-15, the isolated two-query fixture verified controls in the wide Rendered content section, first-query Show/Hide, second occurrence projection after scrolling, and Open note from the second summary to Alpha. An earlier run verified the first summary to Beta. Native Quit succeeded; all 14 canonical hashes stayed unchanged and both owned ports closed. Native testing exposed and fixed server-added terminal-LF mapping rejection and narrow-rail control wrapping. Scrolled Hide passage retention, empty/truncated panels, Find/Copy interactions and in-flight lookup races remain native follow-ups rather than claimed coverage.
+
+CI run 43713416637 initially rejected Save after Cancel with HTTP 409 (index not fully verified). The unchanged-head rerun passed all termination scenarios. The original read-state cause remains unidentified; no safety gate or Save behavior was relaxed.

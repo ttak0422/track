@@ -591,3 +591,5 @@ resolved vault identity; absent/empty targets alone fall back to title lookup.
 Snapshot/row/page/scope tickets reject stale work. Included queries and calendar,
 whole-card/keyboard/modifier/hover parity are deferred. No creation or external
 opener; failed resolution keeps the accepted preview. Native QA pending.
+
+- Explicit inline host-query summaries: strict paired source/result fence correspondence, source retained, one fixed-height text-only panel, 100 total rows and explicit truncation. Uses accepted snapshot only; rich layout stays modal. Includes/other transformations reject inline admission. Surface-qualified resolver navigation and guarded passage restoration; no source/normal-vault/session writes. Native QA pending.

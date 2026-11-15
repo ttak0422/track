@@ -13,8 +13,14 @@ pub(super) struct Navigation {
     pending: Option<u64>,
     notice: Option<String>,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Surface {
+    Modal,
+    Reader { block: usize, epoch: u64 },
+}
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Ticket {
+    surface: Surface,
     identity: Identity,
     serial: u64,
     epoch: u64,
@@ -98,10 +104,20 @@ fn host_row(
         .get(row)
 }
 impl Workspace {
-    fn query_ticket(&self, key: (usize, usize), group: usize, row: usize) -> Option<Ticket> {
+    fn query_ticket(
+        &self,
+        surface: Surface,
+        key: (usize, usize),
+        group: usize,
+        row: usize,
+    ) -> Option<Ticket> {
         let state = self.shell.includes.as_ref()?;
         let identity = self.includes_identity()?;
-        if !state.preview_open
+        let surface_valid = match surface {
+            Surface::Modal => state.preview_open,
+            Surface::Reader { block, epoch } => self.query_inline_matches(block, epoch, key),
+        };
+        if !surface_valid
             || state.identity != identity
             || !self.includes_body_current(state)
             || self.shell.accepted_title_request != Some(self.request)
@@ -111,6 +127,7 @@ impl Workspace {
         let value = host_row(state, key, group, row)?.clone();
         target(&value)?;
         Some(Ticket {
+            surface,
             identity,
             serial: state.serial,
             epoch: state.preview_epoch,
@@ -125,8 +142,13 @@ impl Workspace {
         })
     }
     fn query_ticket_current(&self, t: &Ticket, cx: &Context<Self>) -> bool {
-        self.query_control_gate(&t.identity, cx).allowed()
-            && self.query_ticket(t.key, t.group, t.row).as_ref() == Some(t)
+        (match t.surface {
+            Surface::Modal => self.query_control_gate(&t.identity, cx).allowed(),
+            Surface::Reader { .. } => self.query_reader_available(cx),
+        }) && self
+            .query_ticket(t.surface.clone(), t.key, t.group, t.row)
+            .as_ref()
+            == Some(t)
             && !self.recent_open()
             && !self.reader_hierarchy_open()
             && !self.enlarged_image_open()
@@ -145,7 +167,28 @@ impl Workspace {
         row: usize,
         cx: &Context<Self>,
     ) -> gpui::Div {
-        let Some(ticket) = self.query_ticket(key, group, row) else {
+        self.query_surface_control(Surface::Modal, key, group, row, cx)
+    }
+    pub(super) fn query_reader_navigation_control(
+        &self,
+        block: usize,
+        epoch: u64,
+        key: (usize, usize),
+        group: usize,
+        row: usize,
+        cx: &Context<Self>,
+    ) -> gpui::Div {
+        self.query_surface_control(Surface::Reader { block, epoch }, key, group, row, cx)
+    }
+    fn query_surface_control(
+        &self,
+        surface: Surface,
+        key: (usize, usize),
+        group: usize,
+        row: usize,
+        cx: &Context<Self>,
+    ) -> gpui::Div {
+        let Some(ticket) = self.query_ticket(surface, key, group, row) else {
             return div();
         };
         div().child(
@@ -277,7 +320,9 @@ impl Workspace {
                     ) {
                         return;
                     }
-                    this.close_includes_preview(&ticket.identity, ticket.serial, window, cx);
+                    if ticket.surface == Surface::Modal {
+                        this.close_includes_preview(&ticket.identity, ticket.serial, window, cx);
+                    }
                     this.open_internal_link(intent, cx);
                 });
             });
@@ -371,6 +416,7 @@ mod authority_tests {
     #[test]
     fn ticket_rejects_stale_snapshot_and_row_authority() {
         let base = Ticket {
+            surface: Surface::Modal,
             identity: identity(),
             serial: 5,
             epoch: 6,
@@ -383,6 +429,14 @@ mod authority_tests {
             value: row(),
             pages: Default::default(),
         };
+        let mut reader = base.clone();
+        reader.surface = Surface::Reader { block: 2, epoch: 1 };
+        assert_ne!(base, reader);
+        let mut hidden = reader.clone();
+        hidden.surface = Surface::Reader { block: 2, epoch: 2 };
+        assert_ne!(reader, hidden);
+        hidden.surface = Surface::Reader { block: 3, epoch: 1 };
+        assert_ne!(reader, hidden);
         for i in 0..10 {
             let mut stale = base.clone();
             match i {
@@ -430,6 +484,7 @@ mod authority_tests {
         let queries = project_queries(&preview);
         let mut state = IncludesState::new(identity());
         state.result = Some(Ok(Snapshot {
+            query_positions: Ok(Default::default()),
             inline: Ok(Default::default()),
             boards: Default::default(),
             response,

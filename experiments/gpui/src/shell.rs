@@ -4102,6 +4102,7 @@ impl Render for Workspace {
             .or_else(|| self.follow_layout_source(cx))
             .or_else(|| self.block_fragment_layout_source(cx))
             .or_else(|| self.includes_layout_source())
+            .or_else(|| self.query_layout_source())
             .or_else(|| self.pdf_layout_source());
         if self.shell.positions.source != position_source {
             self.shell.positions.source = position_source.clone();
@@ -4884,6 +4885,7 @@ impl Render for Workspace {
                                 Some(&self.reader_images.images),
                                 position_anchors.as_deref(),
                                 self.inline_include_rows(),
+                                self.query_inline_panel(cx),
                             ))
                             .when_some(self.reader_images.notice.clone(), |view, notice| {
                                 view.child(div().text_size(px(11.)).child(notice))

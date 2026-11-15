@@ -1667,6 +1667,89 @@ fn inline_host_blocks(source: &str) -> Result<Vec<Block>, String> {
     Ok(result)
 }
 
+/// Verified authored-block -> returned-block mapping; never infer correspondence
+/// from a query title, row contents or an ordinal among query results.
+pub(crate) fn inline_query_positions(
+    body: &str,
+    response: &crate::included_notes::Response,
+) -> Result<std::collections::BTreeMap<usize, usize>, String> {
+    if !response.entries.is_empty() {
+        return Err("Includes require the rendered preview.".into());
+    }
+    let source = preview_tree(body)?;
+    if source.iter().any(|node| {
+        !matches!(node.event, Event::Start(Tag::CodeBlock(_)))
+            && body[node.range.clone()].contains("![[")
+    }) {
+        return Err("Authored includes require the rendered preview.".into());
+    }
+    let rendered = preview_tree(&response.markdown)?;
+    if source.len() != rendered.len() {
+        return Err("Query source structure changed.".into());
+    }
+    let mut authored_blocks = Vec::new();
+    let mut result_blocks = Vec::new();
+    let (mut source_end, mut rendered_end) = (0, 0);
+    let mut positions = std::collections::BTreeMap::new();
+    for (a, b) in source.iter().zip(rendered.iter()) {
+        let source_gap = &body[source_end..a.range.start];
+        let result_gap = &response.markdown[rendered_end..b.range.start];
+        if source_gap != result_gap {
+            return Err("Query surrounding source changed.".into());
+        }
+        fallback(source_gap, &mut authored_blocks);
+        fallback(result_gap, &mut result_blocks);
+        let ai = authored_blocks.len();
+        let bi = result_blocks.len();
+        blocks(a, body, 0, false, &mut authored_blocks, true);
+        blocks(b, &response.markdown, 0, false, &mut result_blocks, false);
+        if authored_blocks.len() > PREVIEW_BLOCK_LIMIT || result_blocks.len() > PREVIEW_BLOCK_LIMIT
+        {
+            return Err("Query source exceeds block bounds.".into());
+        }
+        let authored_node = &body[a.range.clone()];
+        let returned_node = &response.markdown[b.range.clone()];
+        let terminal_lf_only = !body.ends_with('\n')
+            && a.range.end == body.len()
+            && b.range.end == response.markdown.len()
+            && returned_node.strip_suffix('\n') == Some(authored_node)
+            && inline_host_blocks(authored_node)? == inline_host_blocks(returned_node)?;
+        let changed = authored_node != returned_node && !terminal_lf_only;
+        if changed {
+            let one = authored_blocks.len() == ai + 1 && result_blocks.len() == bi + 1;
+            let aa = authored_blocks.get(ai);
+            let bb = result_blocks.get(bi);
+            if !one
+                || !aa.is_some_and(|x| {
+                    x.kind == BlockKind::Code
+                        && x.language.as_deref() == Some("track-query")
+                        && !x.quoted
+                        && x.indent == 0
+                })
+                || !bb.is_some_and(|x| {
+                    x.kind == BlockKind::Code
+                        && x.fence_info.as_deref() == Some("track-view")
+                        && !x.quoted
+                        && x.indent == 0
+                })
+            {
+                return Err("Unverified query transformation; source retained.".into());
+            }
+            positions.insert(ai, bi);
+        }
+        source_end = a.range.end;
+        rendered_end = b.range.end;
+    }
+    let tail = &body[source_end..];
+    let output_tail = &response.markdown[rendered_end..];
+    if tail != output_tail
+        && !(!body.ends_with('\n') && output_tail.strip_suffix('\n') == Some(tail))
+    {
+        return Err("Query trailing source changed.".into());
+    }
+    Ok(positions)
+}
+
 pub(crate) fn inline_includes(
     body: &str,
     response: &crate::included_notes::Response,
@@ -2002,8 +2085,9 @@ pub fn render_with_positions(
     images: Option<&std::collections::BTreeMap<usize, crate::raster::Decoded>>,
     positions: Option<&PositionAnchors>,
     inline: Option<&InlineIncludes>,
+    query_panel: Option<(usize, AnyElement)>,
 ) -> Div {
-    let reader = render_reader(
+    let mut elements = render_elements(
         blocks,
         dark,
         anchors,
@@ -2013,6 +2097,26 @@ pub fn render_with_positions(
         images,
         inline,
     );
+    if let Some((index, panel)) = query_panel {
+        if index < elements.len() {
+            let original = elements.remove(index);
+            elements.insert(
+                index,
+                div()
+                    .w_full()
+                    .min_w_0()
+                    .child(original)
+                    .child(panel)
+                    .into_any_element(),
+            );
+        }
+    }
+    let reader = div()
+        .w_full()
+        .min_w_0()
+        .flex()
+        .flex_col()
+        .children(elements);
     if let Some(positions) = positions {
         positions.track(reader, blocks.len())
     } else {
@@ -5163,5 +5267,95 @@ mod pdf_projection_tests {
         let mut invalid = projection.clone();
         invalid.page = 4;
         assert!(!invalid.matches(1, &blocks[1]));
+    }
+}
+
+#[cfg(test)]
+mod inline_query_tests {
+    use super::*;
+    fn response(markdown: String) -> crate::included_notes::Response {
+        crate::included_notes::Response {
+            markdown,
+            entries: vec![],
+        }
+    }
+    fn query() -> &'static str {
+        "```track-query :layout list\nTABLE title FROM #qa/query\n```"
+    }
+    fn view() -> &'static str {
+        "```track-view\n{\"layout\":\"list\",\"columns\":[],\"groups\":[]}\n```"
+    }
+    #[test]
+    fn paired_query_positions_preserve_duplicate_occurrences_and_host_model() {
+        let body = format!(
+            "Before\n\n{}\n\nMiddle\n\n{}\n\n# Ending\n",
+            query(),
+            query()
+        );
+        let result = body.replace(query(), view());
+        let map = inline_query_positions(&body, &response(result)).unwrap();
+        assert_eq!(map.into_iter().collect::<Vec<_>>(), vec![(1, 1), (3, 3)]);
+        let model = inline_host_blocks(&body).unwrap();
+        assert_eq!(model[2].text, "Middle");
+        assert_eq!(model[4].text, "Ending");
+        assert_eq!(model[1].language.as_deref(), Some("track-query"));
+    }
+    #[test]
+    fn query_mapping_rejects_nonquery_changes_and_added_blocks() {
+        let body = format!("Before\n\n{}\n\nAfter\n", query());
+        let rendered = body.replace(query(), view());
+        assert!(
+            inline_query_positions(&body, &response(rendered.replace("Before", "Changed")))
+                .is_err()
+        );
+        assert!(inline_query_positions(&body, &response(format!("Extra\n\n{rendered}"))).is_err());
+        assert!(
+            inline_query_positions(
+                &body,
+                &response(rendered.replace("\n\nAfter", "\n\n\nAfter"))
+            )
+            .is_err()
+        );
+    }
+    #[test]
+    fn query_mapping_never_guesses_from_nested_or_literal_code() {
+        let body = format!("````text\n{}\n````\n", query());
+        assert!(inline_query_positions(&body, &response(body.replace(query(), view()))).is_err());
+        let unchanged = format!("{}\n", view());
+        assert!(
+            inline_query_positions(&unchanged, &response(unchanged.clone()))
+                .unwrap()
+                .is_empty()
+        );
+    }
+    #[test]
+    fn query_mapping_accepts_only_equivalent_terminal_lf() {
+        let body = format!(
+            "Before\n\n{}\n\nMiddle\n\n{}\n\nFinal ordinary paragraph",
+            query(),
+            query()
+        );
+        let rendered = format!("{}\n", body.replace(query(), view()));
+        let map = inline_query_positions(&body, &response(rendered.clone())).unwrap();
+        assert_eq!(map.into_iter().collect::<Vec<_>>(), vec![(1, 1), (3, 3)]);
+        assert!(
+            inline_query_positions(
+                &body,
+                &response(rendered.replace("Final ordinary paragraph", "Changed"))
+            )
+            .is_err()
+        );
+        assert!(
+            inline_query_positions(&body, &response(rendered.replace("Middle\n", "Middle \n")))
+                .is_err()
+        );
+    }
+    #[test]
+    fn query_mapping_rejects_includes_even_when_text_unchanged() {
+        let body = format!("{}\n\n![[Other]]\n", query());
+        let mut r = response(body.replace(query(), view()));
+        assert!(inline_query_positions(&body, &r).is_err());
+        r.entries=crate::included_notes::decode(serde_json::json!({"markdown":"![[Other]]","includes":[{"line":0,"source_line":0,"caption":"Other","lines":[],"error":"unresolved"}]}),"").unwrap().entries;
+        assert!(inline_query_positions(&body, &r).is_err());
     }
 }

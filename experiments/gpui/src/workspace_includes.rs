@@ -2,6 +2,8 @@
 mod gallery_covers;
 #[path = "preview_copy.rs"]
 mod preview_copy;
+#[path = "query_inline.rs"]
+mod query_inline;
 #[path = "query_navigation.rs"]
 mod query_navigation;
 #[path = "task_boards.rs"]
@@ -46,6 +48,7 @@ pub(crate) struct IncludesState {
     preview_focus: Option<gpui::FocusHandle>,
     preview_scroll: gpui::ScrollHandle,
     preview_epoch: u64,
+    query_inline: query_inline::InlineQuery,
     query_nav: query_navigation::Navigation,
     query_pages: std::collections::BTreeMap<(usize, usize, Option<usize>), usize>,
     query_sources: std::collections::BTreeSet<(usize, usize)>,
@@ -86,6 +89,7 @@ impl QueryPageGate {
     }
 }
 struct Snapshot {
+    query_positions: Result<std::collections::BTreeMap<usize, usize>, String>,
     inline: Result<markdown::InlineIncludes, String>,
     boards: task_boards::Boards,
     response: crate::included_notes::Response,
@@ -106,6 +110,7 @@ impl IncludesState {
             preview_focus: None,
             preview_scroll: gpui::ScrollHandle::new(),
             preview_epoch: 0,
+            query_inline: Default::default(),
             query_nav: Default::default(),
             query_pages: Default::default(),
             query_sources: Default::default(),
@@ -240,6 +245,9 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.query_inline_active() {
+            return;
+        }
         self.stop_editor_follow();
         if self.includes_identity().as_ref() != Some(identity)
             || !self.find_available()
@@ -260,6 +268,7 @@ impl Workspace {
             preview_copy::CopyUi::prepare(state.result.as_ref().and_then(|r| r.as_ref().ok()), cx);
         state.preview_epoch = SERIAL.fetch_add(1, Ordering::Relaxed);
         state.query_nav = Default::default();
+        state.query_inline = Default::default();
         state.query_pages.clear();
         state.query_sources.clear();
         state.preview_scroll = gpui::ScrollHandle::new();
@@ -298,6 +307,7 @@ impl Workspace {
         state.gallery.cancel();
         state.viewspecs.cancel();
         state.query_nav = Default::default();
+        state.query_inline = Default::default();
         state.query_pages.clear();
         state.query_sources.clear();
         if let Some(focus) = &self.shell.reader_focus {
@@ -455,7 +465,7 @@ impl Workspace {
         }
     }
     fn includes_fetch(&mut self, identity: Identity, cx: &mut Context<Self>) {
-        if self.inline_includes_active() {
+        if self.inline_includes_active() || self.query_inline_active() {
             return;
         }
         if self.includes_identity().as_ref() != Some(&identity)
@@ -493,6 +503,7 @@ impl Workspace {
         state.gallery.cancel();
         state.viewspecs.cancel();
         state.query_nav = Default::default();
+        state.query_inline = Default::default();
         state.query_pages.clear();
         state.query_sources.clear();
         let Some(permit) = Permit::acquire() else {
@@ -524,6 +535,7 @@ impl Workspace {
             let (queries, boards) = task_boards::project_with_source(&preview, tasks, Some(&body));
             let inline = markdown::inline_includes(&body, &response);
             Ok(Snapshot {
+                query_positions: markdown::inline_query_positions(&body, &response),
                 inline,
                 boards,
                 response,
@@ -739,7 +751,7 @@ impl Workspace {
                     {
                         return;
                     }
-                    if this.inline_includes_active() {
+                    if this.inline_includes_active() || this.query_inline_active() {
                         return;
                     }
                     let Some(state) = this
@@ -812,6 +824,9 @@ impl Workspace {
                     this.open_includes_preview(&captured, serial, window, cx);
                 })),
         );
+        view = view.when_some(self.query_inline_sidebar(cx), |view, control| {
+            view.child(control)
+        });
         if entries.is_empty() {
             return view.child("No included notes in this response.");
         }
@@ -921,6 +936,7 @@ mod tests {
         state.serial = 5;
         let queries = project_queries(&preview);
         state.result = Some(Ok(Snapshot {
+            query_positions: Ok(Default::default()),
             inline: Ok(Default::default()),
             boards: Default::default(),
             response,
@@ -930,6 +946,7 @@ mod tests {
         state.preview_open = true;
         state.preview_epoch = SERIAL.fetch_add(1, Ordering::Relaxed);
         state.query_nav = Default::default();
+        state.query_inline = Default::default();
         state.query_pages.clear();
         state.query_sources.clear();
         assert!(state.accepts(&id, 5));
@@ -938,6 +955,7 @@ mod tests {
         state.gallery.cancel();
         state.viewspecs.cancel();
         state.query_nav = Default::default();
+        state.query_inline = Default::default();
         state.query_pages.clear();
         state.query_sources.clear();
         assert_eq!(source, original);
@@ -976,6 +994,7 @@ mod tests {
                 state.serial = 10;
                 state.preview_epoch = 20;
                 state.result = Some(Ok(Snapshot {
+                    query_positions: Ok(Default::default()),
                     inline: Ok(Default::default()),
                     boards: Default::default(),
                     response,
@@ -1042,6 +1061,7 @@ mod tests {
         state.serial = 10;
         state.preview_epoch = 20;
         state.result = Some(Ok(Snapshot {
+            query_positions: Ok(Default::default()),
             inline: Ok(Default::default()),
             boards: Default::default(),
             response,
@@ -1133,6 +1153,7 @@ mod tests {
         state.serial = 10;
         state.preview_epoch = 20;
         state.result = Some(Ok(Snapshot {
+            query_positions: Ok(Default::default()),
             inline: Ok(Default::default()),
             boards: Default::default(),
             response,

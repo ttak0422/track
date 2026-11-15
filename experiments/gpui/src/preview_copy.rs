@@ -343,6 +343,7 @@ mod tests {
         normalize(&mut preview);
         let queries = project_queries(&preview);
         let snapshot = Snapshot {
+            query_positions: Ok(Default::default()),
             inline: Ok(Default::default()),
             response,
             preview,
