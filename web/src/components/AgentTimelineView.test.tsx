@@ -193,4 +193,45 @@ describe("AgentTimelineView", () => {
     expect(within(screen.getByRole("region", { name: "Project timeline" })).getByRole("heading", { name: "Beta" })).toBeTruthy();
     cache.clear();
   });
+  it("retains a newer polled revision when an older successful write receipt arrives", async () => {
+    let finish!: (value: AgentProject) => void;
+    vi.mocked(listAgentProjects).mockResolvedValue({ projects: [project] });
+    vi.mocked(getAgentProject).mockResolvedValueOnce(project).mockResolvedValue({ ...project, revision: 4, title: "Newer worker update" });
+    vi.mocked(applyAgentRequest).mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    const cache = provider();
+    render(<QueryClientProvider client={cache}><AgentTimelineView /></QueryClientProvider>);
+    await screen.findByRole("option", { name: "Alpha" });
+    fireEvent.change(screen.getByLabelText("Project"), { target: { value: "alpha" } });
+    await screen.findByRole("heading", { name: "Alpha" });
+    fireEvent.click(screen.getByText("Edit project"));
+    fireEvent.change(screen.getByLabelText("Project title"), { target: { value: "My edit" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save project" }));
+    await waitFor(() => expect(applyAgentRequest).toHaveBeenCalledOnce());
+    await act(async () => { await cache.refetchQueries({ queryKey: ["agent-timeline", "", "project", "alpha"] }); });
+    await screen.findByRole("heading", { name: "Newer worker update" });
+    await act(async () => finish({ ...project, revision: 3, title: "My edit" }));
+    expect(await screen.findByText("Saved.")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Newer worker update" })).toBeTruthy();
+    expect(cache.getQueryData<AgentProject>(["agent-timeline", "", "project", "alpha"])?.revision).toBe(4);
+    cache.clear();
+  });
+
+  it("keeps the draft and refuses metadata writes with an unsafe linked note ID", async () => {
+    vi.mocked(listAgentProjects).mockResolvedValue({ projects: [project] });
+    vi.mocked(getAgentProject).mockResolvedValue({ ...project, note_id: "work~9007199254740993" });
+    const cache = provider();
+    render(<QueryClientProvider client={cache}><AgentTimelineView /></QueryClientProvider>);
+    await screen.findByRole("option", { name: "Alpha" });
+    fireEvent.change(screen.getByLabelText("Project"), { target: { value: "alpha" } });
+    await screen.findByRole("heading", { name: "Alpha" });
+    fireEvent.click(screen.getByText("Edit project"));
+    fireEvent.change(screen.getByLabelText("Project title"), { target: { value: "My preserved edit" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save project" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("safe browser numeric precision");
+    expect(applyAgentRequest).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Project title")).toHaveValue("My preserved edit");
+    expect(cache.getQueryData<AgentProject>(["agent-timeline", "", "project", "alpha"])?.note_id).toBe("work~9007199254740993");
+    cache.clear();
+  });
+
 });

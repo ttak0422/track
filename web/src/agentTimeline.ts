@@ -1,5 +1,5 @@
 import { api, APIError } from "./api";
-import { qualify, vaultParams } from "./vaultId";
+import { qualify, split, vaultParams } from "./vaultId";
 
 export interface AgentTask {
   id: string; parent_id?: string; title: string; detail?: string;
@@ -30,7 +30,20 @@ export const agentKeys = {
 // payloads belong to the timeline ledger and must round-trip without rewriting.
 type WireProject<T> = Omit<T, "note_id"> & { note_id?: number | string; vault?: string };
 function linkedNote<T>(value: WireProject<T>, vault: string): T {
+  if (typeof value.note_id === "number" && !Number.isSafeInteger(value.note_id)) {
+    throw new APIError(502, "Linked note ID exceeds safe browser numeric precision; use the CLI to inspect or edit this project");
+  }
   return { ...value, ...(value.note_id === undefined ? {} : { note_id: qualify(value.vault ?? vault, value.note_id) }) } as T;
+}
+// The current Go mutation contract accepts a JSON integer. Do not round an
+// int64 link while changing unrelated metadata; keep the original draft intact.
+export function projectNoteID(noteID: string): number {
+  const raw = split(noteID).id;
+  const value = Number(raw);
+  if (!/^-?\d+$/.test(raw) || !Number.isSafeInteger(value)) {
+    throw new Error("Linked note ID exceeds safe browser numeric precision; use the CLI to edit this project without changing its link");
+  }
+  return value;
 }
 export async function listAgentProjects(vault: string, signal?: AbortSignal) {
   const data = await api<{ projects: WireProject<AgentProjectSummary>[]; vault?: string }>(
