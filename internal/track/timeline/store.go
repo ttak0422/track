@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"sort"
@@ -102,7 +101,10 @@ func load(root *os.Root, id string) (Snapshot, error) {
 		}
 		seen[key] = true
 		if err := reduce(&out, event); err != nil {
-			return empty(id), fmt.Errorf("timeline event %d: %w", event.Sequence, err)
+			// A present journal with an invalid event is corruption, never absence.
+			// Do not preserve ErrNotFound from reducer preconditions: Apply uses
+			// that sentinel exclusively to initialize a missing file.
+			return empty(id), invalid("timeline event %d: %v", event.Sequence, err)
 		}
 	}
 	return out, nil
