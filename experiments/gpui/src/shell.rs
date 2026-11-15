@@ -789,6 +789,9 @@ impl Workspace {
         self.shell.selection = None;
     }
     fn reader_selection_document(&self, window: &Window, cx: &App) -> Option<code_copy::Document> {
+        if self.inline_includes_active() {
+            return None;
+        }
         if !window.is_window_active() {
             return None;
         }
@@ -4080,7 +4083,8 @@ impl Render for Workspace {
             .position_source()
             .ok()
             .or_else(|| self.follow_layout_source(cx))
-            .or_else(|| self.block_fragment_layout_source(cx));
+            .or_else(|| self.block_fragment_layout_source(cx))
+            .or_else(|| self.includes_layout_source());
         if self.shell.positions.source != position_source {
             self.shell.positions.source = position_source.clone();
             self.shell.positions.anchors = position_source.as_ref().and_then(|_| {
@@ -4408,6 +4412,9 @@ impl Render for Workspace {
                         .child("Find")
                         .on_click(cx.listener(|this, _, window, cx| this.open_find(window, cx))),
                 )
+            })
+            .when_some(self.inline_includes_sidebar(cx), |rail, control| {
+                rail.child(control)
             })
             .when_some(self.shell.footnote_return.clone(), |rail, ticket| {
                 rail.child(
@@ -4846,6 +4853,7 @@ impl Render for Workspace {
                                 Some(&code_controls),
                                 Some(&self.reader_images.images),
                                 position_anchors.as_deref(),
+                                self.inline_include_rows(),
                             ))
                             .when_some(self.reader_images.notice.clone(), |view, notice| {
                                 view.child(div().text_size(px(11.)).child(notice))
@@ -5096,30 +5104,36 @@ impl Render for Workspace {
                     cx.stop_propagation();
                 }))
             })
-            .when(self.native_find_available(false, window, cx), |root| {
-                root.on_action(cx.listener(|this, _: &NativeFind, window, cx| {
-                    if this.native_find_available(false, window, cx) {
-                        this.open_find(window, cx);
-                    }
-                    cx.stop_propagation();
-                }))
-            })
-            .when(self.native_find_available(true, window, cx), |root| {
-                root.on_action(cx.listener(|this, _: &NativeFindNext, window, cx| {
-                    if this.native_find_available(true, window, cx) {
-                        this.move_find(true, cx);
-                    }
-                    cx.stop_propagation();
-                }))
-                .on_action(cx.listener(
-                    |this, _: &NativeFindPrevious, window, cx| {
-                        if this.native_find_available(true, window, cx) {
-                            this.move_find(false, cx);
+            .when(
+                self.native_find_available(false, window, cx) && !self.inline_includes_active(),
+                |root| {
+                    root.on_action(cx.listener(|this, _: &NativeFind, window, cx| {
+                        if this.native_find_available(false, window, cx) {
+                            this.open_find(window, cx);
                         }
                         cx.stop_propagation();
-                    },
-                ))
-            })
+                    }))
+                },
+            )
+            .when(
+                self.native_find_available(true, window, cx) && !self.inline_includes_active(),
+                |root| {
+                    root.on_action(cx.listener(|this, _: &NativeFindNext, window, cx| {
+                        if this.native_find_available(true, window, cx) {
+                            this.move_find(true, cx);
+                        }
+                        cx.stop_propagation();
+                    }))
+                    .on_action(cx.listener(
+                        |this, _: &NativeFindPrevious, window, cx| {
+                            if this.native_find_available(true, window, cx) {
+                                this.move_find(false, cx);
+                            }
+                            cx.stop_propagation();
+                        },
+                    ))
+                },
+            )
             .when(self.native_history_available(false, cx), |root| {
                 root.on_action(cx.listener(|this, _: &HistoryBack, window, cx| {
                     if native_history_dispatch_allowed(

@@ -713,6 +713,37 @@ fn first_visible_position(blocks: &[(f32, f32)], top: f32, height: f32) -> Optio
         .iter()
         .position(|(y, h)| *y < top + height && *y + *h > top)
 }
+#[derive(Clone)]
+pub(crate) struct Passage {
+    index: usize,
+    relative_y: f32,
+    before: PositionMeasurement,
+}
+fn passage_offset(
+    passage: &Passage,
+    now: &PositionMeasurement,
+) -> Option<gpui::Point<gpui::Pixels>> {
+    let before = &passage.before;
+    let expected_y =
+        f32::from(before.offset.y).clamp(-f32::from(now.max_offset.height).max(0.), 0.);
+    if before.viewport != now.viewport
+        || before.scale != now.scale
+        || before.reader != now.reader
+        || before.blocks.len() != now.blocks.len()
+        || now.offset.x != before.offset.x
+        || (f32::from(now.offset.y) - expected_y).abs() > 0.5
+    {
+        return None;
+    }
+    let Some(block) = now.blocks.get(passage.index) else {
+        return None;
+    };
+    let mut offset = now.offset;
+    offset.y += px(passage.relative_y) - (block.origin.y - now.reader.origin.y);
+    offset.y = px(f32::from(offset.y).clamp(-f32::from(now.max_offset.height).max(0.), 0.));
+    Some(offset)
+}
+
 impl PositionAnchors {
     pub fn new(count: usize, handle: &ScrollHandle) -> Option<Self> {
         (count > 0 && count <= 4096).then(|| Self {
@@ -720,6 +751,41 @@ impl PositionAnchors {
             count,
             layout: Rc::default(),
         })
+    }
+    pub(crate) fn passage(
+        &self,
+        viewport: gpui::Size<gpui::Pixels>,
+        scale: f32,
+    ) -> Option<Passage> {
+        let capture = self.capture(viewport, scale)?;
+        let layout = self.layout.borrow();
+        let before = layout.measured.clone()?;
+        Some(Passage {
+            index: capture.block_index,
+            relative_y: f32::from(
+                before.blocks[capture.block_index].origin.y - before.reader.origin.y,
+            ),
+            before,
+        })
+    }
+    pub(crate) fn restore_passage(
+        &self,
+        passage: &Passage,
+        viewport: gpui::Size<gpui::Pixels>,
+        scale: f32,
+    ) -> bool {
+        if self.capture(viewport, scale).is_none() {
+            return false;
+        }
+        let layout = self.layout.borrow();
+        let Some(now) = &layout.measured else {
+            return false;
+        };
+        let Some(offset) = passage_offset(passage, now) else {
+            return false;
+        };
+        self.handle.set_offset(offset);
+        true
     }
     pub fn current_generation(&self) -> u64 {
         self.layout.borrow().generation
@@ -1551,6 +1617,107 @@ pub(crate) enum PreviewItem {
         blocks: Vec<Block>,
     },
 }
+/// One inert replacement per original host row, never a synthetic host document.
+#[derive(Clone, Debug)]
+pub(crate) struct InlineInclude {
+    pub caption: String,
+    pub blocks: Vec<Block>,
+}
+pub(crate) type InlineIncludes = std::collections::BTreeMap<usize, InlineInclude>;
+
+// A terminal LF may be added by rendering; accept it only with identical host blocks.
+fn inline_host_blocks(source: &str) -> Result<Vec<Block>, String> {
+    let mut result = Vec::new();
+    let mut end = 0;
+    for node in preview_tree(source)? {
+        fallback(&source[end..node.range.start], &mut result);
+        blocks(&node, source, 0, false, &mut result, true);
+        if result.len() > PREVIEW_BLOCK_LIMIT {
+            return Err("Inline host exceeds 4096 blocks.".into());
+        }
+        end = node.range.end;
+    }
+    fallback(&source[end..], &mut result);
+    if result.len() > PREVIEW_BLOCK_LIMIT {
+        return Err("Inline host exceeds 4096 blocks.".into());
+    }
+    Ok(result)
+}
+
+pub(crate) fn inline_includes(
+    body: &str,
+    response: &crate::included_notes::Response,
+) -> Result<InlineIncludes, String> {
+    if body != response.markdown {
+        let terminal_lf_only =
+            !body.ends_with('\n') && response.markdown.strip_suffix('\n') == Some(body);
+        if !terminal_lf_only || inline_host_blocks(body)? != inline_host_blocks(&response.markdown)?
+        {
+            return Err(
+                "Returned Markdown differs from the reader; use the rendered preview instead."
+                    .into(),
+            );
+        }
+    }
+    let preview = included_preview(response)?;
+    if !preview.unsupported.is_empty() {
+        return Err(
+            "Some include positions cannot be verified in this reader; use the rendered preview."
+                .into(),
+        );
+    }
+    let entries: std::collections::BTreeMap<_, _> = response
+        .entries
+        .iter()
+        .map(|e| (e.line as usize, e))
+        .collect();
+    let mut result = InlineIncludes::new();
+    let mut host = Vec::new();
+    let mut end = 0;
+    for node in preview_tree(body)? {
+        fallback(&body[end..node.range.start], &mut host);
+        let index = host.len();
+        blocks(&node, body, 0, false, &mut host, true);
+        let line = body[..node.range.start]
+            .bytes()
+            .filter(|b| *b == b'\n')
+            .count();
+        if let Some(entry) = entries.get(&line) {
+            // included_preview already checked the whole-document standalone syntax.
+            if host.len() != index + 1 {
+                return Err("Include does not correspond to one host block.".into());
+            }
+            if entry.error.as_ref().is_some_and(|e| !e.is_empty()) || !entry.bad_options.is_empty()
+            {
+                return Err("Include diagnostics require the rendered-content inspector; original source is retained.".into());
+            }
+            let origin = if entry.vault.is_empty() {
+                "launch vault"
+            } else {
+                &entry.vault
+            };
+            result.insert(
+                index,
+                InlineInclude {
+                    caption: format!(
+                        "{} · {} · {} #{} · excerpt (Find/selection excluded)",
+                        entry.caption,
+                        origin,
+                        entry.kind.as_deref().unwrap_or("unknown"),
+                        entry.note_id.unwrap_or_default()
+                    ),
+                    blocks: preview_blocks(&entry.excerpt)?,
+                },
+            );
+        }
+        end = node.range.end;
+    }
+    if result.len() != response.entries.len() {
+        return Err("Not every include has a verified host row.".into());
+    }
+    Ok(result)
+}
+
 const PREVIEW_BLOCK_LIMIT: usize = 4096;
 
 fn preview_tree(source: &str) -> Result<Vec<Node<'_>>, String> {
@@ -1636,7 +1803,12 @@ pub(crate) fn included_preview(
                 && node.range.start == starts[line]
                 && source[node.range.clone()].trim_end_matches(['\r', '\n']) == raw
                 && raw.starts_with("![[")
-                && raw.ends_with("]]")
+                && raw.find("]]").is_some_and(|end| {
+                    let tail = &raw[end + 2..];
+                    tail.is_empty()
+                        || (tail.starts_with(char::is_whitespace)
+                            && tail.trim_start().starts_with(':'))
+                })
                 && raw.matches("![[").count() == 1
                 && raw.matches("]]").count() == 1
         });
@@ -1744,17 +1916,17 @@ pub fn render(blocks: &[Block]) -> Div {
 /// Uses the system sans fallback; exact IBM Plex Sans JP typography is not claimed.
 /// No HTML execution, network fetching, or link navigation is performed.
 pub fn render_preview_code(blocks: &[Block], dark: bool, copy: &CodeCallbacks) -> Div {
-    render_reader(blocks, dark, None, None, None, Some(copy), None)
+    render_reader(blocks, dark, None, None, None, Some(copy), None, None)
 }
 
 pub fn render_themed(blocks: &[Block], dark: bool) -> Div {
-    render_reader(blocks, dark, None, None, None, None, None)
+    render_reader(blocks, dark, None, None, None, None, None, None)
 }
 
 /// Anchor-aware variant that preserves nested article layout. The outer reader
 /// must track the same handle used to construct `anchors`.
 pub fn render_themed_with_anchors(blocks: &[Block], dark: bool, anchors: &HeadingAnchors) -> Div {
-    render_reader(blocks, dark, Some(anchors), None, None, None, None)
+    render_reader(blocks, dark, Some(anchors), None, None, None, None, None)
 }
 
 pub fn render_with_links(
@@ -1763,7 +1935,16 @@ pub fn render_with_links(
     anchors: Option<&HeadingAnchors>,
     callbacks: &LinkCallbacks,
 ) -> Div {
-    render_reader(blocks, dark, anchors, Some(callbacks), None, None, None)
+    render_reader(
+        blocks,
+        dark,
+        anchors,
+        Some(callbacks),
+        None,
+        None,
+        None,
+        None,
+    )
 }
 
 pub fn render_with_links_and_find(
@@ -1775,7 +1956,16 @@ pub fn render_with_links_and_find(
     copy: Option<&CodeCallbacks>,
     images: Option<&std::collections::BTreeMap<usize, crate::raster::Decoded>>,
 ) -> Div {
-    render_reader(blocks, dark, anchors, Some(callbacks), find, copy, images)
+    render_reader(
+        blocks,
+        dark,
+        anchors,
+        Some(callbacks),
+        find,
+        copy,
+        images,
+        None,
+    )
 }
 
 /// Explicit fixture-position variant; ordinary callers collect no position geometry.
@@ -1788,8 +1978,18 @@ pub fn render_with_positions(
     copy: Option<&CodeCallbacks>,
     images: Option<&std::collections::BTreeMap<usize, crate::raster::Decoded>>,
     positions: Option<&PositionAnchors>,
+    inline: Option<&InlineIncludes>,
 ) -> Div {
-    let reader = render_with_links_and_find(blocks, dark, anchors, callbacks, find, copy, images);
+    let reader = render_reader(
+        blocks,
+        dark,
+        anchors,
+        Some(callbacks),
+        find,
+        copy,
+        images,
+        inline,
+    );
     if let Some(positions) = positions {
         positions.track(reader, blocks.len())
     } else {
@@ -1821,6 +2021,7 @@ fn render_reader(
     find: Option<FindPresentation<'_>>,
     copy: Option<&CodeCallbacks>,
     images: Option<&std::collections::BTreeMap<usize, crate::raster::Decoded>>,
+    inline: Option<&InlineIncludes>,
 ) -> Div {
     let theme = ReaderTheme::new(dark);
     div()
@@ -1833,7 +2034,7 @@ fn render_reader(
         .font_family(".SystemUIFont")
         .text_color(rgb(theme.ink))
         .children(render_elements(
-            blocks, dark, anchors, callbacks, find, copy, images,
+            blocks, dark, anchors, callbacks, find, copy, images, inline,
         ))
 }
 
@@ -1841,7 +2042,7 @@ fn render_reader(
 /// as one direct child; wrapping the returned vector defeats child-index anchors.
 /// Each row carries the same body metrics as render_themed.
 pub fn render_block_elements_themed(blocks: &[Block], dark: bool) -> Vec<AnyElement> {
-    render_elements(blocks, dark, None, None, None, None, None)
+    render_elements(blocks, dark, None, None, None, None, None, None)
 }
 
 fn render_elements(
@@ -1852,6 +2053,7 @@ fn render_elements(
     find: Option<FindPresentation<'_>>,
     copy: Option<&CodeCallbacks>,
     images: Option<&std::collections::BTreeMap<usize, crate::raster::Decoded>>,
+    inline: Option<&InlineIncludes>,
 ) -> Vec<AnyElement> {
     let theme = ReaderTheme::new(dark);
     let entries = anchors
@@ -1880,6 +2082,17 @@ fn render_elements(
                         && block.block_id.is_some(),
                     |row| row.bg(gpui::rgba(if dark { 0xe2b84b33 } else { 0xe2b84b44 })),
                 );
+            if let Some(card) = inline.and_then(|map| map.get(&index)) {
+                return row
+                    .mt_3()
+                    .p_3()
+                    .border_l_2()
+                    .border_color(rgb(theme.strong_line))
+                    .bg(rgb(theme.soft))
+                    .child(div().text_size(px(11.)).child(card.caption.clone()))
+                    .child(render_themed(&card.blocks, dark))
+                    .into_any_element();
+            }
             if block.quoted {
                 row = row
                     .border_l_2()
@@ -4727,5 +4940,146 @@ mod authored_marker_protected_ranges {
                 assert!(blocks[0].text.get(span.range.clone()).is_some());
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod inline_include_tests {
+    use super::*;
+    use serde_json::json;
+    fn response(body: &str, lines: &[u64]) -> crate::included_notes::Response {
+        crate::included_notes::decode(json!({"markdown":body,"includes":lines.iter().map(|line| json!({"line":line,"source_line":-1,"caption":"Foreign excerpt","note_id":7,"kind":"note","etag":"revision","vault":"other","lines":["# Included heading","","![remote](https://example.invalid/a.png)","","![[Nested]]"]})).collect::<Vec<_>>()}), "host").unwrap()
+    }
+    #[test]
+    fn inline_accepts_only_semantically_identical_single_terminal_lf() {
+        for body in ["Before\n\n![[Target]]\n\nAfter", "![[Target]]"] {
+            let line = if body.starts_with("Before") { 2 } else { 0 };
+            let returned = format!("{body}\n");
+            assert_eq!(
+                inline_host_blocks(body).unwrap(),
+                inline_host_blocks(&returned).unwrap()
+            );
+            assert!(inline_includes(body, &response(&returned, &[line])).is_ok());
+            for changed in [
+                format!("{body}\n\n"),
+                format!("{body} \n"),
+                format!("{body}\r\n"),
+                format!("\n{body}\n"),
+            ] {
+                assert!(inline_includes(body, &response(&changed, &[line])).is_err());
+            }
+        }
+        assert!(inline_includes("![[Target]]\n", &response("![[Target]]", &[0])).is_err());
+    }
+    #[test]
+    fn inline_mapping_preserves_host_rows_and_separate_origin() {
+        let body = "# Host\n\nBefore\n\n![[Target]]\n\nAfter\n\n![[Target]]\n";
+        let map = inline_includes(body, &response(body, &[4, 8])).unwrap();
+        assert_eq!(map.keys().copied().collect::<Vec<_>>(), vec![2, 4]);
+        assert!(map[&2].caption.contains("other"));
+        assert!(map[&2].caption.contains("#7"));
+        assert!(map[&2].blocks.iter().any(|b| b.text.contains("Nested")));
+        assert_eq!(outline(&parse_reader(body)).len(), 1);
+    }
+    #[test]
+    fn inline_mapping_rejects_transformed_or_nested_host_positions() {
+        let body = "Before\n\n![[Target]]\n\nAfter\n";
+        assert!(inline_includes(&format!("prefix\n{body}"), &response(body, &[2])).is_err());
+        for source in [
+            "- ![[Target]]\n",
+            "text ![[Target]]\n",
+            "```\n![[Target]]\n```\n",
+        ] {
+            let line = if source.starts_with("```") { 1 } else { 0 };
+            assert!(inline_includes(source, &response(source, &[line])).is_err());
+        }
+    }
+    #[test]
+    fn inline_engine_selected_option_excerpts_are_not_reextracted() {
+        for directive in [
+            "![[Target#Heading]] :only-contents",
+            "![[Target]] :lines 1-3",
+        ] {
+            let body = format!("Before\n\n{directive}\n\nAfter\n");
+            let response = response(&body, &[2]);
+            let map = inline_includes(&body, &response).unwrap();
+            assert_eq!(map.len(), 1);
+            assert_eq!(
+                map[&1].blocks,
+                preview_blocks(&response.entries[0].excerpt).unwrap()
+            );
+        }
+    }
+    #[test]
+    fn inline_diagnostics_keep_original_source_instead_of_fallback() {
+        let body = "![[Target]]\n";
+        let mut response = response(body, &[0]);
+        response.entries[0].error = Some("Missing anchor".into());
+        assert!(inline_includes(body, &response).is_err());
+        response.entries[0].error = None;
+        response.entries[0].bad_options.push("unknown".into());
+        assert!(inline_includes(body, &response).is_err());
+    }
+}
+
+#[cfg(test)]
+mod passage_restore_tests {
+    use super::*;
+    fn measured(block_y: f32, offset_y: f32) -> PositionMeasurement {
+        PositionMeasurement {
+            blocks: vec![gpui::Bounds::new(
+                gpui::point(px(10.), px(block_y)),
+                gpui::size(px(600.), px(32.)),
+            )],
+            reader: gpui::Bounds::new(
+                gpui::point(px(10.), px(100.)),
+                gpui::size(px(600.), px(500.)),
+            ),
+            viewport: gpui::size(px(1000.), px(800.)),
+            scale: 1.,
+            offset: gpui::point(px(0.), px(offset_y)),
+            max_offset: gpui::size(px(0.), px(3000.)),
+        }
+    }
+    #[test]
+    fn expansion_and_collapse_keep_the_same_host_passage() {
+        let passage = Passage {
+            index: 0,
+            relative_y: 66.,
+            before: measured(166., -978.),
+        };
+        assert_eq!(
+            passage_offset(&passage, &measured(598., -978.)).unwrap().y,
+            px(-1410.)
+        );
+        let passage = Passage {
+            index: 0,
+            relative_y: 66.,
+            before: measured(166., -1410.),
+        };
+        assert_eq!(
+            passage_offset(&passage, &measured(-266., -1410.))
+                .unwrap()
+                .y,
+            px(-978.)
+        );
+    }
+    #[test]
+    fn intervening_scroll_or_layout_change_cancels_the_restore() {
+        let passage = Passage {
+            index: 0,
+            relative_y: 66.,
+            before: measured(166., -978.),
+        };
+        assert!(passage_offset(&passage, &measured(598., -979.)).is_none());
+        let mut changed = measured(598., -978.);
+        changed.scale = 2.;
+        assert!(passage_offset(&passage, &changed).is_none());
+        changed = measured(598., -978.);
+        changed.blocks.clear();
+        assert!(passage_offset(&passage, &changed).is_none());
+        changed = measured(598., -978.);
+        changed.reader.size.width += px(1.);
+        assert!(passage_offset(&passage, &changed).is_none());
     }
 }

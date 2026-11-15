@@ -37,7 +37,7 @@ of support. Use disposable fixture vaults, never a configured personal vault, fo
 | Full code syntax highlighting and math | [ ] | [ ] | `MarkdownView`, `components/markdown` |
 | Verified internal wiki/Markdown links and outline jumps | [x] | [ ] | `markdown.rs`, `shell.rs`; scoped resolver and heading-fragment subset; same-note plain fragment native smoke; cross-note/dirty transitions pending |
 | Unaliased explicit-ID wiki link title display | [x] | [ ] | `markdown.rs`, `shell.rs`; bounded verified resolver titles, Unicode/Find/anchor tests; native interaction pending |
-| Explicit read-only included-note inspector and rendered preview | [x] | [ ] | `included_notes.rs`, `workspace_includes.rs`; owned render API, inert bounded snapshots and standalone-paragraph projection; automatic/full transclusion and native QA pending |
+| Explicit read-only included-note inspector and rendered preview | [x] | [ ] | `included_notes.rs`, `workspace_includes.rs`; owned render API, inert bounded snapshots and explicit in-reader standalone projection with verified host-source correspondence; bounded native display smoke passed, full transclusion and layout-race QA pending |
 | Transclusion and line-copy links | [ ] | [ ] | `wikiLinks`, `toc`, `copyRange`, `NoteInclude` |
 | Static native heading/list mindmaps | [x] | [ ] | Bounded node/edge diagram in rendered preview, same-source outline context; native visual/AX and interactive links pending |
 | Diagram fences: Mermaid, D2, Graphviz, LikeC4, draw.io, Pele, mindmap | [ ] | [ ] | `components/markdown/*Diagram*` |

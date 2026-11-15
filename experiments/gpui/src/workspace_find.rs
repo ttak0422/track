@@ -214,7 +214,7 @@ impl Workspace {
     }
     pub(crate) fn open_find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.stop_editor_follow();
-        if !self.find_available() {
+        if !self.find_available() || self.inline_includes_active() {
             return;
         }
         let Some(input) = self.shell.find.input.clone() else {
@@ -233,7 +233,8 @@ impl Workspace {
         cx.notify();
     }
     pub(crate) fn move_find(&mut self, forward: bool, cx: &mut Context<Self>) {
-        if !self.find_available()
+        if self.inline_includes_active()
+            || !self.find_available()
             || self
                 .shell
                 .find

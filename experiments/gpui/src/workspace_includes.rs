@@ -37,6 +37,7 @@ pub(crate) struct IncludesState {
     accepted_body: Option<String>,
     tasks_invalidated: bool,
     open: bool,
+    inline_open: bool,
     serial: u64,
     result: Option<Result<Snapshot, String>>,
     preview_open: bool,
@@ -82,6 +83,7 @@ impl QueryPageGate {
     }
 }
 struct Snapshot {
+    inline: Result<markdown::InlineIncludes, String>,
     boards: task_boards::Boards,
     response: crate::included_notes::Response,
     preview: Result<markdown::IncludePreview, String>,
@@ -94,6 +96,7 @@ impl IncludesState {
             accepted_body: None,
             tasks_invalidated: false,
             open: false,
+            inline_open: false,
             serial: 0,
             result: None,
             preview_open: false,
@@ -443,6 +446,9 @@ impl Workspace {
         }
     }
     fn includes_fetch(&mut self, identity: Identity, cx: &mut Context<Self>) {
+        if self.inline_includes_active() {
+            return;
+        }
         if self.includes_identity().as_ref() != Some(&identity)
             || !self.pin_keyboard_available(cx)
             || !self.find_available()
@@ -506,7 +512,9 @@ impl Workspace {
                 return Err("Storage changed. Reload the workspace.".into());
             }
             let (queries, boards) = task_boards::project_with_source(&preview, tasks, Some(&body));
+            let inline = markdown::inline_includes(&body, &response);
             Ok(Snapshot {
+                inline,
                 boards,
                 response,
                 preview,
@@ -543,6 +551,152 @@ impl Workspace {
         .detach();
         cx.notify();
     }
+    pub(crate) fn inline_includes_sidebar(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::Stateful<Div>> {
+        let state = self.shell.includes.as_ref()?;
+        let identity = self.includes_identity()?;
+        if identity != state.identity
+            || !self.includes_body_current(state)
+            || !state.open
+            || !matches!(&state.result, Some(Ok(snapshot)) if snapshot.inline.as_ref().is_ok_and(|rows| !rows.is_empty()))
+        {
+            return None;
+        }
+        let serial = state.serial;
+        let label = if state.inline_open {
+            "Collapse includes"
+        } else {
+            "Show includes"
+        };
+        Some(
+            div()
+                .id("inline-includes-sidebar-toggle")
+                .w(px(46.))
+                .py_2()
+                .text_size(px(10.))
+                .cursor_pointer()
+                .child(label)
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.toggle_inline_includes(identity.clone(), serial, window, cx)
+                })),
+        )
+    }
+    pub(crate) fn inline_includes_active(&self) -> bool {
+        self.shell.includes.as_ref().is_some_and(|s| {
+            s.inline_open
+                && self.includes_identity().as_ref() == Some(&s.identity)
+                && self.includes_body_current(s)
+        })
+    }
+    pub(crate) fn inline_include_rows(&self) -> Option<&markdown::InlineIncludes> {
+        if !self.inline_includes_active() {
+            return None;
+        }
+        self.shell
+            .includes
+            .as_ref()?
+            .result
+            .as_ref()?
+            .as_ref()
+            .ok()?
+            .inline
+            .as_ref()
+            .ok()
+    }
+    pub(crate) fn includes_layout_source(&self) -> Option<(LinkSource, tabs::TabKey)> {
+        let state = self.shell.includes.as_ref()?;
+        let identity = self.includes_identity()?;
+        if identity != state.identity
+            || !self.includes_body_current(state)
+            || !state.open
+            || !matches!(&state.result, Some(Ok(snapshot)) if snapshot.inline.as_ref().is_ok_and(|m| !m.is_empty()))
+        {
+            return None;
+        }
+        Some((identity.source, self.tabs.active()?.key.clone()))
+    }
+    fn toggle_inline_includes(
+        &mut self,
+        identity: Identity,
+        serial: u64,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !window.is_window_active()
+            || !self.footnote_reader_available(cx)
+            || !self.pin_keyboard_available(cx)
+            || self.includes_identity().as_ref() != Some(&identity)
+            || self.reader_selection_dragging()
+        {
+            return;
+        }
+        let Some(anchors) = self.follow_layout_anchors() else {
+            return;
+        };
+        let Some(passage) = anchors.passage(window.viewport_size(), window.scale_factor()) else {
+            return;
+        };
+        let Some(state) = self
+            .shell
+            .includes
+            .as_mut()
+            .filter(|s| s.accepts(&identity, serial))
+        else {
+            return;
+        };
+        if !matches!(&state.result, Some(Ok(snapshot)) if snapshot.inline.as_ref().is_ok_and(|m| !m.is_empty()))
+        {
+            return;
+        }
+        state.inline_open = !state.inline_open;
+        let expanded = state.inline_open;
+        self.pause_reader_for_overlay();
+        self.clear_reader_selection();
+        self.clear_reader_hover_owner();
+        let interaction = self.follow_layout_interaction();
+        let weak = std::rc::Rc::downgrade(&anchors);
+        let entity = cx.entity().downgrade();
+        anchors.request_after_layout(move |_, window, _| {
+            let Some(measured) = weak.upgrade() else {
+                return;
+            };
+            let generation = measured.current_generation();
+            // Mutate scrolling only after the complete native prepaint, not
+            // while an ancestor is still painting the old scroll geometry.
+            window.on_next_frame(move |window, cx| {
+                let Some(anchors) = weak.upgrade() else {
+                    return;
+                };
+                let _ = entity.update(cx, |this, cx| {
+                    if window.is_window_active()
+                        && anchors.current_generation() == generation
+                        && this.includes_identity().as_ref() == Some(&identity)
+                        && this.follow_layout_interaction() == interaction
+                        && this.footnote_reader_available(cx)
+                        && this
+                            .follow_layout_anchors()
+                            .as_ref()
+                            .is_some_and(|a| std::rc::Rc::ptr_eq(a, &anchors))
+                        && this.shell.includes.as_ref().is_some_and(|s| {
+                            s.accepts(&identity, serial)
+                                && s.inline_open == expanded
+                                && this.includes_body_current(s)
+                        })
+                        && anchors.restore_passage(
+                            &passage,
+                            window.viewport_size(),
+                            window.scale_factor(),
+                        )
+                    {
+                        cx.notify();
+                    }
+                });
+            });
+        });
+        cx.notify();
+    }
     pub(crate) fn includes_inspector(&mut self, cx: &mut Context<Self>) -> Div {
         let mut view = div().mb_3().text_size(px(12.));
         let Some(identity) = self.includes_identity() else {
@@ -573,6 +727,9 @@ impl Workspace {
                         || !this.pin_keyboard_available(cx)
                         || !this.find_available()
                     {
+                        return;
+                    }
+                    if this.inline_includes_active() {
                         return;
                     }
                     let Some(state) = this
@@ -610,6 +767,32 @@ impl Workspace {
         };
         let captured = identity.clone();
         let serial = self.shell.includes.as_ref().unwrap().serial;
+        let inline = self
+            .shell
+            .includes
+            .as_ref()
+            .unwrap()
+            .result
+            .as_ref()
+            .and_then(|r| r.as_ref().ok())
+            .map(|s| &s.inline);
+        match inline {
+            Some(Ok(rows)) if !rows.is_empty() => {
+                let source = identity.clone();
+                let label = if self.inline_includes_active() {
+                    "Collapse inline includes"
+                } else {
+                    "Show includes in reader"
+                };
+                view = view.child(div().id("inline-includes-toggle").cursor_pointer().child(label)
+                    .on_click(cx.listener(move |this, _, window, cx| this.toggle_inline_includes(source.clone(), serial, window, cx))))
+                    .child("Inline excerpts are inert snapshots. Find and text selection are unavailable while expanded; collapse before refresh.");
+            }
+            Some(Err(error)) => {
+                view = view.child(error.clone());
+            }
+            _ => {}
+        }
         view = view.child(
             div()
                 .id("includes-rendered-preview")
@@ -728,6 +911,7 @@ mod tests {
         state.serial = 5;
         let queries = project_queries(&preview);
         state.result = Some(Ok(Snapshot {
+            inline: Ok(Default::default()),
             boards: Default::default(),
             response,
             preview,
@@ -780,6 +964,7 @@ mod tests {
                 state.serial = 10;
                 state.preview_epoch = 20;
                 state.result = Some(Ok(Snapshot {
+                    inline: Ok(Default::default()),
                     boards: Default::default(),
                     response,
                     preview,
@@ -845,6 +1030,7 @@ mod tests {
         state.serial = 10;
         state.preview_epoch = 20;
         state.result = Some(Ok(Snapshot {
+            inline: Ok(Default::default()),
             boards: Default::default(),
             response,
             preview,
@@ -935,6 +1121,7 @@ mod tests {
         state.serial = 10;
         state.preview_epoch = 20;
         state.result = Some(Ok(Snapshot {
+            inline: Ok(Default::default()),
             boards: Default::default(),
             response,
             preview,

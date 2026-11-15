@@ -1467,3 +1467,30 @@ An isolated read-only fixture verified visible forward selection of `Alpha æ—¥æœ
 Six new pure/input-model tests cover exact duplicate no-op, whitespace/case/Unicode preservation, bounds, composition, and stale query/result lifecycle. macOS formatting, debug build and 746 Rust tests passed (7 ignored). On an isolated fixture, click `#a` and distinguish engine matches `a`, `a/b`, `ab`; verify query remains open, note/route/history/scope unchanged, no forced input focus, repeat no-op, newer query/IME rejection, and title/keyboard note activation unchanged. Snapshot tags must stay inert. Confirm canonical hashes; actual IME and unexercised native event combinations remain unverified.
 
 Search-tag fixture smoke: `Refine` returned four notes. Clicking `#a` retained the query as `Refine #a` and narrowed results to `a` and `a/b`, excluding `ab` and `other`; search stayed open and the reader route stayed unchanged. A repeated tag click did not duplicate the term. Title click and separately observed Down then Enter both opened the expected result. An initial rapid combined-key attempt was inconclusive; it is not evidence of rapid-input acceptance. All 14 canonical files remained unchanged and owned ports shut down. Native IME, foreign-vault and stale-response injection remain unverified.
+
+## Explicit in-reader includes
+
+The owned render response can replace verified standalone include rows inside the
+accepted host reader after an explicit Show action. Excerpts are inert snapshots:
+no source navigation, images, nested requests or mutations. Host outline and
+Copy MD remain tied to the original source; Find and plain-text selection are
+unavailable while expanded. Collapse is required before refresh. One appended
+terminal LF is accepted only when bounded authored block models remain equal;
+all other source transformations and diagnostic-bearing includes retain the
+original body with an inspector notice.
+
+A disposable fixture verified whole-note, heading/only-contents and line-range
+cards between unchanged host passages, literal nested includes, host-ending
+outline navigation, Cmd-F rejection while expanded and collapse back to source.
+The first native attempt exposed the engine's added terminal LF; the narrow
+regression covers extra LF, CRLF, leading LF, trailing space and newline removal.
+Native testing also exposed a 432-pixel passage jump when restoration ran during
+prepaint. Deferring the guarded offset update until the next frame fixes the
+observed case. Expansion and collapse through the persistent reader control
+kept the host ending at the same position after an outline jump, and kept a
+naturally scrolled passage in place in both directions. Two regression tests
+cover the offset calculation and rejection after scroll/geometry changes.
+Formatting, debug build and 753 tests passed (7 ignored). All runs preserved
+all 10 canonical files and closed both owned ports after Quit. Resize/scroll races,
+foreign-vault origins, rich content, native Copy MD roundtrip and actual IME
+remain separate acceptance checks; this is not full automatic transclusion.
