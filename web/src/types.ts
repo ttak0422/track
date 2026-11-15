@@ -174,6 +174,16 @@ export interface TaskItem {
   text: string;
 }
 
+// Read-only projection of the existing note tasks and recorded sidecar transitions.
+export interface TaskTimeline {
+  schema_version: 1;
+  note_id: NoteID;
+  title: string;
+  items: (TaskItem & { parent_line?: number; depth: number })[];
+  progress: { total: number; done: number; cancelled: number; open: number };
+  history: { at: string; line: number; from: string; to: string; text?: string }[];
+}
+
 // A note's tasks, as served by /api/tasks, embedded in the note response, and baked into the static
 // bundle's note JSON.
 export interface NoteTasks {
