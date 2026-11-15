@@ -312,6 +312,7 @@ impl Workspace {
                 d.child("Generated snapshot data (not original query source)")
             })
             .child(markdown::render_preview_code(blocks, dark, &callbacks))
+            .child(self.excerpt_link_controls(item, start, start + blocks.len(), cx))
     }
 }
 

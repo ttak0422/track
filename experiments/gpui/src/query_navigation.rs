@@ -1,8 +1,8 @@
 //! Explicit host-query row navigation. Payloads are untrusted wiki resolver data.
 use super::*;
 use std::sync::atomic::{AtomicBool, Ordering};
-static BUSY: AtomicBool = AtomicBool::new(false);
-struct Permit;
+pub(super) static BUSY: AtomicBool = AtomicBool::new(false);
+pub(super) struct Permit;
 impl Drop for Permit {
     fn drop(&mut self) {
         BUSY.store(false, Ordering::Release);
@@ -10,8 +10,8 @@ impl Drop for Permit {
 }
 #[derive(Default)]
 pub(super) struct Navigation {
-    pending: Option<u64>,
-    notice: Option<String>,
+    pub(super) pending: Option<u64>,
+    pub(super) notice: Option<String>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Surface {
@@ -63,7 +63,7 @@ fn target(row: &crate::query_view::Row) -> Option<markdown::LinkTarget> {
         authored_label: true,
     })
 }
-fn verified_key(
+pub(super) fn verified_key(
     response: &live::Resolution,
     source: &shell::LinkSource,
     term: &str,

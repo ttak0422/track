@@ -1663,3 +1663,13 @@ Pure regressions cover alias versus accepted identity, inherited/explicit-empty/
 ### Include source navigation validation (2026-11-15)
 
 796 Rust tests passed (7 ignored), formatting and native build passed; independent review found no P1/P2. Help site built 37 routes and the affected rendered page contains the Open source note instructions. Disposable native fixture: aliased Alpha header (`Alias beta`) opened Alpha rather than Beta; Back restored the host; the distinct Beta header opened Beta. Duplicate Alpha headers displayed separate controls, and the unresolved entry displayed no source action. Cmd-Q exited; 12 canonical fixture hashes were unchanged and both owned listeners closed. Cross-vault/journal/empty excerpts, stale storage/registry races, keyboard/accessibility and real IME remain unverified natively. Ordinary vault edits remain disabled.
+
+## Included wiki-link Open controls (candidate)
+
+Pure coverage checks prose-only wiki admission, duplicate ranges and 16-control cap, inherited/explicit-empty/foreign origins, separate host route owner, authored heading/block/C# targets, stale excerpt/source/occurrence/scope tickets and no host-namespace fallback. Native follow-up: host and foreign vault both contain Same Target; foreign excerpt controls must open foreign target, preserve heading/block intent, and leave preview on missing target. Check Back, close/refresh/scope during lookup, canonical hashes and owned shutdown. No native pass or direct-inline-link parity is claimed.
+
+### Included wiki control validation (2026-11-15)
+
+801 Rust tests passed (7 ignored), fmt/native build/diff checks passed; independent review found no remaining P1/P2. The new test exposed the existing terminal-hash wiki parsing bug: `[[C#]]` incorrectly selected `C`; the parser now keeps exactly empty terminal hash suffixes in the key, with alias/qualified-title and unchanged heading/block regressions. Help site built 37 routes and affected output was inspected.
+
+Disposable registered host+foreign fixture: both vaults contained `Same Target`; the foreign excerpt's unqualified aliased link opened the foreign destination, not its host namesake. Back restored the host; missing foreign target retained the accepted preview with a not-found notice and no creation. The heading-link control also opened the foreign destination (exact scroll/highlight placement was not established on this short page). Clean Cmd-Q, 20 canonical fixture hashes unchanged, both owned listeners closed. Explicit per-link controls only, not inline link-click/keyboard/modifier/hover parity. Native block fragments, repeated/capped controls, pending lookup races, storage changes and real IME remain unverified. Ordinary vault writes remain disabled.

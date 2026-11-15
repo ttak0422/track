@@ -385,6 +385,8 @@ fn wiki_text(text: &str, out: &mut Cell, style: InlineStyle) {
         let target = target.trim();
         let (key, fragment) = target
             .split_once('#')
+            // A terminal # with no fragment is part of a wiki title (e.g. C#).
+            .filter(|(_, rest)| !rest.is_empty())
             .map_or((target, None), |(key, rest)| {
                 (key.trim(), Some(format!("#{rest}")))
             });
@@ -5357,5 +5359,39 @@ mod inline_query_tests {
         assert!(inline_query_positions(&body, &r).is_err());
         r.entries=crate::included_notes::decode(serde_json::json!({"markdown":"![[Other]]","includes":[{"line":0,"source_line":0,"caption":"Other","lines":[],"error":"unresolved"}]}),"").unwrap().entries;
         assert!(inline_query_positions(&body, &r).is_err());
+    }
+}
+
+#[cfg(test)]
+mod terminal_wiki_hash_tests {
+    use super::*;
+    #[test]
+    fn terminal_hash_is_literal_title_but_nonempty_fragments_remain_fragments() {
+        for source in ["[[C#]]", "[[C#|Language]]", "[[work:C#|Language]]"] {
+            let blocks = parse(source);
+            let link = &blocks[0].links[0];
+            let LinkTarget::Wiki { key, fragment, .. } = &link.target else {
+                panic!()
+            };
+            assert_eq!(
+                key,
+                if source.contains("work:") {
+                    "work:C#"
+                } else {
+                    "C#"
+                }
+            );
+            assert!(fragment.is_none());
+            assert_eq!(resolve_term(&link.target).as_deref(), Some(key.as_str()));
+        }
+        for (source, expected) in [
+            ("[[Title#Heading]]", "#Heading"),
+            ("[[Title#^block]]", "#^block"),
+        ] {
+            let blocks = parse(source);
+            assert!(
+                matches!(&blocks[0].links[0].target,LinkTarget::Wiki{key,fragment:Some(f),..} if key=="Title" && f==expected)
+            );
+        }
     }
 }
