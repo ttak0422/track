@@ -1202,6 +1202,19 @@ impl Workspace {
         .detach();
     }
     fn selected_markdown_payload(&self, token: u64, window: &Window, cx: &App) -> Option<String> {
+        let range = self.selected_source_range(token, window, cx)?;
+        self.current_note
+            .as_ref()?
+            .body
+            .get(range)
+            .map(str::to_owned)
+    }
+    fn selected_source_range(
+        &self,
+        token: u64,
+        window: &Window,
+        cx: &App,
+    ) -> Option<std::ops::Range<usize>> {
         if !self.reader_selection_current(window, cx) {
             return None;
         }
@@ -1215,10 +1228,52 @@ impl Workspace {
             return None;
         }
         if let Some(m) = &selected.multi {
-            return m.state.markdown(&m.segments, source).map(str::to_owned);
+            return m.state.source_range(&m.segments, source);
         }
         let range = selected.range.range()?;
-        crate::selection_lines::single_markdown(source, segment, range).map(str::to_owned)
+        crate::selection_lines::single_source_range(source, segment, range)
+    }
+    fn selected_reference_payload(&self, token: u64, window: &Window, cx: &App) -> Option<String> {
+        let range = self.selected_source_range(token, window, cx)?;
+        let note = self.current_note.as_ref()?;
+        let path = note.note.additional.get("copy_path")?.as_str()?;
+        crate::selection_lines::source_reference(path, &note.body, range)
+    }
+    fn selected_reference_control(
+        &self,
+        muted: u32,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        let token = self.shell.selection.as_ref().map_or(0, |s| s.token);
+        let enabled = self.selected_reference_payload(token, window, cx).is_some();
+        div()
+            .id("copy-selected-source-reference")
+            .w(px(210.))
+            .flex_shrink_0()
+            .text_size(px(12.))
+            .line_height(px(22.))
+            .text_color(rgb(muted))
+            .opacity(if enabled { 1. } else { 0.5 })
+            .child("Copy source reference")
+            .when(enabled, |el| el.cursor_pointer())
+            .on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener(move |this, _, window, cx| {
+                    if this.selected_reference_payload(token, window, cx).is_some() {
+                        cx.stop_propagation();
+                    }
+                }),
+            )
+            .on_click(cx.listener(move |this, _, window, cx| {
+                if let Some(payload) = this.selected_reference_payload(token, window, cx) {
+                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(payload));
+                    this.shell.navigation_notice =
+                        Some("Source reference submitted to clipboard.".into());
+                    cx.notify();
+                }
+                cx.stop_propagation();
+            }))
     }
     fn copy_selected_markdown(&mut self, token: u64, window: &Window, cx: &mut Context<Self>) {
         let Some(payload) = self.selected_markdown_payload(token, window, cx) else {
@@ -5311,6 +5366,11 @@ impl Render for Workspace {
                                             .child(self.selection_copy_control(p.muted, window, cx))
                                             .child(
                                                 self.selected_markdown_control(p.muted, window, cx),
+                                            )
+                                            .child(
+                                                self.selected_reference_control(
+                                                    p.muted, window, cx,
+                                                ),
                                             )
                                     }),
                             )

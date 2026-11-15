@@ -281,6 +281,10 @@ impl Selection {
     /// Whole touched source lines; use end-1 so a zero-byte endpoint in the next
     /// paragraph does not copy that paragraph. Interior blank lines stay exact.
     pub fn markdown<'a>(&self, segments: &[Segment], source: &'a str) -> Option<&'a str> {
+        source.get(self.source_range(segments, source)?)
+    }
+    /// Exactly the range used by Markdown-lines Copy, not a text-search match.
+    pub fn source_range(&self, segments: &[Segment], source: &str) -> Option<Range<usize>> {
         if self.dragging {
             return None;
         }
@@ -307,7 +311,8 @@ impl Selection {
         if line_end - line_start > MAX_COPY_BYTES {
             return None;
         }
-        source.get(line_start..line_end)
+        source.get(line_start..line_end)?;
+        Some(line_start..line_end)
     }
 }
 /// Current UI slice: one released paragraph only. It intentionally shares the
@@ -317,6 +322,13 @@ pub fn single_markdown<'a>(
     segment: &Segment,
     range: Range<usize>,
 ) -> Option<&'a str> {
+    source.get(single_source_range(source, segment, range)?)
+}
+pub fn single_source_range(
+    source: &str,
+    segment: &Segment,
+    range: Range<usize>,
+) -> Option<Range<usize>> {
     if range.start >= range.end {
         return None;
     }
@@ -338,7 +350,35 @@ pub fn single_markdown<'a>(
     ) {
         return None;
     }
-    state.markdown(segments, source)
+    state.source_range(segments, source)
+}
+
+/// The caller must supply the accepted engine copy_path, never a guessed title/path.
+pub fn source_reference(path: &str, source: &str, range: Range<usize>) -> Option<String> {
+    if path.trim().is_empty()
+        || path.len() > 16 * 1024
+        || path.chars().any(char::is_control)
+        || range.start >= range.end
+        || range.len() > MAX_COPY_BYTES
+    {
+        return None;
+    }
+    source.get(range.clone())?;
+    let first = source.as_bytes()[..range.start]
+        .iter()
+        .filter(|&&b| b == b'\n')
+        .count()
+        + 1;
+    let last = source.as_bytes()[..range.end - 1]
+        .iter()
+        .filter(|&&b| b == b'\n')
+        .count()
+        + 1;
+    Some(if first == last {
+        format!("{path}:{first}")
+    } else {
+        format!("{path}:{first}-{last}")
+    })
 }
 
 #[cfg(test)]
@@ -374,6 +414,45 @@ mod tests {
                 })
                 .collect(),
         )
+    }
+    #[test]
+    fn source_reference_uses_exact_touched_lines_crlf_unicode_and_reverse() {
+        let source = "前置き\r\n\r\n日本語\r\n\r\nlast\r\n";
+        let a = Segment::exact(0, source, 13..24, "日本語").unwrap();
+        let b = Segment::exact(1, source, 26..32, "last").unwrap();
+        let segments = vec![a.clone(), b];
+        for (start, end) in [
+            (Point { block: 0, byte: 0 }, Point { block: 1, byte: 4 }),
+            (Point { block: 1, byte: 4 }, Point { block: 0, byte: 0 }),
+        ] {
+            let mut selected = Selection::begin(&segments, start).unwrap();
+            assert!(selected.source_range(&segments, source).is_none());
+            assert!(selected.update(&segments, Some(end), true));
+            let range = selected.source_range(&segments, source).unwrap();
+            assert_eq!(
+                selected.markdown(&segments, source),
+                source.get(range.clone())
+            );
+            assert_eq!(
+                source_reference("note/日本語.md", source, range).as_deref(),
+                Some("note/日本語.md:3-5")
+            );
+        }
+        let range = single_source_range(source, &a, 0..9).unwrap();
+        assert_eq!(
+            source_reference("exact/path.md", source, range).as_deref(),
+            Some("exact/path.md:3")
+        );
+        // End at a line's initial byte must not include that new line.
+        assert_eq!(
+            source_reference("p", "a\nb\n", 0..2).as_deref(),
+            Some("p:1")
+        );
+        for path in ["", "  ", "bad\npath", "bad\0path"] {
+            assert!(source_reference(path, source, 13..22).is_none());
+        }
+        assert!(source_reference("p", source, 14..22).is_none());
+        assert!(source_reference("p", source, 13..13).is_none());
     }
     #[test]
     fn duplicate_release_or_old_outside_event_cannot_cancel_finished_selection() {

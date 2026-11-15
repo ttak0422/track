@@ -1143,3 +1143,16 @@ The optional display-math action uses pinned `latex-rust` 3.0.3 (MIT OR Apache-2
 with its embedded STIX Two Math font. The font is licensed under SIL OFL 1.1;
 redistributions must retain [the bundled font license](licenses/STIX-Two-Math-OFL.txt).
 No system font lookup, TeX installation or external rendering service is used.
+
+#### Selected source-reference Copy (experimental GPUI)
+
+For an exact released plain-paragraph selection, **Copy source reference**
+uses the accepted note response's `copy_path` and the same original touched
+lines as **Copy selected Markdown lines**: `path:N` or `path:N-M`.
+Forward/reverse selections, CRLF, Unicode and intervening blank lines share the
+existing source-map rules. An endpoint at the next line's start excludes that
+line. No path guessing, new request or filesystem write is performed.
+Missing/invalid paths and styled or stale selections disable the action.
+This is exact selected-source-line copying, not whole-block reference parity.
+Cloud model tests do not establish native clipboard/pointer validation; see the
+[experimental native workspace guide](../../docs/help/note/1785024017000.md).
