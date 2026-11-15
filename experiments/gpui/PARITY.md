@@ -478,7 +478,9 @@ unverified.
 Conditional workspace-root Back/Forward actions drive native menu availability
 and bracket accelerators, with fresh boundary/owner checks before the existing
 guarded history path. A separate root focus fills only an active, unowned focus
-vacancy; it never grants reader j/k ownership. No app-global history listener or
+vacancy or a recognized unmounted surface; it never grants reader j/k ownership. No app-global history listener or
 reader-local duplicate bracket handler remains. About/background dispatch is
-excluded. Home/Tag/Graph boundary and key/focus models are covered; native menu,
-unfocused-window and interrupted-flow verification is pending. Reload is excluded.
+excluded. Home/Tag/Graph boundary and key/focus models are covered. Native menu
+Home/reader return, full-graph Back, boundaries and search exclusion were verified;
+bracket delivery with the active IME, Tag/About and interrupted flows remain
+unverified. Reload is excluded.
