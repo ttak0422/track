@@ -29,7 +29,7 @@ import { SearchProvider } from "../searchState";
 import { CalendarPreferencesProvider } from "../calendarPreferences";
 import { VaultScopeProvider, useVaultScope } from "../vaultScope";
 import { IconAffiliate, IconFileText, IconCalendar, IconChecklist, IconNotebook, RailIcon } from "./icons";
-import { IconMicrophone } from "@tabler/icons-react";
+import { IconTimeline, IconMicrophone } from "@tabler/icons-react";
 
 export function Shell() {
   return (
@@ -148,6 +148,9 @@ function ShellView() {
                     </Link>
                   </RailTip>
                 )}
+                {!STATIC_MODE && <RailTip label="Agent timeline">
+                  <Link className="rail-button" to="/timeline" aria-label="Agent timeline"><RailIcon Icon={IconTimeline} /></Link>
+                </RailTip>}
                 {/* The deliberate "up" tree, beside the link graph it is a hand-drawn path through. */}
                 <HierarchyMenu />
                 <RailTip label="Full graph">

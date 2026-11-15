@@ -124,7 +124,7 @@ describe("MobileDock", () => {
       x: Number.parseFloat(b.style.left),
       y: Number.parseFloat(b.style.top),
     }));
-    expect(spots).toHaveLength(9);
+    expect(spots).toHaveLength(10);
     for (const [i, a] of spots.entries()) {
       // Inside jsdom's 1024x768 window, every one of them.
       expect(a.x).toBeGreaterThanOrEqual(8);
@@ -135,6 +135,15 @@ describe("MobileDock", () => {
         expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeGreaterThanOrEqual(44);
       }
     }
+  });
+
+  it("opens the live agent timeline from the fan", () => {
+    const { container } = dock();
+    const fab = container.querySelector(".mobile-dock-fab")!;
+    fireEvent.pointerDown(fab);
+    fireEvent.pointerUp(fab);
+    fireEvent.click(screen.getByRole("button", { name: "Agent timeline" }));
+    expect(navigate).toHaveBeenLastCalledWith({ to: "/timeline" });
   });
 
   it("opens the Markdown viewer on a phone without overlapping fan controls", () => {

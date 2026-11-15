@@ -79,6 +79,13 @@ const tasksRoute = createRoute({
   component: () => <TasksView />,
 });
 
+const AgentTimelineView = lazy(() => import("./components/AgentTimelineView").then(m => ({ default: m.AgentTimelineView })));
+const agentTimelineRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/timeline",
+  component: () => STATIC_MODE ? <EmptyState /> : <Suspense fallback={<p>Loading timeline...</p>}><AgentTimelineView /></Suspense>,
+});
+
 const dayRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/day/$date",
@@ -129,6 +136,7 @@ const routeTree = rootRoute.addChildren([
   voiceRoute,
   calendarRoute,
   tasksRoute,
+  agentTimelineRoute,
   dayRoute,
   tagRoute,
   emptyRoute,
