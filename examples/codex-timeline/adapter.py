@@ -186,12 +186,16 @@ class Importer:
             if self.started:
                 self.root("blocked")
         elif kind in ("item.started", "item.updated", "item.completed"):
-            if not self.active:
-                raise ImportError("Item outside an active turn")
             item = event.get("item")
             if not isinstance(item, dict) or not isinstance(item.get("type"), str):
                 raise ImportError("Invalid item envelope")
             item_kind = item["type"]
+            if item_kind not in ("todo_list", "command_execution", "file_change", "mcp_tool_call"):
+                # Configuration warnings may be error items before turn.started.
+                # Ignored items need no active turn and never enter the journal.
+                return
+            if not self.active:
+                raise ImportError("Item outside an active turn")
             if item_kind == "todo_list":
                 items = item.get("items")
                 if (not isinstance(item.get("id"), str) or not isinstance(items, list)
@@ -203,7 +207,10 @@ class Importer:
             elif item_kind in ("command_execution", "file_change", "mcp_tool_call"):
                 # Fixed type/status labels only; no command, path, tool name or output.
                 status = item.get("status")
-                if status not in ("in_progress", "completed", "failed"):
+                allowed = ("in_progress", "completed", "failed")
+                if item_kind == "command_execution":
+                    allowed += ("declined",)
+                if status not in allowed:
                     raise ImportError("Unsupported typed item status")
                 if kind == "item.completed":
                     item_id = item.get("id")
