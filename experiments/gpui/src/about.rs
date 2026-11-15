@@ -14,7 +14,11 @@ pub fn show(cx: &mut App) {
     // The window list contains only live windows, so dismissal needs no retained
     // handle or workspace callback. Repeated menu invocations focus the same view.
     if let Some(handle) = cx.windows().into_iter().find_map(about_handle) {
-        let _ = handle.update(cx, |_, window, _| window.activate_window());
+        // Menu actions run while the active window is borrowed by dispatch.
+        // Defer the update so repeated About can safely reactivate that window.
+        cx.defer(move |cx| {
+            let _ = handle.update(cx, |_, window, _| window.activate_window());
+        });
         return;
     }
     let bounds = Bounds::centered(None, size(px(600.), px(260.)), cx);
@@ -44,7 +48,11 @@ pub fn dismiss_active(cx: &mut App) -> bool {
     let Some(handle) = cx.active_window().and_then(about_handle) else {
         return false;
     };
-    let _ = handle.update(cx, |_, window, _| window.remove_window());
+    // Global menu dispatch already holds the active window. Updating it here
+    // would fail with a nested borrow and silently leave About open.
+    cx.defer(move |cx| {
+        let _ = handle.update(cx, |_, window, _| window.remove_window());
+    });
     true
 }
 
