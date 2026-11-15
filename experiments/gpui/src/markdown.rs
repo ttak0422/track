@@ -3535,7 +3535,7 @@ fn render_elements(
             let visible_spans = resolved_spans(&block.spans, &block.links, callbacks);
             let selection = callbacks
                 .and_then(|c| c.selection.as_ref())
-                .filter(|_| crate::reader_selection::eligible(block));
+                .filter(|_| crate::reader_selection::eligible_display(block));
             let selected = selection
                 .and_then(|c| c.selected.iter().find(|(i, _)| *i == index))
                 .map(|(_, r)| r.clone());

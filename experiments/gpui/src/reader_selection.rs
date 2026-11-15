@@ -1,4 +1,4 @@
-//! A bounded, one-paragraph plain-text selection. Source and geometry ownership
+//! A bounded, one-paragraph displayed-text selection. Source and geometry ownership
 //! belong to the reader; this model never reads or writes a clipboard.
 use crate::markdown::{Block, BlockKind, InlineStyle};
 use std::ops::Range;
@@ -23,6 +23,31 @@ pub fn eligible(block: &Block) -> bool {
             .spans
             .iter()
             .all(|span| span.style == InlineStyle::default())
+}
+
+/// A separate single-block plain-Copy subset. Keep `eligible` strict for
+/// cross-paragraph and source-line mapping. Interactive paragraphs are excluded:
+/// link dispatch may precede parent mouse-up, so a drag is not a proven click.
+pub fn eligible_display(block: &Block) -> bool {
+    block.kind == BlockKind::Paragraph
+        && block.links.is_empty()
+        && block.table.is_none()
+        && block.image.is_none()
+        && block.language.is_none()
+        && block.fence_info.is_none()
+        && block.marker.is_none()
+        && !block.quoted
+        && block.indent == 0
+        && block.syntax.is_empty()
+        && block.spans.iter().all(|span| {
+            !span.style.link
+                && !span.style.unresolved
+                && !span.style.strike
+                && span.range.start <= span.range.end
+                && span.range.end <= block.text.len()
+                && block.text.is_char_boundary(span.range.start)
+                && block.text.is_char_boundary(span.range.end)
+        })
 }
 
 /// GPUI supplies byte positions. A position inside a scalar or extended
@@ -138,6 +163,48 @@ impl State {
 mod tests {
     use super::*;
     use crate::markdown;
+
+    #[test]
+    fn styled_single_copy_uses_display_text_not_markdown_and_never_source_mapping() {
+        for source in [
+            "Start **bold** and *日本語* plus `code` end.",
+            "***nested emphasis*** then `**literal**`",
+        ] {
+            let block = markdown::parse(source).remove(0);
+            assert!(eligible_display(&block));
+            assert!(!eligible(&block));
+            let mut selected = State::begin(&block.text, 0).unwrap();
+            assert!(selected.finish(&block.text, Some(block.text.len())));
+            assert_eq!(selected.payload(&block.text).unwrap(), block.text);
+            assert_ne!(selected.payload(&block.text).unwrap(), source);
+            let mut reverse = State::begin(&block.text, block.text.len()).unwrap();
+            assert!(reverse.finish(&block.text, Some(0)));
+            assert_eq!(reverse.payload(&block.text), selected.payload(&block.text));
+        }
+        assert!(eligible_display(&markdown::parse("plain")[0]));
+    }
+    #[test]
+    fn rich_selection_does_not_enroll_interactive_or_unsupported_paragraphs() {
+        for source in [
+            "**bold** [link](https://example.com)",
+            "`code` [[Note]]",
+            "~~strike~~",
+            "> **quote**",
+            "- **item**",
+            "# **heading**",
+            "![image](assets/a.png)",
+        ] {
+            assert!(
+                markdown::parse(source).iter().all(|b| !eligible_display(b)),
+                "{source}"
+            );
+        }
+        let footnote = markdown::parse("Footnote[^n]\n\n[^n]: body");
+        assert!(!eligible_display(&footnote[0]));
+        let mut block = markdown::parse("**日本語**").remove(0);
+        block.spans[0].range = 1..4;
+        assert!(!eligible_display(&block));
+    }
 
     #[test]
     fn repaint_hover_false_with_measured_inside_pointer_preserves_drag() {

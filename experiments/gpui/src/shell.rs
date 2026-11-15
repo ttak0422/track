@@ -874,7 +874,7 @@ impl Workspace {
         };
         s.displayed
             .get(s.index)
-            .is_some_and(reader_selection::eligible)
+            .is_some_and(reader_selection::eligible_display)
             && s.matches(
                 self.current_link_source().as_ref(),
                 self.reader_selection_document(window, cx).as_ref(),
@@ -919,7 +919,7 @@ impl Workspace {
         }
         let Some(block) = displayed
             .get(index)
-            .filter(|block| reader_selection::eligible(block))
+            .filter(|block| reader_selection::eligible_display(block))
         else {
             return false;
         };
@@ -952,15 +952,21 @@ impl Workspace {
             self.observe_preview_activation(window, cx);
             self.shell.selection_serial = self.shell.selection_serial.wrapping_add(1);
             self.shell.selection_suppress_click = false;
-            let source_map = self.current_note.as_ref().map(|note| {
-                let segments = self.shell.selection_source_cache.get_with(
-                    source,
-                    &note.body,
-                    displayed,
-                    || markdown::plain_source_segments(&note.body, displayed),
-                );
-                (std::sync::Arc::<str>::from(note.body.as_str()), segments)
-            });
+            // Styled display text has no lossless plain source mapping. It must
+            // never enroll in cross-block selection or Markdown-lines Copy.
+            let source_map = self
+                .current_note
+                .as_ref()
+                .filter(|_| reader_selection::eligible(block))
+                .map(|note| {
+                    let segments = self.shell.selection_source_cache.get_with(
+                        source,
+                        &note.body,
+                        displayed,
+                        || markdown::plain_source_segments(&note.body, displayed),
+                    );
+                    (std::sync::Arc::<str>::from(note.body.as_str()), segments)
+                });
             let source_lines = source_map.as_ref().and_then(|(body, map)| {
                 map.iter()
                     .find(|s| s.block == index)
