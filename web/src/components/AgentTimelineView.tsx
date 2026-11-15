@@ -2,8 +2,7 @@ import { useBlocker } from "@tanstack/react-router";
 import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { APIError } from "../api";
-import { agentKeys, applyAgentRequest, getAgentProject, listAgentProjects, type AgentProject, type AgentProgress, type AgentRequest, type AgentTask } from "../agentTimeline";
-import { split } from "../vaultId";
+import { agentKeys, projectNoteID, applyAgentRequest, getAgentProject, listAgentProjects, type AgentProject, type AgentProgress, type AgentRequest, type AgentTask } from "../agentTimeline";
 import { useVaultScope } from "../vaultScope";
 
 const DraftContext = createContext<{ report: (id: string, dirty: boolean) => void; mayLeave: () => boolean }>({ report: (_id: string, _dirty: boolean) => {}, mayLeave: () => true });
@@ -61,7 +60,7 @@ function TimelineWorkspace({ vault, reportDraft }: { vault: string; reportDraft:
           const id = text(d, "project_id");
           const result = await applyAgentRequest(vault, id, request);
           await cache.cancelQueries({ queryKey: agentKeys.project(vault, id) });
-          cache.setQueryData(agentKeys.project(vault, id), result);
+          cache.setQueryData<AgentProject>(agentKeys.project(vault, id), current => current && current.revision > result.revision ? current : result);
           await cache.invalidateQueries({ queryKey: agentKeys.projects(vault) });
           return result.revision;
         }} label="Create project">
@@ -87,7 +86,7 @@ function ProjectWorkspace({ vault, id }: { vault: string; id: string }) {
       const saved = await applyAgentRequest(vault, id, request);
       // Never write into whichever project happens to be selected when this resolves.
       await cache.cancelQueries({ queryKey: agentKeys.project(vault, id) });
-      cache.setQueryData(agentKeys.project(vault, id), saved);
+      cache.setQueryData<AgentProject>(agentKeys.project(vault, id), current => current && current.revision > saved.revision ? current : saved);
       void cache.invalidateQueries({ queryKey: agentKeys.projects(vault) });
       return saved.revision;
     } catch (error) {
@@ -106,7 +105,7 @@ function ProjectWorkspace({ vault, id }: { vault: string; id: string }) {
       <details><summary>Edit project</summary>
         <TimelineForm revision={p.revision} stickyRevision kind="project.update" send={send} label="Save project" build={d => ({
           title: text(d, "title"), description: text(d, "description"), mode: text(d, "mode"),
-          ...(p.note_id ? { note_id: Number(split(p.note_id).id) } : {}),
+          ...(p.note_id ? { note_id: projectNoteID(p.note_id) } : {}),
         })}>
           <Field name="title" label="Project title" value={p.title} required maxLength={512} />
           <Area name="description" label="Project description" value={p.description} /><Mode value={p.mode} />
