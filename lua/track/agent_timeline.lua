@@ -149,6 +149,12 @@ function M.new(project_id, options)
          end
       end
       add("", 0)
+      for _, task in ipairs(snapshot.tasks) do
+         if task.status == "active" then
+            rows[#rows + 1] = "Active is a recorded state, not process liveness; inspect or edit in :Track timeline."
+            break
+         end
+      end
       local function text(value) return tostring(value or ""):gsub("[%c]", " ") end
       for i = math.max(1, #(snapshot.reports or {}) - 2), #(snapshot.reports or {}) do
          local report = snapshot.reports[i]

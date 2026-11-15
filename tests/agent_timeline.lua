@@ -99,6 +99,7 @@ view.snapshot.reports = {{summary='Summary',task_id='parent'}}
 view.snapshot.discussions = {{author='worker',target_id='parent',text='Message'}}
 view.snapshot.controls = {{task_id='parent',action='pause',status='requested'}}
 local rich = table.concat(view.rows(), '\n')
+assert(rich:find('Active is a recorded state, not process liveness',1,true))
 assert(rich:find('Report [parent]: Summary',1,true) and rich:find('worker -> parent: Message',1,true) and rich:find('parent pause: requested',1,true))
 print('agent timeline adapter tests passed')
 

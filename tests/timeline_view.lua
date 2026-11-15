@@ -65,6 +65,8 @@ snapshot.reports={{id="report",author="worker",task_id="child",summary="Summary"
 snapshot.events={{sequence=1,at="now",source="worker",event_id="created",kind="task.upsert",payload={marker="event payload visible"}}}
 mappings[1].r()
 local rendered=table.concat(buffers[1].lines,"\n")
+assert(rendered:find("States are recorded, not process liveness",1,true))
+assert(rendered:find("a > task.upsert to edit the full task",1,true))
 assert(rendered:find("[active] Parent",1,true)<rendered:find("[blocked] Child",1,true))
 assert(rendered:find("\n  [blocked] Child (child) | 25%",1,true))
 assert(rendered:find("priority=P0",1,true) and rendered:find("task:child",1,true))

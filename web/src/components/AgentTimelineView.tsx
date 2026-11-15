@@ -112,6 +112,7 @@ function ProjectWorkspace({ vault, id }: { vault: string; id: string }) {
         </TimelineForm>
       </details>
       <h3>Tasks</h3>
+      <p className="muted">Task states are last reported records, not live process status. An active task may have stopped without reporting; refreshing does not confirm its worker is running.</p>
       <TaskTree tasks={p.tasks} progress={p.task_progress} onEdit={task => { if (mayLeave()) { setEditing(task); setEditingRevision(p.revision); } }} />
       <details open={editing !== null}><summary>{editing ? `Edit ${editing.title}` : "Add task"}</summary>
         <TimelineForm key={editing ? `${editing.id}:${editingRevision}` : "new"} revision={p.revision} stickyRevision={editing !== null} kind="task.upsert" send={send} label="Save task" build={(d) => ({

@@ -8,7 +8,9 @@ local function lines(snapshot)
    local result = { "# " .. clean(snapshot.title), "",
       string.format("Revision %d | %.0f%% | %.1f min remaining", snapshot.revision,
          snapshot.progress.fraction * 100, snapshot.progress.remaining_minutes),
-      "r refresh   a append/update record   q close", "", "## Tasks" }
+      "r refresh   a append/update record   q close",
+      "States are recorded, not process liveness. For stale active records, use a > task.upsert to edit the full task.",
+      "", "## Tasks" }
    local children = {}
    for _, task in ipairs(snapshot.tasks) do
       local parent = task.parent_id or ""
