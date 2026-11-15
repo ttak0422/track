@@ -103,6 +103,7 @@ jobs:
         run: |
           nix develop --command go build -o "$RUNNER_TEMP/track-timeline-e2e" ./cmd/track
           TRACK_TEST_BIN="$RUNNER_TEMP/track-timeline-e2e" python3 -B -m unittest discover -s examples/timeline-worker -v
+          TRACK_TEST_BIN="$RUNNER_TEMP/track-timeline-e2e" python3 -B -m unittest discover -s examples/codex-timeline -v
           TRACK_TEST_BIN="$RUNNER_TEMP/track-timeline-e2e" nix run .#test-nvim -- --headless -u NONE -i NONE -n -l scripts/e2e/nvim_agent_timeline.lua
 
       - name: Neovim backup command E2E

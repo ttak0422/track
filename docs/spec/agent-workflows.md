@@ -390,3 +390,9 @@ route records but do not authenticate writers.
 The opt-in [worker reference example](../../examples/timeline-worker/README.md) demonstrates
 this protocol through the CLI with bounded simulated work. It executes no model, shell
 workload or remote request. It is an integration example, not a background dispatcher.
+
+The [Codex JSONL adapter](../../examples/codex-timeline/README.md) is a concrete integration
+for an existing `codex exec --json` invocation. It accepts only explicit stdin and records
+allowlisted lifecycle/count metadata. It does not inspect private session directories or import
+agent/user messages. This adapter is observational: the one-way CLI event stream provides no
+safe acknowledgement mechanism for pause/resume. Do not advertise those controls for Codex.
