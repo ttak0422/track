@@ -904,3 +904,20 @@ establish live-update parity. No automatic save retry occurred.
 
 Actual marked-text IME composition and pending-success acknowledgement timing
 remain unverified in native GUI. Ordinary vault editing remains disabled.
+
+## Held successful acknowledgement, 2026-11-15
+
+With the same disposable Save adapter fixture, Save and continue from Cmd-Q was
+held after the real PUT succeeded. A test-only watcher released the adapter
+1.7 seconds after its `held` event, before the normal client timeout. The native
+window showed Saving, editing locked, and no duplicate save. After acknowledgement,
+the checkpoint was removed, the submitted source was retained, and adapter cleanup
+recorded the owned child reaped with status 0 in 11 ms. All four test ports were
+free. A subsequent UI observation produced a fresh startup window whose adapter
+failed to bind; it was closed. Do not count that inspection as evidence that the
+original saving window remained open. The source/checkpoint and original adapter
+lifecycle establish completion of the guarded Save-and-continue path.
+
+Native IME composition remains unverified. Looking up the existing input-source
+menu timed out in Computer Use; no IME configuration was changed. The separate
+IME attempt's clean fixture window was closed without modifying its source.
