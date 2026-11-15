@@ -180,7 +180,13 @@ impl Workspace {
             .child("State changes, dragging and source-line navigation are unavailable.");
         // Always retain the exact parsed fence alongside the visual. The host's
         // existing raw Copy remains authoritative, including its delimiters.
-        view = view.child(markdown::render_themed(std::slice::from_ref(block), dark));
+        view = view.child(self.render_preview_copy(
+            key.0,
+            key.1,
+            std::slice::from_ref(block),
+            dark,
+            cx,
+        ));
         if let Some(Err(reason)) = board.blocks.get(&key) {
             return view.child(reason.clone());
         }

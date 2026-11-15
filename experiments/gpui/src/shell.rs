@@ -1065,6 +1065,7 @@ impl Workspace {
         let epoch = self.shell.code_copy.epoch;
         let weak = cx.entity().downgrade();
         markdown::CodeCallbacks {
+            labels: None,
             anchors: self.shell.code_anchors.clone(),
             controls,
             activate: std::rc::Rc::new(move |index, _, cx| {

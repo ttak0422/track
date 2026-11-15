@@ -1,5 +1,7 @@
 #[path = "gallery_covers.rs"]
 mod gallery_covers;
+#[path = "preview_copy.rs"]
+mod preview_copy;
 #[path = "task_boards.rs"]
 mod task_boards;
 #[path = "viewspec_preview.rs"]
@@ -46,6 +48,7 @@ pub(crate) struct IncludesState {
     gallery: gallery_covers::Gallery,
     viewspecs: viewspec_preview::Resolved,
     mindmap_cache: crate::mindmap_view::Cache,
+    copy: preview_copy::CopyUi,
 }
 /// Preview controls must not use host-reader gates, which intentionally reject
 /// this surface. Capture only competing actions and composition here.
@@ -102,6 +105,7 @@ impl IncludesState {
             gallery: Default::default(),
             viewspecs: Default::default(),
             mindmap_cache: Default::default(),
+            copy: Default::default(),
         }
     }
     fn query_page_action(
@@ -245,6 +249,8 @@ impl Workspace {
             return;
         };
         state.preview_open = true;
+        state.copy =
+            preview_copy::CopyUi::prepare(state.result.as_ref().and_then(|r| r.as_ref().ok()), cx);
         state.preview_epoch = SERIAL.fetch_add(1, Ordering::Relaxed);
         state.query_pages.clear();
         state.query_sources.clear();
@@ -279,6 +285,7 @@ impl Workspace {
             return;
         };
         state.preview_open = false;
+        state.copy = Default::default();
         state.mindmap_cache.clear();
         state.gallery.cancel();
         state.viewspecs.cancel();
@@ -388,7 +395,7 @@ impl Workspace {
                 cx.stop_propagation();
             }))
             .child(div().flex().justify_between().child("Rendered content (read-only)").child(div().id("close-rendered-includes-preview").cursor_pointer().child("Close preview (Esc)").on_click(cx.listener(move |this, _, window, cx| this.close_includes_preview(&close_identity, serial, window, cx)))))
-            .child("Engine-resolved snapshots; completeness and currentness are not guaranteed. Partial inline preview: only isolated top-level includes are embedded. Links, task changes, recursive includes, Find and navigation are unavailable. Gallery covers support bounded local PNG/JPEG only. Text selection and code copy are not supported here.")
+            .child("Engine-resolved snapshots; completeness and currentness are not guaranteed. Partial inline preview: only isolated top-level includes are embedded. Links, task changes, recursive includes, Find and navigation are unavailable. Gallery covers support bounded local PNG/JPEG only. Text selection is unavailable. Tagged code and displayed source have explicit Copy controls (plain text, up to 256 KiB).")
             .child(div().id(gpui::SharedString::from(format!("rendered-includes-scroll-{serial}"))).track_scroll(&scroll).flex_1().min_h_0().overflow_y_scroll().child(body))
     }
     fn includes_identity(&self) -> Option<Identity> {
@@ -467,6 +474,7 @@ impl Workspace {
         state.gallery = Default::default();
         state.viewspecs = Default::default();
         state.preview_open = false;
+        state.copy = Default::default();
         state.gallery.cancel();
         state.viewspecs.cancel();
         state.query_pages.clear();
@@ -491,7 +499,8 @@ impl Workspace {
             let response = client
                 .included_notes(&captured.source.note.vault, &body)
                 .map_err(|e| e.to_string())?;
-            let preview = markdown::included_preview(&response);
+            let mut preview = markdown::included_preview(&response);
+            preview_copy::normalize(&mut preview);
             let after = client.storage().map_err(|e| e.to_string())?;
             if after.phase != "ready" || after.generation != captured.source.storage_generation {
                 return Err("Storage changed. Reload the workspace.".into());
@@ -730,6 +739,7 @@ mod tests {
         state.query_sources.clear();
         assert!(state.accepts(&id, 5));
         state.preview_open = false;
+        state.copy = Default::default();
         state.gallery.cancel();
         state.viewspecs.cancel();
         state.query_pages.clear();
@@ -804,6 +814,7 @@ mod tests {
                     assert!(!state.set_query_page(&changed, 10, 20, (0, 0), None, 0));
                 }
                 state.preview_open = false;
+                state.copy = Default::default();
                 state.gallery.cancel();
                 state.viewspecs.cancel();
                 assert!(!state.set_query_page(&id, 10, 20, (0, 0), None, 0));
@@ -891,6 +902,7 @@ mod tests {
         assert!(state.query_source_action(ready(), &id, 10, 20, (0, 0)));
         assert!(state.query_sources.is_empty());
         state.preview_open = false;
+        state.copy = Default::default();
         state.gallery.cancel();
         state.viewspecs.cancel();
         assert!(!state.query_source_action(ready(), &id, 10, 20, (0, 0)));
@@ -992,6 +1004,10 @@ impl Workspace {
         QueryPageGate {
             preview_active: self.includes_preview_active(),
             source_matches: self.includes_identity().as_ref() == Some(identity)
+                && self
+                    .live
+                    .as_ref()
+                    .is_some_and(|session| session.failure().is_none())
                 && self
                     .shell
                     .includes
@@ -1120,9 +1136,12 @@ impl Workspace {
             let key = (item, block_index);
             if let Some(admission) = snapshot.boards.viewspecs.get(&key) {
                 if ordinary_start < block_index {
-                    body = body.child(markdown::render_themed(
+                    body = body.child(self.render_preview_copy(
+                        item,
+                        ordinary_start,
                         &blocks[ordinary_start..block_index],
                         dark,
+                        cx,
                     ));
                 }
                 ordinary_start = block_index + 1;
@@ -1141,16 +1160,23 @@ impl Workspace {
                     Err(reason) => visual.child(reason.clone()),
                     Ok(()) => self.viewspec_face(visual, key, dark),
                 };
-                body = body.child(
-                    visual.child(markdown::render_themed(std::slice::from_ref(block), dark)),
-                );
+                body = body.child(visual.child(self.render_preview_copy(
+                    item,
+                    block_index,
+                    std::slice::from_ref(block),
+                    dark,
+                    cx,
+                )));
                 continue;
             }
             if let Some(map) = snapshot.boards.mindmaps.get(&key) {
                 if ordinary_start < block_index {
-                    body = body.child(markdown::render_themed(
+                    body = body.child(self.render_preview_copy(
+                        item,
+                        ordinary_start,
                         &blocks[ordinary_start..block_index],
                         dark,
+                        cx,
                     ));
                 }
                 ordinary_start = block_index + 1;
@@ -1179,16 +1205,23 @@ impl Workspace {
                     Err(reason) => visual.child(format!("Mindmap unavailable: {reason}")),
                 };
                 // Inert original source remains visible; raw-reader Copy is unchanged.
-                body = body.child(
-                    visual.child(markdown::render_themed(std::slice::from_ref(block), dark)),
-                );
+                body = body.child(visual.child(self.render_preview_copy(
+                    item,
+                    block_index,
+                    std::slice::from_ref(block),
+                    dark,
+                    cx,
+                )));
                 continue;
             }
             if let Some(chart) = snapshot.boards.charts.get(&key) {
                 if ordinary_start < block_index {
-                    body = body.child(markdown::render_themed(
+                    body = body.child(self.render_preview_copy(
+                        item,
+                        ordinary_start,
                         &blocks[ordinary_start..block_index],
                         dark,
+                        cx,
                     ));
                 }
                 ordinary_start = block_index + 1;
@@ -1210,15 +1243,24 @@ impl Workspace {
                     Err(reason) => visual.child(format!("Native chart unavailable: {reason}")),
                 };
                 // Exact supplied JSON remains available through the existing inert code/Copy surface.
-                visual = visual.child(markdown::render_themed(std::slice::from_ref(block), dark));
+                visual = visual.child(self.render_preview_copy(
+                    item,
+                    block_index,
+                    std::slice::from_ref(block),
+                    dark,
+                    cx,
+                ));
                 body = body.child(visual);
                 continue;
             }
             if snapshot.boards.blocks.contains_key(&key) {
                 if ordinary_start < block_index {
-                    body = body.child(markdown::render_themed(
+                    body = body.child(self.render_preview_copy(
+                        item,
+                        ordinary_start,
                         &blocks[ordinary_start..block_index],
                         dark,
+                        cx,
                     ));
                 }
                 ordinary_start = block_index + 1;
@@ -1229,9 +1271,12 @@ impl Workspace {
                 continue;
             };
             if ordinary_start < block_index {
-                body = body.child(markdown::render_themed(
+                body = body.child(self.render_preview_copy(
+                    item,
+                    ordinary_start,
                     &blocks[ordinary_start..block_index],
                     dark,
+                    cx,
                 ));
             }
             ordinary_start = block_index + 1;
@@ -1241,7 +1286,13 @@ impl Workspace {
                     body = body.child(
                         div()
                             .child(format!("Query view unavailable: {reason}"))
-                            .child(markdown::render_themed(std::slice::from_ref(block), dark)),
+                            .child(self.render_preview_copy(
+                                item,
+                                block_index,
+                                std::slice::from_ref(block),
+                                dark,
+                                cx,
+                            )),
                     );
                     continue;
                 }
@@ -1432,8 +1483,13 @@ impl Workspace {
                     }
                     visual = visual.child(self.query_source_button(key, cx));
                     if state.query_sources.contains(&key) {
-                        visual = visual
-                            .child(markdown::render_themed(std::slice::from_ref(block), dark));
+                        visual = visual.child(self.render_preview_copy(
+                            item,
+                            block_index,
+                            std::slice::from_ref(block),
+                            dark,
+                            cx,
+                        ));
                     }
                 }
                 Layout::Board => {
@@ -1519,7 +1575,13 @@ impl Workspace {
             body = body.child(visual);
         }
         if ordinary_start < blocks.len() {
-            body = body.child(markdown::render_themed(&blocks[ordinary_start..], dark));
+            body = body.child(self.render_preview_copy(
+                item,
+                ordinary_start,
+                &blocks[ordinary_start..],
+                dark,
+                cx,
+            ));
         }
         body
     }

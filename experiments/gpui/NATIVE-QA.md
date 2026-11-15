@@ -793,3 +793,19 @@ same captured source and exclude fenced headings; empty includes must not borrow
 host headings. Unsupported indentation/caps retain the entire source. Links stay
 inert and do not open browsers or notes. Source replacement/close/reopen must not
 show a prior tree. Native keyboard/AX and reader scrolling remain unverified.
+
+### Rendered-preview code/source Copy (pending native QA)
+
+Use disposable host/include fixtures with tagged and untagged code, Unicode,
+CRLF, nested quotes/lists, empty bodies and repeated identical snippets. Activate
+only a visible Copy control and check the pasted plain text in a disposable
+scratch target: no fences/caption/provenance, exactly one presentation newline
+removed, no trimming of other whitespace. Check retained ViewSpec input versus
+generated chart/query output and the over-256-KiB disabled state.
+
+Refresh, close/reopen, navigate and replace the source around activation and
+feedback reset; stale controls must never copy a different snippet. Confirm no
+clipboard access during render, hover or refresh. Exercise keyboard focus,
+Enter/Space activation and readable feedback in both themes and high-DPI layouts.
+Headless fake-sink tests do not verify the system clipboard, native focus or AX.
+Normal vault editing remains disabled.

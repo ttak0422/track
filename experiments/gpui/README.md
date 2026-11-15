@@ -610,6 +610,29 @@ reader. The preview is bounded and fails explicitly if its block/text limits are
 exceeded. This is not automatic transclusion or full navigation/selection parity;
 native scrolling, focus and accessibility still require fixture QA.
 
+### Copy code in rendered previews
+
+In **Rendered preview**, use a tagged code block's **Copy code** control to copy
+its displayed body as plain text. Retained diagram/chart input has **Copy source**;
+this copies the visible input, never generated geometry or an original query
+that the engine has replaced. Generated query snapshot data is labeled separately.
+Included excerpts copy only their displayed code, without fetching another note.
+Untagged blocks have no Copy control.
+
+Fence delimiters, language captions and surrounding prose are excluded. The
+preview removes one conventional final newline from the parsed body and preserves
+other whitespace and Unicode; it is not a byte-for-byte file export. Payloads
+above 256 KiB cannot be copied and are never silently truncated. Existing raw-reader
+Copy behavior is unchanged.
+
+Copy requires explicit activation of a current control. Closing, refreshing,
+replacing the source or entering an unavailable/editing state invalidates old
+controls and feedback. **Copy requested** acknowledges submission to the native
+clipboard API, not verified clipboard contents. Nothing reads the clipboard or
+copies automatically. Preview text selection, rich-text export, and link/task
+interactions remain unavailable. Native clipboard delivery, keyboard focus and
+accessibility still require fixture QA.
+
 ### Embedded task boards in rendered previews
 
 An empty `taskboard` fence in the host note appears as a **Task board (read-only)**
@@ -661,8 +684,8 @@ Native appearance, high-DPI layout and accessibility acceptance remain pending.
 In an owned-server session, **Rendered preview** can resolve a limited `viewspec`
 fence through the existing engine and draw its supported native chart. This
 requires ViewSpec version 2, a line or bar mark, inline metric records and a
-primary category/value encoding. The original specification stays visible. Preview text selection and Copy remain
-unavailable, as in the existing inert rendered preview.
+primary category/value encoding. The original specification stays visible with an
+explicit source Copy control. Preview text selection remains unavailable.
 
 A small fixture example:
 

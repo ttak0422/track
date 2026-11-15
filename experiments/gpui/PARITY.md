@@ -31,6 +31,7 @@ of support. Use disposable fixture vaults, never a configured personal vault, fo
 | Simple tables and inline emphasis/code/link styling | [x] | [ ] | `markdown.rs`; code/emphasis native smoke, tables tests |
 | Read-only plain task indicators and inline strike | [x] | [ ] | `markdown.rs`; parser/style/Find/link tests; native glyph/AX pending; rich task notation excluded |
 | Ordinary code-fence caption and explicit Copy | [x] | [ ] | `code_copy.rs`, `markdown.rs`; parsed-body/lifecycle tests, native clipboard and accessibility pending |
+| Explicit rendered-preview code/source Copy | [x] | [ ] | Snapshot-qualified, bounded plain-text clipboard submission; included snippets and retained input only, native clipboard/focus/AX pending |
 | Bounded JS-family/Lua/JSON/Python/shell fenced-code lexical styles | [x] | [ ] | `code_highlight.rs`, `markdown.rs`; bounded lossless ranges, Find/Copy and ingestion cache tests; native GUI unvalidated |
 | Full code syntax highlighting and math | [ ] | [ ] | `MarkdownView`, `components/markdown` |
 | Verified internal wiki/Markdown links and outline jumps | [x] | [ ] | `markdown.rs`, `shell.rs`; scoped resolver and heading-fragment subset; same-note plain fragment native smoke; cross-note/dirty transitions pending |

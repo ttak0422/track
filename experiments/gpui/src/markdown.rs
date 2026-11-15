@@ -164,6 +164,7 @@ pub struct LinkCallbacks {
 /// Controls are supplied by the shell only for the current live reader snapshot.
 #[derive(Clone)]
 pub struct CodeCallbacks {
+    pub labels: Option<std::collections::BTreeMap<usize, String>>,
     pub anchors: Option<Rc<FindAnchors>>,
     pub controls: std::collections::BTreeMap<usize, (gpui::FocusHandle, bool)>,
     pub activate: Rc<dyn Fn(usize, &mut Window, &mut App)>,
@@ -1574,6 +1575,10 @@ pub fn render(blocks: &[Block]) -> Div {
 /// Native read-only prose. The shell owns the sheet ground and outer 880px cap.
 /// Uses the system sans fallback; exact IBM Plex Sans JP typography is not claimed.
 /// No HTML execution, network fetching, or link navigation is performed.
+pub fn render_preview_code(blocks: &[Block], dark: bool, copy: &CodeCallbacks) -> Div {
+    render_reader(blocks, dark, None, None, None, Some(copy), None)
+}
+
 pub fn render_themed(blocks: &[Block], dark: bool) -> Div {
     render_reader(blocks, dark, None, None, None, None, None)
 }
@@ -1792,7 +1797,18 @@ fn render_elements(
                             .rounded(px(4.))
                             .px_2()
                             .cursor_pointer()
-                            .child(if *copied { "Copied" } else { "Copy" })
+                            .child(
+                                copy.and_then(|c| c.labels.as_ref())
+                                    .and_then(|labels| labels.get(&index))
+                                    .cloned()
+                                    .unwrap_or_else(|| {
+                                        if *copied {
+                                            "Copied".into()
+                                        } else {
+                                            "Copy".into()
+                                        }
+                                    }),
+                            )
                             .on_mouse_down(gpui::MouseButton::Left, move |_, window, cx| {
                                 window.focus(&mouse_focus);
                                 cx.stop_propagation();
@@ -1812,6 +1828,14 @@ fn render_elements(
                                 }
                             }),
                     );
+                }
+                if copy.is_some_and(|c| !c.controls.contains_key(&index)) {
+                    if let Some(label) = copy
+                        .and_then(|c| c.labels.as_ref())
+                        .and_then(|labels| labels.get(&index))
+                    {
+                        header = header.child(label.clone());
+                    }
                 }
                 row = row.child(header);
             }
