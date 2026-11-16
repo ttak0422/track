@@ -17,6 +17,23 @@ pub(crate) struct Include {
     pub vault: String,
     pub explicit_origin: bool,
 }
+impl Include {
+    /// Scope candidate only: the caller must verify the host against its current
+    /// session and validate this returned scope through the same registry.
+    /// Missing wire origin inherits only the exact host used during decoding.
+    pub(crate) fn asset_origin(&self, host_vault: &str) -> Option<&str> {
+        if !self.note_id.is_some_and(|id| id > 0)
+            || !matches!(self.kind.as_deref(), Some("note" | "journal"))
+            || !self.etag.as_ref().is_some_and(|etag| !etag.is_empty())
+            || self.error.is_some()
+            || !self.bad_options.is_empty()
+            || (!self.explicit_origin && self.vault != host_vault)
+        {
+            return None;
+        }
+        Some(self.vault.as_str())
+    }
+}
 /// One accepted render response; never installed into the source reader.
 #[derive(Clone, Debug)]
 pub(crate) struct Response {
@@ -172,6 +189,60 @@ mod tests {
         .unwrap();
         assert_eq!(r[0].note_id, None);
         assert_eq!(r[0].error.as_deref(), Some("unresolved"));
+    }
+    #[test]
+    fn asset_origin_inherits_only_the_verified_decoding_host() {
+        let mut successful = entry();
+        successful.as_object_mut().unwrap().remove("bad_options");
+        let inherited = decode(response(successful.clone()), "host").unwrap();
+        assert_eq!(inherited[0].asset_origin("host"), Some("host"));
+        assert_eq!(inherited[0].asset_origin("other"), None);
+        assert_eq!(inherited[0].asset_origin(""), None);
+        let unnamed = decode(response(successful.clone()), "").unwrap();
+        assert_eq!(unnamed[0].asset_origin(""), Some(""));
+        assert_eq!(unnamed[0].asset_origin("host"), None);
+        for origin in ["", "foreign", "host"] {
+            let mut value = successful.clone();
+            value["vault"] = json!(origin);
+            let decoded = decode(response(value), "host").unwrap();
+            // Explicit empty means launch, not inherited host. Foreign names are
+            // preserved for the caller's registry check, never authorized here.
+            assert_eq!(decoded[0].asset_origin("host"), Some(origin));
+        }
+    }
+
+    #[test]
+    fn asset_origin_requires_successful_unambiguous_include_metadata() {
+        let mut value = entry();
+        value.as_object_mut().unwrap().remove("bad_options");
+        let valid = decode(response(value), "host").unwrap()[0].clone();
+        for index in 0..10 {
+            let mut include = valid.clone();
+            match index {
+                0 => include.note_id = None,
+                1 => include.note_id = Some(0),
+                2 => include.kind = None,
+                3 => include.kind = Some("asset".into()),
+                4 => include.etag = None,
+                5 => include.etag = Some(String::new()),
+                6 => include.error = Some("unresolved".into()),
+                7 => include.bad_options.push("bad=1".into()),
+                8 => include.vault = "other".into(),
+                _ => include.error = Some(String::new()),
+            }
+            assert_eq!(include.asset_origin("host"), None, "case {index}");
+        }
+        let mut journal = valid.clone();
+        journal.kind = Some("journal".into());
+        assert_eq!(journal.asset_origin("host"), Some("host"));
+        let failed = decode(
+            response(
+                json!({"line":0,"source_line":0,"caption":"","lines":[],"error":"unresolved"}),
+            ),
+            "host",
+        )
+        .unwrap();
+        assert_eq!(failed[0].asset_origin("host"), None);
     }
     #[test]
     fn includes_require_explicit_array_and_valid_identities() {

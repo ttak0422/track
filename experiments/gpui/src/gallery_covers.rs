@@ -162,7 +162,7 @@ impl Workspace {
                 markdown::PreviewItem::Host(_) => Some(identity.source.note.vault.as_str()),
                 markdown::PreviewItem::Include { index, .. } => {
                     let entry = &snapshot.response.entries[*index];
-                    entry.explicit_origin.then_some(entry.vault.as_str())
+                    entry.asset_origin(identity.source.note.vault.as_str())
                 }
             }
             .and_then(|scope| self.gallery_scope(scope));

@@ -781,3 +781,6 @@ mod workflows;
 
 #[path = "live_bound_calendar.rs"]
 mod calendar_workflows;
+
+#[path = "live_bound_render.rs"]
+mod render_workflows;

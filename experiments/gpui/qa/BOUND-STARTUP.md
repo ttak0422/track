@@ -99,3 +99,21 @@ year 9999 is rejected before HTTP for both event and note/activity ranges. This
 leaves the 42-day cap, ordinary-vault gate and explicit named-zone semantics
 unchanged. The help date-domain wording was updated; the previously recorded
 Nix/site-rendering limitation still applies.
+
+## Render and preview contracts
+
+The real-Go render scenario covers block includes within a vault, a cross-include
+into the active vault (explicit empty origin), a named foreign origin, and scoped
+query output/resolution. Successful inherited origins are admitted for preview
+assets only when they equal the current verified host. Error/ambiguous include
+metadata remains ineligible; explicit origins still pass existing registry and
+session checks. ViewSpec and gallery consumers use this shared scope candidate
+without falling back to the working vault.
+
+The same fixture reproduced a separate chart rejection: Go's generated ECharts
+option includes `_trackTheme:true`. The bounded numeric decoder now accepts only
+that exact presentation marker while retaining all other field/type/size limits.
+It preserves category/value/null semantics and the supplied palette. This does
+not add browser theme, zoom or interactive chart parity. The integration checks
+real inline metric bar/line output; full GPUI and gallery image painting remain
+unverified. The source is retained for unsupported chart options.

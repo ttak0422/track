@@ -192,9 +192,27 @@ pub fn decode(source: &str) -> Result<Chart> {
     keys(
         root,
         &[
-            "title", "xAxis", "yAxis", "series", "color", "grid", "tooltip", "dataZoom", "legend",
+            "title",
+            "xAxis",
+            "yAxis",
+            "series",
+            "color",
+            "grid",
+            "tooltip",
+            "dataZoom",
+            "legend",
+            "_trackTheme",
         ],
     )?;
+    // Go's embedded-option marker requests reader presentation defaults. It is
+    // not data or executable behavior; native styling remains native. Accept
+    // only the exact engine marker, never arbitrary extension fields.
+    if root
+        .get("_trackTheme")
+        .is_some_and(|value| value != &Value::Bool(true))
+    {
+        return bad("Unsupported Track theme marker");
+    }
     cosmetics(root)?;
     let title = if let Some(v) = root.get("title") {
         let m = object(v)?;
@@ -528,6 +546,45 @@ mod tests {
         assert_eq!(c.series[0].color, 0x123abc);
         assert_eq!(c.domain, (-0.24, 4.48));
         assert!(!c.series[0].show_symbol);
+    }
+    #[test]
+    fn go_embedded_theme_marker_preserves_numeric_chart_semantics() {
+        // EChartsOptionJSON's categorical line option, including its embedded
+        // reader marker and the ordinary grid/tooltip/zoom presentation fields.
+        let mut value = json!({
+            "_trackTheme":true,
+            "title":{"text":"Fixture metric","left":16},
+            "color":["#123abc"],
+            "grid":{"left":16,"right":16,"bottom":24,"containLabel":true},
+            "tooltip":{"trigger":"axis","axisPointer":{"type":"cross"}},
+            "dataZoom":[{"type":"inside","xAxisIndex":0,"zoomOnMouseWheel":"shift"}],
+            "xAxis":{"type":"category","data":["A","B","C"],"boundaryGap":false},
+            "yAxis":[{"type":"value","scale":true,"boundaryGap":["6%","12%"]}],
+            "series":[{"name":"score","type":"line","data":[0,null,4],"showSymbol":false,"connectNulls":false}]
+        });
+        let with_marker = chart(value.clone());
+        assert_eq!(with_marker.categories, ["A", "B", "C"]);
+        assert_eq!(with_marker.series[0].values, [Some(0.0), None, Some(4.0)]);
+        assert_eq!(with_marker.series[0].color, 0x123abc);
+        value.as_object_mut().unwrap().remove("_trackTheme");
+        assert_eq!(chart(value.clone()), with_marker);
+        for marker in [
+            json!(false),
+            Value::Null,
+            json!(1),
+            json!("true"),
+            json!({}),
+            json!([]),
+        ] {
+            value["_trackTheme"] = marker;
+            assert!(decode(&value.to_string()).is_err());
+        }
+        value["_trackTheme"] = true.into();
+        value["_unknownExtension"] = true.into();
+        assert!(decode(&value.to_string()).is_err());
+        value.as_object_mut().unwrap().remove("_unknownExtension");
+        value["series"][0]["connectNulls"] = true.into();
+        assert!(decode(&value.to_string()).is_err());
     }
     #[test]
     fn category_positions_and_null_segments() {

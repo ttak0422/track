@@ -96,7 +96,7 @@ impl Workspace {
                     let entry = &snapshot.response.entries[*index];
                     (
                         blocks,
-                        entry.explicit_origin.then_some(entry.vault.as_str()),
+                        entry.asset_origin(identity.source.note.vault.as_str()),
                     )
                 }
             };
