@@ -52,6 +52,7 @@ mod reader_relations;
 mod reader_scroll;
 mod reader_selection;
 mod recent_notes;
+mod rendered_find_model;
 mod search_excerpt;
 mod search_input;
 mod search_refinement;

@@ -8,6 +8,8 @@ mod preview_copy;
 mod query_inline;
 #[path = "query_navigation.rs"]
 mod query_navigation;
+#[path = "rendered_find.rs"]
+mod rendered_find;
 #[path = "task_boards.rs"]
 mod task_boards;
 #[path = "viewspec_preview.rs"]
@@ -59,6 +61,7 @@ pub(crate) struct IncludesState {
     flowchart_cache: crate::flowchart_view::Cache,
     mindmap_cache: crate::mindmap_view::Cache,
     copy: preview_copy::CopyUi,
+    find: rendered_find::Ui,
 }
 /// Preview controls must not use host-reader gates, which intentionally reject
 /// this surface. Capture only competing actions and composition here.
@@ -122,6 +125,7 @@ impl IncludesState {
             flowchart_cache: Default::default(),
             mindmap_cache: Default::default(),
             copy: Default::default(),
+            find: Default::default(),
         }
     }
     fn query_page_action(
@@ -268,6 +272,7 @@ impl Workspace {
             return;
         };
         state.preview_open = true;
+        state.find = Default::default();
         state.copy =
             preview_copy::CopyUi::prepare(state.result.as_ref().and_then(|r| r.as_ref().ok()), cx);
         state.preview_epoch = SERIAL.fetch_add(1, Ordering::Relaxed);
@@ -294,6 +299,9 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.rendered_find_composing(cx) {
+            return;
+        }
         if self.includes_identity().as_ref() != Some(identity) {
             return;
         }
@@ -306,6 +314,7 @@ impl Workspace {
             return;
         };
         state.preview_open = false;
+        state.find = Default::default();
         state.copy = Default::default();
         state.mindmap_cache.clear();
         state.flowchart_cache.clear();
@@ -329,6 +338,7 @@ impl Workspace {
         window: &mut gpui::Window,
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<Div> {
+        self.begin_rendered_find(dark, cx);
         let state = self.shell.includes.as_ref().unwrap();
         let identity = state.identity.clone();
         let serial = state.serial;
@@ -416,15 +426,21 @@ impl Workspace {
                 }
             }
         }
+        self.finish_rendered_find(window, cx);
+        let find_controls = self.rendered_find_controls(cx);
         div().id("rendered-includes-preview").size_full().flex().flex_col().p_4()
             .bg(rgb(paper)).text_color(rgb(ink)).track_focus(&focus)
+            .on_action(cx.listener(|this, _: &search_input::FindNext, window, cx| {this.rendered_find_key(Some(true), window, cx);cx.stop_propagation();}))
+            .on_action(cx.listener(|this, _: &search_input::FindPrevious, window, cx| {this.rendered_find_key(Some(false), window, cx);cx.stop_propagation();}))
+            .on_action(cx.listener(|this, _: &search_input::CloseFind, window, cx| {this.rendered_find_key(None, window, cx);cx.stop_propagation();}))
             .on_key_down(cx.listener(move |this, event: &gpui::KeyDownEvent, window, cx| {
-                if event.keystroke.key == "escape" { this.close_includes_preview(&identity, serial, window, cx); }
+                if event.keystroke.key == "escape" && !this.rendered_find_escape(window, cx) { this.close_includes_preview(&identity, serial, window, cx); }
                 // No host Find, navigation, checkpoint, task, link or copy shortcuts.
                 cx.stop_propagation();
             }))
             .child(div().flex().justify_between().child("Rendered content (read-only)").child(div().id("close-rendered-includes-preview").cursor_pointer().child("Close preview (Esc)").on_click(cx.listener(move |this, _, window, cx| this.close_includes_preview(&close_identity, serial, window, cx)))))
-            .child("Engine-resolved snapshots; completeness and currentness are not guaranteed. Partial inline preview: only isolated top-level includes are embedded. General links, task changes, recursive includes and Find are unavailable. Host query rows provide explicit Open note controls; included query rows remain inert. Gallery covers support bounded local PNG/JPEG only. Text selection is unavailable. Tagged code and displayed source have explicit Copy controls (plain text, up to 256 KiB).")
+            .child("Engine-resolved snapshots; completeness and currentness are not guaranteed. Partial inline preview: only isolated top-level includes are embedded. General links, task changes, recursive includes are unavailable. Find searches displayed ordinary host/include prose, not rich projections or their source disclosures. Host query rows provide explicit Open note controls; included query rows remain inert. Gallery covers support bounded local PNG/JPEG only. Text selection is unavailable. Tagged code and displayed source have explicit Copy controls (plain text, up to 256 KiB).")
+            .child(find_controls)
             .child(div().id(gpui::SharedString::from(format!("rendered-includes-scroll-{serial}"))).track_scroll(&scroll).flex_1().min_h_0().overflow_y_scroll().child(body))
     }
     fn includes_identity(&self) -> Option<Identity> {
@@ -1251,7 +1267,7 @@ impl Workspace {
             search: self.shell.search_open,
             menu: self.shell.vault_menu || self.shell.tab_menu || self.shell.diagnostics,
             closing: self.quit_session.is_closing(),
-            composing: self.search.read(cx).is_composing(),
+            composing: self.search.read(cx).is_composing() || self.rendered_find_composing(cx),
         }
     }
     fn query_source_button(

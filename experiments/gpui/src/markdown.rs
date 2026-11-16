@@ -3158,6 +3158,15 @@ pub fn render(blocks: &[Block]) -> Div {
 /// Native read-only prose. The shell owns the sheet ground and outer 880px cap.
 /// Uses the system sans fallback; exact IBM Plex Sans JP typography is not claimed.
 /// No HTML execution, network fetching, or link navigation is performed.
+pub(crate) fn render_preview_code_find(
+    blocks: &[Block],
+    dark: bool,
+    copy: &CodeCallbacks,
+    find: Option<FindPresentation<'_>>,
+) -> Div {
+    render_reader(blocks, dark, None, None, find, Some(copy), None, None)
+}
+
 pub fn render_preview_code(blocks: &[Block], dark: bool, copy: &CodeCallbacks) -> Div {
     render_reader(blocks, dark, None, None, None, Some(copy), None, None)
 }

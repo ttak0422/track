@@ -306,6 +306,7 @@ impl Workspace {
                 Some("track-view" | "track-query-view")
             )
         });
+        let find = state.find.presentation(state, item, start, blocks);
         div()
             .id(gpui::SharedString::from(format!(
                 "preview-code-{serial}-{epoch}-{item}-{start}"
@@ -313,7 +314,17 @@ impl Workspace {
             .when(generated, |d| {
                 d.child("Generated snapshot data (not original query source)")
             })
-            .child(markdown::render_preview_code(blocks, dark, &callbacks))
+            .child(markdown::render_preview_code_find(
+                blocks,
+                dark,
+                &callbacks,
+                find.as_ref()
+                    .map(|(matches, active, anchors)| markdown::FindPresentation {
+                        matches,
+                        active: *active,
+                        anchors,
+                    }),
+            ))
             .child(self.excerpt_link_controls(item, start, start + blocks.len(), cx))
     }
 }
