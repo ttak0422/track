@@ -106,12 +106,13 @@ func (b *Bootstrap) start() {
 	b.status = StorageStatus{Phase: "initializing", ReadOnly: true, Reason: "Configuration and storage are being verified", Generation: generation}
 	b.mu.Unlock()
 	go func() {
+		teardown := make(chan struct{})
 		defer func() {
 			for _, view := range held {
 				view.mutationGate().Unlock()
 			}
 		}()
-		defer cancel()
+		defer func() { close(teardown); cancel() }()
 		defer func() {
 			b.mu.Lock()
 			if b.generation == generation {
@@ -246,18 +247,7 @@ func (b *Bootstrap) start() {
 				}
 			}
 		}()
-		strictResult := make(chan *config.Config, 1)
-		go func() {
-			strictCtx, stop := context.WithTimeout(ctx, index.StageBudget)
-			defer stop()
-			verified, err := b.load(strictCtx, "", true)
-			if err != nil {
-				b.fail(generation, err)
-				strictResult <- nil
-				return
-			}
-			strictResult <- verified
-		}()
+		strictResult := b.strictConfiguration(ctx, generation, teardown)
 		stageCtx, stopStage := context.WithTimeout(ctx, index.StageBudget)
 		_, stageErr := index.New(cfg, nil).Stage(stageCtx, func(n *note.Note) {
 			b.mu.Lock()
@@ -371,6 +361,37 @@ func (b *Bootstrap) start() {
 		}
 	}()
 }
+
+// strictConfiguration owns only strict-load reporting, not the attempt's
+// terminal outcome. Cancellation caused by the main owner's deferred teardown
+// must not replace the failure that made that owner return. Independent errors,
+// strict deadlines, and cancellation while the owner is active remain visible.
+func (b *Bootstrap) strictConfiguration(ctx context.Context, generation uint64, teardown <-chan struct{}) <-chan *config.Config {
+	result := make(chan *config.Config, 1)
+	go func() {
+		strictCtx, stop := context.WithTimeout(ctx, index.StageBudget)
+		defer stop()
+		verified, err := b.load(strictCtx, "", true)
+		if err != nil {
+			teardownCancellation := false
+			if errors.Is(err, context.Canceled) {
+				select {
+				case <-teardown:
+					teardownCancellation = true
+				default:
+				}
+			}
+			if !teardownCancellation {
+				b.fail(generation, err)
+			}
+			result <- nil
+			return
+		}
+		result <- verified
+	}()
+	return result
+}
+
 func (b *Bootstrap) fail(generation uint64, err error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()

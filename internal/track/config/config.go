@@ -286,16 +286,9 @@ func loadPolicy(fixedVault string, audit bool) (*Config, error) {
 
 	// The index is a derived cache, never a configured file: it lives under the cache dir keyed by the
 	// vault path, so every vault the registry names keeps its own index without anyone naming it.
-	cacheDir := mc.CacheDir
-	if env := os.Getenv("TRACK_CACHE_DIR"); env != "" {
-		cacheDir = env
-	}
-	if cacheDir == "" {
-		userCache, err := os.UserCacheDir()
-		if err != nil {
-			return nil, fmt.Errorf("resolve cache dir: %w", err)
-		}
-		cacheDir = filepath.Join(userCache, "track")
+	cacheDir, err := ordinaryCacheDirectory(mc)
+	if err != nil {
+		return nil, err
 	}
 	db := filepath.Join(expandHome(cacheDir), vaultCacheKey(vault), indexDBName())
 
@@ -384,6 +377,22 @@ func loadPolicy(fixedVault string, audit bool) (*Config, error) {
 		// where the Config represents whichever vault was named rather than the configured one.
 		VaultName: activeName,
 	}, nil
+}
+
+// ordinaryCacheDirectory preserves the loader's environment/config/platform precedence.
+func ordinaryCacheDirectory(mc machineFileConfig) (string, error) {
+	cacheDir := mc.CacheDir
+	if env := os.Getenv("TRACK_CACHE_DIR"); env != "" {
+		cacheDir = env
+	}
+	if cacheDir == "" {
+		userCache, err := os.UserCacheDir()
+		if err != nil {
+			return "", fmt.Errorf("resolve cache dir: %w", err)
+		}
+		cacheDir = filepath.Join(userCache, "track")
+	}
+	return cacheDir, nil
 }
 
 // VaultLocation resolves only machine-owned paths. Unlike Load, it never reads
@@ -713,6 +722,10 @@ func strictDecodeFile(path string, out any) error {
 		}
 		return fmt.Errorf("read config %s: %w", path, err)
 	}
+	return strictDecodeBytes(path, raw, out)
+}
+
+func strictDecodeBytes(path string, raw []byte, out any) error {
 	dec := yaml.NewDecoder(bytes.NewReader(raw))
 	dec.KnownFields(true)
 	if err := dec.Decode(out); err != nil && !errors.Is(err, io.EOF) {
