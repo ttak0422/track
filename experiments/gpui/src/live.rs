@@ -184,6 +184,31 @@ pub struct Search {
     #[serde(flatten)]
     pub diagnostics: Fields,
 }
+/// Validate before namespace normalization. No sorting, deduplication, or title inference.
+fn validate_recently_created(data: &mut Notes, vault: &str, launch: &str) -> Result<(), Error> {
+    if data.notes.len() > 100 {
+        return Err(Error::Shape("recent notes exceed 100 rows".into()));
+    }
+    let mut seen = std::collections::HashSet::new();
+    for note in &data.notes {
+        if note.note_id <= 0
+            || note.file_kind != "note"
+            || !seen.insert(note.note_id)
+            || !calendar_range_vault_matches(vault, &note.vault, launch)
+            || note.title.len() > 64 * 1024
+            || note.path.len() > 16 * 1024
+        {
+            return Err(Error::Shape(
+                "invalid recent-note identity or bounds".into(),
+            ));
+        }
+    }
+    let canonical = if vault.is_empty() { launch } else { vault };
+    for note in &mut data.notes {
+        note.vault = canonical.into();
+    }
+    Ok(())
+}
 /// Sparse per-day activity in the requested working vault, never a federated sum.
 #[derive(Clone, Debug, Deserialize)]
 pub struct ActivityCount {
@@ -1301,6 +1326,21 @@ impl ReadClient {
                 note.vault = vault.into();
             }
         }
+        Ok(data)
+    }
+    /// Engine-created order, regular notes only, one bounded scoped response.
+    pub fn recently_created(&self, vault: &str, launch: &str) -> Result<Notes, Error> {
+        if vault.len() > 1024
+            || launch.len() > 1024
+            || vault.contains('\0')
+            || launch.contains('\0')
+        {
+            return Err(Error::Config("invalid recent-note scope".into()));
+        }
+        let mut args = vault_query(vault);
+        args.extend([("sort", "created".into()), ("limit", "100".into())]);
+        let mut data: Notes = self.get("/api/notes", &args)?;
+        validate_recently_created(&mut data, vault, launch)?;
         Ok(data)
     }
     /// Empty vault label deliberately means workspace-wide search, NOT active-vault-only.
@@ -4466,6 +4506,49 @@ mod tests {
                     .starts_with("GET /api/follow HTTP/1.1\r\n")
             );
         }
+    }
+    #[test]
+    fn recently_created_is_bounded_scoped_and_preserves_order() {
+        for (scope, wire, accepted) in [
+            ("foreign", "foreign", true),
+            ("foreign", "", false),
+            ("host", "", true),
+            ("", "", true),
+        ] {
+            let row = |id| serde_json::json!({"note_id":id,"file_kind":"note","title":"","path":"note.md","vault":wire});
+            let (client, worker) = mock(
+                200,
+                serde_json::json!({"notes":[row(3),row(1)]}).to_string(),
+            );
+            let result = client.recently_created(scope, "host");
+            let request = worker.join().unwrap();
+            assert!(request.contains("sort=created"));
+            assert!(request.contains("limit=100"));
+            assert_eq!(result.is_ok(), accepted);
+            if let Ok(result) = result {
+                assert_eq!(
+                    result.notes.iter().map(|n| n.note_id).collect::<Vec<_>>(),
+                    vec![3, 1]
+                );
+            }
+        }
+    }
+    #[test]
+    fn recently_created_rejects_duplicates_and_journals_but_preserves_partial_empty() {
+        for rows in [
+            serde_json::json!([{"note_id":1,"file_kind":"journal","title":"x","path":"j.md","vault":"host"}]),
+            serde_json::json!([{"note_id":1,"file_kind":"note","title":"x","path":"n.md","vault":"host"},{"note_id":1,"file_kind":"note","title":"x","path":"n.md","vault":"host"}]),
+        ] {
+            let mut data: Notes =
+                serde_json::from_value(serde_json::json!({"notes":rows})).unwrap();
+            assert!(validate_recently_created(&mut data, "host", "host").is_err());
+        }
+        let mut data: Notes =
+            serde_json::from_value(serde_json::json!({"notes":null,"read_state":{"partial":true}}))
+                .unwrap();
+        assert!(validate_recently_created(&mut data, "host", "host").is_ok());
+        assert!(data.notes.is_empty());
+        assert_eq!(data.diagnostics["read_state"]["partial"], true);
     }
     fn mock(status: u16, body: impl Into<String>) -> (ReadClient, thread::JoinHandle<String>) {
         let body = body.into();

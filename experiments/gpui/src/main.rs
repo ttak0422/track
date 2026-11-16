@@ -79,6 +79,7 @@ mod workspace_note_tasks;
 mod workspace_open_tasks;
 mod workspace_preview;
 mod workspace_recent;
+mod workspace_recent_created;
 mod workspace_session;
 mod workspace_tags;
 mod workspace_weekly;

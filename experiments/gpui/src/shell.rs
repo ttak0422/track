@@ -520,6 +520,7 @@ pub struct ShellState {
     pub(crate) note_tasks: Option<workspace_note_tasks::NoteTasksState>,
     pub(crate) hierarchy: Option<workspace_hierarchy::HierarchyState>,
     pub(crate) reader_hierarchy: Option<workspace_hierarchy::ReaderHierarchy>,
+    pub(crate) recent_created: Option<workspace_recent_created::State>,
     pub(crate) open_tasks: Option<workspace_open_tasks::OpenTasksState>,
     pub(crate) weekly: Option<workspace_weekly::WeeklyState>,
     pub(crate) activity: Option<workspace_activity::ActivityState>,
@@ -651,6 +652,7 @@ impl Default for ShellState {
             includes: None,
             relation_pages: Default::default(),
             weekly: None,
+            recent_created: None,
             open_tasks: None,
             activity: None,
             calendar: Default::default(),
@@ -4167,6 +4169,7 @@ impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if !self.shell.home {
             self.shell.open_tasks = None;
+            self.shell.recent_created = None;
         }
         self.sync_calendar_period(window, cx);
         self.sync_reader_selection(window, cx);
@@ -5434,6 +5437,7 @@ impl Render for Workspace {
             })
             .child(if home {
                 div()
+                    .child(self.home_recent_created(cx))
                     .child(self.home_open_tasks(dark, cx))
                     .child(self.home_weekly_tasks(dark, cx))
             } else {
