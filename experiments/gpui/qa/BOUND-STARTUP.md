@@ -117,3 +117,25 @@ It preserves category/value/null semantics and the supplied palette. This does
 not add browser theme, zoom or interactive chart parity. The integration checks
 real inline metric bar/line output; full GPUI and gallery image painting remain
 unverified. The source is retained for unsupported chart options.
+
+## Raster assets and orientation
+
+The bound asset scenario serves the same filename from two generated vaults with
+different pixels. Full images and thumbnails preserve the requested scope; an
+empty scope selects the launch vault. Missing/non-image/traversal requests and
+an asset found only in another vault do not trigger fallback. Protected files
+remain unchanged through owned shutdown.
+
+The native raster decoder previously read raw JPEG pixels without applying EXIF
+orientation. It now reads orientation from the bounded header decoder, retains
+`ImageReader::decode` and its allocation reservation for pixel decoding, then
+applies orientation before thumbnail sizing and BGRA conversion. Tests map all
+eight JPEG orientations independently against decoded baseline pixels, cover
+missing/invalid metadata and verify portrait thumbnail limits. The real Go
+transport also checks an oriented JPEG. Alpha/channel policy is unchanged.
+
+These are pixel/transport tests, not native painting, colour-management or GUI
+acceptance. PDF rasterization and macOS are not exercised. Asset containment is
+still the existing controlled-fixture/engine contract, not an OS sandbox or a
+promise against hostile filesystem replacement; the ordinary-vault gate stays
+closed.

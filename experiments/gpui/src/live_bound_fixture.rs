@@ -784,3 +784,6 @@ mod calendar_workflows;
 
 #[path = "live_bound_render.rs"]
 mod render_workflows;
+
+#[path = "live_bound_assets.rs"]
+mod asset_workflows;

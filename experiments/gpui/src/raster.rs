@@ -1,6 +1,6 @@
 //! Bounded raster-only display. No paths are opened or URLs fetched here.
 //! Reference validation is lexical; the serving engine owns filesystem/symlink policy.
-use image::{ImageFormat, ImageReader};
+use image::{ImageDecoder, ImageFormat, ImageReader};
 use std::{io::Cursor, sync::Arc};
 
 pub const MAX_ENCODED: usize = 4 * 1024 * 1024;
@@ -91,9 +91,16 @@ fn decode_variant(bytes: &[u8], content_type: &str, thumbnail: bool) -> Result<D
     if format != expected {
         return Err("Image signature and content type disagree.".into());
     }
-    let (width, height) = reader(bytes, format)
-        .into_dimensions()
-        .map_err(|e| e.to_string())?;
+    // Metadata is read separately so pixel decoding keeps ImageReader::decode's
+    // allocation reservation and limits, rather than bypassing them via from_decoder.
+    let (width, height, orientation) = {
+        let mut header = reader(bytes, format)
+            .into_decoder()
+            .map_err(|e| e.to_string())?;
+        let (width, height) = header.dimensions();
+        let orientation = header.orientation().map_err(|e| e.to_string())?;
+        (width, height, orientation)
+    };
     if width == 0
         || height == 0
         || width > MAX_DIMENSION
@@ -102,13 +109,15 @@ fn decode_variant(bytes: &[u8], content_type: &str, thumbnail: bool) -> Result<D
     {
         return Err("Image dimensions exceed the display limit.".into());
     }
-    let mut buffer = reader(bytes, format)
-        .decode()
-        .map_err(|e| e.to_string())?
-        .into_rgba8();
-    if buffer.dimensions() != (width, height) {
+    let mut decoded = reader(bytes, format).decode().map_err(|e| e.to_string())?;
+    if (decoded.width(), decoded.height()) != (width, height) {
         return Err("Image dimensions changed during decode.".into());
     }
+    // Orientation changes presentation, not source admission. Apply before
+    // thumbnail aspect calculations; RGBA/BGRA channel and alpha policy is unchanged.
+    decoded.apply_orientation(orientation);
+    let mut buffer = decoded.into_rgba8();
+    let (width, height) = buffer.dimensions();
     if thumbnail && (width > THUMBNAIL_WIDTH || height > THUMBNAIL_HEIGHT) {
         // Consume the full buffer here: only the bounded downsample survives into
         // RenderImage. Integer dimensions preserve aspect to pixel rounding.
@@ -188,6 +197,83 @@ pub(crate) mod tests {
             .encode(&[10, 20, 30], 1, 1, image::ExtendedColorType::Rgb8)
             .unwrap();
         assert_eq!(decode(&jpeg, "image/jpeg").unwrap().width, 1);
+    }
+    pub(crate) fn jpeg(width: u32, height: u32) -> Vec<u8> {
+        let pixels: Vec<u8> = (0..width * height)
+            .flat_map(|i| [(i * 37) as u8, (i * 53) as u8, (i * 79) as u8])
+            .collect();
+        let mut bytes = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, 100)
+            .encode(&pixels, width, height, image::ExtendedColorType::Rgb8)
+            .unwrap();
+        bytes
+    }
+    pub(crate) fn with_exif(jpeg: &[u8], orientation: u16, malformed: bool) -> Vec<u8> {
+        // JPEG APP1 contains Exif + little-endian TIFF, one SHORT orientation tag.
+        let mut payload = b"Exif\0\0II\x2a\0\x08\0\0\0\x01\0\x12\x01\x03\0\x01\0\0\0".to_vec();
+        payload.extend_from_slice(&orientation.to_le_bytes());
+        payload.extend_from_slice(&[0; 6]);
+        if malformed {
+            payload.truncate(10);
+        }
+        let mut result = jpeg[..2].to_vec();
+        result.extend_from_slice(&[0xff, 0xe1]);
+        result.extend_from_slice(&((payload.len() + 2) as u16).to_be_bytes());
+        result.extend_from_slice(&payload);
+        result.extend_from_slice(&jpeg[2..]);
+        result
+    }
+    #[test]
+    fn jpeg_exif_all_orientations_preserve_exact_decoded_pixel_mapping() {
+        let bytes = jpeg(3, 2);
+        let baseline = decode(&bytes, "image/jpeg").unwrap();
+        let pixels = baseline.image.as_bytes(0).unwrap();
+        for orientation in 1..=8 {
+            let image = decode(&with_exif(&bytes, orientation, false), "image/jpeg").unwrap();
+            let (w, h) = if orientation >= 5 { (2, 3) } else { (3, 2) };
+            assert_eq!((image.width, image.height), (w, h));
+            let mut expected = vec![0; 24];
+            for y in 0..2usize {
+                for x in 0..3usize {
+                    let (dx, dy) = match orientation {
+                        1 => (x, y),
+                        2 => (2 - x, y),
+                        3 => (2 - x, 1 - y),
+                        4 => (x, 1 - y),
+                        5 => (y, x),
+                        6 => (1 - y, x),
+                        7 => (1 - y, 2 - x),
+                        8 => (y, 2 - x),
+                        _ => unreachable!(),
+                    };
+                    let src = (y * 3 + x) * 4;
+                    let dest = (dy * w as usize + dx) * 4;
+                    expected[dest..dest + 4].copy_from_slice(&pixels[src..src + 4]);
+                }
+            }
+            assert_eq!(
+                image.image.as_bytes(0).unwrap(),
+                expected.as_slice(),
+                "orientation {orientation}"
+            );
+        }
+        for (orientation, malformed) in [(0, false), (9, false), (6, true)] {
+            let image = decode(&with_exif(&bytes, orientation, malformed), "image/jpeg").unwrap();
+            assert_eq!((image.width, image.height), (3, 2));
+            assert_eq!(image.image.as_bytes(0).unwrap(), pixels);
+        }
+    }
+    #[test]
+    fn jpeg_orientation_precedes_thumbnail_geometry() {
+        let bytes = jpeg(640, 360);
+        let plain = decode_thumbnail(&bytes, "image/jpeg").unwrap();
+        assert_eq!((plain.width, plain.height), (320, 180));
+        for orientation in 5..=8 {
+            let image =
+                decode_thumbnail(&with_exif(&bytes, orientation, false), "image/jpeg").unwrap();
+            assert_eq!((image.width, image.height), (101, 180));
+            assert!(image.byte_len() <= MAX_THUMBNAIL_BYTES);
+        }
     }
     #[test]
     fn raster_limits_reject_wrong_format_corruption_and_large_dimensions() {
