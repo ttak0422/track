@@ -158,7 +158,17 @@ func manifestChild(t *testing.T, f manifestProcessFixture, request manifestProce
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.CommandContext(ctx, exe, "-test.run=^TestReadOnlyLaunchManifestProcess$", "-test.count=1")
+	args := []string{"-test.run=^TestReadOnlyLaunchManifestProcess$", "-test.count=1"}
+	coverageDir := ""
+	if testing.CoverMode() != "" {
+		// The coverage test runner otherwise creates/removes gocoverdir under
+		// TMPDIR during teardown, changing the audited private-root mtime.
+		// Redirect only runner output; helper TMPDIR and every sentinel remain
+		// unchanged. A sibling t.TempDir is outside the complete fixture tree.
+		coverageDir = t.TempDir()
+		args = append(args, "-test.gocoverdir="+coverageDir)
+	}
+	cmd := exec.CommandContext(ctx, exe, args...)
 	cmd.Dir = f.cwd
 	// Each worker sees one explicit context, never an inherited registry/default.
 	cmd.Env = []string{"PATH=/usr/bin:/bin", manifestProcessMarker + "=1", "HOME=" + f.home, "XDG_CONFIG_HOME=" + f.home, "XDG_CACHE_HOME=" + f.xdg, "TMPDIR=" + f.private, "TRACK_CONFIG=" + f.machine}
@@ -201,6 +211,16 @@ func manifestChild(t *testing.T, f manifestProcessFixture, request manifestProce
 	assertManifestInventory(t, f.root, before)
 	if err != nil {
 		t.Fatalf("manifest subprocess: %v\n%s", err, out)
+	}
+	if coverageDir != "" {
+		// Exercise the coverage-specific path rather than silently disabling
+		// instrumentation or accepting a runner that produced no artifacts.
+		for _, pattern := range []string{"covmeta.*", "covcounters.*"} {
+			files, globErr := filepath.Glob(filepath.Join(coverageDir, pattern))
+			if globErr != nil || len(files) == 0 {
+				t.Fatalf("missing subprocess coverage artifacts %s: %v", pattern, globErr)
+			}
+		}
 	}
 	var result manifestProcessResult
 	found := false

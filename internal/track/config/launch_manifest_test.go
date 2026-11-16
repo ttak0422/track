@@ -17,13 +17,21 @@ type manifestFixture struct{ root, home, main, work, normal, private, config str
 
 func newManifestFixture(t *testing.T) manifestFixture {
 	t.Helper()
+	return newManifestFixtureAt(t, t.TempDir())
+}
+func newManifestFixtureAt(t *testing.T, root string) manifestFixture {
+	t.Helper()
+	var err error
+	root, err = filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, kv := range os.Environ() {
 		key, _, _ := strings.Cut(kv, "=")
 		if strings.HasPrefix(key, "TRACK_") {
 			t.Setenv(key, "")
 		}
 	}
-	root := t.TempDir()
 	f := manifestFixture{root: root, home: filepath.Join(root, "home"), main: filepath.Join(root, "main"), work: filepath.Join(root, "work"), normal: filepath.Join(root, "normal"), private: filepath.Join(root, "private"), config: filepath.Join(root, "machine.yml")}
 	for _, p := range []string{f.home, filepath.Join(f.main, ".track"), filepath.Join(f.work, ".track"), f.normal, f.private} {
 		if err := os.MkdirAll(p, 0700); err != nil {
@@ -244,4 +252,21 @@ func TestLaunchManifestOriginalRegistryMappingCannotDrift(t *testing.T) {
 	if _, _, e = manifestDeclaredRoot("work", registry["work"], names, true); !errors.Is(e, ErrLaunchManifestChanged) {
 		t.Fatalf("unmapped root accepted: %v", e)
 	}
+}
+
+func TestLaunchManifestFixtureCanonicalizesTemporaryAlias(t *testing.T) {
+	root := t.TempDir()
+	alias := filepath.Join(t.TempDir(), "temporary-alias")
+	if err := os.Symlink(root, alias); err != nil {
+		t.Fatal(err)
+	}
+	f := newManifestFixtureAt(t, alias)
+	canonical, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.root != canonical {
+		t.Fatalf("fixture root %q, want %q", f.root, canonical)
+	}
+	f.resolve(t, LaunchSelector{Name: "work"})
 }
