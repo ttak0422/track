@@ -1,0 +1,711 @@
+//! Test-only v2 integration. Never an ordinary launch proof or UI route.
+//! The independently generated fixture remains the authority; the manifest is a
+//! bounded observation correlated with a separately owned serving process.
+use super::*;
+use std::os::fd::AsRawFd;
+use std::os::unix::process::CommandExt;
+
+const MANIFEST_LIMIT: usize = 128 * 1024;
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Manifest {
+    version: u32,
+    selector: Selector,
+    private_root: PathBuf,
+    private_mode: u32,
+    private_identity: String,
+    context: ResolutionContext,
+    active: ManifestVault,
+    peers: Vec<ManifestVault>,
+    configurations: Vec<Provenance>,
+    revision: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Selector {
+    name: String,
+    path: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ResolutionContext {
+    home: PathBuf,
+    cwd: PathBuf,
+    xdg_cache_home: PathBuf,
+    xdg_config_home: PathBuf,
+    environment_revision: String,
+}
+#[derive(Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+struct ManifestVault {
+    name: String,
+    display_path: PathBuf,
+    canonical_path: PathBuf,
+    root_identity: String,
+    ordinary_db: PathBuf,
+    resolved_ordinary_db: PathBuf,
+    ordinary_anchor: PathBuf,
+    ordinary_identity: String,
+    private_db: PathBuf,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Provenance {
+    path: PathBuf,
+    canonical_path: PathBuf,
+    present: bool,
+    identity: String,
+    size: i64,
+    mode: u32,
+    modified_ns: i64,
+    sha256: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Capability {
+    protocol: String,
+    version: u32,
+    canonical_read_only: bool,
+    manifest_revision: String,
+    process_nonce: String,
+}
+fn digest(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+fn identity(value: &str) -> bool {
+    !value.is_empty() && value.len() <= 256 && !value.chars().any(char::is_control)
+}
+fn cache_path(path: &std::path::Path, root: &std::path::Path) -> bool {
+    let Some(file) = path.file_name().and_then(|v| v.to_str()) else {
+        return false;
+    };
+    let Some(version) = file
+        .strip_prefix("index-v")
+        .and_then(|v| v.strip_suffix(".db"))
+    else {
+        return false;
+    };
+    let Some(key) = path
+        .parent()
+        .and_then(|p| p.file_name())
+        .and_then(|v| v.to_str())
+    else {
+        return false;
+    };
+    !version.is_empty()
+        && version.bytes().all(|b| b.is_ascii_digit())
+        && key.len() == 16
+        && key
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        && path.as_os_str() == root.join(key).join(file).as_os_str()
+}
+fn invalid() -> Error {
+    Error::Shape("Invalid synthetic bound-startup contract".into())
+}
+
+pub(super) struct SyntheticBound {
+    pub(super) proof: read_inputs::SyntheticCanonical,
+    root: PathBuf,
+    nonce: String,
+    revision: Option<String>,
+}
+impl SyntheticBound {
+    fn new(proof: read_inputs::SyntheticCanonical, root: PathBuf) -> Result<Self, Error> {
+        let mut entropy = [0; 32];
+        std::fs::File::open("/dev/urandom")?.read_exact(&mut entropy)?;
+        let result = Self {
+            proof,
+            root,
+            nonce: entropy.iter().map(|b| format!("{b:02x}")).collect(),
+            revision: None,
+        };
+        result.verify()?;
+        Ok(result)
+    }
+    pub(super) fn verify(&self) -> Result<(), Error> {
+        self.proof.verify().map_err(Error::Config)?;
+        let launch = self.proof.launch();
+        if launch.config != Some(self.root.join("config"))
+            || launch.cache != Some(self.root.join("private"))
+            || !matches!(launch.vault, Vault::Registered(ref name) if name == "work")
+        {
+            return Err(invalid());
+        }
+        Ok(())
+    }
+    pub(super) fn configure(&self, command: &mut Command) -> Result<(), Error> {
+        self.verify()?;
+        let mut source = Command::new(command.get_program());
+        self.proof.configure(&mut source).map_err(Error::Config)?;
+        command
+            .env_clear()
+            .current_dir(source.get_current_dir().ok_or_else(invalid)?);
+        for (key, value) in source.get_envs() {
+            if let Some(value) = value {
+                command.env(key, value);
+            }
+        }
+        command
+            .arg("-test.run=^TestNativeBoundFixtureBridge$")
+            .env("GO_TRACK_BOUND_MODE", "serve")
+            .env("GO_TRACK_BOUND_ROOT", &self.root)
+            .env("GO_TRACK_BOUND_SELECTED", "work")
+            .env("GO_TRACK_BOUND_NONCE", &self.nonce)
+            .env(
+                "GO_TRACK_BOUND_ADDR",
+                format!("127.0.0.1:{}", self.proof.launch().port),
+            );
+        Ok(())
+    }
+    pub(super) fn capture(
+        &mut self,
+        command: &mut Command,
+        timeout: Duration,
+        canceled: &AtomicBool,
+    ) -> Result<(), Error> {
+        let mut capture = Command::new(command.get_program());
+        capture
+            .args(command.get_args())
+            .env_clear()
+            .current_dir(command.get_current_dir().ok_or_else(invalid)?);
+        for (key, value) in command.get_envs() {
+            if let Some(value) = value {
+                capture.env(key, value);
+            }
+        }
+        capture
+            .env("GO_TRACK_BOUND_MODE", "capture")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .process_group(0);
+        let bytes = capture_bytes(&mut capture, timeout.min(Duration::from_secs(10)), canceled)?;
+        let text = std::str::from_utf8(&bytes).map_err(|_| invalid())?;
+        let mut lines = text
+            .lines()
+            .filter_map(|line| line.strip_prefix("TRACK_BOUND_MANIFEST:"));
+        let raw = lines.next().ok_or_else(invalid)?;
+        if lines.next().is_some() {
+            return Err(invalid());
+        }
+        let manifest: Manifest = serde_json::from_str(raw).map_err(|_| invalid())?;
+        self.validate_manifest(&manifest)?;
+        self.proof.verify_bindings().map_err(Error::Config)?;
+        command.env("GO_TRACK_BOUND_REVISION", &manifest.revision);
+        self.revision = Some(manifest.revision);
+        Ok(())
+    }
+    fn validate_manifest(&self, m: &Manifest) -> Result<(), Error> {
+        if m.version != 1
+            || !digest(&m.revision)
+            || m.selector.name != "work"
+            || !m.selector.path.is_empty()
+            || m.private_root != self.root.join("private")
+            || m.private_mode != ((1 << 31) | 0o700)
+            || !identity(&m.private_identity)
+            || m.context.home != self.root.join("home")
+            || m.context.cwd != self.root.join("cwd")
+            || m.context.xdg_cache_home != self.root.join("xdg")
+            || m.context.xdg_config_home != self.root.join("private")
+            || !digest(&m.context.environment_revision)
+            || m.peers.len() != 2
+            || m.configurations.len() != 3
+        {
+            return Err(invalid());
+        }
+        let mut names = std::collections::BTreeSet::new();
+        for v in &m.peers {
+            if !cache_path(&v.ordinary_db, &self.root.join("home/normal"))
+                || !cache_path(
+                    &v.private_db,
+                    &self.root.join("private/canonical-read-only-v1"),
+                )
+                || !matches!(v.name.as_str(), "main" | "work")
+                || !names.insert(&v.name)
+                || v.display_path != self.root.join("home").join(&v.name)
+                || v.canonical_path != v.display_path
+                || !identity(&v.root_identity)
+                || !identity(&v.ordinary_identity)
+                || v.ordinary_db != v.resolved_ordinary_db
+                || v.ordinary_anchor != self.root.join("home/normal")
+                || v.ordinary_db.parent().and_then(|p| p.parent())
+                    != Some(self.root.join("home/normal").as_path())
+                || v.private_db.parent().and_then(|p| p.parent())
+                    != Some(self.root.join("private/canonical-read-only-v1").as_path())
+                || v.ordinary_db.file_name() != v.private_db.file_name()
+                || v.ordinary_db.parent().and_then(|p| p.file_name())
+                    != v.private_db.parent().and_then(|p| p.file_name())
+            {
+                return Err(invalid());
+            }
+        }
+        if m.peers.iter().find(|v| v.name == "work") != Some(&m.active) {
+            return Err(invalid());
+        }
+        let expected = std::collections::BTreeSet::from([
+            self.root.join("config"),
+            self.root.join("home/main/.track/config.yml"),
+            self.root.join("home/work/.track/config.yml"),
+        ]);
+        let mut seen = std::collections::BTreeSet::new();
+        for p in &m.configurations {
+            if !expected.contains(&p.path)
+                || !seen.insert(p.path.clone())
+                || p.canonical_path != p.path
+                || !p.present
+                || !identity(&p.identity)
+                || !(0..=1024 * 1024).contains(&p.size)
+                || p.mode & !0o777 != 0
+                || p.modified_ns <= 0
+                || !digest(&p.sha256)
+            {
+                return Err(invalid());
+            }
+        }
+        Ok(())
+    }
+    pub(super) fn capability(&self, client: &ReadClient, timeout: Duration) -> Result<(), Error> {
+        if !client.is_alive() {
+            return Err(Error::Stale);
+        }
+        let mut response = client
+            .http
+            .get(format!("{}/api/capabilities", client.origin))
+            .header("Cache-Control", "no-cache, no-store")
+            .timeout(timeout)
+            .send()
+            .map_err(|e| Error::Transport(e.to_string()))?;
+        if response.status().as_u16() != 200
+            || !response
+                .headers()
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.split(';').next())
+                .is_some_and(|v| v.trim().eq_ignore_ascii_case("application/json"))
+        {
+            return Err(invalid());
+        }
+        let mut bytes = Vec::new();
+        (&mut response).take(4097).read_to_end(&mut bytes)?;
+        if bytes.len() > 4096 {
+            return Err(Error::Oversized);
+        }
+        if !client.is_alive() {
+            return Err(Error::Stale);
+        }
+        self.validate_capability(&bytes)
+    }
+    fn validate_capability(&self, bytes: &[u8]) -> Result<(), Error> {
+        let c: Capability = serde_json::from_slice(bytes).map_err(|_| invalid())?;
+        if c.protocol != "track-canonical-read-only"
+            || c.version != 2
+            || !c.canonical_read_only
+            || self.revision.as_ref() != Some(&c.manifest_revision)
+            || c.process_nonce != self.nonce
+        {
+            return Err(invalid());
+        }
+        Ok(())
+    }
+    pub(super) fn registry(&self, value: &Value) -> Result<bool, Error> {
+        self.proof.verify_registry(value).map_err(Error::Config)
+    }
+}
+
+// Nonblocking pipe avoids joining a reader held open by a descendant. Capture is
+// an owned process group and is killed/reaped on cancellation, overflow or error.
+fn capture_bytes(
+    command: &mut Command,
+    timeout: Duration,
+    canceled: &AtomicBool,
+) -> Result<Vec<u8>, Error> {
+    if canceled.load(Ordering::Acquire) {
+        return Err(Error::Stale);
+    }
+    let mut child = command.spawn()?;
+    let outcome = (|| {
+        let mut out = child.stdout.take().ok_or_else(invalid)?;
+        let fd = out.as_raw_fd();
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+        if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+            return Err(Error::Io(std::io::Error::last_os_error()));
+        }
+        let deadline = Instant::now() + timeout;
+        let mut bytes = Vec::new();
+        loop {
+            if canceled.load(Ordering::Acquire) {
+                return Err(Error::Stale);
+            }
+            if Instant::now() >= deadline {
+                return Err(Error::Startup("Manifest capture timed out".into()));
+            }
+            let mut chunk = [0u8; 4096];
+            match out.read(&mut chunk) {
+                Ok(n) => {
+                    bytes.extend_from_slice(&chunk[..n]);
+                    if bytes.len() > MANIFEST_LIMIT {
+                        return Err(Error::Oversized);
+                    }
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+                Err(e) => return Err(Error::Io(e)),
+            }
+            if capture_exited(&child)? {
+                // Drain only bytes currently available; never wait on inherited pipes.
+                loop {
+                    match out.read(&mut chunk) {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            bytes.extend_from_slice(&chunk[..n]);
+                            if bytes.len() > MANIFEST_LIMIT {
+                                return Err(Error::Oversized);
+                            }
+                        }
+                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                            return Err(invalid());
+                        }
+                        Err(e) => return Err(Error::Io(e)),
+                    }
+                }
+                return Ok(bytes);
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+    })();
+    // WNOWAIT retained the leader PID, so this group cannot have been recycled.
+    // Kill remaining descendants even if the leader has already exited.
+    unsafe {
+        libc::kill(-(child.id() as i32), libc::SIGKILL);
+    }
+    let status = child.wait()?;
+    if outcome.is_ok() && !status.success() {
+        return Err(invalid());
+    }
+    outcome
+}
+fn capture_exited(child: &Child) -> Result<bool, Error> {
+    let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+    let result = unsafe {
+        libc::waitid(
+            libc::P_PID,
+            child.id() as libc::id_t,
+            &mut info,
+            libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+        )
+    };
+    if result != 0 {
+        return Err(Error::Io(std::io::Error::last_os_error()));
+    }
+    Ok(unsafe { info.si_pid() } == child.id() as i32)
+}
+
+#[test]
+fn bound_capability_requires_exact_version_nonce_and_revision() {
+    let (fixture, proof) = admission_process_tests::fixture(&std::env::current_exe().unwrap());
+    let mut bound = SyntheticBound::new(proof, fixture.0.clone()).unwrap();
+    bound.revision = Some("a".repeat(64));
+    let good = serde_json::json!({"protocol":"track-canonical-read-only","version":2,
+        "canonical_read_only":true,"manifest_revision":"a".repeat(64),"process_nonce":bound.nonce});
+    assert!(
+        bound
+            .validate_capability(&serde_json::to_vec(&good).unwrap())
+            .is_ok()
+    );
+    for (key, value) in [
+        ("version", serde_json::json!(1)),
+        ("canonical_read_only", serde_json::json!(false)),
+        ("manifest_revision", serde_json::json!("b".repeat(64))),
+        ("process_nonce", serde_json::json!("other")),
+        ("protocol", serde_json::json!("other")),
+        ("unknown", serde_json::json!(true)),
+    ] {
+        let mut bad = good.clone();
+        bad[key] = value;
+        assert!(
+            bound
+                .validate_capability(&serde_json::to_vec(&bad).unwrap())
+                .is_err()
+        );
+    }
+    let raw = serde_json::to_string(&good).unwrap();
+    let duplicate = format!("{{\"version\":2,{}", &raw[1..]);
+    assert!(bound.validate_capability(duplicate.as_bytes()).is_err());
+    assert!(OwnedServer::start(bound.proof.launch()).is_err());
+}
+
+#[test]
+fn capture_is_bounded_and_cancelable() {
+    let run = |script: &str, timeout, canceled: &AtomicBool| {
+        let mut command = Command::new("/bin/sh");
+        command
+            .args(["-c", script])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .process_group(0);
+        capture_bytes(&mut command, timeout, canceled)
+    };
+    assert_eq!(
+        run(
+            "printf marker",
+            Duration::from_secs(2),
+            &AtomicBool::new(false)
+        )
+        .unwrap(),
+        b"marker"
+    );
+    assert!(matches!(
+        run(
+            "exec sleep 3",
+            Duration::from_millis(20),
+            &AtomicBool::new(false)
+        ),
+        Err(Error::Startup(_))
+    ));
+    assert!(matches!(
+        run("exit 0", Duration::from_secs(2), &AtomicBool::new(true)),
+        Err(Error::Stale)
+    ));
+    assert!(matches!(
+        run(
+            "head -c 131073 /dev/zero",
+            Duration::from_secs(2),
+            &AtomicBool::new(false)
+        ),
+        Err(Error::Oversized)
+    ));
+}
+
+#[test]
+#[ignore = "explicit test-only Go bridge binary and synthetic-only opt-in"]
+fn synthetic_bound_manifest_owns_reads_and_latches_drift() {
+    assert_eq!(
+        std::env::var("TRACK_NATIVE_TEST_SYNTHETIC_ONLY").as_deref(),
+        Ok("1")
+    );
+    let binary = PathBuf::from(
+        std::env::var_os("TRACK_NATIVE_BOUND_TEST_BINARY").expect("explicit test bridge"),
+    );
+    assert!(binary.is_absolute());
+    let (fixture, proof) = admission_process_tests::fixture(&binary);
+    let before = admission_process_tests::protected_inventory(&fixture.0);
+    let bound = SyntheticBound::new(proof, fixture.0.clone()).unwrap();
+    let mut owner = OwnedServer::start_admitted(
+        bound.proof.launch(),
+        &AtomicBool::new(false),
+        StartupAdmission::SyntheticBound(bound),
+    )
+    .unwrap();
+    assert_eq!(owner.initial_vaults["active"]["name"], "work");
+    let client = owner.client();
+    for (name, label) in [("main", "Active"), ("work", "Foreign")] {
+        let key = NoteKey {
+            vault: name.into(),
+            note_id: 42,
+        };
+        let response = client.note(&key).unwrap();
+        assert_eq!(response.note.body, format!("{label} sentinel body"));
+        let state = client.storage().unwrap();
+        assert!(matches!(
+            client.save(&SaveRequest {
+                key,
+                body: "not saved".into(),
+                etag: response.note.etag,
+                launch_generation: client.launch_generation,
+                storage_generation: state.generation
+            }),
+            Err(Error::SaveNotSent(_))
+        ));
+    }
+    // The finite v2 client does not start the ordinary SSE subscriber.
+    let events = client
+        .http
+        .get(format!("{}/api/events", client.origin))
+        .send()
+        .unwrap();
+    assert_eq!(events.status().as_u16(), 403);
+    assert_eq!(
+        before,
+        admission_process_tests::protected_inventory(&fixture.0)
+    );
+    let path = fixture.0.join("config");
+    let original = std::fs::read(&path).unwrap();
+    let mut changed = original.clone();
+    changed.extend_from_slice(b"\n");
+    std::fs::write(&path, &changed).unwrap();
+    assert!(matches!(
+        client.get::<Value>("/api/capabilities", &[]),
+        Err(Error::Http { status: 503, .. })
+    ));
+    std::fs::write(&path, &original).unwrap();
+    assert!(matches!(
+        client.get::<Value>("/api/capabilities", &[]),
+        Err(Error::Http { status: 503, .. })
+    ));
+    // Ignore only the test's deliberate config metadata change, not other paths.
+    let mut after = admission_process_tests::protected_inventory(&fixture.0);
+    let mut expected = before;
+    assert_eq!(
+        after[std::path::Path::new("config")].4,
+        expected[std::path::Path::new("config")].4
+    );
+    after.remove(std::path::Path::new("config"));
+    expected.remove(std::path::Path::new("config"));
+    assert_eq!(after, expected);
+    let before_shutdown = admission_process_tests::protected_inventory(&fixture.0);
+    owner.shutdown().unwrap();
+    assert!(!client.is_alive());
+    assert_eq!(
+        before_shutdown,
+        admission_process_tests::protected_inventory(&fixture.0)
+    );
+}
+
+#[test]
+fn capture_reaps_leader_and_stops_descendants_before_returning() {
+    for pipe in ["", ">/dev/null 2>&1"] {
+        let root = std::env::temp_dir().join(format!(
+            "track-capture-child-{}-{}",
+            std::process::id(),
+            NEXT_LAUNCH.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let marker = root.join("escaped");
+        let mut command = Command::new("/bin/sh");
+        command
+            .args([
+                "-c",
+                &format!("(sleep 1; printf escaped > \"$1\") {pipe} & printf marker"),
+                "fixture",
+            ])
+            .arg(&marker)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .process_group(0);
+        let start = Instant::now();
+        let result = capture_bytes(
+            &mut command,
+            Duration::from_secs(2),
+            &AtomicBool::new(false),
+        );
+        assert!(start.elapsed() < Duration::from_secs(1));
+        if pipe.is_empty() {
+            assert!(result.is_err());
+        } else {
+            assert_eq!(result.unwrap(), b"marker");
+        }
+        thread::sleep(Duration::from_millis(1200));
+        assert!(!marker.exists(), "descendant escaped owned capture cleanup");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
+fn bound_manifest_checks_independent_fixture_shape() {
+    let (fixture, proof) = admission_process_tests::fixture(&std::env::current_exe().unwrap());
+    let bound = SyntheticBound::new(proof, fixture.0.clone()).unwrap();
+    let root = &fixture.0;
+    let peer = |name: &str| {
+        serde_json::json!({"name":name,"display_path":root.join("home").join(name),
+        "canonical_path":root.join("home").join(name),"root_identity":"1:2","ordinary_identity":"1:3",
+        "ordinary_db":root.join("home/normal/0123456789abcdef/index-v11.db"),
+        "resolved_ordinary_db":root.join("home/normal/0123456789abcdef/index-v11.db"),
+        "ordinary_anchor":root.join("home/normal"),"private_db":root.join("private/canonical-read-only-v1/0123456789abcdef/index-v11.db")})
+    };
+    let configs: Vec<_> = [
+        "config",
+        "home/main/.track/config.yml",
+        "home/work/.track/config.yml",
+    ]
+    .into_iter()
+    .map(|rel| {
+        serde_json::json!({"path":root.join(rel),"canonical_path":root.join(rel),"present":true,
+            "identity":"1:4","size":10,"mode":0o600,"modified_ns":1,"sha256":"a".repeat(64)})
+    })
+    .collect();
+    let good = serde_json::json!({"version":1,"selector":{"name":"work","path":""},
+        "private_root":root.join("private"),"private_mode":(1u32<<31)|0o700,"private_identity":"1:1",
+        "context":{"home":root.join("home"),"cwd":root.join("cwd"),"xdg_cache_home":root.join("xdg"),
+            "xdg_config_home":root.join("private"),"environment_revision":"a".repeat(64)},
+        "active":peer("work"),"peers":[peer("main"),peer("work")],"configurations":configs,"revision":"b".repeat(64)});
+    let validate = |value: Value| -> Result<(), Error> {
+        let typed: Manifest =
+            serde_json::from_slice(&serde_json::to_vec(&value).unwrap()).map_err(|_| invalid())?;
+        bound.validate_manifest(&typed)
+    };
+    assert!(validate(good.clone()).is_ok());
+    for (pointer, value) in [
+        ("/selector/name", serde_json::json!("main")),
+        ("/private_root", serde_json::json!("/outside")),
+        ("/private_mode", serde_json::json!((1u32 << 31) | 0o755)),
+        ("/context/home", serde_json::json!("/outside")),
+        ("/active/name", serde_json::json!("main")),
+        ("/peers/0/name", serde_json::json!("work")),
+        ("/configurations/0/present", serde_json::json!(false)),
+        ("/configurations/0/path", serde_json::json!("/outside")),
+    ] {
+        let mut bad = good.clone();
+        *bad.pointer_mut(pointer).unwrap() = value;
+        assert!(validate(bad).is_err(), "{pointer}");
+    }
+    let mut bad = good.clone();
+    bad["peers"][0]["ordinary_db"] = serde_json::json!(root.join("home/normal/../index-v11.db"));
+    bad["peers"][0]["resolved_ordinary_db"] = bad["peers"][0]["ordinary_db"].clone();
+    bad["peers"][0]["private_db"] =
+        serde_json::json!(root.join("private/canonical-read-only-v1/../index-v11.db"));
+    assert!(validate(bad).is_err());
+    let mut unknown = good;
+    unknown["extra"] = serde_json::json!(true);
+    assert!(validate(unknown).is_err());
+}
+
+#[test]
+#[ignore = "explicit test-only Go bridge binary and synthetic-only opt-in"]
+fn synthetic_bound_wrong_revision_exits_without_cache_or_note_writes() {
+    assert_eq!(
+        std::env::var("TRACK_NATIVE_TEST_SYNTHETIC_ONLY").as_deref(),
+        Ok("1")
+    );
+    let binary = PathBuf::from(
+        std::env::var_os("TRACK_NATIVE_BOUND_TEST_BINARY").expect("explicit test bridge"),
+    );
+    assert!(binary.is_absolute());
+    let (fixture, proof) = admission_process_tests::fixture(&binary);
+    let before = admission_process_tests::protected_inventory(&fixture.0);
+    let mut bound = SyntheticBound::new(proof, fixture.0.clone()).unwrap();
+    let mut cmd = Command::new(binary);
+    bound.configure(&mut cmd).unwrap();
+    cmd.env(
+        "TRACK_WEB_DESKTOP_PARENT_PID",
+        std::process::id().to_string(),
+    )
+    .env("TRACK_WEB_DESKTOP_READY_TOKEN", "c".repeat(64));
+    bound
+        .capture(&mut cmd, Duration::from_secs(5), &AtomicBool::new(false))
+        .unwrap();
+    assert_eq!(
+        std::fs::read_dir(fixture.0.join("private"))
+            .unwrap()
+            .count(),
+        0
+    );
+    cmd.env("GO_TRACK_BOUND_REVISION", "0".repeat(64))
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .process_group(0);
+    assert!(capture_bytes(&mut cmd, Duration::from_secs(5), &AtomicBool::new(false)).is_err());
+    assert_eq!(
+        std::fs::read_dir(fixture.0.join("private"))
+            .unwrap()
+            .count(),
+        0
+    );
+    assert_eq!(
+        before,
+        admission_process_tests::protected_inventory(&fixture.0)
+    );
+}

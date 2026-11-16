@@ -2838,6 +2838,8 @@ enum StartupAdmission {
     Fixture,
     #[cfg(test)]
     SyntheticCanonical(read_inputs::SyntheticCanonical),
+    #[cfg(test)]
+    SyntheticBound(bound_fixture::SyntheticBound),
 }
 impl StartupAdmission {
     fn verify(&self, config: &LaunchConfig) -> Result<(), Error> {
@@ -2845,6 +2847,8 @@ impl StartupAdmission {
             Self::Fixture => config.read_fixture.as_ref().ok_or_else(|| Error::Config("Ordinary vault launch remains disabled pending native verification. Use synthetic/JSON input or an explicitly verified disposable fixture.".into()))?.verify_launch(config).map_err(Error::Config),
             #[cfg(test)]
             Self::SyntheticCanonical(proof) => proof.verify().map_err(Error::Config),
+            #[cfg(test)]
+            Self::SyntheticBound(proof) => proof.verify(),
         }
     }
 }
@@ -2875,7 +2879,7 @@ impl OwnedServer {
     fn start_admitted(
         config: LaunchConfig,
         canceled: &AtomicBool,
-        admission: StartupAdmission,
+        #[allow(unused_mut)] mut admission: StartupAdmission,
     ) -> Result<Self, Error> {
         config.validate()?;
         if canceled.load(Ordering::Acquire) {
@@ -2947,6 +2951,8 @@ impl OwnedServer {
             StartupAdmission::SyntheticCanonical(proof) => {
                 proof.configure(&mut cmd).map_err(Error::Config)?
             }
+            #[cfg(test)]
+            StartupAdmission::SyntheticBound(proof) => proof.configure(&mut cmd)?,
         }
         cmd.env(
             "TRACK_WEB_DESKTOP_PARENT_PID",
@@ -2960,6 +2966,10 @@ impl OwnedServer {
             fixture.verify_launch(&config).map_err(Error::Config)?;
         }
         admission.verify(&config)?;
+        #[cfg(test)]
+        if let StartupAdmission::SyntheticBound(proof) = &mut admission {
+            proof.capture(&mut cmd, config.startup_timeout, canceled)?;
+        }
         drop((first, second));
         let mut child = cmd.spawn()?;
         let logs = Arc::new(Mutex::new(VecDeque::new()));
@@ -3001,6 +3011,14 @@ impl OwnedServer {
                         .max(Duration::from_millis(1))
                         .min(config.request_timeout)
                         .min(Duration::from_secs(3));
+                    #[cfg(test)]
+                    let result = match &admission {
+                        StartupAdmission::SyntheticBound(proof) => {
+                            proof.capability(&owner.client, timeout)
+                        }
+                        _ => owner.client.require_canonical_capability(timeout),
+                    };
+                    #[cfg(not(test))]
                     let result = owner.client.require_canonical_capability(timeout);
                     if canceled.load(Ordering::Acquire) {
                         owner.shutdown()?;
@@ -3022,31 +3040,33 @@ impl OwnedServer {
                     capability_verified = true;
                 }
                 #[cfg(test)]
-                let admission_generation =
-                    if matches!(&admission, StartupAdmission::SyntheticCanonical(_)) {
-                        let state: Result<Storage, Error> = owner.client.get_with_timeout(
-                            "/api/storage",
-                            &[],
-                            Some(
-                                config
-                                    .startup_timeout
-                                    .saturating_sub(start.elapsed())
-                                    .max(Duration::from_millis(1))
-                                    .min(config.request_timeout),
-                            ),
-                        );
-                        match state {
-                            Ok(state) if state.phase == "ready" && !state.read_only => {
-                                Some(state.generation)
-                            }
-                            _ => {
-                                thread::sleep(Duration::from_millis(20));
-                                continue;
-                            }
+                let admission_generation = if matches!(
+                    &admission,
+                    StartupAdmission::SyntheticCanonical(_) | StartupAdmission::SyntheticBound(_)
+                ) {
+                    let state: Result<Storage, Error> = owner.client.get_with_timeout(
+                        "/api/storage",
+                        &[],
+                        Some(
+                            config
+                                .startup_timeout
+                                .saturating_sub(start.elapsed())
+                                .max(Duration::from_millis(1))
+                                .min(config.request_timeout),
+                        ),
+                    );
+                    match state {
+                        Ok(state) if state.phase == "ready" && !state.read_only => {
+                            Some(state.generation)
                         }
-                    } else {
-                        None
-                    };
+                        _ => {
+                            thread::sleep(Duration::from_millis(20));
+                            continue;
+                        }
+                    }
+                } else {
+                    None
+                };
                 match owner.client.vaults_with_timeout(Some(
                     config
                         .startup_timeout
@@ -3075,6 +3095,24 @@ impl OwnedServer {
                         #[cfg(test)]
                         if let StartupAdmission::SyntheticCanonical(proof) = &admission {
                             if let Err(error) = proof.verify_bindings() {
+                                let _ = owner.shutdown();
+                                return Err(Error::Config(error));
+                            }
+                        }
+                        #[cfg(test)]
+                        if let StartupAdmission::SyntheticBound(proof) = &admission {
+                            match proof.registry(&v) {
+                                Ok(true) => {}
+                                Ok(false) => {
+                                    thread::sleep(Duration::from_millis(20));
+                                    continue;
+                                }
+                                Err(error) => {
+                                    owner.shutdown()?;
+                                    return Err(error);
+                                }
+                            }
+                            if let Err(error) = proof.proof.verify_bindings() {
                                 let _ = owner.shutdown();
                                 return Err(Error::Config(error));
                             }
@@ -7427,3 +7465,7 @@ mod admission_process_tests;
 
 #[path = "live_registry.rs"]
 mod registry_contract;
+
+#[cfg(test)]
+#[path = "live_bound_fixture.rs"]
+mod bound_fixture;

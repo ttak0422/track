@@ -42,16 +42,16 @@ fn inventory_skipping(root: &Path, excluded: Option<&Path>) -> Inventory {
     }
     result
 }
-fn protected_inventory(root: &Path) -> Inventory {
+pub(super) fn protected_inventory(root: &Path) -> Inventory {
     inventory_skipping(root, Some(&root.join("private")))
 }
-struct Fixture(PathBuf);
+pub(super) struct Fixture(pub(super) PathBuf);
 impl Drop for Fixture {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
-fn fixture(binary: &Path) -> (Fixture, SyntheticCanonical) {
+pub(super) fn fixture(binary: &Path) -> (Fixture, SyntheticCanonical) {
     let root = std::env::temp_dir().canonicalize().unwrap().join(format!(
         "track-native-registry-{}-{}",
         std::process::id(),

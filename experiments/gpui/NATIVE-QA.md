@@ -1898,3 +1898,12 @@ high-DPI rendering and native pointer/scroll behavior remain unverified. Full
 GPUI compilation remains blocked in the cloud Linux dependency chain; no macOS
 build or help-site build was run for this increment. Normal vault editing remains
 disabled. This is not complete Mermaid compatibility or web interaction parity.
+
+## Test-only manifest-bound transport
+
+[BOUND-STARTUP.md](qa/BOUND-STARTUP.md) describes the reproducible Linux/macOS
+transport harness and synthetic Go test-binary bridge. It tests v2 correlation,
+owned startup/cleanup, finite reads and sticky invalidation without enabling an
+ordinary-vault path. The harness's image carrier is a stub, so this is neither a
+full GPUI build nor native UI/IME/clipboard acceptance. Production v1 and the
+ordinary-launch gate remain unchanged.
