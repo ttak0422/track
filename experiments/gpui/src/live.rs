@@ -7424,3 +7424,6 @@ mod read_inputs;
 #[cfg(test)]
 #[path = "live_admission_process.rs"]
 mod admission_process_tests;
+
+#[path = "live_registry.rs"]
+mod registry_contract;

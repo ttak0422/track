@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Synthetic engine admission matrix; DOES NOT enable ordinary native admission."""
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -191,6 +192,68 @@ def rejected(binary, base, kind):
         assert not (base / 'missing').exists(), 'unavailable peer created during shutdown'
 
 
+def changed_peer_retry(binary, base):
+    f = shaped_fixture(base)
+    before = inventory(f.paths)
+    s = Server(binary, f)
+    try:
+        wait_for(s.ready, 'startup before peer registry replacement')
+        for name, folder in [('main', 'active'), ('work', 'peer')]:
+            wait_for(lambda: note_ready(s, name, folder + ' sentinel', base / folder, 'main'),
+                     name + ' read before registry replacement')
+        unchanged(before, f.paths)
+        databases = {p.relative_to(f.cache) for p in f.cache.rglob('*.db')}
+        assert len(databases) == 2, databases
+        assert {p.name for p in f.cache.iterdir()} == {'canonical-read-only-v1'}
+        generation = json.loads(s.request('/api/storage')[1])['generation']
+        missing = base / 'new-missing-peer'
+        assert not missing.exists()
+        replacement = (f'default_vault: main\ncache_dir: {base / "ordinary"}\n'
+                       f'vaults:\n  main: {base / "active"}\n  work: {missing}\n').encode()
+        # Only this deliberate machine-config replacement is authorized. Compute
+        # its expectation from write inputs, never from a post-write resnapshot.
+        key = (f.paths.index(f.config), '.')
+        stamp_ns = 1578052800 * 1_000_000_000
+        before[key] = (before[key][0], len(replacement), stamp_ns,
+                       hashlib.sha256(replacement).hexdigest())
+        f.config.write_bytes(replacement)
+        os.utime(f.config, ns=(stamp_ns, stamp_ns))
+        unchanged(before, f.paths)
+        attempts = 0
+        def retry_started():
+            nonlocal attempts
+            attempts += 1
+            assert s.request('/api/storage', 'POST', {})[0] == 200
+            unchanged(before, f.paths)
+            assert not missing.exists()
+            return json.loads(s.request('/api/storage')[1])['generation'] > generation
+        wait_for(retry_started, 'changed peer retry accepted')
+        final_state = {}
+        def rejected_generation():
+            nonlocal final_state
+            code, body = s.request('/api/storage')
+            final_state = json.loads(body)
+            unchanged(before, f.paths)
+            assert not missing.exists()
+            return code == 200 and final_state['generation'] > generation and final_state['phase'] == 'unavailable'
+        wait_for(rejected_generation, 'new peer rejected before store open')
+        assert str(missing) in final_state.get('reason', ''), final_state
+        assert 'read-only cache protected vault' in final_state['reason'], final_state
+        assert {p.relative_to(f.cache) for p in f.cache.rglob('*.db')} == databases
+        assert {p.name for p in f.cache.iterdir()} == {'canonical-read-only-v1'}
+        code, body = s.request('/api/capabilities')
+        assert code == 200 and json.loads(body) == dict(protocol='track-canonical-read-only', version=1, canonical_read_only=True)
+        assert s.request('/api/task', 'POST', {})[0] == 403
+        unchanged(before, f.paths)
+        print(f'changed-peer: retry attempts={attempts}, generation={generation}->{final_state["generation"]}, rejected missing peer')
+    finally:
+        close_owned(s)
+    unchanged(before, f.paths)
+    assert not missing.exists(), 'retry or shutdown created missing peer'
+    assert {p.name for p in f.cache.iterdir()} == {'canonical-read-only-v1'}
+    assert not list(f.cache.rglob('*.pid')), 'private PID leaked'
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', required=True, type=Path)
@@ -201,6 +264,8 @@ def main():
     for kind in ('missing-peer', 'namespace-peer', 'namespace-in-vault', 'namespace-config', 'hardlink', 'symlink'):
         with tempfile.TemporaryDirectory(prefix='track-admission-invalid-') as tmp:
             rejected(binary, Path(tmp).resolve(), kind)
+    with tempfile.TemporaryDirectory(prefix='track-admission-peer-retry-') as tmp:
+        changed_peer_retry(binary, Path(tmp).resolve())
     print('PASS: synthetic canonical engine admission matrix (native gate unchanged)')
 
 

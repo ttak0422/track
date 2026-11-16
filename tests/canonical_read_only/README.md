@@ -116,3 +116,15 @@ Vault-local configuration coverage is load acceptance and preservation, not
 independent verification of property, saved-query or link-format semantics.
 XDG_CONFIG_HOME discovery is intentionally untested: every matrix launch supplies
 an explicit TRACK_CONFIG, matching the inactive native admission design.
+
+The changed-peer retry case starts a verified active/foreign pair, then explicitly
+replaces only the machine config's `work` registry path with a missing synthetic
+path. Its expected config tuple is computed from the written bytes and exact
+nanosecond timestamp; no other sentinel is refreshed. After an accepted new retry
+generation, the expected outcome is whole-bootstrap `unavailable` with the
+specific missing protected-vault error, not merely a named-peer warning. The
+missing directory must remain absent, existing private DB paths stay unchanged,
+private-root entries remain in `canonical-read-only-v1`, canonical capability stays
+true, and mutation requests remain denied. Existing private SQLite cleanup/writes
+are allowed; their bytes/mtimes are not treated as canonical. This does not cover
+recovery, hostile concurrent swaps or every accumulated-peer history.

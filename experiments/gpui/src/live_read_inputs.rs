@@ -534,69 +534,28 @@ impl SyntheticCanonical {
         self.inputs.configure(command)
     }
     pub(super) fn verify_registry(&self, value: &Value) -> Result<bool, String> {
-        if let Some(state) = value.get("storage_state") {
-            match state.as_str() {
-                Some("initializing" | "partial" | "unavailable") => return Ok(false),
-                Some("ready") => {}
-                _ => return Err("Unknown synthetic registry storage state".into()),
-            }
-        }
+        use super::registry_contract::{ExpectedRegistry, RegistryObservation};
         let Vault::Registered(selected) = &self.inputs.launch.vault else {
             unreachable!()
         };
-        let active = value.get("active").ok_or("Missing active registry")?;
-        if active.get("name").and_then(Value::as_str) != Some(selected.as_str())
-            || active.get("path").and_then(Value::as_str) != self.registry[selected].to_str()
-        {
-            return Err("Synthetic active identity mismatch".into());
-        }
-        let entries = value
-            .get("vaults")
-            .and_then(Value::as_array)
-            .ok_or("Missing registry")?;
-        let unavailable = value
-            .get("unavailable")
-            .and_then(Value::as_array)
-            .ok_or("Missing registry availability")?;
-        if entries.len() + unavailable.len() > 8 {
-            return Err("Synthetic registry exceeds bound".into());
-        }
-        let mut names = std::collections::BTreeSet::new();
-        let mut active_found = false;
-        for (entry, available) in entries
+        let paths = self
+            .registry
             .iter()
-            .map(|e| (e, true))
-            .chain(unavailable.iter().map(|e| (e, false)))
-        {
-            let name = entry
-                .get("name")
-                .and_then(Value::as_str)
-                .ok_or("Missing registry name")?;
-            let expected = self
-                .registry
-                .get(name)
-                .ok_or("Unknown registry name")?
-                .to_str()
-                .ok_or("Non-UTF8 registry path")?;
-            let actual = entry
-                .get("path")
-                .and_then(Value::as_str)
-                .ok_or("Missing registry path")?;
-            if !names.insert(name) || expected != actual {
-                return Err("Synthetic registry identity mismatch".into());
-            }
-            if available {
-                if entry.get("active").and_then(Value::as_bool) != Some(name == selected) {
-                    return Err("Synthetic registry active flag mismatch".into());
-                }
-                active_found |= name == selected;
-            }
+            .map(|(name, path)| {
+                path.to_str()
+                    .map(|path| (name.clone(), path.to_owned()))
+                    .ok_or("Non-UTF8 registry path")
+            })
+            .collect::<Result<BTreeMap<_, _>, _>>()?;
+        let expected = ExpectedRegistry::new(selected.clone(), paths)?;
+        // Legacy synthetic read path already decoded Value: reserialization
+        // exercises registry shape/identity only, not raw duplicate-key checks.
+        let bytes = serde_json::to_vec(value).map_err(|e| e.to_string())?;
+        match expected.observe(&bytes)? {
+            RegistryObservation::Initializing => Ok(false),
+            // Existing synthetic harness intentionally waits for every peer;
+            // production observation preserves unavailable peers independently.
+            RegistryObservation::Matched { unavailable } => Ok(unavailable.is_empty()),
         }
-        if names.len() != self.registry.len() || !active_found {
-            return Err("Synthetic registry incomplete".into());
-        }
-        // Deliberately stricter fixture-only admission: exercise every peer.
-        // This does not define availability policy for ordinary launch.
-        Ok(unavailable.is_empty())
     }
 }
