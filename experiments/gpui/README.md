@@ -1,7 +1,7 @@
 # GPUI rendering experiment
 
-An isolated, read-only-by-default native workspace using [Zed's GPUI](https://www.gpui.rs/).
-It does not replace Track.app. Server mode is opt-in. Ordinary vault use remains read-only. Its purpose is to
+An isolated native rendering experiment using [Zed's GPUI](https://www.gpui.rs/).
+It does not replace Track.app. Ordinary vault launch is temporarily disabled before any engine or CLI child starts. Its purpose is to
 reach existing-workspace compatibility while validating native rendering. No claims of improved frame rate are made yet.
 
 ## Validation status
@@ -59,18 +59,24 @@ cargo fmt --manifest-path experiments/gpui/Cargo.toml --check
 cargo test --manifest-path experiments/gpui/Cargo.toml
 ```
 
-## Read an explicit vault
+## Disposable-fixture launch only
 
-The first live integration is read-only and uses the existing CLI on background
-workers. It does not yet own a web server or subscribe to live events:
+Ordinary vaults are blocked: existing engine startup, watch and read refresh paths can write canonical activity sidecars. A UI that exposes no editing controls is not a canonical-read-only engine contract. Synthetic data and explicitly supplied JSON snapshots remain available without an engine process. All live-feature descriptions below now apply only to verified disposable fixtures until that engine contract exists.
+
+A fixture must be a canonical directory beneath the OS temporary directory, with `.track-native-edit-fixture` containing exactly `disposable-fixture-only` plus LF, an existing isolated temporary cache directory, and an explicit temporary config file containing only `{}` (surrounding whitespace allowed). Configured peer registries are rejected. Vault/cache trees reject symlinks, hardlinked regular files and special files; config/marker must be single-link regular files. Verification repeats before child execution. This is a controlled-fixture boundary, not protection against concurrent hostile filesystem changes.
+
+`--developer-read-fixture` authorizes engine reads only and does not enable editing, creation, recovery or persistence. Existing edit/session fixture opt-ins also require the same stricter read proof. Children receive a cleared environment, fixed `/usr/bin:/bin` PATH, explicit fixture paths, private HOME/XDG/TMPDIR and fixture working directory; ambient registry, editor, loader and proxy overrides are not inherited.
+
+For an already prepared disposable fixture:
 
 ```sh
 cargo run --manifest-path experiments/gpui/Cargo.toml -- \
-  --vault /absolute/path/to/vault --track-bin /absolute/path/to/track
+  --vault /canonical/temporary/fixture --developer-read-fixture /canonical/temporary/fixture \
+  --config /canonical/temporary/config.json --cache /canonical/temporary/cache \
+  --track-bin /absolute/path/to/track
 ```
 
-Optional `--config /absolute/config.yml` and `--cache /absolute/cache` isolate
-configuration and derived caches. Both the executable and vault must be explicit
+Explicit isolated `--config` and `--cache` are mandatory for disposable launches. Both the executable and vault must be explicit
 absolute paths. Select a note to fetch portable Markdown, or use **Reload vault**.
 Late responses from previous selections are ignored. CLI failures remain visible;
 a 30-second deadline terminates only the owned CLI process. The adapter drains both

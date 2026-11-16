@@ -536,7 +536,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     if args.first().is_some_and(|a| a == "--help") {
         println!(
-            "track-gpui-poc --version\ntrack-gpui-poc [notes.json]\ntrack-gpui-poc --vault /absolute/vault --track-bin /absolute/track [--config /absolute/config] [--cache /absolute/cache] [--server-port 19000] [--developer-edit-fixture /temporary/disposable/vault] [--developer-session-fixture /canonical/temporary/disposable/vault] [--developer-draft-recovery]\nFixture-only draft recovery requires both fixture options bound to the same root and isolated config/cache.\nTab persistence is a separate opt-in: cache/track-native-tabs-v1.json, metadata only, safe Home on restart.\nDeveloper editing requires a disposable marker and isolated temporary config/cache; not release-ready.\nNo arguments: synthetic fixture. Vault mode is read-only; CLI may refresh derived caches."
+            "track-gpui-poc --version\ntrack-gpui-poc [notes.json]\ntrack-gpui-poc --vault /absolute/vault --track-bin /absolute/track [--config /absolute/config] [--cache /absolute/cache] [--server-port 19000] [--developer-read-fixture /canonical/temporary/disposable/vault] [--developer-edit-fixture /temporary/disposable/vault] [--developer-session-fixture /canonical/temporary/disposable/vault] [--developer-draft-recovery]\nFixture-only draft recovery requires both fixture options bound to the same root and isolated config/cache.\nTab persistence is a separate opt-in: cache/track-native-tabs-v1.json, metadata only, safe Home on restart.\nDeveloper editing requires a disposable marker and isolated temporary config/cache; not release-ready.\nNo arguments: synthetic fixture. Ordinary vault launch is disabled: engine reads can write canonical activity metadata. Disposable launches require --developer-read-fixture (or the explicit edit/session fixture option), a temporary marked vault, and isolated config containing only {{}} plus cache. Read-fixture permission does not enable editing."
         );
         return Ok(());
     }
@@ -549,6 +549,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut verified_session_fixture = None;
         let mut session_fixture: Option<std::path::PathBuf> = None;
         let mut fixture_option: Option<std::path::PathBuf> = None;
+        let mut read_fixture_root: Option<std::path::PathBuf> = None;
         let mut vault = None;
         let mut executable = None;
         let mut config = None;
@@ -562,6 +563,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let value = iter.next().ok_or("missing option value")?;
             match flag.as_str() {
                 "--developer-session-fixture" => session_fixture = Some(value.into()),
+                "--developer-read-fixture" => read_fixture_root = Some(value.into()),
                 "--developer-edit-fixture" => fixture_option = Some(value.into()),
                 "--server-port" => server_port = Some(value.parse::<u16>()?),
                 "--vault" => vault = Some(value.into()),
@@ -571,6 +573,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 _ => return Err(format!("unknown option: {flag}").into()),
             }
         }
+        let read_root=read_fixture_root.as_ref().or(fixture_option.as_ref()).or(session_fixture.as_ref()).ok_or("Ordinary vault launch is disabled: engine reads can write activity sidecars. Use synthetic/JSON input or --developer-read-fixture with an isolated disposable fixture and {} config.")?;
+        let read_proof = live::ReadFixture::capture(
+            read_root,
+            vault.as_deref().ok_or("--vault is required")?,
+            config.as_deref(),
+            cache.as_deref(),
+        )?;
         if let Some(root) = fixture_option {
             if server_port.is_none() {
                 return Err("Developer editing requires an owned --server-port.".into());
@@ -610,6 +619,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 live::Vault::Path(vault.clone().ok_or("--vault is required")?),
                 port,
             );
+            config_live.read_fixture = Some(read_proof.clone());
             config_live.config = config.clone();
             config_live.cache = cache.clone();
             if let Some(root) = developer_fixture.as_ref() {
@@ -632,6 +642,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(cache) = cache {
             backend = backend.with_cache(cache)?;
         }
+        backend = backend.with_read_fixture(read_proof)?;
         (
             fixture(0),
             if live_config.is_some() {

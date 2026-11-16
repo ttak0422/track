@@ -300,9 +300,18 @@ pub fn validate_fixture(
         return Err("Developer editing requires --developer-edit-fixture to equal the disposable --vault directory beneath the OS temporary directory.".into());
     }
     let marker = root.join(".track-native-edit-fixture");
-    if marker.canonicalize().ok().as_ref() != Some(&marker)
-        || std::fs::read_to_string(&marker).ok().as_deref() != Some("disposable-fixture-only\n")
-    {
+    use std::io::Read as _;
+    use std::os::unix::fs::MetadataExt as _;
+    let expected = b"disposable-fixture-only\n";
+    let regular = std::fs::symlink_metadata(&marker)
+        .is_ok_and(|m| m.is_file() && m.nlink() == 1 && m.len() == expected.len() as u64);
+    let mut bytes = Vec::new();
+    let valid = regular
+        && std::fs::File::open(&marker)
+            .and_then(|f| f.take(expected.len() as u64 + 1).read_to_end(&mut bytes))
+            .is_ok()
+        && bytes == expected;
+    if marker.canonicalize().ok().as_ref() != Some(&marker) || !valid {
         return Err("Fixture root requires .track-native-edit-fixture containing exactly disposable-fixture-only followed by LF.".into());
     }
     for (label, path) in [("config", config), ("cache", cache)] {

@@ -313,6 +313,20 @@ fn owned_engine_post_preflight_conflict_and_lost_ack() {
     config.config = Some(fixture.0.join("config.yml"));
     config.cache = Some(fixture.0.join("cache"));
     config.request_timeout = WAIT;
+    std::fs::write(
+        fixture.0.join("vault/.track-native-edit-fixture"),
+        "disposable-fixture-only\n",
+    )
+    .unwrap();
+    config.read_fixture = Some(
+        ReadFixture::capture(
+            &fixture.0.join("vault"),
+            &fixture.0.join("vault"),
+            config.config.as_deref(),
+            config.cache.as_deref(),
+        )
+        .unwrap(),
+    );
     let mut server = OwnedServer::start(config).expect("owned readiness");
     let pid = server.child.as_ref().unwrap().id();
     let client = server.client();

@@ -1,5 +1,5 @@
 //! Read-only CLI adapter. Run these blocking operations on a background worker, not GPUI's UI thread.
-//! `track notes` can refresh derived caches; neither operation writes note bodies or sidecars.
+//! Engine reads may write activity sidecars: every execution requires a verified disposable fixture.
 
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -129,6 +129,7 @@ impl std::error::Error for BackendError {}
 
 #[derive(Clone, Debug)]
 pub struct Backend {
+    read_fixture: Option<crate::live::ReadFixture>,
     executable: PathBuf,
     vault: PathBuf,
     config: Option<PathBuf>,
@@ -141,6 +142,7 @@ impl Backend {
         require_absolute("Track executable", &executable)?;
         require_absolute("vault", &vault)?;
         Ok(Self {
+            read_fixture: None,
             executable,
             vault,
             config: None,
@@ -159,6 +161,17 @@ impl Backend {
     pub fn with_cache(mut self, cache: PathBuf) -> Result<Self, BackendError> {
         require_absolute("cache", &cache)?;
         self.cache = Some(cache);
+        Ok(self)
+    }
+
+    pub fn with_read_fixture(
+        mut self,
+        proof: crate::live::ReadFixture,
+    ) -> Result<Self, BackendError> {
+        proof
+            .verify_paths(&self.vault, self.config.as_deref(), self.cache.as_deref())
+            .map_err(BackendError::InvalidConfig)?;
+        self.read_fixture = Some(proof);
         Ok(self)
     }
 
@@ -218,15 +231,22 @@ impl Backend {
 
     fn command(&self, operation: &'static str, args: &[&str]) -> Command {
         let mut command = Command::new(&self.executable);
+        crate::live::clear_track_environment(&mut command);
         command
             .arg(operation)
             .args(args)
-            .env("TRACK_VAULT", &self.vault);
+            .env("TRACK_VAULT", &self.vault)
+            .env("HOME", &self.vault)
+            .env("XDG_CONFIG_HOME", &self.vault)
+            .current_dir(&self.vault);
         if let Some(config) = &self.config {
             command.env("TRACK_CONFIG", config);
         }
         if let Some(cache) = &self.cache {
-            command.env("TRACK_CACHE_DIR", cache);
+            command
+                .env("TRACK_CACHE_DIR", cache)
+                .env("XDG_CACHE_HOME", cache)
+                .env("TMPDIR", cache);
         }
         command
     }
@@ -236,6 +256,7 @@ impl Backend {
         operation: &'static str,
         args: &[&str],
     ) -> Result<Response<String>, BackendError> {
+        self.read_fixture.as_ref().ok_or_else(|| BackendError::InvalidConfig("Ordinary vault CLI reads are disabled pending a canonical-read-only engine contract.".into()))?.verify_paths(&self.vault,self.config.as_deref(),self.cache.as_deref()).map_err(BackendError::InvalidConfig)?;
         let output = run_with_deadline(&mut self.command(operation, args), operation, CLI_TIMEOUT)?;
         decode_output(operation, output)
     }
@@ -383,7 +404,28 @@ mod tests {
             )
             .unwrap();
             std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
-            let backend = Backend::new(executable, directory.join("unused-vault")).unwrap();
+            let vault = directory.join("vault");
+            let config = directory.join("config");
+            let cache = directory.join("cache");
+            std::fs::create_dir(&vault).unwrap();
+            std::fs::create_dir(&cache).unwrap();
+            std::fs::write(
+                vault.join(".track-native-edit-fixture"),
+                "disposable-fixture-only\n",
+            )
+            .unwrap();
+            std::fs::write(&config, "{}\n").unwrap();
+            let proof =
+                crate::live::ReadFixture::capture(&vault, &vault, Some(&config), Some(&cache))
+                    .unwrap();
+            let backend = Backend::new(executable, vault)
+                .unwrap()
+                .with_config(config)
+                .unwrap()
+                .with_cache(cache)
+                .unwrap()
+                .with_read_fixture(proof)
+                .unwrap();
             Self { directory, backend }
         }
     }

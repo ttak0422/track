@@ -91,6 +91,7 @@ pub struct LaunchConfig {
     pub startup_timeout: Duration,
     pub request_timeout: Duration,
     pub creation_fixture: Option<CreateFixture>,
+    pub read_fixture: Option<ReadFixture>,
 }
 impl LaunchConfig {
     pub fn new(executable: PathBuf, vault: Vault, port: u16) -> Self {
@@ -103,6 +104,7 @@ impl LaunchConfig {
             startup_timeout: Duration::from_secs(20),
             request_timeout: Duration::from_secs(3),
             creation_fixture: None,
+            read_fixture: None,
         }
     }
     fn validate(&self) -> Result<(), Error> {
@@ -2081,6 +2083,101 @@ impl FileIdentity {
         Self::capture(&self.input).as_ref() == Ok(self)
     }
 }
+/// Permission to run the current engine only against an isolated disposable fixture.
+/// This proof never enables editor, creation or persistence actions.
+#[derive(Clone, Debug)]
+pub struct ReadFixture(CreateFixture);
+impl ReadFixture {
+    pub fn capture(
+        root: &std::path::Path,
+        vault: &std::path::Path,
+        config: Option<&std::path::Path>,
+        cache: Option<&std::path::Path>,
+    ) -> Result<Self, String> {
+        let proof = Self(CreateFixture::capture(root, vault, config, cache)?);
+        proof.verify_paths(vault, config, cache)?;
+        Ok(proof)
+    }
+    pub(crate) fn verify_paths(
+        &self,
+        vault: &std::path::Path,
+        config: Option<&std::path::Path>,
+        cache: Option<&std::path::Path>,
+    ) -> Result<(), String> {
+        if vault != self.0.vault_input
+            || config != Some(self.0.config.input.as_path())
+            || cache != Some(self.0.cache.input.as_path())
+        {
+            return Err("Disposable read fixture launch paths changed.".into());
+        }
+        self.0.verify()?;
+        for path in [
+            &self.0.vault_input,
+            &self.0.config.input,
+            &self.0.cache.input,
+        ] {
+            if path.canonicalize().ok().as_ref() != Some(path) {
+                return Err(
+                    "Read fixture paths must be canonical, without symlink aliases.".into(),
+                );
+            }
+        }
+        Self::isolated_tree(&self.0.root.path)?;
+        Self::isolated_tree(&self.0.cache.path)?;
+        Self::single_file(&self.0.config.path)?;
+        if std::str::from_utf8(&self.0.config_bytes)
+            .ok()
+            .map(str::trim)
+            != Some("{}")
+        {
+            return Err("Disposable read fixture requires config containing only {}: registered peers and inherited settings are not allowed.".into());
+        }
+        Ok(())
+    }
+    fn single_file(path: &std::path::Path) -> Result<(), String> {
+        use std::os::unix::fs::MetadataExt;
+        let m = std::fs::symlink_metadata(path).map_err(|e| e.to_string())?;
+        if !m.is_file() || m.nlink() != 1 {
+            return Err(
+                "Read fixture requires single-link regular files, no hardlinks or symlinks.".into(),
+            );
+        }
+        Ok(())
+    }
+    fn isolated_tree(root: &std::path::Path) -> Result<(), String> {
+        let mut pending = vec![(root.to_owned(), 0usize)];
+        let mut count = 0usize;
+        while let Some((dir, depth)) = pending.pop() {
+            if depth > 64
+                || !std::fs::symlink_metadata(&dir)
+                    .map_err(|e| e.to_string())?
+                    .is_dir()
+            {
+                return Err("Read fixture directory boundary is invalid.".into());
+            }
+            for entry in std::fs::read_dir(dir).map_err(|e| e.to_string())? {
+                let path = entry.map_err(|e| e.to_string())?.path();
+                count += 1;
+                if count > 50_000 {
+                    return Err("Read fixture tree exceeds 50000 entries.".into());
+                }
+                let m = std::fs::symlink_metadata(&path).map_err(|e| e.to_string())?;
+                if m.is_dir() {
+                    pending.push((path, depth + 1));
+                } else {
+                    Self::single_file(&path)?;
+                }
+            }
+        }
+        Ok(())
+    }
+    fn verify_launch(&self, config: &LaunchConfig) -> Result<(), String> {
+        let Vault::Path(vault) = &config.vault else {
+            return Err("Registered vault launch is disabled.".into());
+        };
+        self.verify_paths(vault, config.config.as_deref(), config.cache.as_deref())
+    }
+}
 impl CreateFixture {
     pub fn capture(
         root: &std::path::Path,
@@ -2640,6 +2737,11 @@ pub struct RequestTicket {
     pub storage: u64,
 }
 
+/// Eliminate environment-backed registry/config overrides before installing explicit paths.
+pub(crate) fn clear_track_environment(command: &mut Command) {
+    command.env_clear().env("PATH", "/usr/bin:/bin");
+}
+
 pub struct OwnedServer {
     child: Option<Child>,
     client: ReadClient,
@@ -2654,6 +2756,10 @@ impl OwnedServer {
     }
     fn start_cancelable(config: LaunchConfig, canceled: &AtomicBool) -> Result<Self, Error> {
         config.validate()?;
+        if canceled.load(Ordering::Acquire) {
+            return Err(Error::Stale);
+        }
+        config.read_fixture.as_ref().ok_or_else(|| Error::Config("Ordinary vault launch is disabled until the engine has a canonical-read-only contract. Use synthetic/JSON input or an explicitly verified disposable read fixture.".into()))?.verify_launch(&config).map_err(Error::Config)?;
         if let Some(fixture) = &config.creation_fixture {
             fixture.verify_launch(&config).map_err(Error::Config)?;
         }
@@ -2686,12 +2792,16 @@ impl OwnedServer {
             launch_generation: NEXT_LAUNCH.fetch_add(1, Ordering::Relaxed),
         };
         let mut cmd = Command::new(&config.executable);
+        clear_track_environment(&mut cmd);
         cmd.env_remove("TRACK_VAULT")
             .env_remove("TRACK_CONFIG")
             .env_remove("TRACK_CACHE_DIR");
         match &config.vault {
             Vault::Path(p) => {
-                cmd.env("TRACK_VAULT", p);
+                cmd.env("TRACK_VAULT", p)
+                    .env("HOME", p)
+                    .env("XDG_CONFIG_HOME", p)
+                    .current_dir(p);
             }
             Vault::Registered(n) => {
                 cmd.args(["--vault", n]);
@@ -2701,7 +2811,9 @@ impl OwnedServer {
             cmd.env("TRACK_CONFIG", p);
         }
         if let Some(p) = &config.cache {
-            cmd.env("TRACK_CACHE_DIR", p);
+            cmd.env("TRACK_CACHE_DIR", p)
+                .env("XDG_CACHE_HOME", p)
+                .env("TMPDIR", p);
         }
         cmd.args(["web", "--addr", &format!("127.0.0.1:{}", config.port)])
             .env(
@@ -2712,6 +2824,12 @@ impl OwnedServer {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        config
+            .read_fixture
+            .as_ref()
+            .unwrap()
+            .verify_launch(&config)
+            .map_err(Error::Config)?;
         drop((first, second));
         let mut child = cmd.spawn()?;
         let logs = Arc::new(Mutex::new(VecDeque::new()));
@@ -3083,6 +3201,28 @@ mod tests {
     use super::*;
     /// Opt-in only: supply an explicit Go binary and a disposable copy of public
     /// docs/help. The test copies that input again and mutates only its own copy.
+    fn authorize_read_fixture(config: &mut LaunchConfig) {
+        let Vault::Path(root) = &config.vault else {
+            panic!()
+        };
+        std::fs::create_dir_all(root).unwrap();
+        std::fs::write(
+            root.join(".track-native-edit-fixture"),
+            "disposable-fixture-only\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(config.cache.as_ref().unwrap()).unwrap();
+        std::fs::write(config.config.as_ref().unwrap(), "{}\n").unwrap();
+        config.read_fixture = Some(
+            ReadFixture::capture(
+                root,
+                root,
+                config.config.as_deref(),
+                config.cache.as_deref(),
+            )
+            .unwrap(),
+        );
+    }
     #[test]
     #[ignore = "requires TRACK_NATIVE_TEST_BINARY and TRACK_NATIVE_PUBLIC_FIXTURE_COPY; writes only a new temporary copy"]
     fn owned_public_fixture_save_read_conflict_and_reap() {
@@ -3144,6 +3284,7 @@ mod tests {
         let mut config = LaunchConfig::new(executable, Vault::Path(fixture.0.join("vault")), port);
         config.config = Some(fixture.0.join("config.yml"));
         config.cache = Some(fixture.0.join("cache"));
+        authorize_read_fixture(&mut config);
         let mut server = OwnedServer::start(config).expect("owned fixture server readiness");
         let pid = server.child.as_ref().unwrap().id();
         let client = server.client();
@@ -3427,6 +3568,305 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.root);
         }
+    }
+    #[test]
+    fn ordinary_launch_and_cli_never_execute_child() {
+        use std::os::unix::fs::PermissionsExt;
+        let f = CreationFixtureTest::new();
+        let executable = f.root.join("would-run");
+        let sentinel = f.root.join("executed");
+        std::fs::write(
+            &executable,
+            format!("#!/bin/sh\ntouch '{}'\n", sentinel.display()),
+        )
+        .unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let launch =
+            LaunchConfig::new(executable.clone(), Vault::Path(f.root.join("vault")), 23000);
+        assert!(matches!(OwnedServer::start(launch), Err(Error::Config(_))));
+        let backend = crate::backend::Backend::new(executable, f.root.join("vault")).unwrap();
+        assert!(matches!(
+            backend.notes(),
+            Err(crate::backend::BackendError::InvalidConfig(_))
+        ));
+        assert!(!sentinel.exists());
+    }
+    #[test]
+    fn read_fixture_rejects_peers_hardlinks_cache_links_and_changed_bindings() {
+        use std::os::unix::fs::symlink;
+        for case in [
+            "peer",
+            "hardlink",
+            "cache-hardlink",
+            "cache-symlink",
+            "config-hardlink",
+            "changed",
+        ] {
+            let f = CreationFixtureTest::new();
+            let vault = f.root.join("vault");
+            let config = f.root.join("config");
+            let cache = f.root.join("cache");
+            let proof = ReadFixture::capture(&vault, &vault, Some(&config), Some(&cache)).unwrap();
+            match case {
+                "peer" => std::fs::write(&config, "vaults: {work: /outside}\n").unwrap(),
+                "hardlink" => std::fs::hard_link(&config, vault.join("linked")).unwrap(),
+                "cache-hardlink" => std::fs::hard_link(&config, cache.join("linked")).unwrap(),
+                "cache-symlink" => symlink(&config, cache.join("linked")).unwrap(),
+                "config-hardlink" => {
+                    std::fs::hard_link(&config, f.root.join("config-alias")).unwrap()
+                }
+                _ => std::fs::remove_file(vault.join(".track-native-edit-fixture")).unwrap(),
+            }
+            assert!(
+                proof
+                    .verify_paths(&vault, Some(&config), Some(&cache))
+                    .is_err(),
+                "{case}"
+            );
+            assert!(
+                ReadFixture::capture(&vault, &vault, Some(&config), Some(&cache)).is_err(),
+                "{case}"
+            );
+        }
+    }
+    #[test]
+    fn special_and_oversized_marker_are_rejected_before_read() {
+        let f = CreationFixtureTest::new();
+        let vault = f.root.join("vault");
+        let marker = vault.join(".track-native-edit-fixture");
+        std::fs::remove_file(&marker).unwrap();
+        use std::os::unix::ffi::OsStrExt;
+        let fifo = std::ffi::CString::new(marker.as_os_str().as_bytes()).unwrap();
+        assert_eq!(
+            unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) },
+            0,
+            "mkfifo fixture failed: {}",
+            std::io::Error::last_os_error()
+        );
+        assert!(
+            ReadFixture::capture(
+                &vault,
+                &vault,
+                Some(&f.root.join("config")),
+                Some(&f.root.join("cache"))
+            )
+            .is_err()
+        );
+        std::fs::remove_file(&marker).unwrap();
+        std::fs::write(&marker, vec![b'x'; 1024 * 1024]).unwrap();
+        assert!(
+            ReadFixture::capture(
+                &vault,
+                &vault,
+                Some(&f.root.join("config")),
+                Some(&f.root.join("cache"))
+            )
+            .is_err()
+        );
+    }
+    #[test]
+    #[ignore = "explicit TRACK_NATIVE_TEST_BINARY and TRACK_NATIVE_TEST_SYNTHETIC_ONLY=1; isolated actual-Go sentinel regression"]
+    fn owned_and_cli_fixture_reject_inherited_peer_without_touching_sentinel() {
+        use std::io::Write;
+        use std::os::unix::fs::MetadataExt;
+        const CHILD: &str = "TRACK_NATIVE_GATE_CHILD";
+        const NAME: &str =
+            "live::tests::owned_and_cli_fixture_reject_inherited_peer_without_touching_sentinel";
+        let binary = PathBuf::from(
+            std::env::var_os("TRACK_NATIVE_TEST_BINARY").expect("explicit matching Go binary"),
+        );
+        assert!(binary.is_absolute());
+        assert_eq!(
+            std::env::var("TRACK_NATIVE_TEST_SYNTHETIC_ONLY").as_deref(),
+            Ok("1")
+        );
+        fn wait(child: &mut Child, seconds: u64) {
+            let until = Instant::now() + Duration::from_secs(seconds);
+            loop {
+                if let Some(status) = child.try_wait().unwrap() {
+                    assert!(status.success(), "isolated process failed: {status}");
+                    return;
+                }
+                if Instant::now() >= until {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    panic!("isolated process deadline");
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
+        }
+        fn snapshot(
+            root: &std::path::Path,
+        ) -> std::collections::BTreeMap<PathBuf, (Vec<u8>, i64, i64)> {
+            let mut pending = vec![root.to_owned()];
+            let mut files = std::collections::BTreeMap::new();
+            while let Some(dir) = pending.pop() {
+                for e in std::fs::read_dir(dir).unwrap() {
+                    let p = e.unwrap().path();
+                    let m = std::fs::symlink_metadata(&p).unwrap();
+                    if m.is_dir() {
+                        pending.push(p);
+                    } else {
+                        assert!(m.is_file());
+                        files.insert(
+                            p.strip_prefix(root).unwrap().to_owned(),
+                            (std::fs::read(&p).unwrap(), m.mtime(), m.mtime_nsec()),
+                        );
+                    }
+                }
+            }
+            files
+        }
+        if let Some(root) = std::env::var_os(CHILD) {
+            // This process alone has a hostile environment. No set_var pollution of parallel tests.
+            let root = PathBuf::from(root);
+            let vault = root.join("vault");
+            let cache = root.join("cache");
+            let config = root.join("config");
+            let outside = root.join("outside");
+            let before = snapshot(&outside);
+            assert_eq!(
+                std::env::var_os("TRACK_VAULTS_ESCAPE"),
+                Some(outside.join("vault").into_os_string())
+            );
+            let proof = ReadFixture::capture(&vault, &vault, Some(&config), Some(&cache)).unwrap();
+            let port = (24000..35000)
+                .find(|p| {
+                    TcpListener::bind(("127.0.0.1", *p)).is_ok()
+                        && TcpListener::bind(("127.0.0.1", *p + 1)).is_ok()
+                })
+                .unwrap();
+            let mut launch = LaunchConfig::new(binary.clone(), Vault::Path(vault.clone()), port);
+            launch.config = Some(config.clone());
+            launch.cache = Some(cache.clone());
+            launch.read_fixture = Some(proof.clone());
+            assert!(launch.creation_fixture.is_none());
+            let mut server = OwnedServer::start(launch).unwrap();
+            let registry = server.client().vaults().unwrap();
+            let wire = registry.to_string();
+            assert!(
+                !wire.contains("escape") && !wire.contains(outside.to_str().unwrap()),
+                "unexpected peer: {wire}"
+            );
+            assert!(!server.client().creation_available());
+            server.shutdown().unwrap();
+            assert_eq!(before, snapshot(&outside));
+            let backend = crate::backend::Backend::new(binary, vault)
+                .unwrap()
+                .with_config(config)
+                .unwrap()
+                .with_cache(cache)
+                .unwrap()
+                .with_read_fixture(proof)
+                .unwrap();
+            let notes = backend.notes().unwrap();
+            assert!(notes.value.notes.iter().any(|n| n.title == "Host fixture"));
+            assert!(
+                !notes
+                    .value
+                    .notes
+                    .iter()
+                    .any(|n| n.title == "Escape sentinel")
+            );
+            assert_eq!(before, snapshot(&outside));
+            std::fs::write(root.join("peer-isolation-completed"), b"verified").unwrap();
+            return;
+        }
+        let f = CreationFixtureTest::new();
+        let outside = f.root.join("outside");
+        std::fs::create_dir_all(outside.join("vault")).unwrap();
+        std::fs::create_dir(outside.join("cache")).unwrap();
+        std::fs::write(outside.join("config"), "{}\n").unwrap();
+        for (root, title) in [(&f.root, "Host fixture"), (&outside, "Escape sentinel")] {
+            // Legitimate empty layout: the fixture marker alone is not a vault.
+            std::fs::create_dir_all(root.join("vault/note")).unwrap();
+            let mut cmd = Command::new(&binary);
+            clear_track_environment(&mut cmd);
+            let mut child = cmd
+                .args(["new", "--title", title])
+                .env("TRACK_VAULT", root.join("vault"))
+                .env("TRACK_CONFIG", root.join("config"))
+                .env("TRACK_CACHE_DIR", root.join("cache"))
+                .env("HOME", root)
+                .env("XDG_CONFIG_HOME", root)
+                .env("XDG_CACHE_HOME", root.join("cache"))
+                .env("TMPDIR", root.join("cache"))
+                .current_dir(root)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::inherit())
+                .spawn()
+                .unwrap();
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(b"Synthetic isolated sentinel\n")
+                .unwrap();
+            wait(&mut child, 20);
+        }
+        // Make the outside note stale, so an accidental peer refresh has observable activity work.
+        let note = std::fs::read_dir(outside.join("vault/note"))
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .find(|p| p.extension().is_some_and(|x| x == "md"))
+            .unwrap();
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&note)
+            .unwrap()
+            .write_all(b"External synthetic change\n")
+            .unwrap();
+        std::fs::File::open(&note)
+            .unwrap()
+            .set_modified(std::time::SystemTime::now() + Duration::from_secs(2 * 86_400))
+            .unwrap();
+        let before = snapshot(&outside);
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                NAME,
+                "--ignored",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env(CHILD, &f.root)
+            .env("TRACK_NATIVE_TEST_BINARY", &binary)
+            .env("TRACK_NATIVE_TEST_SYNTHETIC_ONLY", "1")
+            .env("TRACK_VAULTS_ESCAPE", outside.join("vault"))
+            .env("TRACK_VAULT", outside.join("vault"))
+            .env("TRACK_CONFIG", outside.join("config"))
+            .env("TRACK_CACHE_DIR", outside.join("cache"))
+            .env("HTTP_PROXY", "http://127.0.0.1:1")
+            .spawn()
+            .unwrap();
+        wait(&mut child, 60);
+        assert_eq!(
+            std::fs::read(f.root.join("peer-isolation-completed")).unwrap(),
+            b"verified"
+        );
+        assert_eq!(before, snapshot(&outside));
+    }
+    #[test]
+    fn child_environment_is_allowlisted_not_inherited() {
+        let mut command = Command::new("/bin/sh");
+        command
+            .env("TRACK_VAULTS_WORK", "/outside")
+            .env("LD_PRELOAD", "/outside.so")
+            .env("HTTP_PROXY", "http://outside");
+        clear_track_environment(&mut command);
+        let vars: Vec<_> = command.get_envs().filter(|(_, v)| v.is_some()).collect();
+        assert_eq!(
+            vars,
+            vec![(
+                std::ffi::OsStr::new("PATH"),
+                Some(std::ffi::OsStr::new("/usr/bin:/bin"))
+            )]
+        );
+        let output = command.args(["-c", "env"]).output().unwrap();
+        let env = String::from_utf8(output.stdout).unwrap();
+        assert!(
+            !env.contains("TRACK_") && !env.contains("LD_PRELOAD") && !env.contains("HTTP_PROXY")
+        );
     }
     const CREATE_STORAGE: &str =
         r#"{"phase":"ready","read_only":false,"verified":0,"generation":2}"#;
@@ -4327,6 +4767,7 @@ mod tests {
         let mut config = LaunchConfig::new(executable, Vault::Path(root.join("vault")), port);
         config.config = Some(root.join("config"));
         config.cache = Some(root.join("cache"));
+        authorize_read_fixture(&mut config);
         let owner = Arc::new(LifecycleHandle::default());
         owner.begin_start().unwrap();
         let worker_owner = owner.clone();
@@ -6526,7 +6967,7 @@ mod tests {
             Vault::Path("/tmp/disposable".into()),
             listener.local_addr().unwrap().port(),
         );
-        assert!(matches!(OwnedServer::start(config), Err(Error::Io(_))));
+        assert!(matches!(OwnedServer::start(config), Err(Error::Config(_))));
         assert!(std::net::TcpStream::connect(listener.local_addr().unwrap()).is_ok());
     }
 }

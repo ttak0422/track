@@ -1,5 +1,7 @@
 # Native workspace parity
 
+
+**Safety gate:** ordinary-vault live and CLI launch is blocked pending a canonical-read-only engine contract. Existing startup/watch/read refresh may write activity sidecars. Synthetic/explicit JSON input remains available; engine-backed checks below describe implemented capabilities usable only with explicitly verified disposable fixtures, not ordinary-vault availability. The read fixture permission does not enable editing.
 Target: the existing live Track.app workspace, not just the snapshot prototype.
 The Go engine remains authoritative. Static-site generation and encrypted publishing
 remain existing CLI/web capabilities; displaying embedded apps is still a desktop requirement.
@@ -14,8 +16,7 @@ cloud model/adapter harnesses do not establish full GPUI compilation, native lay
 pointer/clipboard behavior, accessibility or IME correctness.
 
 Use disposable fixture vaults, never a configured personal vault, for tests.
-Ordinary use remains read-only; read endpoints can refresh derived engine indexes
-or caches. “No mutation API” does not mean zero engine filesystem activity.
+Ordinary live/CLI use is blocked until the engine can guarantee canonical-read-only access. Existing read paths can write activity sidecars as well as derived caches; “no mutation API” is insufficient.
 
 ## Integrated capability inventory
 
