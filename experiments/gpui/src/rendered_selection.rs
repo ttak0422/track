@@ -121,6 +121,7 @@ impl Workspace {
             || self.reader_selection_dragging()
             || self.shell.find.is_composing(cx)
             || self.shell.calendar_zone.is_composing(cx)
+            || s.contents.is_pending()
             || s.fetching
             || s.query_nav.pending.is_some()
             || s.find.is_open()

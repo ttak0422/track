@@ -186,6 +186,7 @@ impl Workspace {
                 state.preview_open = false;
                 state.find = Default::default();
                 state.selection = Default::default();
+                state.contents = Default::default();
             }
             return;
         }

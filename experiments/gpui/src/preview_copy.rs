@@ -306,7 +306,10 @@ impl Workspace {
                 Some("track-view" | "track-query-view")
             )
         });
-        let find = state.find.presentation(state, item, start, blocks);
+        let find = state
+            .find
+            .presentation(state, item, start, blocks)
+            .or_else(|| state.contents.presentation(state, item, start, blocks));
         let selection = self.preview_selection_presentation(item, start, blocks, cx);
         div()
             .id(gpui::SharedString::from(format!(

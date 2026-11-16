@@ -177,7 +177,7 @@ impl Workspace {
         item: usize,
         start: usize,
         end: usize,
-        cx: &Context<Self>,
+        cx: &mut Context<Self>,
     ) -> Div {
         let Some(state) = self.shell.includes.as_ref() else {
             return div();
@@ -188,6 +188,16 @@ impl Workspace {
             .filter(|c| c.item == item && c.block >= start && c.block < end)
         {
             if candidate.fragment {
+                if let Some(control) = self.local_host_heading_control(
+                    item,
+                    candidate.block,
+                    &candidate.link,
+                    &candidate.label,
+                    cx,
+                ) {
+                    controls = controls.child(control);
+                    continue;
+                }
                 controls = controls.child(format!(
                     "Host link fragment unavailable: {}",
                     candidate.label
