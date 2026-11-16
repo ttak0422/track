@@ -2,6 +2,7 @@
 use super::*;
 use gpui::{Div, Stateful};
 use markdown_handoff::{Capability, Snapshot};
+use snapshot_links::Location;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -19,7 +20,7 @@ pub(crate) struct HandoffUi {
     selected: String,
     history: snapshot_links::History,
     history_target: Option<usize>,
-    links: Vec<(markdown::Link, String)>,
+    links: Vec<(markdown::Link, Location)>,
     blocks: Vec<markdown::Block>,
     images: snapshot_images::Prepared,
     image_cancel: Arc<AtomicBool>,
@@ -76,7 +77,7 @@ impl HandoffUi {
         selection: u64,
         source: &str,
         link: &markdown::Link,
-    ) -> Option<&str> {
+    ) -> Option<&Location> {
         if !self.selection_available()
             || self.serial != serial
             || self.selection_serial != selection
@@ -87,7 +88,7 @@ impl HandoffUi {
         self.links
             .iter()
             .find(|(candidate, _)| candidate == link)
-            .map(|(_, path)| path.as_str())
+            .map(|(_, path)| path)
     }
     fn accept_images(
         &mut self,
@@ -112,7 +113,7 @@ impl HandoffUi {
         selection: u64,
         serial: u64,
         launch: u64,
-        path: String,
+        destination: Location,
         result: Result<Vec<markdown::Block>, String>,
     ) -> bool {
         if self.selection_serial != selection {
@@ -124,6 +125,15 @@ impl HandoffUi {
         }
         match result {
             Ok(blocks) => {
+                let target = match heading_index(&blocks, &destination) {
+                    Ok(target) => target,
+                    Err(error) => {
+                        self.history_target = None;
+                        self.message = error.into();
+                        return false;
+                    }
+                };
+                let path = destination.file.clone();
                 self.links = self
                     .snapshot
                     .as_ref()
@@ -131,10 +141,13 @@ impl HandoffUi {
                     .unwrap_or_default();
                 self.images = Default::default();
                 self.blocks = blocks;
-                self.history
-                    .accept(path.clone(), self.history_target.take());
+                self.history.accept(destination, self.history_target.take());
                 self.selected = path;
                 self.scroll = gpui::ScrollHandle::new();
+                if let Some(index) = target {
+                    // Two direct prefix children: file title and image status.
+                    self.scroll.scroll_to_top_of_item(2 + index);
+                }
                 self.message.clear();
             }
             Err(_) => {
@@ -178,11 +191,21 @@ impl HandoffUi {
         true
     }
 }
+fn heading_index(
+    blocks: &[markdown::Block],
+    destination: &Location,
+) -> Result<Option<usize>, &'static str> {
+    match &destination.heading {
+        None => Ok(None),
+        Some(heading) => markdown::outline(blocks).into_iter().find(|entry| &entry.anchor == heading)
+            .map(|entry| Some(entry.block_index)).ok_or("Heading not reached: no exact native heading anchor in the target document. Selection and history unchanged."),
+    }
+}
 fn snapshot_links_for(
     snapshot: &Snapshot,
     current: &str,
     blocks: &[markdown::Block],
-) -> Vec<(markdown::Link, String)> {
+) -> Vec<(markdown::Link, Location)> {
     admit_snapshot_links(
         snapshot,
         current,
@@ -199,7 +222,7 @@ fn admit_snapshot_links<'a>(
     snapshot: &Snapshot,
     current: &str,
     links: impl Iterator<Item = &'a markdown::Link>,
-) -> Vec<(markdown::Link, String)> {
+) -> Vec<(markdown::Link, Location)> {
     let paths: std::collections::HashSet<&str> =
         snapshot.files.iter().map(|f| f.path.as_str()).collect();
     links
@@ -208,18 +231,20 @@ fn admit_snapshot_links<'a>(
             let markdown::LinkTarget::Markdown { destination } = &link.target else {
                 return None;
             };
-            let path = snapshot_links::resolve(current, destination)?;
-            paths.contains(path.as_str()).then(|| (link.clone(), path))
+            let path = snapshot_links::location(current, destination)?;
+            paths
+                .contains(path.file.as_str())
+                .then(|| (link.clone(), path))
         })
         .collect()
 }
 impl Workspace {
     fn select_handoff(&mut self, path: &str, cx: &mut Context<Self>) {
-        self.select_handoff_target(path, None, cx);
+        self.select_handoff_target(&Location::from(path), None, cx);
     }
     fn select_handoff_target(
         &mut self,
-        path: &str,
+        destination: &Location,
         history_target: Option<usize>,
         cx: &mut Context<Self>,
     ) {
@@ -227,10 +252,15 @@ impl Workspace {
             return;
         }
         let state = &mut self.shell.handoff;
-        let Some(file) = state.snapshot.as_ref().and_then(|s| s.selected(path)) else {
+        let Some(file) = state
+            .snapshot
+            .as_ref()
+            .and_then(|s| s.selected(&destination.file))
+        else {
             return;
         };
         let path = file.path.clone();
+        let destination = destination.clone();
         let source = file.text.clone();
         let image_files = state.snapshot.as_ref().unwrap().images.clone();
         let cancel = state.renew_image_job();
@@ -258,7 +288,7 @@ impl Workspace {
                         Ok((blocks, images)) => (Ok(blocks), Some(images)),
                         Err(error) => (Err(error), None),
                     };
-                    if state.complete_selection(selection, serial, launch, path.clone(), result) {
+                    if state.complete_selection(selection, serial, launch, destination, result) {
                         if let Some(images) = images {
                             state.accept_images(serial, selection, launch, &path, images);
                         }
@@ -479,7 +509,7 @@ impl Workspace {
                                 || state.serial != serial
                                 || state.selection_serial != selection
                                 || state.selected != selected
-                                || state.history.target(forward) != Some((target, path.as_str()))
+                                || state.history.target(forward) != Some((target, &path))
                             {
                                 return;
                             }
@@ -568,10 +598,10 @@ impl Workspace {
                 };
                 let _ = weak.update(cx, |this, cx| {
                     let state = &this.shell.handoff;
-                    if state.link_target(serial, selection, &source, link) != Some(path.as_str()) {
+                    if state.link_target(serial, selection, &source, link) != Some(path) {
                         return;
                     }
-                    this.select_handoff(path, cx);
+                    this.select_handoff_target(path, None, cx);
                 });
             }),
         };
@@ -584,21 +614,18 @@ impl Workspace {
             .p_4()
             .child(state.selected.clone())
             .child(state.images.status.clone())
-            .child(markdown::render_with_links_and_find(
+            .children(markdown::render_snapshot_elements(
                 &state.blocks,
                 dark,
-                None,
                 &callbacks,
-                None,
-                None,
-                Some(&state.images.images),
+                &state.images.images,
             ));
         let message = state.message.clone();
         div().id("external-markdown-viewer").size_full().flex().flex_col().p_4().gap_3().bg(rgb(paper)).text_color(rgb(ink)).track_focus(&focus)
             .on_key_down(cx.listener(|this,event:&gpui::KeyDownEvent,window,cx| { if event.keystroke.key == "escape" { this.close_handoff(window,cx); } cx.stop_propagation(); }))
             .child(header).child(self.handoff_entry(cx))
             .child("Open consumes this one-use handoff. If opening fails, run track markdown again.")
-            .child("Memory-only snapshot. Existing local Markdown file links and viewer Back/Forward only (no fragments). Standalone snapshot PNG/JPEG images are bounded; original image text remains. Other images, external/wiki links, embeds, editing, Find and host navigation remain disabled. Generate a new handoff to refresh.")
+            .child("Memory-only snapshot. Local Markdown file/heading links and viewer Back/Forward use native heading anchors. Standalone snapshot PNG/JPEG images are bounded; original image text remains. Other images, external/wiki links, embeds, editing, Find and host navigation remain disabled. Generate a new handoff to refresh.")
             .child(message)
             .child(div().flex().flex_1().min_h_0().gap_3()
                 .child(div().id("handoff-files").w(px(260.)).overflow_y_scroll().border_r_1().border_color(rgb(line)).child(files)).child(body))
@@ -664,6 +691,73 @@ mod tests {
         assert!(cancel.load(Ordering::Acquire));
         assert!(state.images.status.is_empty());
         assert!(!state.accept_images(2, 3, 1, "a.md", Default::default()));
+    }
+    #[test]
+    fn missing_heading_and_stale_completion_preserve_selection_and_history() {
+        let mut state = HandoffUi {
+            open: true,
+            launch: Some(1),
+            serial: 2,
+            selection_serial: 3,
+            selected: "a.md".into(),
+            ..Default::default()
+        };
+        state.history.reset("a.md".into());
+        state.images.status = "old image".into();
+        state.history_target = Some(0);
+        let missing = snapshot_links::location("a.md", "b.md#missing").unwrap();
+        assert!(!state.complete_selection(3, 2, 1, missing.clone(), Ok(vec![])));
+        assert_eq!(state.selected, "a.md");
+        assert_eq!(state.images.status, "old image");
+        assert!(state.history.target(false).is_none());
+        assert!(state.history.target(true).is_none());
+        assert!(state.message.contains("Heading not reached"));
+        assert!(state.history_target.is_none());
+        state.begin_consume();
+        assert!(!state.complete_selection(3, 2, 1, missing.clone(), Ok(vec![])));
+        state.close();
+        assert!(!state.complete_selection(3, 2, 1, missing, Ok(vec![])));
+        assert!(state.selected.is_empty());
+    }
+    #[test]
+    fn repeated_heading_uses_fresh_selection_and_native_duplicate_anchor() {
+        let blocks = markdown::preview_blocks("# One\n\n# One\n\nOne\n===\n\n# 日本語\n").unwrap();
+        let mut state = HandoffUi {
+            open: true,
+            launch: Some(1),
+            serial: 2,
+            selection_serial: 3,
+            selected: "a.md".into(),
+            ..Default::default()
+        };
+        state.history.reset("a.md".into());
+        let location = snapshot_links::location("a.md", "#one-2").unwrap();
+        assert_eq!(heading_index(&blocks, &location), Ok(Some(1)));
+        assert!(state.complete_selection(3, 2, 1, location.clone(), Ok(blocks.clone())));
+        state.selection_serial = 4;
+        assert!(!state.complete_selection(3, 2, 1, location.clone(), Ok(blocks.clone())));
+        assert!(state.complete_selection(4, 2, 1, location.clone(), Ok(blocks.clone())));
+        assert_eq!(
+            state.history.target(false),
+            Some((0, &Location::from("a.md")))
+        );
+        assert_eq!(
+            heading_index(
+                &blocks,
+                &snapshot_links::location("a.md", "#one-3").unwrap()
+            ),
+            Ok(Some(2))
+        );
+        assert_eq!(
+            heading_index(
+                &blocks,
+                &snapshot_links::location("a.md", "#%E6%97%A5%E6%9C%AC%E8%AA%9E").unwrap()
+            ),
+            Ok(Some(3))
+        );
+        state.selection_serial = 5;
+        assert!(state.complete_selection(5, 2, 1, Location::from("a.md"), Ok(blocks)));
+        assert_eq!(state.history.target(false), Some((1, &location)));
     }
     fn snapshot(path: &str) -> Snapshot {
         Snapshot {
@@ -767,7 +861,12 @@ mod tests {
             links: vec![(link.clone(), "b.md".into())],
             ..Default::default()
         };
-        assert_eq!(state.link_target(2, 3, "a.md", &link), Some("b.md"));
+        assert_eq!(
+            state
+                .link_target(2, 3, "a.md", &link)
+                .map(|l| l.file.as_str()),
+            Some("b.md")
+        );
         assert!(state.link_target(1, 3, "a.md", &link).is_none());
         assert!(state.link_target(2, 2, "a.md", &link).is_none());
         assert!(state.link_target(2, 3, "b.md", &link).is_none());
@@ -791,14 +890,23 @@ mod tests {
         state.complete(2, 1, Ok((snapshot("a.md"), vec![])));
         let revision = state.selection_serial;
         assert!(state.complete_selection(revision, 2, 1, "b.md".into(), Ok(vec![])));
-        assert_eq!(state.history.target(false), Some((0, "a.md")));
+        assert_eq!(
+            state.history.target(false),
+            Some((0, &Location::from("a.md")))
+        );
         state.history_target = Some(0);
         assert!(state.complete_selection(revision, 2, 1, "a.md".into(), Err("bad".into())));
         assert_eq!(state.selected, "b.md");
-        assert_eq!(state.history.target(false), Some((0, "a.md")));
+        assert_eq!(
+            state.history.target(false),
+            Some((0, &Location::from("a.md")))
+        );
         state.history_target = Some(0);
         assert!(state.complete_selection(revision, 2, 1, "a.md".into(), Ok(vec![])));
-        assert_eq!(state.history.target(true), Some((1, "b.md")));
+        assert_eq!(
+            state.history.target(true),
+            Some((1, &Location::from("b.md")))
+        );
     }
     #[test]
     fn failed_consume_retains_old_links_under_new_revision_only() {
@@ -824,7 +932,9 @@ mod tests {
         assert!(state.complete(serial, 1, Err("offline".into())));
         assert_eq!(state.selected, "a.md");
         assert_eq!(
-            state.link_target(serial, state.selection_serial, "a.md", &link),
+            state
+                .link_target(serial, state.selection_serial, "a.md", &link)
+                .map(|l| l.file.as_str()),
             Some("b.md")
         );
     }
@@ -845,8 +955,9 @@ mod tests {
             link("missing.md"),
         ];
         let accepted = admit_snapshot_links(&snap, "dir/start.md", links.iter());
-        assert_eq!(accepted.len(), 1);
-        assert_eq!(accepted[0].1, "dir/Target.md");
+        assert_eq!(accepted.len(), 2);
+        assert_eq!(accepted[0].1.file, "dir/Target.md");
+        assert_eq!(accepted[1].1.heading.as_deref(), Some("part"));
         let many = vec![link("Target.md"); 300];
         assert_eq!(
             admit_snapshot_links(&snap, "dir/start.md", many.iter()).len(),

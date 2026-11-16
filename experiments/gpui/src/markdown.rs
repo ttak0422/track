@@ -3320,6 +3320,26 @@ pub fn render_block_elements_themed(blocks: &[Block], dark: bool) -> Vec<AnyElem
     render_elements(blocks, dark, None, None, None, None, None, None)
 }
 
+/// Snapshot viewer only: direct child order is the accepted block order.
+/// The caller owns the tracked scroller and its two title/status prefix children.
+pub(crate) fn render_snapshot_elements(
+    blocks: &[Block],
+    dark: bool,
+    callbacks: &LinkCallbacks,
+    images: &std::collections::BTreeMap<usize, crate::raster::Decoded>,
+) -> Vec<AnyElement> {
+    render_elements(
+        blocks,
+        dark,
+        None,
+        Some(callbacks),
+        None,
+        None,
+        Some(images),
+        None,
+    )
+}
+
 fn render_elements(
     blocks: &[Block],
     dark: bool,
@@ -6987,5 +7007,25 @@ mod snapshot_image_occurrence_tests {
         let blocks = preview_blocks(source).unwrap();
         let refs: Vec<_> = blocks.iter().filter_map(|b| b.image.as_deref()).collect();
         assert_eq!(refs, vec!["../images/a.png"]);
+    }
+}
+
+#[cfg(test)]
+mod snapshot_heading_tests {
+    use super::*;
+    #[test]
+    fn native_snapshot_heading_anchors_are_unique_and_parser_owned() {
+        let blocks = preview_blocks("# Same\n\nSame\n====\n\n# Same-2\n\n# A! B\n\n# A B\n\n# 日本語\n\n```md\n# fake\n```\n\n<div>\n# fake html\n</div>\n").unwrap();
+        let entries = outline(&blocks);
+        let anchors: Vec<_> = entries.iter().map(|entry| entry.anchor.as_str()).collect();
+        assert_eq!(
+            anchors,
+            vec!["same", "same-2", "same-2-2", "a-b", "a-b-2", "日本語"]
+        );
+        assert!(
+            entries
+                .windows(2)
+                .all(|pair| pair[0].block_index < pair[1].block_index)
+        );
     }
 }
