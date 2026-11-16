@@ -1,7 +1,7 @@
 //! Explicit period agenda. One serial batch; no note/event/task mutations.
 use super::*;
 use calendar_agenda::{Batch, Filter, Period, View};
-use gpui::Div;
+use gpui::{Div, SharedString};
 use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicU64, Ordering},
