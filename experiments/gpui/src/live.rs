@@ -1029,6 +1029,7 @@ pub struct Storage {
 
 #[derive(Clone)]
 pub struct ReadClient {
+    canonical_read_only: bool,
     creation_store: Arc<Mutex<Option<Result<crate::session_store::CreationStore, String>>>>,
     creation_fixture: Option<CreateFixture>,
     http: reqwest::blocking::Client,
@@ -2709,6 +2710,11 @@ impl ReadClient {
         // Every failure in this closure is known to precede the PUT. Never report
         // a failed preliminary GET as an ambiguous write, or silently substitute an etag.
         let preflight = (|| {
+            if self.canonical_read_only {
+                return Err(Error::Config(
+                    "Canonical read-only session cannot save".into(),
+                ));
+            }
             if save.etag.is_empty() || save.key.note_id == 0 {
                 return Err(Error::Config(
                     "note identity and server revision are required".into(),
@@ -2827,6 +2833,22 @@ pub(crate) fn clear_track_environment(command: &mut Command) {
     command.env_clear().env("PATH", "/usr/bin:/bin");
 }
 
+// The production variant still requires the existing disposable ReadFixture.
+enum StartupAdmission {
+    Fixture,
+    #[cfg(test)]
+    SyntheticCanonical(read_inputs::SyntheticCanonical),
+}
+impl StartupAdmission {
+    fn verify(&self, config: &LaunchConfig) -> Result<(), Error> {
+        match self {
+            Self::Fixture => config.read_fixture.as_ref().ok_or_else(|| Error::Config("Ordinary vault launch remains disabled pending native verification. Use synthetic/JSON input or an explicitly verified disposable fixture.".into()))?.verify_launch(config).map_err(Error::Config),
+            #[cfg(test)]
+            Self::SyntheticCanonical(proof) => proof.verify().map_err(Error::Config),
+        }
+    }
+}
+
 pub struct OwnedServer {
     child: Option<Child>,
     client: ReadClient,
@@ -2840,11 +2862,26 @@ impl OwnedServer {
         Self::start_cancelable(config, &AtomicBool::new(false))
     }
     fn start_cancelable(config: LaunchConfig, canceled: &AtomicBool) -> Result<Self, Error> {
+        Self::start_admitted(config, canceled, StartupAdmission::Fixture)
+    }
+    #[cfg(test)]
+    fn start_synthetic_canonical(proof: read_inputs::SyntheticCanonical) -> Result<Self, Error> {
+        Self::start_admitted(
+            proof.launch(),
+            &AtomicBool::new(false),
+            StartupAdmission::SyntheticCanonical(proof),
+        )
+    }
+    fn start_admitted(
+        config: LaunchConfig,
+        canceled: &AtomicBool,
+        admission: StartupAdmission,
+    ) -> Result<Self, Error> {
         config.validate()?;
         if canceled.load(Ordering::Acquire) {
             return Err(Error::Stale);
         }
-        config.read_fixture.as_ref().ok_or_else(|| Error::Config("Ordinary vault launch remains disabled pending native verification. Use synthetic/JSON input or an explicitly verified disposable fixture.".into()))?.verify_launch(&config).map_err(Error::Config)?;
+        admission.verify(&config)?;
         if let Some(fixture) = &config.creation_fixture {
             fixture.verify_launch(&config).map_err(Error::Config)?;
         }
@@ -2869,6 +2906,7 @@ impl OwnedServer {
             .map_err(|e| Error::Transport(e.to_string()))?;
         let alive = Arc::new(AtomicBool::new(true));
         let client = ReadClient {
+            canonical_read_only: config.canonical_read_only(),
             creation_store: Default::default(),
             creation_fixture: config.creation_fixture.clone(),
             http,
@@ -2877,48 +2915,51 @@ impl OwnedServer {
             launch_generation: NEXT_LAUNCH.fetch_add(1, Ordering::Relaxed),
         };
         let mut cmd = Command::new(&config.executable);
-        clear_track_environment(&mut cmd);
-        cmd.env_remove("TRACK_VAULT")
-            .env_remove("TRACK_CONFIG")
-            .env_remove("TRACK_CACHE_DIR");
-        match &config.vault {
-            Vault::Path(p) => {
-                cmd.env("TRACK_VAULT", p)
-                    .env("HOME", p)
-                    .env("XDG_CONFIG_HOME", p)
-                    .current_dir(p);
+        match &admission {
+            StartupAdmission::Fixture => {
+                clear_track_environment(&mut cmd);
+                cmd.env_remove("TRACK_VAULT")
+                    .env_remove("TRACK_CONFIG")
+                    .env_remove("TRACK_CACHE_DIR");
+                match &config.vault {
+                    Vault::Path(p) => {
+                        cmd.env("TRACK_VAULT", p)
+                            .env("HOME", p)
+                            .env("XDG_CONFIG_HOME", p)
+                            .current_dir(p);
+                    }
+                    Vault::Registered(n) => {
+                        cmd.args(["--vault", n]);
+                    }
+                }
+                if let Some(p) = &config.config {
+                    cmd.env("TRACK_CONFIG", p);
+                }
+                if let Some(p) = &config.cache {
+                    cmd.env("TRACK_CACHE_DIR", p)
+                        .env("XDG_CACHE_HOME", p)
+                        .env("TMPDIR", p);
+                }
+                cmd.args(["web", "--addr", &format!("127.0.0.1:{}", config.port)]);
+                config.configure_read_mode(&mut cmd)?;
             }
-            Vault::Registered(n) => {
-                cmd.args(["--vault", n]);
+            #[cfg(test)]
+            StartupAdmission::SyntheticCanonical(proof) => {
+                proof.configure(&mut cmd).map_err(Error::Config)?
             }
         }
-        if let Some(p) = &config.config {
-            cmd.env("TRACK_CONFIG", p);
-        }
-        if let Some(p) = &config.cache {
-            cmd.env("TRACK_CACHE_DIR", p)
-                .env("XDG_CACHE_HOME", p)
-                .env("TMPDIR", p);
-        }
-        cmd.args(["web", "--addr", &format!("127.0.0.1:{}", config.port)])
-            .env(
-                "TRACK_WEB_DESKTOP_PARENT_PID",
-                std::process::id().to_string(),
-            )
-            .env("TRACK_WEB_DESKTOP_READY_TOKEN", &token)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        config.configure_read_mode(&mut cmd)?;
+        cmd.env(
+            "TRACK_WEB_DESKTOP_PARENT_PID",
+            std::process::id().to_string(),
+        )
+        .env("TRACK_WEB_DESKTOP_READY_TOKEN", &token)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
         if let Some(fixture) = &config.creation_fixture {
             fixture.verify_launch(&config).map_err(Error::Config)?;
         }
-        config
-            .read_fixture
-            .as_ref()
-            .unwrap()
-            .verify_launch(&config)
-            .map_err(Error::Config)?;
+        admission.verify(&config)?;
         drop((first, second));
         let mut child = cmd.spawn()?;
         let logs = Arc::new(Mutex::new(VecDeque::new()));
@@ -2980,6 +3021,32 @@ impl OwnedServer {
                     }
                     capability_verified = true;
                 }
+                #[cfg(test)]
+                let admission_generation =
+                    if matches!(&admission, StartupAdmission::SyntheticCanonical(_)) {
+                        let state: Result<Storage, Error> = owner.client.get_with_timeout(
+                            "/api/storage",
+                            &[],
+                            Some(
+                                config
+                                    .startup_timeout
+                                    .saturating_sub(start.elapsed())
+                                    .max(Duration::from_millis(1))
+                                    .min(config.request_timeout),
+                            ),
+                        );
+                        match state {
+                            Ok(state) if state.phase == "ready" && !state.read_only => {
+                                Some(state.generation)
+                            }
+                            _ => {
+                                thread::sleep(Duration::from_millis(20));
+                                continue;
+                            }
+                        }
+                    } else {
+                        None
+                    };
                 match owner.client.vaults_with_timeout(Some(
                     config
                         .startup_timeout
@@ -2990,6 +3057,28 @@ impl OwnedServer {
                 )) {
                     Ok(v) => {
                         owner.check_running()?;
+                        #[cfg(test)]
+                        if let StartupAdmission::SyntheticCanonical(proof) = &admission {
+                            match proof.verify_registry(&v) {
+                                Ok(true) => {}
+                                Ok(false) => {
+                                    last = "Synthetic peers are initializing".into();
+                                    thread::sleep(Duration::from_millis(20));
+                                    continue;
+                                }
+                                Err(error) => {
+                                    owner.shutdown()?;
+                                    return Err(Error::Startup(error));
+                                }
+                            }
+                        }
+                        #[cfg(test)]
+                        if let StartupAdmission::SyntheticCanonical(proof) = &admission {
+                            if let Err(error) = proof.verify_bindings() {
+                                let _ = owner.shutdown();
+                                return Err(Error::Config(error));
+                            }
+                        }
                         owner.initial_vaults = v;
                         match owner.client.get_with_timeout(
                             "/api/storage",
@@ -3005,6 +3094,16 @@ impl OwnedServer {
                         ) {
                             Ok(s) => owner.initial_storage = Some(s),
                             Err(e) => owner.storage_error = Some(e.to_string()),
+                        }
+                        #[cfg(test)]
+                        if let Some(generation) = admission_generation {
+                            if owner.initial_storage.as_ref().is_none_or(|s| {
+                                s.phase != "ready" || s.read_only || s.generation != generation
+                            }) {
+                                last = "Synthetic storage verification changed".into();
+                                thread::sleep(Duration::from_millis(20));
+                                continue;
+                            }
                         }
                         owner.check_running()?;
                         if canceled.load(Ordering::Acquire) {
@@ -3523,7 +3622,7 @@ mod tests {
         let pid = child.id();
         let server = OwnedServer {
             child: Some(child),
-            client: ReadClient { creation_store: Default::default(), creation_fixture: None, http: reqwest::blocking::Client::new(), origin: "http://127.0.0.1:1".into(), alive: Arc::new(AtomicBool::new(true)), launch_generation: 1 },
+            client: ReadClient { canonical_read_only: false, creation_store: Default::default(), creation_fixture: None, http: reqwest::blocking::Client::new(), origin: "http://127.0.0.1:1".into(), alive: Arc::new(AtomicBool::new(true)), launch_generation: 1 },
             logs: Arc::new(Mutex::new(VecDeque::new())), initial_vaults: serde_json::json!({"active":{},"vaults":[]}),
             initial_storage: Some(serde_json::from_value(serde_json::json!({"phase":"initializing","read_only":true,"verified":0,"generation":1})).unwrap()), storage_error: None,
         };
@@ -3637,6 +3736,7 @@ mod tests {
         });
         (
             ReadClient {
+                canonical_read_only: false,
                 creation_store: Default::default(),
                 creation_fixture: None,
                 http: reqwest::blocking::Client::builder()
@@ -5189,6 +5289,7 @@ mod tests {
         });
         (
             ReadClient {
+                canonical_read_only: false,
                 creation_store: Default::default(),
                 creation_fixture: None,
                 http: reqwest::blocking::Client::builder()
@@ -5246,6 +5347,7 @@ mod tests {
         });
         (
             ReadClient {
+                canonical_read_only: false,
                 creation_store: Default::default(),
                 creation_fixture: None,
                 http: reqwest::blocking::Client::builder()
@@ -5314,6 +5416,7 @@ mod tests {
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         listener.set_nonblocking(true).unwrap();
         let client = ReadClient {
+            canonical_read_only: false,
             creation_store: Default::default(),
             creation_fixture: None,
             http: reqwest::blocking::Client::builder()
@@ -5460,6 +5563,7 @@ mod tests {
                 String::from_utf8(request).unwrap()
             });
             let client = ReadClient {
+                canonical_read_only: false,
                 creation_store: Default::default(),
                 creation_fixture: None,
                 http: reqwest::blocking::Client::builder()
@@ -5515,6 +5619,7 @@ mod tests {
                 String::from_utf8(request).unwrap()
             });
             let client = ReadClient {
+                canonical_read_only: false,
                 creation_store: Default::default(),
                 creation_fixture: None,
                 http: reqwest::blocking::Client::builder()
@@ -5584,6 +5689,7 @@ mod tests {
                 }
             });
             let client = ReadClient {
+                canonical_read_only: false,
                 creation_store: Default::default(),
                 creation_fixture: None,
                 http: reqwest::blocking::Client::builder()
@@ -6594,6 +6700,7 @@ mod tests {
             String::from_utf8(request).unwrap()
         });
         let client = ReadClient {
+            canonical_read_only: false,
             creation_store: Default::default(),
             creation_fixture: None,
             http: reqwest::blocking::Client::builder()
@@ -7080,6 +7187,7 @@ mod tests {
         }
         thread::sleep(Duration::from_millis(50));
         let client = ReadClient {
+            canonical_read_only: false,
             creation_store: Default::default(),
             creation_fixture: None,
             http: reqwest::blocking::Client::new(),
@@ -7185,6 +7293,7 @@ mod markdown_consume_tests {
         });
         (
             ReadClient {
+                canonical_read_only: false,
                 creation_store: Default::default(),
                 creation_fixture: None,
                 http: reqwest::blocking::Client::builder()
@@ -7311,3 +7420,7 @@ mod capability_tests;
 
 #[path = "live_read_inputs.rs"]
 mod read_inputs;
+
+#[cfg(test)]
+#[path = "live_admission_process.rs"]
+mod admission_process_tests;

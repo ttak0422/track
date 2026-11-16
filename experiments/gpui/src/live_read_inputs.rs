@@ -317,4 +317,286 @@ mod tests {
                 .is_err()
         );
     }
+    fn synthetic() -> (Fixture, SyntheticCanonical) {
+        let (f, mut launch, normal, home) = fixture();
+        std::fs::create_dir(f.0.join("peer")).unwrap();
+        std::fs::write(
+            f.0.join(".track-native-read-fixture"),
+            b"disposable-fixture-only\n",
+        )
+        .unwrap();
+        let registry = BTreeMap::from([
+            ("main".into(), f.0.join("vault")),
+            ("work".into(), f.0.join("peer")),
+        ]);
+        std::fs::write(
+            f.0.join("config"),
+            SyntheticCanonical::config_bytes(&registry, &normal),
+        )
+        .unwrap();
+        launch.vault = Vault::Registered("main".into());
+        let inputs = CanonicalLaunchInputs::capture(&launch, &normal, &home, &home).unwrap();
+        let proof = SyntheticCanonical::capture(&f.0, inputs, registry, &normal).unwrap();
+        (f, proof)
+    }
+    #[test]
+    fn synthetic_proof_rejects_config_change_missing_peer_and_edit_conversion() {
+        let (f, proof) = synthetic();
+        assert!(proof.launch().creation_fixture.is_none());
+        assert!(proof.launch().read_fixture.is_none());
+        assert!(OwnedServer::start(proof.launch()).is_err());
+        std::fs::remove_dir(f.0.join("peer")).unwrap();
+        assert!(proof.verify().is_err());
+        let (f, proof) = synthetic();
+        std::fs::write(
+            f.0.join("config"),
+            b"{}
+",
+        )
+        .unwrap();
+        assert!(proof.verify().is_err());
+    }
+    #[test]
+    fn synthetic_registry_requires_exact_identity_and_bounded_readiness() {
+        let (_f, proof) = synthetic();
+        let active = serde_json::json!({"name":"main","path":proof.registry["main"]});
+        let main = serde_json::json!({"name":"main","path":proof.registry["main"],"active":true});
+        let work = serde_json::json!({"name":"work","path":proof.registry["work"],"active":false});
+        let wire = serde_json::json!({"active":active,"vaults":[main,work],"unavailable":[]});
+        assert_eq!(proof.verify_registry(&wire), Ok(true));
+        let mut pending = wire.clone();
+        pending["vaults"].as_array_mut().unwrap().pop();
+        pending["unavailable"] =
+            serde_json::json!([{"name":"work","path":proof.registry["work"],"error":"opening"}]);
+        assert_eq!(proof.verify_registry(&pending), Ok(false));
+        pending["unavailable"][0]["path"] = serde_json::json!("/outside");
+        assert!(proof.verify_registry(&pending).is_err());
+        let mut wrong = wire.clone();
+        wrong["vaults"][1]["name"] = serde_json::json!("main");
+        assert!(proof.verify_registry(&wrong).is_err());
+        wrong = wire.clone();
+        wrong["active"]["name"] = serde_json::json!("work");
+        assert!(proof.verify_registry(&wrong).is_err());
+        wrong = wire.clone();
+        wrong["storage_state"] = serde_json::json!("nonsense");
+        assert!(proof.verify_registry(&wrong).is_err());
+        wrong = wire.clone();
+        wrong["vaults"][1] = serde_json::json!({"name":"unexpected","active":false});
+        assert!(proof.verify_registry(&wrong).is_err());
+        wrong["vaults"][1]["path"] = serde_json::json!(42);
+        assert!(proof.verify_registry(&wrong).is_err());
+        wrong["vaults"][1]["name"] = serde_json::json!("work");
+        assert!(proof.verify_registry(&wrong).is_err());
+    }
+    #[test]
+    fn canonical_save_is_not_sent_even_when_source_looks_writable() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let client = ReadClient {
+            canonical_read_only: true,
+            creation_store: Default::default(),
+            creation_fixture: None,
+            http: reqwest::blocking::Client::new(),
+            origin: format!("http://{}", listener.local_addr().unwrap()),
+            alive: Arc::new(AtomicBool::new(true)),
+            launch_generation: 1,
+        };
+        let request = SaveRequest {
+            key: NoteKey {
+                vault: String::new(),
+                note_id: 42,
+            },
+            body: "replacement".into(),
+            etag: "valid".into(),
+            launch_generation: 1,
+            storage_generation: 1,
+        };
+        assert!(
+            matches!(client.save(&request),Err(Error::SaveNotSent(reason)) if reason.to_string().contains("Canonical read-only"))
+        );
+        assert_eq!(
+            listener.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+    }
+}
+
+/// Synthetic-only authority. Not compiled into production, and deliberately
+/// uses a different marker from writable fixture permissions.
+#[cfg(test)]
+#[derive(Clone, Debug)]
+pub(super) struct SyntheticCanonical {
+    inputs: CanonicalLaunchInputs,
+    root: Binding,
+    marker: Binding,
+    registry: BTreeMap<String, PathBuf>,
+    normal_cache: Binding,
+    peers: Vec<Binding>,
+}
+#[cfg(test)]
+impl SyntheticCanonical {
+    pub(super) fn config_bytes(
+        registry: &BTreeMap<String, PathBuf>,
+        normal_cache: &Path,
+    ) -> Vec<u8> {
+        serde_json::to_vec(&serde_json::json!({"default_vault":"main", "vaults":registry,"cache_dir":normal_cache})).unwrap()
+    }
+    pub(super) fn capture(
+        root: &Path,
+        inputs: CanonicalLaunchInputs,
+        registry: BTreeMap<String, PathBuf>,
+        normal_cache: &Path,
+    ) -> Result<Self, String> {
+        let temp = std::env::temp_dir()
+            .canonicalize()
+            .map_err(|e| e.to_string())?;
+        if root == temp || !root.starts_with(&temp) {
+            return Err("Synthetic root must be strictly inside temporary directory".into());
+        }
+        let root = Binding::capture(root, true)?;
+        let path = &root.identity.path;
+        let marker = Binding::capture(&path.join(".track-native-read-fixture"), false)?;
+        if registry.is_empty() || registry.len() > 8 || !registry.contains_key("main") {
+            return Err("Synthetic registry needs main and at most 8 entries".into());
+        }
+        let mut peers = Vec::new();
+        let mut paths = std::collections::BTreeSet::new();
+        for (name, peer) in &registry {
+            if name.is_empty()
+                || name.len() > 64
+                || !name
+                    .bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-')
+                || !paths.insert(peer.clone())
+                || peer == path
+                || !peer.starts_with(path)
+            {
+                return Err("Invalid synthetic registry".into());
+            }
+            peers.push(Binding::capture(peer, true)?);
+        }
+        for binding in inputs.bindings.iter().skip(1) {
+            if !binding.identity.path.starts_with(path) || binding.identity.path == *path {
+                return Err("Synthetic input escaped temporary root".into());
+            }
+        }
+        if !normal_cache.starts_with(path) || normal_cache == path {
+            return Err("Synthetic normal cache escaped root".into());
+        }
+        let Vault::Registered(name) = &inputs.launch.vault else {
+            return Err("Synthetic test requires registered selector".into());
+        };
+        if !registry.contains_key(name) {
+            return Err("Unknown synthetic selector".into());
+        }
+        let proof = Self {
+            inputs,
+            root,
+            marker,
+            registry,
+            normal_cache: Binding::capture(normal_cache, true)?,
+            peers,
+        };
+        proof.verify()?;
+        Ok(proof)
+    }
+    pub(super) fn launch(&self) -> LaunchConfig {
+        self.inputs.launch.clone()
+    }
+    pub(super) fn verify(&self) -> Result<(), String> {
+        self.verify_bindings()?;
+        ReadFixture::isolated_tree(&self.root.identity.path)
+    }
+    // After spawn the private SQLite tree is live; do not scan transient WAL/SHM
+    // entries as immutable input. Engine cache preflight owns that boundary.
+    pub(super) fn verify_bindings(&self) -> Result<(), String> {
+        self.inputs.verify()?;
+        self.root.verify()?;
+        self.marker.verify()?;
+        self.normal_cache.verify()?;
+        for peer in &self.peers {
+            peer.verify()?;
+        }
+        if CanonicalLaunchInputs::read_config(&self.marker.identity.path)?
+            != b"disposable-fixture-only\n"
+        {
+            return Err("Synthetic read marker mismatch".into());
+        }
+        if self.inputs.config_bytes
+            != Self::config_bytes(&self.registry, &self.normal_cache.identity.path)
+        {
+            return Err("Synthetic configuration must exactly match generated registry".into());
+        }
+        Ok(())
+    }
+    pub(super) fn configure(&self, command: &mut Command) -> Result<(), String> {
+        self.verify()?;
+        self.inputs.configure(command)
+    }
+    pub(super) fn verify_registry(&self, value: &Value) -> Result<bool, String> {
+        if let Some(state) = value.get("storage_state") {
+            match state.as_str() {
+                Some("initializing" | "partial" | "unavailable") => return Ok(false),
+                Some("ready") => {}
+                _ => return Err("Unknown synthetic registry storage state".into()),
+            }
+        }
+        let Vault::Registered(selected) = &self.inputs.launch.vault else {
+            unreachable!()
+        };
+        let active = value.get("active").ok_or("Missing active registry")?;
+        if active.get("name").and_then(Value::as_str) != Some(selected.as_str())
+            || active.get("path").and_then(Value::as_str) != self.registry[selected].to_str()
+        {
+            return Err("Synthetic active identity mismatch".into());
+        }
+        let entries = value
+            .get("vaults")
+            .and_then(Value::as_array)
+            .ok_or("Missing registry")?;
+        let unavailable = value
+            .get("unavailable")
+            .and_then(Value::as_array)
+            .ok_or("Missing registry availability")?;
+        if entries.len() + unavailable.len() > 8 {
+            return Err("Synthetic registry exceeds bound".into());
+        }
+        let mut names = std::collections::BTreeSet::new();
+        let mut active_found = false;
+        for (entry, available) in entries
+            .iter()
+            .map(|e| (e, true))
+            .chain(unavailable.iter().map(|e| (e, false)))
+        {
+            let name = entry
+                .get("name")
+                .and_then(Value::as_str)
+                .ok_or("Missing registry name")?;
+            let expected = self
+                .registry
+                .get(name)
+                .ok_or("Unknown registry name")?
+                .to_str()
+                .ok_or("Non-UTF8 registry path")?;
+            let actual = entry
+                .get("path")
+                .and_then(Value::as_str)
+                .ok_or("Missing registry path")?;
+            if !names.insert(name) || expected != actual {
+                return Err("Synthetic registry identity mismatch".into());
+            }
+            if available {
+                if entry.get("active").and_then(Value::as_bool) != Some(name == selected) {
+                    return Err("Synthetic registry active flag mismatch".into());
+                }
+                active_found |= name == selected;
+            }
+        }
+        if names.len() != self.registry.len() || !active_found {
+            return Err("Synthetic registry incomplete".into());
+        }
+        // Deliberately stricter fixture-only admission: exercise every peer.
+        // This does not define availability policy for ordinary launch.
+        Ok(unavailable.is_empty())
+    }
 }

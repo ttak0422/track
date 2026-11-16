@@ -69,6 +69,8 @@ A fixture must be a canonical directory beneath the OS temporary directory, with
 
 Owned HTTP read fixtures, including session-only fixtures, now request the engine's canonical-read-only mode with the explicit fixture cache as its private root. That root must already have permissions `0700`. After the exact owned-process readiness token, native requires `GET /api/capabilities` to return JSON with protocol `track-canonical-read-only`, integer version `1`, and `canonical_read_only:true`, before any vault/storage reads. Missing, unsupported, malformed, false or timed-out capabilities terminate and reap that child; there is no retry without the mode flags or fallback to CLI. The handshake is not storage readiness or an OS sandbox. Explicit editing/creation fixture authority alone retains writable engine mode; session persistence does not grant canonical-write authority. CLI-only disposable-fixture behavior is unchanged. Native launch remains fixture-gated even with a valid capability. Browser/GUI behavior is not established by headless process tests.
 
+Canonical read-only clients refuse Save locally before any preliminary read or write request. Healthy storage does not grant editing authority. Ordinary-vault native launch remains blocked.
+
 
 For an already prepared disposable fixture:
 
