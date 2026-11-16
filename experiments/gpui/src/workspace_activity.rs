@@ -205,6 +205,13 @@ impl Default for CalendarZone {
     }
 }
 impl CalendarZone {
+    pub(crate) fn agenda_input(&self) -> Option<gpui::Entity<search_input::SearchInput>> {
+        self.input.clone()
+    }
+    pub(crate) fn agenda_stamp(&self) -> (String, u64) {
+        (self.draft.clone(), self.revision)
+    }
+
     pub(crate) fn is_composing(&self, cx: &App) -> bool {
         self.input
             .as_ref()
@@ -2130,7 +2137,7 @@ fn events_page_range(total: usize, requested: usize) -> (usize, usize, std::ops:
 fn events_heading(date: &str, zone: &str) -> String {
     format!("Calendar events · {date} ({zone})")
 }
-fn event_label(event: &live::CalendarEvent) -> String {
+pub(crate) fn event_label(event: &live::CalendarEvent) -> String {
     format!(
         "{} · {} · {} to {} · {}{}",
         event.status,
@@ -2309,7 +2316,7 @@ mod utc_event_display_tests {
 }
 
 impl Workspace {
-    fn sync_calendar_zone(&mut self, dark: bool, cx: &mut Context<Self>) {
+    pub(crate) fn sync_calendar_zone(&mut self, dark: bool, cx: &mut Context<Self>) {
         let launch = self.live.as_ref().map(|s| s.client().launch_generation);
         if self.shell.calendar_zone.launch != launch {
             self.shell.calendar_zone = CalendarZone {

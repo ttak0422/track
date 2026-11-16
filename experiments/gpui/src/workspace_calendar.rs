@@ -4,6 +4,9 @@ use gpui::Div;
 #[derive(Default)]
 pub(crate) struct CalendarState {
     pub month: Option<calendar_month::Month>,
+    pub view: calendar_agenda::View,
+    pub filter: calendar_agenda::Filter,
+    pub agenda: Option<workspace_calendar_agenda::AgendaState>,
     pub revision: u64,
     pub day_memory: Option<CalendarDayMemory>,
 }
@@ -71,6 +74,11 @@ impl Workspace {
         if self.guard_transition(workspace_edit::Transition::Calendar, cx) {
             return;
         }
+        self.shell.calendar.agenda = None;
+        if self.tabs.get(&tabs::TabKey::Calendar).is_none() {
+            self.shell.calendar.view = calendar_agenda::View::Month;
+            self.shell.calendar.filter = calendar_agenda::Filter::All;
+        }
         self.previews.model.invalidate_session();
         self.previews.cancel_wake();
         self.tag_page = None;
@@ -104,12 +112,18 @@ impl Workspace {
         dark: bool,
         cx: &mut Context<Self>,
     ) -> Div {
-        let body = self.calendar_activity((width - 120.).clamp(280., 960.), dark, cx);
+        let controls = self.calendar_period_controls(dark, cx);
+        let body = if self.shell.calendar.view == calendar_agenda::View::Month {
+            self.calendar_activity((width - 120.).clamp(280., 960.), dark, cx)
+        } else {
+            self.calendar_period_body(cx)
+        };
         div().flex_1().min_h_0().p_4().pl(px(68.)).child(
             div()
                 .id("calendar-page-scroll")
                 .h_full()
                 .overflow_y_scroll()
+                .child(controls)
                 .child(body),
         )
     }

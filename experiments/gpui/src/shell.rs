@@ -4168,6 +4168,7 @@ impl Render for Workspace {
         if !self.shell.home {
             self.shell.open_tasks = None;
         }
+        self.sync_calendar_period(window, cx);
         self.sync_reader_selection(window, cx);
         self.sync_reader_hover(window, cx);
         self.sync_reader_hierarchy(window, cx);

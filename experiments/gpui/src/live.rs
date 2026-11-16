@@ -1574,6 +1574,25 @@ impl ReadClient {
         date: &str,
         zone: &str,
     ) -> Result<CalendarDayEventsResponse, Error> {
+        self.calendar_day_events_zoned(vault, date, zone, None)
+    }
+    /// Agenda reads verify the raw wire namespace before legacy normalization.
+    pub fn calendar_agenda_day(
+        &self,
+        vault: &str,
+        launch: &str,
+        date: &str,
+        zone: &str,
+    ) -> Result<CalendarDayEventsResponse, Error> {
+        self.calendar_day_events_zoned(vault, date, zone, Some(launch))
+    }
+    fn calendar_day_events_zoned(
+        &self,
+        vault: &str,
+        date: &str,
+        zone: &str,
+        launch: Option<&str>,
+    ) -> Result<CalendarDayEventsResponse, Error> {
         let utc_bounds = utc_day_bounds(date).ok_or_else(|| {
             Error::Config("calendar day requires a date in years 0001..9998".into())
         })?;
@@ -1591,6 +1610,10 @@ impl ReadClient {
         args.push(("date", date.into()));
         args.push(("time_zone", zone.into()));
         let mut result: CalendarDayEventsResponse = self.get("/api/calendar-events/day", &args)?;
+        if launch.is_some_and(|launch| !calendar_range_vault_matches(vault, &result.vault, launch))
+        {
+            return Err(Error::Shape("calendar agenda wire vault mismatch".into()));
+        }
         let valid_bounds = match (result.day_start_unix, result.day_end_unix) {
             (Some(start), Some(end)) => {
                 start < end
@@ -5530,6 +5553,24 @@ mod tests {
     fn calendar_day_fixture() -> Value {
         serde_json::json!({"vault":"work", "date":"2026-11-01", "time_zone":"UTC",
             "day_start":"2026-11-01T00:00:00Z", "day_end":"2026-11-02T00:00:00Z", "events":[]})
+    }
+    #[test]
+    fn agenda_day_verifies_raw_vault_before_normalization() {
+        for (requested, launch, wire, accepted) in [
+            ("foreign", "host", "", false),
+            ("foreign", "host", "foreign", true),
+            ("host", "host", "", true),
+            ("", "host", "", true),
+            ("foreign", "host", "host", false),
+        ] {
+            let mut body = zoned_calendar_day_fixture();
+            body["vault"] = serde_json::json!(wire);
+            let (client, worker) = mock(200, body.to_string());
+            let result =
+                client.calendar_agenda_day(requested, launch, "2026-11-01", "America/New_York");
+            worker.join().unwrap();
+            assert_eq!(result.is_ok(), accepted, "{requested}/{wire}: {result:?}");
+        }
     }
     fn zoned_calendar_day_fixture() -> Value {
         serde_json::json!({"vault":"work", "date":"2026-11-01", "time_zone":"America/New_York",

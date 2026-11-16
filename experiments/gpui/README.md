@@ -1173,3 +1173,11 @@ The existing server still materializes all matching indexed tasks and may refres
 derived index/cache; client bounds do not imply bounded server work. No task/note
 mutation API or ordinary-vault write feature is added. Native GUI remains
 unverified; cloud model/adapter tests cover only the stated contracts.
+
+### Calendar period agendas (experimental)
+
+Calendar now has Month / Today / Tomorrow / This week controls. Day/week navigation is civil ±1/±7, Sunday-first, with local All/Events/Tasks filters and 100-display-row pages. Month and its selected-day/journal behavior are unchanged. Task source navigation stays read-only and guarded; no event/task editing is introduced.
+
+The engine-selected display zone determines today via at most three existing day-boundary reads of UTC today and its neighbors, with `start <= captured_now < end`. At most seven visible day reads follow, reusing a matching today response; tasks are fetched once. One serial period batch shares the existing agenda permit limit. Cancellation stops subsequent requests, never releases a running worker's permit early. A 40-second between-request deadline supplements the existing HTTP timeout; it is not a hard wall-clock kill. The existing 16 MiB per-response limit remains, with separate accepted 4 MiB/4096-record event and task aggregates. No new engine API or dependency is added, and existing server-side materialization/index refresh is not claimed bounded or write-free.
+
+Events retain engine day membership and original timestamp/zone/all-day labels. Tasks reuse weekly civil-date placement, stable ordering and overdue rules, with invalid-date diagnostics. Failures/partial results stay independent after the today anchor is verified; anchor failure makes the whole period unavailable. Relative view refreshes re-anchor today, while explicit historical navigation remains fixed. An owned timer checks midnight/clock changes approximately every 30 seconds; focus checks also invalidate expired data. Unapplied zone changes and route/source changes discard results. Sunday is fixed, and returning to a retained Calendar may require Reload. Ordinary vault write gates are unchanged. Full GPUI compilation and native GUI/IME behavior are not verified by the isolated cloud model/adapter harness.
