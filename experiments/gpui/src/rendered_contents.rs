@@ -108,6 +108,9 @@ impl Default for Ui {
     }
 }
 impl Ui {
+    pub(super) fn interaction_revision(&self) -> u64 {
+        self.revision
+    }
     pub(super) fn is_pending(&self) -> bool {
         self.pending.is_some()
     }

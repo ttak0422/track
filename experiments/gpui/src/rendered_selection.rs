@@ -78,6 +78,12 @@ pub(super) struct Ui {
     feedback: Option<&'static str>,
 }
 impl Ui {
+    pub(super) fn interaction_revision(&self) -> u64 {
+        self.revision
+    }
+    pub(super) fn is_empty(&self) -> bool {
+        self.selected.is_none()
+    }
     fn clear(&mut self) {
         self.selected = None;
         self.feedback = None;

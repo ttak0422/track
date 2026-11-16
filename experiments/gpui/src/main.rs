@@ -32,6 +32,7 @@ mod included_notes;
 mod input_trace;
 mod live;
 mod live_events;
+mod live_refresh;
 mod markdown;
 mod markdown_copy;
 mod markdown_handoff;
@@ -84,6 +85,7 @@ mod workspace_open_tasks;
 mod workspace_preview;
 mod workspace_recent;
 mod workspace_recent_created;
+mod workspace_refresh;
 mod workspace_session;
 mod workspace_tags;
 mod workspace_weekly;
@@ -169,6 +171,7 @@ struct Workspace {
     tag_page: Option<workspace_tags::Page>,
     session_ui: workspace_session::SessionUi,
     event_awareness: event_awareness::State,
+    refresh: workspace_refresh::Ui,
     follow: workspace_follow::FollowUi,
     reader_images: workspace_images::State,
     reader_pdf: Option<workspace_pdf::State>,
@@ -799,6 +802,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         tag_page: None,
                         session_ui,
                         event_awareness: Default::default(),
+                        refresh: Default::default(),
                         follow: Default::default(),
                         reader_images: Default::default(),
                         reader_pdf: None,

@@ -839,6 +839,49 @@ fn selection_clip(g: &FootnoteGeometry) -> crate::selection_lines::Rect {
     }
 }
 impl Workspace {
+    pub(crate) fn refresh_reader_interaction(&self) -> (u64, u64) {
+        (
+            self.shell.positions.interaction,
+            self.shell.reader_scroll_epoch,
+        )
+    }
+    pub(crate) fn refresh_reader_idle(&self) -> bool {
+        self.shell.selection.is_none()
+            && self.shell.positions.queued.is_none()
+            && self.shell.pending_fragment.is_none()
+    }
+    pub(crate) fn refresh_reader_top(&self, window: &Window) -> bool {
+        if !self.refresh_reader_idle() || self.position_capture(window).is_none() {
+            return false;
+        }
+        self.tabs
+            .active()
+            .and_then(|t| self.shell.reader_scrolls.get(&t.key))
+            .is_some_and(|h| h.offset().y == px(0.) && h.bounds().size.height > px(0.))
+    }
+    pub(crate) fn accept_refresh_content(
+        &mut self,
+        key: tabs::TabKey,
+        body: &str,
+        etag: String,
+        preserve: bool,
+    ) {
+        let offset = preserve
+            .then(|| self.shell.reader_scrolls.get(&key).map(|h| h.offset()))
+            .flatten();
+        self.shell.accept_reader_content(
+            key.clone(),
+            body,
+            Some((
+                self.live.as_ref().unwrap().client().launch_generation,
+                self.accepted_storage_generation,
+                etag,
+            )),
+        );
+        if let (Some(offset), Some(handle)) = (offset, self.shell.reader_scrolls.get(&key)) {
+            handle.set_offset(offset);
+        }
+    }
     pub(crate) fn reader_selection_dragging(&self) -> bool {
         self.shell.selection.as_ref().is_some_and(|s| s.dragging())
     }
@@ -6002,6 +6045,7 @@ impl Render for Workspace {
                         .child(warning),
                 )
             })
+            .child(self.live_refresh_controls(cx))
             .when_some(self.event_awareness.notice(), |root, notice| {
                 root.child(
                     div()

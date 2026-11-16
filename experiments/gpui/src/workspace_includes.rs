@@ -468,6 +468,7 @@ impl Workspace {
         let find_controls = self.rendered_find_controls(cx);
         let selection_controls = self.preview_selection_controls(cx);
         let contents_controls = self.preview_contents_controls(cx);
+        let refresh_controls = self.live_refresh_controls(cx);
         div().id("rendered-includes-preview").size_full().flex().flex_col().p_4()
             .bg(rgb(paper)).text_color(rgb(ink)).track_focus(&focus)
             .on_mouse_down(gpui::MouseButton::Left, cx.listener(|this, _, _, cx| { this.clear_preview_selection(); this.cancel_preview_contents(); cx.notify(); }))
@@ -482,7 +483,7 @@ impl Workspace {
             }))
             .child(div().flex().justify_between().child("Rendered content (read-only)").child(div().id("close-rendered-includes-preview").cursor_pointer().child("Close preview (Esc)").on_click(cx.listener(move |this, _, window, cx| this.close_rendered_user(&close_identity, serial, window, cx)))))
             .child("Engine-resolved snapshots; completeness and currentness are not guaranteed. Partial inline preview: only isolated top-level includes are embedded. Inline link clicks, task changes and recursive includes are unavailable. Ordinary host prose offers at most 16 explicit Open host link controls/statuses from the first 256 parsed links and 8192 host blocks; only verified same-host Markdown #heading links can jump locally; other host fragments remain inert. These controls cover a bounded prefix only; return to Source to inspect remaining links. Find searches displayed ordinary host/include prose, not rich projections or their source disclosures. Host query rows provide explicit Open note controls; included query rows remain inert. Gallery covers support bounded local PNG/JPEG only. Single-paragraph display-text selection is available below. Tagged code and displayed source have explicit Copy controls (plain text, up to 256 KiB).")
-            .child(reading_controls).child(refresh_status)
+            .child(reading_controls).child(refresh_status).child(refresh_controls)
             .child(find_controls).child(selection_controls).child(contents_controls)
             .child(div().id(gpui::SharedString::from(format!("rendered-includes-scroll-{serial}"))).track_scroll(&scroll).flex_1().min_h_0().overflow_y_scroll().child(body))
     }
@@ -1402,6 +1403,37 @@ fn project_queries(
 }
 
 impl Workspace {
+    pub(crate) fn refresh_rendered_interaction(&self) -> Option<(u64, u64, u64, u64, u64)> {
+        self.shell.includes.as_ref().map(|s| {
+            (
+                s.serial,
+                s.preview_epoch,
+                s.find.interaction_revision(),
+                s.selection.borrow().interaction_revision(),
+                s.contents.interaction_revision(),
+            )
+        })
+    }
+    pub(crate) fn refresh_rendered_idle(&self, cx: &Context<Self>) -> bool {
+        self.shell.includes.as_ref().is_some_and(|s| {
+            s.preview_open
+                && s.reading_ticket.is_some()
+                && !s.fetching
+                && !s.find.is_open()
+                && !s.contents.is_pending()
+                && s.selection.borrow().is_empty()
+                && s.query_nav.pending.is_none()
+                && self.includes_body_current(s)
+                && self.query_control_gate(&s.identity, cx).allowed()
+        })
+    }
+    pub(crate) fn refresh_rendered_top(&self) -> bool {
+        self.shell.includes.as_ref().is_some_and(|s| {
+            s.preview_open
+                && s.preview_scroll.offset().y == px(0.)
+                && s.preview_scroll.bounds().size.height > px(0.)
+        })
+    }
     fn query_control_gate(&self, identity: &Identity, cx: &Context<Self>) -> QueryPageGate {
         QueryPageGate {
             preview_active: self.includes_preview_active(),

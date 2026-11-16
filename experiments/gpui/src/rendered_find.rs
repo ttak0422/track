@@ -59,6 +59,9 @@ fn block(snapshot: &Snapshot, key: model::Key) -> Option<&markdown::Block> {
     blocks.get(key.1)
 }
 impl Ui {
+    pub(super) fn interaction_revision(&self) -> u64 {
+        self.model.revision
+    }
     pub(super) fn is_open(&self) -> bool {
         self.open
     }

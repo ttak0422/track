@@ -146,7 +146,7 @@ pub struct NoteKey {
     pub vault: String,
     pub note_id: i64,
 }
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct Note {
     pub note_id: i64,
     pub title: String,
@@ -952,7 +952,7 @@ impl Resolution {
         })
     }
 }
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct NoteBody {
     #[serde(flatten)]
     pub note: Note,
@@ -963,7 +963,7 @@ pub struct NoteBody {
     #[serde(default)]
     pub props: Value,
 }
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct NoteResponse {
     pub note: NoteBody,
     #[serde(flatten)]
@@ -2010,6 +2010,25 @@ impl ReadClient {
         Ok((response.graph, diagnostics))
     }
 
+    /// Refresh-only strict namespace proof before legacy alias normalization.
+    pub(crate) fn note_for_refresh(
+        &self,
+        key: &NoteKey,
+        launch: &str,
+    ) -> Result<NoteResponse, Error> {
+        let mut args = vault_query(&key.vault);
+        args.push(("id", key.note_id.to_string()));
+        let mut data: NoteResponse = self.get("/api/note", &args)?;
+        if data.note.note.note_id != key.note_id
+            || !calendar_range_vault_matches(&key.vault, &data.note.note.vault, launch)
+        {
+            return Err(Error::Shape(
+                "Refresh note namespace/identity mismatch".into(),
+            ));
+        }
+        data.note.note.vault = key.vault.clone();
+        Ok(data)
+    }
     pub fn note(&self, key: &NoteKey) -> Result<NoteResponse, Error> {
         let mut args = vault_query(&key.vault);
         args.push(("id", key.note_id.to_string()));
@@ -6683,5 +6702,18 @@ mod markdown_consume_tests {
         ] {
             assert!(!error.to_string().contains(&"b".repeat(64)));
         }
+    }
+}
+
+#[cfg(test)]
+mod refresh_namespace_tests {
+    #[test]
+    fn refresh_requires_raw_foreign_namespace_before_normalization() {
+        use super::calendar_range_vault_matches as matches;
+        assert!(!matches("foreign", "", "host"));
+        assert!(!matches("foreign", "host", "host"));
+        assert!(matches("foreign", "foreign", "host"));
+        assert!(matches("host", "", "host"));
+        assert!(matches("", "host", "host"));
     }
 }

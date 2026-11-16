@@ -98,6 +98,16 @@ impl Workspace {
                 {
                     break;
                 }
+                let expected_entity = this.entity_id();
+                let _ = cx.update(|app| {
+                    if let Some(handle) = app.active_window().and_then(shortcut_workspace) {
+                        let _ = handle.update(app, |workspace, window, cx| {
+                            if cx.entity().entity_id() == expected_entity {
+                                workspace.poll_live_refresh(window, cx);
+                            }
+                        });
+                    }
+                });
             }
         })
         .detach();
