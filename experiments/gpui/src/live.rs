@@ -2853,7 +2853,15 @@ impl StartupAdmission {
     }
 }
 
+#[derive(Clone, Copy)]
+enum EventPolicy {
+    Sse,
+    #[cfg(test)]
+    FiniteOnly,
+}
+
 pub struct OwnedServer {
+    event_policy: EventPolicy,
     child: Option<Child>,
     client: ReadClient,
     logs: Arc<Mutex<VecDeque<u8>>>,
@@ -2986,7 +2994,13 @@ impl OwnedServer {
             Some(format!("TRACK_DESKTOP_READY:{token}")),
             ready.clone(),
         );
+        let event_policy = match &admission {
+            #[cfg(test)]
+            StartupAdmission::SyntheticBound(_) => EventPolicy::FiniteOnly,
+            _ => EventPolicy::Sse,
+        };
         let mut owner = Self {
+            event_policy,
             child: Some(child),
             client,
             logs,
@@ -3266,10 +3280,14 @@ impl Session {
         let status = Arc::new(Mutex::new(None));
         let shutdown_done = Arc::new(AtomicBool::new(false));
         let session = Self {
-            events: Arc::new(crate::live_events::Observer::start(
-                &server.client.origin,
-                server.client.alive.clone(),
-            )),
+            events: Arc::new(match server.event_policy {
+                EventPolicy::Sse => crate::live_events::Observer::start(
+                    &server.client.origin,
+                    server.client.alive.clone(),
+                ),
+                #[cfg(test)]
+                EventPolicy::FiniteOnly => crate::live_events::Observer::unavailable(),
+            }),
             client: server.client(),
             initial_vaults: server.initial_vaults.clone(),
             initial_storage: server.initial_storage.clone(),
@@ -3659,6 +3677,7 @@ mod tests {
         let child = Command::new("/bin/sleep").arg(seconds).spawn().unwrap();
         let pid = child.id();
         let server = OwnedServer {
+            event_policy: EventPolicy::Sse,
             child: Some(child),
             client: ReadClient { canonical_read_only: false, creation_store: Default::default(), creation_fixture: None, http: reqwest::blocking::Client::new(), origin: "http://127.0.0.1:1".into(), alive: Arc::new(AtomicBool::new(true)), launch_generation: 1 },
             logs: Arc::new(Mutex::new(VecDeque::new())), initial_vaults: serde_json::json!({"active":{},"vaults":[]}),
@@ -7234,6 +7253,7 @@ mod tests {
             launch_generation: 1,
         };
         let mut server = OwnedServer {
+            event_policy: EventPolicy::Sse,
             child: Some(child),
             client,
             logs: Arc::new(Mutex::new(VecDeque::new())),

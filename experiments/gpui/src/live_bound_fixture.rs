@@ -709,3 +709,69 @@ fn synthetic_bound_wrong_revision_exits_without_cache_or_note_writes() {
         admission_process_tests::protected_inventory(&fixture.0)
     );
 }
+
+#[test]
+#[ignore = "explicit test-only Go bridge binary and synthetic-only opt-in"]
+fn synthetic_bound_session_is_finite_only_and_reaps_its_owner() {
+    assert_eq!(
+        std::env::var("TRACK_NATIVE_TEST_SYNTHETIC_ONLY").as_deref(),
+        Ok("1")
+    );
+    let binary = PathBuf::from(
+        std::env::var_os("TRACK_NATIVE_BOUND_TEST_BINARY").expect("explicit test bridge"),
+    );
+    assert!(binary.is_absolute());
+    let (fixture, proof) = admission_process_tests::fixture(&binary);
+    let before = admission_process_tests::protected_inventory(&fixture.0);
+    let bound = SyntheticBound::new(proof, fixture.0.clone()).unwrap();
+    let owner = OwnedServer::start_admitted(
+        bound.proof.launch(),
+        &AtomicBool::new(false),
+        StartupAdmission::SyntheticBound(bound),
+    )
+    .unwrap();
+    let pid = owner.child.as_ref().unwrap().id();
+    let session = Session::from_owned(owner);
+    let snapshot = session.events();
+    assert!(snapshot.unavailable);
+    assert!(!snapshot.connected && !snapshot.ever_connected);
+    assert_eq!(
+        (
+            snapshot.change,
+            snapshot.data,
+            snapshot.follow,
+            snapshot.gaps,
+            snapshot.initial_failures
+        ),
+        (0, 0, 0, 0, 0)
+    );
+    let client = session.client();
+    assert_eq!(
+        client
+            .note(&NoteKey {
+                vault: "work".into(),
+                note_id: 42
+            })
+            .unwrap()
+            .note
+            .body,
+        "Foreign sentinel body"
+    );
+    assert!(session.failure().is_none());
+    session.shutdown().unwrap();
+    assert!(!client.is_alive());
+    assert_eq!(session.events(), snapshot);
+    let mut status = 0;
+    assert_eq!(
+        unsafe { libc::waitpid(pid as i32, &mut status, libc::WNOHANG) },
+        -1
+    );
+    assert_eq!(
+        std::io::Error::last_os_error().raw_os_error(),
+        Some(libc::ECHILD)
+    );
+    assert_eq!(
+        before,
+        admission_process_tests::protected_inventory(&fixture.0)
+    );
+}

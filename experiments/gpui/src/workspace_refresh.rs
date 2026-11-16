@@ -93,6 +93,9 @@ impl Workspace {
         let Some(session) = self.live.as_ref() else {
             return false;
         };
+        if session.events().unavailable {
+            return false;
+        }
         let vault = &owner.source.note.vault;
         let canonical = if vault.is_empty() {
             &owner.registry.0
@@ -133,6 +136,17 @@ impl Workspace {
             }
     }
     pub(crate) fn poll_live_refresh(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self
+            .live
+            .as_ref()
+            .is_some_and(|session| session.events().unavailable)
+        {
+            if self.refresh.model.enabled {
+                self.refresh.model.disable();
+                cx.notify();
+            }
+            return;
+        }
         if !self.refresh.model.enabled {
             return;
         }
@@ -284,6 +298,15 @@ impl Workspace {
         let Some(owner) = self.refresh_owner() else {
             return div().h(px(48.));
         };
+        if self
+            .live
+            .as_ref()
+            .is_some_and(|session| session.events().unavailable)
+        {
+            return div().h(px(48.)).text_size(px(11.)).child(
+                "Automatic refresh is unavailable in this session. Reload for current data.",
+            );
+        }
         let generation = self.refresh.model.generation();
         let enabled = self.refresh.model.enabled;
         let retry_owner = owner.clone();

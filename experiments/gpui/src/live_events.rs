@@ -15,6 +15,8 @@ const RETRY: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Snapshot {
+    /// This session deliberately has no event stream; not a retryable gap.
+    pub unavailable: bool,
     pub change: u64,
     pub data: u64,
     /// Bounded invalidation only; event payloads are never navigation authority.
@@ -132,6 +134,20 @@ pub struct Observer {
     done: Arc<AtomicBool>,
 }
 impl Observer {
+    /// Finite-only sessions cannot observe streams. No runtime, worker or
+    /// request is started, and cancellation remains safe and idempotent.
+    pub(crate) fn unavailable() -> Self {
+        let (cancel, receiver) = watch::channel(true);
+        drop(receiver);
+        Self {
+            state: Arc::new(Mutex::new(Snapshot {
+                unavailable: true,
+                ..Snapshot::default()
+            })),
+            cancel,
+            done: Arc::new(AtomicBool::new(true)),
+        }
+    }
     /// This is called only by Session::from_owned, never from an external URL.
     pub(crate) fn start(origin: &str, alive: Arc<AtomicBool>) -> Self {
         let state = Arc::new(Mutex::new(Snapshot::default()));
@@ -169,6 +185,32 @@ impl Observer {
 impl Drop for Observer {
     fn drop(&mut self) {
         self.cancel();
+    }
+}
+
+#[cfg(test)]
+mod unavailable_tests {
+    use super::*;
+
+    #[test]
+    fn unavailable_observer_is_finished_without_a_worker_or_retry_receiver() {
+        let observer = Observer::unavailable();
+        let expected = Snapshot {
+            unavailable: true,
+            ..Snapshot::default()
+        };
+        assert!(!Snapshot::default().unavailable);
+        assert_eq!(observer.snapshot(), expected);
+        assert!(observer.is_done());
+        // The active observer passes a receiver to its network worker. This
+        // constructor has none and takes no origin from which to make a request.
+        assert_eq!(observer.cancel.receiver_count(), 0);
+        observer.cancel();
+        observer.cancel();
+        assert_eq!(observer.snapshot(), expected);
+        let done = observer.done.clone();
+        drop(observer);
+        assert!(done.load(Ordering::Acquire));
     }
 }
 

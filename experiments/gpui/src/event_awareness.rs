@@ -34,6 +34,12 @@ impl State {
     }
     pub fn notice(&self) -> Option<Notice> {
         let (launch, snapshot) = self.current?;
+        if snapshot.unavailable {
+            return Some(Notice {
+                message: "Live updates are unavailable in this session. Reload for current data.",
+                dismiss: None,
+            });
+        }
         if snapshot.gaps == u64::MAX {
             return Some(Notice {
                 message: "Live observation coverage cannot be confirmed. Reload for current data.",
@@ -91,6 +97,7 @@ impl State {
             return false;
         };
         if ticket.launch != launch
+            || snapshot.unavailable
             || snapshot.gaps == u64::MAX
             || !snapshot.connected
             || ticket.change > snapshot.change
@@ -121,6 +128,40 @@ impl State {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn unavailable_session_is_honest_and_never_dismissed_by_old_controls() {
+        let mut state = State::default();
+        state.observe(Some((1, snapshot(1, 0, 0, true))));
+        let old_ticket = state.notice().unwrap().dismiss.unwrap();
+        for current in [
+            Snapshot {
+                unavailable: true,
+                ..Default::default()
+            },
+            Snapshot {
+                unavailable: true,
+                connected: true,
+                ever_connected: true,
+                change: 100,
+                gaps: u64::MAX,
+                ..Default::default()
+            },
+        ] {
+            state.observe(Some((1, current)));
+            let notice = state.notice().unwrap();
+            assert_eq!(
+                notice.message,
+                "Live updates are unavailable in this session. Reload for current data."
+            );
+            assert!(notice.dismiss.is_none());
+            assert!(!state.dismiss(old_ticket));
+        }
+        state.observe(Some((2, Snapshot::default())));
+        assert!(state.notice().is_none());
+        state.observe(None);
+        assert!(state.notice().is_none());
+    }
+
     fn snapshot(change: u64, data: u64, gaps: u64, connected: bool) -> Snapshot {
         Snapshot {
             follow: 0,

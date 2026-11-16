@@ -13,7 +13,7 @@ source = experiment / "src"
 output = args.output.resolve()
 output.mkdir(parents=True, exist_ok=False)
 
-modules = ["live", "editing", "live_events", "session_store", "backend", "markdown_handoff",
+modules = ["live", "editing", "live_events", "event_awareness", "session_store", "backend", "markdown_handoff",
            "editor_follow", "numeric_chart", "inline_viewspec", "included_notes", "raster",
            "pdf_probe", "graph", "tabs", "navigation", "draft_recovery", "recent_notes"]
 lib = "#![allow(dead_code)]\n" + "".join(

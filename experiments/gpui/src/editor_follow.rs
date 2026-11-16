@@ -152,6 +152,10 @@ impl Controller {
         self.identity.is_some()
     }
     pub fn enable(&mut self, identity: Identity, snapshot: live_events::Snapshot) {
+        if snapshot.unavailable {
+            self.pause("Live observation is unavailable in this session; use explicit navigation");
+            return;
+        }
         self.epoch = self.epoch.checked_add(1).expect("follow epoch exhausted");
         self.identity = Some(identity);
         self.signal = snapshot.follow;
@@ -171,6 +175,14 @@ impl Controller {
         self.status = Status::Paused(reason);
     }
     pub fn observe(&mut self, identity: &Identity, snapshot: live_events::Snapshot) {
+        if snapshot.unavailable {
+            if self.enabled() {
+                self.pause(
+                    "Live observation is unavailable in this session; use explicit navigation",
+                );
+            }
+            return;
+        }
         let Some(current) = self.identity.as_ref() else {
             return;
         };
@@ -370,6 +382,33 @@ mod tests {
         c.finish(&latest, &id, Ok(FollowResponse::Inactive), now);
         assert_eq!(c.status(), Status::Waiting);
         assert!(c.take_request(now + Duration::from_secs(1)).is_some());
+    }
+    #[test]
+    fn unavailable_observation_refuses_enable_and_invalidates_inflight_follow() {
+        let mut c = Controller::default();
+        let now = Instant::now();
+        let id = identity();
+        let unavailable = live_events::Snapshot {
+            unavailable: true,
+            ..Default::default()
+        };
+        c.enable(id.clone(), unavailable);
+        assert!(!c.enabled());
+        assert!(matches!(c.status(), Status::Paused(_)));
+        assert!(c.take_request(now).is_none());
+
+        c.enable(id.clone(), Default::default());
+        let request = c.take_request(now).unwrap();
+        c.observe(&id, unavailable);
+        assert!(!c.enabled());
+        assert!(!c.is_current(&request, &id));
+        let response = FollowResponse::decode(&serde_json::to_vec(&state()).unwrap()).unwrap();
+        assert!(c.finish(&request, &id, Ok(response), now).is_none());
+        assert!(matches!(c.status(), Status::Paused(_)));
+        c.observe(&id, Default::default());
+        assert!(c.take_request(now + INTERVAL).is_none());
+        c.enable(id.clone(), Default::default());
+        assert!(c.take_request(now + INTERVAL).is_some());
     }
     #[test]
     fn gap_identity_errors_expiry_require_explicit_enable() {

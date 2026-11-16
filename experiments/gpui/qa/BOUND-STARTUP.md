@@ -42,3 +42,28 @@ without reaping, remaining group processes are terminated, and only then is the
 leader reaped. Descendant-held and closed-pipe regressions verify cleanup. These
 point-in-time checks are not a hostile-filesystem/process sandbox or a hard
 kernel-I/O latency guarantee. The Go bridge is absent from production binaries.
+
+## Finite-only session behavior
+
+The test-bound owner now passes its admitted event policy into the ordinary
+session lifecycle. A bound session has an inert observer: it starts no SSE
+request, retry loop or event worker, and does not manufacture change/gap counters.
+Its explicit unavailable state is distinct from an interrupted connection.
+Follow refuses that state; automatic refresh controls are unavailable, while
+finite reads and explicit Reload remain the supported path. No production
+admission route selects this policy yet.
+
+The adapter harness also includes the actual event-awareness module. Tests cover
+unavailable notices, stale dismissal and Follow tickets, inert observer cleanup,
+and the actual Go-bound session's finite read and owned-process shutdown.
+Workspace control wiring requires full GPUI/native validation separately.
+
+Local Linux verification for this finite-only unit: the complete adapter suite
+passed 318 tests (14 opt-in tests ignored), and the live matrix with explicit
+synthetic Go binaries passed 135 tests. The two-module event/notice suite passed
+16 tests, and the Follow suite passed five tests. An earlier overlapping cargo
+invocation failed two subprocess-spawn tests with ENOENT; rebuilding the same
+test executable while another suite was running is the suspected harness cause.
+The final complete run was serialized and passed. This does not resolve the
+separately documented historical recovery-store concurrency issue. Full GPUI
+compilation and macOS runtime were not performed for this unit.
