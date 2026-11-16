@@ -46,5 +46,5 @@ func writeCapabilities(w http.ResponseWriter, r *http.Request, canonicalReadOnly
 	}{"track-canonical-read-only", 1, canonicalReadOnly})
 }
 func (s *Server) handleCapabilities(w http.ResponseWriter, r *http.Request) {
-	writeCapabilities(w, r, s.readPolicy != nil)
+	s.readPolicy.capabilities(w, r)
 }

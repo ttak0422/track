@@ -538,7 +538,7 @@ func (b *Bootstrap) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if b.readPolicy != nil {
 		// Storage retry precedes server dispatch, so it must retain the same
 		// Host/Origin protections as the APIs even before a backend is ready.
-		b.placeholder.guard(http.HandlerFunc(b.serveHTTP)).ServeHTTP(w, r)
+		b.placeholder.guard(b.readPolicy.boundResponse(http.HandlerFunc(b.serveHTTP))).ServeHTTP(w, r)
 		return
 	}
 	b.serveHTTP(w, r)
@@ -549,8 +549,12 @@ func (b *Bootstrap) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errors.New("internal read policy does not authorize this operation"), http.StatusForbidden)
 		return
 	}
+	if err := b.readPolicy.validateBinding(r.Context()); err != nil {
+		writeError(w, err, http.StatusServiceUnavailable)
+		return
+	}
 	if r.URL.Path == "/api/capabilities" {
-		writeCapabilities(w, r, b.readPolicy != nil)
+		b.readPolicy.capabilities(w, r)
 		return
 	}
 	// External Markdown is a loopback capability inbox, independent of vault

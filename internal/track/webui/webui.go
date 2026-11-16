@@ -159,9 +159,13 @@ func newServerWithReadPolicy(cfg *config.Config, s *store.Store, early bool, pol
 }
 
 func (s *Server) Handler() http.Handler {
-	return s.guard(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return s.guard(s.readPolicy.boundResponse(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if s.readPolicy != nil && !internalReadRequestAllowed(r, false) {
 			writeError(w, fmt.Errorf("internal read policy does not authorize this operation"), http.StatusForbidden)
+			return
+		}
+		if err := s.readPolicy.validateBinding(r.Context()); err != nil {
+			writeError(w, err, http.StatusServiceUnavailable)
 			return
 		}
 		if s.readPolicyError != nil {
@@ -175,7 +179,7 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		s.mux.ServeHTTP(w, r)
-	}))
+	})))
 }
 
 // requestLoopbackOnly keeps local handoffs and archived request reads on loopback,

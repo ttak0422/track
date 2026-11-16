@@ -1,7 +1,8 @@
 package config
 
-// Inactive, read-only path/config observation. No store, index, lease, listener,
-// scaffold, HTTP or native admission caller. This is not a signed capability,
+// Read-only path/config observation. Resolution itself performs no store,
+// index, lease, listener or scaffold operation. The internal bound-startup
+// experiment has no public CLI or native admission caller. This is not a signed capability,
 // availability model, note/link audit, readiness proof or filesystem sandbox.
 import (
 	"context"

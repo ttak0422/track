@@ -15,6 +15,7 @@ import (
 )
 
 type readPolicy struct {
+	binding            *manifestBinding
 	root               string
 	configurationFiles []string
 	vaults             []string
@@ -38,7 +39,7 @@ func (p *readPolicy) withConfig(cfg *config.Config) *readPolicy {
 	if p == nil {
 		return nil
 	}
-	out := &readPolicy{root: p.root, configurationFiles: append([]string(nil), p.configurationFiles...), vaults: append([]string(nil), p.vaults...)}
+	out := &readPolicy{binding: p.binding, root: p.root, configurationFiles: append([]string(nil), p.configurationFiles...), vaults: append([]string(nil), p.vaults...)}
 	add := func(path string) {
 		if path == "" {
 			return
@@ -62,6 +63,11 @@ func (p *readPolicy) withConfig(cfg *config.Config) *readPolicy {
 func (p *readPolicy) cacheConfig(cfg *config.Config) (*config.Config, error) {
 	if p == nil {
 		return cfg, nil
+	}
+	if p.binding != nil {
+		if err := p.binding.checkConfig(context.Background(), cfg); err != nil {
+			return nil, err
+		}
 	}
 	protected := *cfg
 	protected.Vaults = make(map[string]string, len(cfg.Vaults)+len(p.vaults))
