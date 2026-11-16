@@ -172,15 +172,18 @@ bounded with visible limit states.
 Native keyboard/IME, focus, selection and light/dark visual validation remain
 pending; see the acceptance checklist in `NATIVE-QA.md`.
 
-## Pinned native termination hook
+## Pinned dependency preparation
 
-`prepare.sh` uses the repository's locked nixpkgs to fetch the official GPUI crate
-by its archive SHA-256 and apply a small [local patch](patches/README.md). The source
+`prepare.sh` uses the repository's locked nixpkgs to fetch the official GPUI
+and xattr crates by their archive SHA-256 and apply small
+[local patches](patches/README.md). The source
 is generated in the Nix store and linked under ignored `.build-deps/`; no full
 upstream source is vendored. Cargo requires that path and cannot silently fall back
-to unpatched GPUI. Re-run preparation after changing the patch or project lock.
+to unpatched GPUI or xattr. Re-run preparation after changing a patch or project lock.
+The xattr patch preserves Linux/Android missing-attribute semantics with current
+libc; it does not disable tar attributes or downgrade libc.
 
-The patch exposes a native application-quit request before AppKit termination,
+The GPUI patch exposes a native application-quit request before AppKit termination,
 which the read-only workspace routes through owned-server cleanup. Ordinary
 window-close interception alone does not cover Dock Quit or OS termination.
 The patch is compile/unit-tested, not yet validated through real Dock/OS actions.

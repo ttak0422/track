@@ -33,10 +33,17 @@ with tempfile.TemporaryDirectory(prefix="track-native-gate-") as directory:
     expected.parent.mkdir(parents=True)
     prepared.parent.mkdir(parents=True)
     expected.write_bytes(b"expected patch")
-    environment = dict(os.environ, CARGO_MANIFEST_DIR=str(path))
-    for content, succeeds in ((None, False), (b"stale patch", False), (b"expected patch", True)):
-        if content is not None:
-            prepared.write_bytes(content)
-        result = subprocess.run([str(guard)], env=environment, capture_output=True)
-        assert (result.returncode == 0) == succeeds, result.stderr.decode()
+    xattr_expected = path / "patches/xattr-enodata.patch"
+    xattr_prepared = path / ".build-deps/xattr/.track-xattr-enodata.patch"
+    xattr_prepared.parent.mkdir(parents=True)
+    xattr_expected.write_bytes(b"xattr patch")
+    xattr_prepared.write_bytes(b"xattr patch")
+    environment = dict(os.environ, CARGO_MANIFEST_DIR=str(path), TARGET="fixture-target")
+    for marker, correct in ((prepared, b"expected patch"), (xattr_prepared, b"xattr patch")):
+        for content, succeeds in ((None, False), (b"stale patch", False), (correct, True)):
+            marker.unlink(missing_ok=True)
+            if content is not None:
+                marker.write_bytes(content)
+            result = subprocess.run([str(guard)], env=environment, capture_output=True)
+            assert (result.returncode == 0) == succeeds, result.stderr.decode()
     print("Preparation guard: absent/stale rejected; matching source accepted.")
