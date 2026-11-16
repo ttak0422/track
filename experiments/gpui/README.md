@@ -897,7 +897,7 @@ does not consume it. A failed replacement keeps the previously opened snapshot.
 
 The external viewer is a separate, ephemeral read-only snapshot. Choose among its
 Markdown files using paged filenames; selection makes no filesystem or network
-request. Close returns to the unchanged vault reader. Links, images, nested
+request. Close returns to the unchanged vault reader. Bounded same-snapshot Markdown file links are supported; external/wiki links, images, nested
 includes, tasks, Find, reading checkpoints and editing are unavailable here.
 The snapshot is not imported, saved, automatically refreshed or restored after
 restart. Generate a fresh handoff to reflect source-folder changes.
@@ -1189,3 +1189,7 @@ Live result rows project the existing engine `match` values (`title`, `body`, `p
 ### Home Recently created notes
 
 An explicit Home disclosure reads `/api/notes?sort=created&limit=100` for the selected working vault. It preserves engine order (regular notes, creation ID descending), unlike the independent app Recent visits list. Missing titles display the numeric ID; no updated/read-state inference or eager source fetch occurs. Raw row namespaces are verified against the requested scope/known launch alias before canonicalization. Responses and row callbacks are qualified by launch/storage/request/scope/registry and disclosure serial; Close, Reload, navigation and scope changes retire old authority. One in-flight listing shares the existing agenda read permit, retained until HTTP finishes. Loading, complete-empty, partial/cached and error remain distinct, with explicit Reload/Retry. Existing engine index refresh is unchanged; no mutation API, dependency or ordinary-vault editing is introduced. Cloud model/adapter tests do not constitute full GPUI/native validation.
+
+### External snapshot local Markdown navigation
+
+The consumed snapshot viewer can follow relative Markdown file links to exact existing `.md`/`.markdown` snapshot entries, plus viewer-local Back/Forward (100 successful selections). The host vault/history is untouched. Strict single percent-decoding and root-bounded path normalization reject absolute/scheme/backslash/control/query/fragment targets and malformed UTF-8; missing files are inert, never resolved through the filesystem, network, vault or OS. Link admission is computed once on accepted parse against at most 5000 snapshot paths, considering only the first 256 parsed link occurrences. Cached entries grant no independent authority: activation rechecks consume serial, selected-file revision, current file and exact parsed link; close/replacement invalidates them. Snapshot limits and one-consume/one-selection guards remain. Cloud tests do not establish full GPUI compilation or native interaction behavior.

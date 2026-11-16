@@ -58,6 +58,7 @@ mod search_refinement;
 mod selection_lines;
 mod session_store;
 mod shell;
+mod snapshot_links;
 mod tabs;
 mod task_date_sort;
 mod title_copy;

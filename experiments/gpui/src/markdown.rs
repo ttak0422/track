@@ -439,6 +439,8 @@ pub(crate) fn display_math_references(source: &str, current: &[Block]) -> Vec<Ma
 /// Shell supplies verified internal or explicit HTTP(S) links. Others stay inert.
 #[derive(Clone)]
 pub struct LinkCallbacks {
+    /// Only the isolated snapshot surface may bypass vault-target classification.
+    pub snapshot_local: bool,
     pub pdf: Option<PdfProjection>,
     pub math: Option<MathProjection>,
     pub selection: Option<SelectionCallbacks>,
@@ -3855,6 +3857,15 @@ fn render_elements(
         .collect()
 }
 
+fn link_domain_supports(target: &LinkTarget, snapshot_local: bool) -> bool {
+    if snapshot_local {
+        return matches!(target, LinkTarget::Markdown { .. });
+    }
+    matches!(target, LinkTarget::Footnote { .. })
+        || resolve_term(target).is_some()
+        || is_local_fragment(target)
+        || crate::external_links::destination(target).is_some()
+}
 fn resolved_spans(spans: &[Span], links: &[Link], callbacks: Option<&LinkCallbacks>) -> Vec<Span> {
     spans
         .iter()
@@ -3864,11 +3875,10 @@ fn resolved_spans(spans: &[Span], links: &[Link], callbacks: Option<&LinkCallbac
                 let resolved = links.iter().any(|link| {
                     link.range.start <= span.range.start
                         && link.range.end >= span.range.end
-                        && (matches!(link.target, LinkTarget::Footnote { .. })
-                            || resolve_term(&link.target).is_some()
-                            || is_local_fragment(&link.target)
-                            || crate::external_links::destination(&link.target).is_some())
-                        && callbacks.is_some_and(|callbacks| (callbacks.resolved)(&link.target))
+                        && callbacks.is_some_and(|callbacks| {
+                            link_domain_supports(&link.target, callbacks.snapshot_local)
+                                && (callbacks.resolved)(&link.target)
+                        })
                 });
                 span.style.link = resolved;
                 span.style.unresolved = !resolved;
@@ -3909,10 +3919,7 @@ fn link_text(
     let active: Vec<_> = links
         .iter()
         .filter(|link| {
-            (matches!(link.target, LinkTarget::Footnote { .. })
-                || resolve_term(&link.target).is_some()
-                || is_local_fragment(&link.target)
-                || crate::external_links::destination(&link.target).is_some())
+            link_domain_supports(&link.target, callbacks.snapshot_local)
                 && (callbacks.resolved)(&link.target)
         })
         .cloned()
@@ -4984,6 +4991,7 @@ mod tests {
         assert!(pending.iter().filter(|span| span.style.unresolved).count() >= 2);
         assert!(pending.iter().all(|span| !span.style.link));
         let callbacks = LinkCallbacks {
+            snapshot_local: false,
             pdf: None,
             math: None,
             selection: None,
@@ -5693,6 +5701,7 @@ mod footnote_navigation_tests {
         let cell = &parsed[0].table.as_ref().unwrap().rows[1][0];
         assert!(footnote_link_valid(&parsed, &cell.links[0]));
         let callbacks = LinkCallbacks {
+            snapshot_local: false,
             pdf: None,
             math: None,
             selection: None,
@@ -6931,5 +6940,35 @@ mod footnote_number_tests {
         let mut malformed = parse("Read[^x]\n\n[^x]: X");
         malformed[0].links[0].range.end = usize::MAX;
         assert_eq!(with_footnote_numbers(&malformed), malformed);
+    }
+}
+
+#[cfg(test)]
+mod snapshot_link_domain_tests {
+    use super::*;
+    #[test]
+    fn snapshot_domain_preserves_parent_and_asset_markdown_without_weakening_host() {
+        for destination in ["../b.md", "assets/x.md"] {
+            let target = LinkTarget::Markdown {
+                destination: destination.into(),
+            };
+            assert!(!link_domain_supports(&target, false));
+            assert!(link_domain_supports(&target, true));
+            assert!(resolve_term(&target).is_none());
+        }
+        assert!(!link_domain_supports(
+            &LinkTarget::Footnote { label: "x".into() },
+            true
+        ));
+        assert!(!link_domain_supports(
+            &LinkTarget::Wiki {
+                key: "x".into(),
+                fragment: None,
+                authored_label: false
+            },
+            true
+        ));
+        // Domain admission is not destination authority: both render paths still
+        // require callbacks.resolved, supplied only by the strict snapshot map.
     }
 }

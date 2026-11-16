@@ -13,6 +13,9 @@ pub(crate) struct HandoffUi {
     capability: Option<Capability>,
     snapshot: Option<Snapshot>,
     selected: String,
+    history: snapshot_links::History,
+    history_target: Option<usize>,
+    links: Vec<(markdown::Link, String)>,
     blocks: Vec<markdown::Block>,
     page: usize,
     selecting: bool,
@@ -29,6 +32,9 @@ impl HandoffUi {
         self.snapshot = None;
         self.blocks.clear();
         self.selected.clear();
+        self.history = Default::default();
+        self.history_target = None;
+        self.links.clear();
         self.message.clear();
         self.page = 0;
         self.selecting = false;
@@ -43,11 +49,31 @@ impl HandoffUi {
         self.serial = self.serial.wrapping_add(1);
         self.selection_serial = self.selection_serial.wrapping_add(1);
         self.selecting = false;
+        self.history_target = None;
         self.in_flight = Some(self.serial);
         self.serial
     }
     fn selection_available(&self) -> bool {
         self.open && !self.selecting && self.in_flight.is_none()
+    }
+    fn link_target(
+        &self,
+        serial: u64,
+        selection: u64,
+        source: &str,
+        link: &markdown::Link,
+    ) -> Option<&str> {
+        if !self.selection_available()
+            || self.serial != serial
+            || self.selection_serial != selection
+            || self.selected != source
+        {
+            return None;
+        }
+        self.links
+            .iter()
+            .find(|(candidate, _)| candidate == link)
+            .map(|(_, path)| path.as_str())
     }
     fn complete_selection(
         &mut self,
@@ -66,12 +92,20 @@ impl HandoffUi {
         }
         match result {
             Ok(blocks) => {
+                self.links = self
+                    .snapshot
+                    .as_ref()
+                    .map(|s| snapshot_links_for(s, &path, &blocks))
+                    .unwrap_or_default();
                 self.blocks = blocks;
+                self.history
+                    .accept(path.clone(), self.history_target.take());
                 self.selected = path;
                 self.scroll = gpui::ScrollHandle::new();
                 self.message.clear();
             }
             Err(_) => {
+                self.history_target = None;
                 self.message =
                     "Document is too complex to render safely; selection unchanged.".into()
             }
@@ -92,6 +126,9 @@ impl HandoffUi {
                 self.selection_serial = self.selection_serial.wrapping_add(1);
                 self.selecting = false;
                 self.selected = snapshot.active.clone();
+                self.history.reset(snapshot.active.clone());
+                self.history_target = None;
+                self.links = snapshot_links_for(&snapshot, &snapshot.active, &blocks);
                 self.blocks = blocks;
                 self.snapshot = Some(snapshot);
                 self.page = 0;
@@ -107,8 +144,51 @@ impl HandoffUi {
         true
     }
 }
+fn snapshot_links_for(
+    snapshot: &Snapshot,
+    current: &str,
+    blocks: &[markdown::Block],
+) -> Vec<(markdown::Link, String)> {
+    admit_snapshot_links(
+        snapshot,
+        current,
+        blocks.iter().flat_map(|b| {
+            b.links.iter().chain(
+                b.table
+                    .iter()
+                    .flat_map(|t| t.rows.iter().flatten().flat_map(|c| c.links.iter())),
+            )
+        }),
+    )
+}
+fn admit_snapshot_links<'a>(
+    snapshot: &Snapshot,
+    current: &str,
+    links: impl Iterator<Item = &'a markdown::Link>,
+) -> Vec<(markdown::Link, String)> {
+    let paths: std::collections::HashSet<&str> =
+        snapshot.files.iter().map(|f| f.path.as_str()).collect();
+    links
+        .take(256)
+        .filter_map(|link| {
+            let markdown::LinkTarget::Markdown { destination } = &link.target else {
+                return None;
+            };
+            let path = snapshot_links::resolve(current, destination)?;
+            paths.contains(path.as_str()).then(|| (link.clone(), path))
+        })
+        .collect()
+}
 impl Workspace {
     fn select_handoff(&mut self, path: &str, cx: &mut Context<Self>) {
+        self.select_handoff_target(path, None, cx);
+    }
+    fn select_handoff_target(
+        &mut self,
+        path: &str,
+        history_target: Option<usize>,
+        cx: &mut Context<Self>,
+    ) {
         if !self.handoff_gate() || !self.shell.handoff.selection_available() {
             return;
         }
@@ -120,6 +200,7 @@ impl Workspace {
         let source = file.text.clone();
         let serial = state.serial;
         let Some(launch) = state.launch else { return };
+        state.history_target = history_target;
         state.selecting = true;
         state.selection_serial = state.selection_serial.wrapping_add(1);
         let selection = state.selection_serial;
@@ -319,6 +400,34 @@ impl Workspace {
                         })),
                 );
         }
+        let serial = state.serial;
+        let selection = state.selection_serial;
+        let selected = state.selected.clone();
+        for (label, forward) in [("Back", false), ("Forward", true)] {
+            if let Some((target, path)) = state.history.target(forward) {
+                let path = path.to_owned();
+                let selected = selected.clone();
+                header = header.child(
+                    div()
+                        .id(gpui::SharedString::from(format!("handoff-history-{label}")))
+                        .cursor_pointer()
+                        .child(label)
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            let state = &this.shell.handoff;
+                            if !window.is_window_active()
+                                || !state.selection_available()
+                                || state.serial != serial
+                                || state.selection_serial != selection
+                                || state.selected != selected
+                                || state.history.target(forward) != Some((target, path.as_str()))
+                            {
+                                return;
+                            }
+                            this.select_handoff_target(&path, Some(target), cx);
+                        })),
+                );
+            }
+        }
         let mut files = div().flex().flex_col().gap_1();
         if let Some(snapshot) = &state.snapshot {
             let page = state.page;
@@ -326,12 +435,22 @@ impl Workspace {
             files = files.child(format!("Markdown files · page {} of {}", page + 1, count));
             for (index, file) in snapshot.page(page).iter().enumerate() {
                 let path = file.path.clone();
+                let selected = selected.clone();
                 files = files.child(
                     div()
                         .id(("handoff-file", index))
                         .cursor_pointer()
                         .child(path.clone())
-                        .on_click(cx.listener(move |this, _, _, cx| {
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            let state = &this.shell.handoff;
+                            if !window.is_window_active()
+                                || !state.selection_available()
+                                || state.serial != serial
+                                || state.selection_serial != selection
+                                || state.selected != selected
+                            {
+                                return;
+                            }
                             this.select_handoff(&path, cx);
                         })),
                 );
@@ -363,6 +482,39 @@ impl Workspace {
                     ),
             );
         }
+        let allowed = state.links.clone();
+        let resolved = allowed.clone();
+        let source = state.selected.clone();
+        let weak = cx.entity().downgrade();
+        let callbacks = markdown::LinkCallbacks {
+            snapshot_local: true,
+            pdf: None,
+            math: None,
+            selection: None,
+            hover: None,
+            arrival_block: None,
+            enlarge: None,
+            plain_click: None,
+            resolved: std::rc::Rc::new(move |target| {
+                resolved.iter().any(|(link, _)| &link.target == target)
+            }),
+            activate: std::rc::Rc::new(move |link, window, cx| {
+                if !window.is_window_active() {
+                    return;
+                }
+                let Some((_, path)) = allowed.iter().find(|(candidate, _)| candidate == link)
+                else {
+                    return;
+                };
+                let _ = weak.update(cx, |this, cx| {
+                    let state = &this.shell.handoff;
+                    if state.link_target(serial, selection, &source, link) != Some(path.as_str()) {
+                        return;
+                    }
+                    this.select_handoff(path, cx);
+                });
+            }),
+        };
         let body = div()
             .id("handoff-document")
             .track_scroll(&state.scroll)
@@ -371,13 +523,18 @@ impl Workspace {
             .overflow_y_scroll()
             .p_4()
             .child(state.selected.clone())
-            .child(markdown::render_themed(&state.blocks, dark));
+            .child(markdown::render_with_links(
+                &state.blocks,
+                dark,
+                None,
+                &callbacks,
+            ));
         let message = state.message.clone();
         div().id("external-markdown-viewer").size_full().flex().flex_col().p_4().gap_3().bg(rgb(paper)).text_color(rgb(ink)).track_focus(&focus)
             .on_key_down(cx.listener(|this,event:&gpui::KeyDownEvent,window,cx| { if event.keystroke.key == "escape" { this.close_handoff(window,cx); } cx.stop_propagation(); }))
             .child(header).child(self.handoff_entry(cx))
             .child("Open consumes this one-use handoff. If opening fails, run track markdown again.")
-            .child("Memory-only snapshot. Images, links, embeds, tasks, editing, Find and host navigation are disabled. Generate a new handoff to refresh.")
+            .child("Memory-only snapshot. Existing local Markdown file links and viewer Back/Forward only (no fragments). Images, external/wiki links, embeds, editing, Find and host navigation remain disabled. Generate a new handoff to refresh.")
             .child(message)
             .child(div().flex().flex_1().min_h_0().gap_3()
                 .child(div().id("handoff-files").w(px(260.)).overflow_y_scroll().border_r_1().border_color(rgb(line)).child(files)).child(body))
@@ -488,5 +645,108 @@ mod tests {
     fn inert_parse_refuses_complex_input() {
         assert!(markdown::preview_blocks(&"paragraph\n\n".repeat(4097)).is_err());
         assert!(markdown::preview_blocks("[link](https://example.test) ![asset](file:///secret)\n\n- [ ] task\n\n<script>alert(1)</script>").is_ok());
+    }
+    #[test]
+    fn local_link_authority_is_selected_revision_and_replacement_scoped() {
+        let link = markdown::Link {
+            range: 0..4,
+            target: markdown::LinkTarget::Markdown {
+                destination: "b.md".into(),
+            },
+        };
+        let mut state = HandoffUi {
+            open: true,
+            launch: Some(1),
+            serial: 2,
+            selection_serial: 3,
+            selected: "a.md".into(),
+            links: vec![(link.clone(), "b.md".into())],
+            ..Default::default()
+        };
+        assert_eq!(state.link_target(2, 3, "a.md", &link), Some("b.md"));
+        assert!(state.link_target(1, 3, "a.md", &link).is_none());
+        assert!(state.link_target(2, 2, "a.md", &link).is_none());
+        assert!(state.link_target(2, 3, "b.md", &link).is_none());
+        state.selecting = true;
+        assert!(state.link_target(2, 3, "a.md", &link).is_none());
+        state.selecting = false;
+        state.begin_consume();
+        assert!(state.link_target(2, 3, "a.md", &link).is_none());
+        state.close();
+        assert!(state.links.is_empty());
+    }
+    #[test]
+    fn accepted_selections_only_update_viewer_history() {
+        let mut state = HandoffUi {
+            open: true,
+            launch: Some(1),
+            serial: 2,
+            selection_serial: 3,
+            ..Default::default()
+        };
+        state.complete(2, 1, Ok((snapshot("a.md"), vec![])));
+        let revision = state.selection_serial;
+        assert!(state.complete_selection(revision, 2, 1, "b.md".into(), Ok(vec![])));
+        assert_eq!(state.history.target(false), Some((0, "a.md")));
+        state.history_target = Some(0);
+        assert!(state.complete_selection(revision, 2, 1, "a.md".into(), Err("bad".into())));
+        assert_eq!(state.selected, "b.md");
+        assert_eq!(state.history.target(false), Some((0, "a.md")));
+        state.history_target = Some(0);
+        assert!(state.complete_selection(revision, 2, 1, "a.md".into(), Ok(vec![])));
+        assert_eq!(state.history.target(true), Some((1, "b.md")));
+    }
+    #[test]
+    fn failed_consume_retains_old_links_under_new_revision_only() {
+        let link = markdown::Link {
+            range: 0..1,
+            target: markdown::LinkTarget::Markdown {
+                destination: "b.md".into(),
+            },
+        };
+        let mut state = HandoffUi {
+            open: true,
+            launch: Some(1),
+            serial: 2,
+            selection_serial: 3,
+            selected: "a.md".into(),
+            snapshot: Some(snapshot("a.md")),
+            links: vec![(link.clone(), "b.md".into())],
+            ..Default::default()
+        };
+        let serial = state.begin_consume();
+        assert!(state.link_target(2, 3, "a.md", &link).is_none());
+        state.in_flight = None;
+        assert!(state.complete(serial, 1, Err("offline".into())));
+        assert_eq!(state.selected, "a.md");
+        assert_eq!(
+            state.link_target(serial, state.selection_serial, "a.md", &link),
+            Some("b.md")
+        );
+    }
+    #[test]
+    fn local_link_cache_requires_exact_existing_path_and_is_bounded() {
+        let snap = snapshot("dir/Target.md");
+        let link = |target: &str| markdown::Link {
+            range: 0..1,
+            target: markdown::LinkTarget::Markdown {
+                destination: target.into(),
+            },
+        };
+        let links = vec![
+            link("Target.md"),
+            link("target.md"),
+            link("../Target.md"),
+            link("Target.md#part"),
+            link("missing.md"),
+        ];
+        let accepted = admit_snapshot_links(&snap, "dir/start.md", links.iter());
+        assert_eq!(accepted.len(), 1);
+        assert_eq!(accepted[0].1, "dir/Target.md");
+        let many = vec![link("Target.md"); 300];
+        assert_eq!(
+            admit_snapshot_links(&snap, "dir/start.md", many.iter()).len(),
+            256
+        );
     }
 }

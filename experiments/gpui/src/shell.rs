@@ -4245,6 +4245,7 @@ impl Render for Workspace {
         let select_displayed = external_displayed.clone();
         let select_weak = cx.entity().downgrade();
         let link_callbacks = markdown::LinkCallbacks {
+            snapshot_local: false,
             pdf: self.pdf_projection(),
             math: self.math_projection(),
             selection: Some(markdown::SelectionCallbacks {
