@@ -41,3 +41,78 @@ calendar event-content correctness. The first capability request can race alread
 completed startup and therefore does not establish observation of the initializing
 phase. The separate invalid-configuration/unavailable case establishes that the
 capability remains available independently of verified storage.
+
+## Synthetic admission-shape matrix
+
+```sh
+python3 tests/canonical_read_only/admission.py --binary /tmp/track-readonly-test
+```
+
+This additional engine-only matrix does **not** open GPUI's ordinary-vault gate.
+It uses the same explicit canonical flag pair and temporary fixture harness:
+
+- Machine `default_vault` and registered active/foreign paths, plus vault-local
+  link format, property schema and saved query configuration.
+- Explicit synthetic `HOME`, with `~/active`, `~/peer` and `~/normal` resolution.
+- Explicit synthetic environment selector, an additional environment-registered
+  peer, and an ordinary-cache override. Every canonical/config/ordinary cache
+  inventory stays unchanged through cold startup, foreign reads, retry and exit.
+- Missing registered root, namespace overlapping an active vault or registered
+  peer, namespace containing machine config, and symlink/hardlink cache entries
+  fail closed without database or PID creation. Rejection may precede listeners
+  or leave the capability endpoint available with unavailable storage.
+
+The engine policy accumulates active/known peer roots and vault-local config paths
+in `readPolicy.withConfig`; `cacheConfig` validates their separation before the
+lease/open callbacks. In particular, a registered peer whose root cannot be
+resolved is not permission to skip its protection: the missing-peer case expects
+no stores or leases, including for the otherwise valid active vault.
+
+### Remaining admission decisions and gaps
+
+GPUI still requires its disposable fixture proof, minimal isolated machine config,
+and canonical fixture paths. Its child environment is allowlisted and fixture
+HOME is not an ordinary-user HOME contract. Passing engine tests is not evidence
+that ordinary native configuration/environment handling is ready to enable.
+Before any separate admission change, define explicit machine config, user-home,
+registry and cache provenance; preserve the canonical capability-before-reads
+handshake and prohibit CLI fallback. Keep explicit editing authority separate.
+
+This matrix does not validate newly discovered peer/config replacements during an
+in-flight generation, unreadable/network-mounted roots, permissions under a
+non-owner account, arbitrary concurrent path replacement, mount aliases, or Mac
+filesystem behavior. It does not run a native GUI, use personal data, test event
+content, or claim an OS sandbox. The existing Go internal-policy tests cover
+additional provisional/retry/late-open schedules; neither suite exhausts them.
+
+The HOME scenario preserves configured `cache_dir: ~/normal` without setting
+`TRACK_CACHE_DIR`. A separate no-`cache_dir` scenario supplies a synthetic
+`XDG_CACHE_HOME` and protects that entire directory, including absence of its
+normal `track/` cache. The environment-override case is separate coverage and is
+not evidence for unoverridden machine configuration.
+
+Storage can report ready just before its bootstrap generation finishes. A retry
+POST during that interval is intentionally a no-op. The matrix makes bounded
+explicit retry attempts until the generation advances, asserts the unchanged
+canonical inventory after every attempt, and prints attempt counts/generations.
+This is retry lifecycle coverage, not exclusive watcher-delivery evidence.
+
+Every matrix case also snapshots the entire synthetic HOME, not just its known
+vault/cache children, so unexpected `.config` or other home writes fail. TMPDIR
+is explicitly the disposable private cache root; no real home or normal system
+temporary location is supplied to the engine child.
+
+The matrix checks exact registry paths and per-vault note body/path/identity
+(including the engine's empty active-vault label), not just a shared note ID.
+Missing peer roots must remain absent; a peer overlapping the private namespace
+is itself included in the canonical inventory. Rejection assertions require the
+expected validation error class, not just an arbitrary nonzero exit/unavailable
+response. Owned process groups must disappear within a bounded wait after leader
+exit; remaining descendants are killed and the test fails. The shared launcher
+preflights both adjacent ports and excludes port 65535; it does not retry a failed
+server launch or hide a post-preflight port race.
+
+Vault-local configuration coverage is load acceptance and preservation, not
+independent verification of property, saved-query or link-format semantics.
+XDG_CONFIG_HOME discovery is intentionally untested: every matrix launch supplies
+an explicit TRACK_CONFIG, matching the inactive native admission design.

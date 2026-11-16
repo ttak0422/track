@@ -7308,3 +7308,6 @@ mod capability_process_tests;
 #[cfg(test)]
 #[path = "live_capability_tests.rs"]
 mod capability_tests;
+
+#[path = "live_read_inputs.rs"]
+mod read_inputs;

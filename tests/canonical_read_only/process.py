@@ -73,9 +73,22 @@ class Fixture:
 
 class Server:
     def __init__(self, binary, f, flags=None):
-        with socket.socket() as sock:
-            sock.bind(('127.0.0.1', 0))
-            self.addr = '127.0.0.1:' + str(sock.getsockname()[1])
+        # The engine owns workspace port and adjacent static-app port. Check
+        # both, not just one; launch still fails on any later bind race.
+        for _ in range(100):
+            with socket.socket() as sock, socket.socket() as adjacent:
+                sock.bind(('127.0.0.1', 0))
+                port = sock.getsockname()[1]
+                if port == 65535:
+                    continue
+                try:
+                    adjacent.bind(('127.0.0.1', port + 1))
+                except OSError:
+                    continue
+                self.addr = '127.0.0.1:' + str(port)
+                break
+        else:
+            raise AssertionError('no available adjacent loopback ports')
         self.log = tempfile.TemporaryFile()
         args = flags if flags is not None else ['--canonical-read-only', '--read-only-cache-root', str(f.cache)]
         self.p = subprocess.Popen([binary, 'web', '--addr', self.addr] + args,
