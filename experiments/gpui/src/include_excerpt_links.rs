@@ -73,7 +73,7 @@ fn markdown_note_term(destination: &str) -> Option<String> {
     }
     Some(term.to_owned())
 }
-fn link_term(link: &markdown::Link) -> Option<String> {
+pub(in crate::workspace_includes) fn link_term(link: &markdown::Link) -> Option<String> {
     match &link.target {
         markdown::LinkTarget::Wiki { .. } => wiki_term(link),
         markdown::LinkTarget::Markdown { destination } => markdown_note_term(destination),
@@ -118,6 +118,28 @@ fn resolver_source(ticket: &LinkTicket) -> shell::LinkSource {
     };
     source.etag = ticket.owner.entry.etag.clone().unwrap();
     source
+}
+pub(in crate::workspace_includes) fn resolve_note_link(
+    client: &live::ReadClient,
+    source: &shell::LinkSource,
+    term: &str,
+) -> Result<live::NoteKey, String> {
+    let before = client
+        .storage()
+        .map_err(|_| "Preview storage unavailable")?;
+    if before.phase != "ready" || before.generation != source.storage_generation {
+        return Err("Preview storage changed".to_owned());
+    }
+    let response = client
+        .resolve(term, &source.note.vault)
+        .map_err(|_| "Preview link could not be resolved")?;
+    let after = client
+        .storage()
+        .map_err(|_| "Preview storage unavailable")?;
+    if after.phase != "ready" || after.generation != source.storage_generation {
+        return Err("Preview storage changed".to_owned());
+    }
+    query_navigation::verified_key(&response, source, term)
 }
 impl Workspace {
     fn excerpt_link_ticket(
@@ -215,42 +237,23 @@ impl Workspace {
             return;
         };
         let state = self.shell.includes.as_mut().unwrap();
-        if query_navigation::BUSY
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_err()
-        {
-            state.query_nav.pending = None;
-            state.query_nav.notice = Some(
-                "Previous navigation canceled; its lookup is still finishing. Try again shortly."
-                    .into(),
-            );
+        let token = SERIAL.fetch_add(1, Ordering::Relaxed);
+        if !query_navigation::claim_link_lookup(
+            &query_navigation::BUSY,
+            &mut state.query_nav.pending,
+            &mut state.query_nav.notice,
+            token,
+        ) {
             cx.notify();
             return;
         }
         let permit = query_navigation::Permit;
-        let token = SERIAL.fetch_add(1, Ordering::Relaxed);
-        state.query_nav.pending = Some(token);
         state.query_nav.notice = Some("Resolving included note link…".into());
         let source = resolver_source(&ticket);
         let client = self.live.as_ref().unwrap().client();
         let job = cx.background_executor().spawn(async move {
             let _permit = permit;
-            let before = client
-                .storage()
-                .map_err(|_| "Include storage unavailable")?;
-            if before.phase != "ready" || before.generation != source.storage_generation {
-                return Err("Include storage changed".to_owned());
-            }
-            let response = client
-                .resolve(&term, &source.note.vault)
-                .map_err(|_| "Included link could not be resolved")?;
-            let after = client
-                .storage()
-                .map_err(|_| "Include storage unavailable")?;
-            if after.phase != "ready" || after.generation != source.storage_generation {
-                return Err("Include storage changed".to_owned());
-            }
-            query_navigation::verified_key(&response, &source, &term)
+            resolve_note_link(&client, &source, &term)
         });
         cx.spawn(async move |_, cx| {
             let result = job.await;

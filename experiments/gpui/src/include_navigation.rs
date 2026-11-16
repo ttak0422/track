@@ -1,6 +1,6 @@
 //! Explicit source-note navigation from a successful owned include header.
 #[path = "include_excerpt_links.rs"]
-mod include_excerpt_links;
+pub(super) mod include_excerpt_links;
 use super::*;
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Ticket {

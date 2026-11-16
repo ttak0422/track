@@ -1,5 +1,7 @@
 #[path = "rendered_reading.rs"]
 mod reading_mode;
+#[path = "rendered_host_links.rs"]
+mod rendered_host_links;
 pub(crate) use reading_mode::Mode as ReadingMode;
 #[path = "gallery_covers.rs"]
 mod gallery_covers;
@@ -68,6 +70,7 @@ pub(crate) struct IncludesState {
     mindmap_cache: crate::mindmap_view::Cache,
     copy: preview_copy::CopyUi,
     find: rendered_find::Ui,
+    host_links: std::cell::RefCell<rendered_host_links::Cache>,
 }
 /// Preview controls must not use host-reader gates, which intentionally reject
 /// this surface. Capture only competing actions and composition here.
@@ -135,6 +138,7 @@ impl IncludesState {
             mindmap_cache: Default::default(),
             copy: Default::default(),
             find: Default::default(),
+            host_links: Default::default(),
         }
     }
     fn query_page_action(
@@ -458,7 +462,7 @@ impl Workspace {
                 cx.stop_propagation();
             }))
             .child(div().flex().justify_between().child("Rendered content (read-only)").child(div().id("close-rendered-includes-preview").cursor_pointer().child("Close preview (Esc)").on_click(cx.listener(move |this, _, window, cx| this.close_rendered_user(&close_identity, serial, window, cx)))))
-            .child("Engine-resolved snapshots; completeness and currentness are not guaranteed. Partial inline preview: only isolated top-level includes are embedded. General links, task changes, recursive includes are unavailable. Find searches displayed ordinary host/include prose, not rich projections or their source disclosures. Host query rows provide explicit Open note controls; included query rows remain inert. Gallery covers support bounded local PNG/JPEG only. Text selection is unavailable. Tagged code and displayed source have explicit Copy controls (plain text, up to 256 KiB).")
+            .child("Engine-resolved snapshots; completeness and currentness are not guaranteed. Partial inline preview: only isolated top-level includes are embedded. Inline link clicks, task changes and recursive includes are unavailable. Ordinary host prose offers at most 16 explicit Open host link controls/statuses from the first 256 parsed links and 8192 host blocks; host fragments remain inert. These controls cover a bounded prefix only; return to Source to inspect remaining links. Find searches displayed ordinary host/include prose, not rich projections or their source disclosures. Host query rows provide explicit Open note controls; included query rows remain inert. Gallery covers support bounded local PNG/JPEG only. Text selection is unavailable. Tagged code and displayed source have explicit Copy controls (plain text, up to 256 KiB).")
             .child(reading_controls).child(refresh_status)
             .child(find_controls)
             .child(div().id(gpui::SharedString::from(format!("rendered-includes-scroll-{serial}"))).track_scroll(&scroll).flex_1().min_h_0().overflow_y_scroll().child(body))

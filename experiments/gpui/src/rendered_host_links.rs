@@ -1,0 +1,471 @@
+//! Explicit host-prose note links. Display labels never grant destination authority.
+use super::*;
+use include_navigation::include_excerpt_links::{link_term, resolve_note_link};
+use std::rc::Rc;
+const MAX_HOST_LINKS: usize = 16;
+const MAX_SCANNED_LINKS: usize = 256;
+const MAX_HOST_BLOCKS: usize = 8192;
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Candidate {
+    item: usize,
+    block: usize,
+    link: markdown::Link,
+    label: String,
+    fragment: bool,
+}
+#[derive(Default)]
+pub(super) struct Cache {
+    stamp: Option<(u64, u64)>,
+    links: Rc<Vec<Candidate>>,
+}
+fn has_fragment(link: &markdown::Link) -> bool {
+    match &link.target {
+        markdown::LinkTarget::Wiki {
+            key,
+            fragment: Some(fragment),
+            ..
+        } => key.len().saturating_add(fragment.len()) <= 4096,
+        markdown::LinkTarget::Markdown { destination } => {
+            destination.len() <= 4096 && destination.contains('#')
+        }
+        _ => false,
+    }
+}
+fn host_term(link: &markdown::Link) -> Option<String> {
+    if matches!(
+        &link.target,
+        markdown::LinkTarget::Wiki {
+            fragment: Some(_),
+            ..
+        }
+    ) || has_fragment(link)
+    {
+        None
+    } else {
+        link_term(link)
+    }
+}
+fn candidates(preview: &markdown::IncludePreview) -> Vec<Candidate> {
+    let mut out = Vec::new();
+    let mut blocks_seen = 0;
+    let mut links_seen = 0;
+    'items: for (item, entry) in preview.items.iter().enumerate() {
+        let markdown::PreviewItem::Host(blocks) = entry else {
+            continue;
+        };
+        for (block, b) in blocks.iter().enumerate() {
+            if blocks_seen == MAX_HOST_BLOCKS {
+                break 'items;
+            }
+            blocks_seen += 1;
+            if b.kind != markdown::BlockKind::Paragraph || b.image.is_some() {
+                continue;
+            }
+            for link in &b.links {
+                if links_seen == MAX_SCANNED_LINKS {
+                    break 'items;
+                }
+                links_seen += 1;
+                let Some(label) = b.text.get(link.range.clone()) else {
+                    continue;
+                };
+                let fragment = has_fragment(link);
+                if !fragment && host_term(link).is_none() {
+                    continue;
+                }
+                out.push(Candidate {
+                    item,
+                    block,
+                    link: link.clone(),
+                    label: label.chars().take(80).collect(),
+                    fragment,
+                });
+                if out.len() == MAX_HOST_LINKS {
+                    break 'items;
+                }
+            }
+        }
+    }
+    out
+}
+fn cached(state: &IncludesState) -> Rc<Vec<Candidate>> {
+    let stamp = (state.serial, state.preview_epoch);
+    let mut cache = state.host_links.borrow_mut();
+    if cache.stamp != Some(stamp) {
+        cache.stamp = Some(stamp);
+        cache.links = Rc::new(
+            state
+                .result
+                .as_ref()
+                .and_then(|r| r.as_ref().ok())
+                .and_then(|s| s.preview.as_ref().ok())
+                .map(candidates)
+                .unwrap_or_default(),
+        );
+    }
+    cache.links.clone()
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Ticket {
+    identity: Identity,
+    serial: u64,
+    epoch: u64,
+    mode: u64,
+    scope: String,
+    scope_revision: u64,
+    registry: (String, Vec<String>),
+    candidate: Candidate,
+}
+fn current_ticket(expected: &Ticket, current: Option<&Ticket>) -> bool {
+    current == Some(expected)
+}
+impl Workspace {
+    fn host_link_ticket(&self, candidate: &Candidate) -> Option<Ticket> {
+        if host_term(&candidate.link).is_none() {
+            return None;
+        }
+        let state = self.shell.includes.as_ref()?;
+        let identity = self.includes_identity()?;
+        if !state.preview_open
+            || state.identity != identity
+            || self.shell.accepted_title_request != Some(self.request)
+            || !self.includes_body_current(state)
+            || state.accepted_body.is_none()
+        {
+            return None;
+        }
+        if !cached(state).contains(candidate) {
+            return None;
+        }
+        let registry = self.follow_registry()?;
+        let vault = &identity.source.note.vault;
+        let canonical = if vault.is_empty() { &registry.0 } else { vault };
+        if !registry.1.contains(canonical) || !self.session_ui.permits(vault) {
+            return None;
+        }
+        let storage = self.live.as_ref()?.initial_storage.as_ref()?;
+        if storage.phase != "ready"
+            || storage.generation != identity.source.storage_generation
+            || self.accepted_storage_generation != Some(storage.generation)
+        {
+            return None;
+        }
+        Some(Ticket {
+            identity,
+            serial: state.serial,
+            epoch: state.preview_epoch,
+            mode: self.shell.rendered_reading.generation(),
+            scope: self.working_vault_scope().to_owned(),
+            scope_revision: self.shell.scope_revision,
+            registry,
+            candidate: candidate.clone(),
+        })
+    }
+    fn host_link_current(&self, t: &Ticket, cx: &Context<Self>) -> bool {
+        current_ticket(t, self.host_link_ticket(&t.candidate).as_ref())
+            && self.query_control_gate(&t.identity, cx).allowed()
+            && !self.recent_open()
+            && !self.reader_hierarchy_open()
+            && !self.enlarged_image_open()
+            && !self.creation_open()
+            && !self.reader_selection_dragging()
+            && !self.shell.find.is_composing(cx)
+            && !self.shell.calendar_zone.is_composing(cx)
+    }
+    pub(super) fn host_link_controls(
+        &self,
+        item: usize,
+        start: usize,
+        end: usize,
+        cx: &Context<Self>,
+    ) -> Div {
+        let Some(state) = self.shell.includes.as_ref() else {
+            return div();
+        };
+        let mut controls = div().flex().flex_col().gap_1();
+        for candidate in cached(state)
+            .iter()
+            .filter(|c| c.item == item && c.block >= start && c.block < end)
+        {
+            if candidate.fragment {
+                controls = controls.child(format!(
+                    "Host link fragment unavailable: {}",
+                    candidate.label
+                ));
+                continue;
+            }
+            let Some(ticket) = self.host_link_ticket(candidate) else {
+                continue;
+            };
+            controls = controls.child(
+                div()
+                    .id(gpui::SharedString::from(format!(
+                        "host-link-{}-{}-{item}-{}-{}",
+                        ticket.serial, ticket.epoch, candidate.block, candidate.link.range.start
+                    )))
+                    .text_size(px(12.))
+                    .cursor_pointer()
+                    .child(format!("Open host link: {}", candidate.label))
+                    .on_click(
+                        cx.listener(move |this, event: &gpui::ClickEvent, window, cx| {
+                            cx.stop_propagation();
+                            if shell::plain_reader_click(event) {
+                                this.activate_host_link(ticket.clone(), window, cx);
+                            }
+                        }),
+                    ),
+            );
+        }
+        controls
+    }
+    fn activate_host_link(&mut self, ticket: Ticket, window: &mut Window, cx: &mut Context<Self>) {
+        if !window.is_window_active() || !self.host_link_current(&ticket, cx) {
+            return;
+        }
+        let Some(handle) = cx.active_window().and_then(shortcut_workspace) else {
+            return;
+        };
+        let Some(term) = host_term(&ticket.candidate.link) else {
+            return;
+        };
+        let state = self.shell.includes.as_mut().unwrap();
+        let token = SERIAL.fetch_add(1, Ordering::Relaxed);
+        if !query_navigation::claim_link_lookup(
+            &query_navigation::BUSY,
+            &mut state.query_nav.pending,
+            &mut state.query_nav.notice,
+            token,
+        ) {
+            cx.notify();
+            return;
+        }
+        let permit = query_navigation::Permit;
+        state.query_nav.notice = Some("Resolving host note link…".into());
+        let source = ticket.identity.source.clone();
+        let client = self.live.as_ref().unwrap().client();
+        let job = cx.background_executor().spawn(async move {
+            let _permit = permit;
+            resolve_note_link(&client, &source, &term)
+        });
+        cx.spawn(async move |_, cx| {
+            let result = job.await;
+            let _ = cx.update(|app| {
+                let active = app.active_window() == Some(handle.into());
+                let _ = handle.update(app, |this, window, cx| {
+                    if !this
+                        .shell
+                        .includes
+                        .as_ref()
+                        .is_some_and(|s| s.query_nav.pending == Some(token))
+                    {
+                        return;
+                    }
+                    this.shell.includes.as_mut().unwrap().query_nav.pending = None;
+                    if !active || !window.is_window_active() || !this.host_link_current(&ticket, cx)
+                    {
+                        this.shell.includes.as_mut().unwrap().query_nav.notice =
+                            Some("Host link navigation canceled after its source changed.".into());
+                        cx.notify();
+                        return;
+                    }
+                    let key = match result {
+                        Ok(key) => key,
+                        Err(error) => {
+                            this.shell.includes.as_mut().unwrap().query_nav.notice = Some(error);
+                            cx.notify();
+                            return;
+                        }
+                    };
+                    let canonical = if key.vault.is_empty() {
+                        &ticket.registry.0
+                    } else {
+                        &key.vault
+                    };
+                    if !ticket.registry.1.contains(canonical)
+                        || !this.session_ui.permits(&key.vault)
+                    {
+                        this.shell.includes.as_mut().unwrap().query_nav.notice =
+                            Some("Host link vault is unavailable; no fallback was used.".into());
+                        cx.notify();
+                        return;
+                    }
+                    let intent = shell::InternalLinkIntent {
+                        source: ticket.identity.source.note.clone(),
+                        destination: key,
+                        target: ticket.candidate.link.target.clone(),
+                        launch_generation: ticket.identity.source.launch_generation,
+                        storage_generation: ticket.identity.source.storage_generation,
+                        allow_epoch_advance: false,
+                    };
+                    if this.guard_transition(
+                        workspace_edit::Transition::InternalLink(intent.clone()),
+                        cx,
+                    ) {
+                        return;
+                    }
+                    this.close_includes_preview(&ticket.identity, ticket.serial, window, cx);
+                    this.open_internal_link(intent, cx);
+                });
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn link(text: &str) -> markdown::Link {
+        markdown::parse(text)
+            .into_iter()
+            .flat_map(|b| b.links)
+            .next()
+            .unwrap()
+    }
+    #[test]
+    fn host_targets_ignore_alias_and_never_drop_fragments() {
+        assert_eq!(
+            host_term(&link("[[Destination|Alias]]")).as_deref(),
+            Some("Destination")
+        );
+        assert_eq!(host_term(&link("[[C#|Language]]")).as_deref(), Some("C#"));
+        for input in [
+            "[[Destination#Heading|Alias]]",
+            "[[Destination#^block]]",
+            "[Alias](Note.md#heading)",
+            "[Alias](Note%23heading.md)",
+        ] {
+            assert!(host_term(&link(input)).is_none(), "{input}");
+        }
+        let mut oversized = link("[[A#heading]]");
+        if let markdown::LinkTarget::Wiki { fragment, .. } = &mut oversized.target {
+            *fragment = Some("#".repeat(5000));
+        }
+        assert!(host_term(&oversized).is_none());
+        if let markdown::LinkTarget::Wiki { fragment, .. } = &mut oversized.target {
+            *fragment = Some(String::new());
+        }
+        assert!(host_term(&oversized).is_none());
+        assert!(link_term(&link("[[Destination#Heading|Alias]]")).is_some()); // Existing include route unchanged.
+    }
+    #[test]
+    fn conservative_markdown_conversion_and_unsafe_targets() {
+        assert_eq!(
+            host_term(&link("[Alias](Caf%C3%A9.MD)")).as_deref(),
+            Some("Café")
+        );
+        assert_eq!(
+            host_term(&link("[Alias](Title%2Emd)")).as_deref(),
+            Some("Title.md")
+        );
+        for href in [
+            "https://example.com",
+            "assets/a.png",
+            "../Other.md",
+            "/Other.md",
+            "Other.md?q=x",
+            "bad%ZZ.md",
+            "A%2fB.md",
+            "A%3aB.md",
+            "A%00B.md",
+            "data:text/plain,hi",
+        ] {
+            let value = markdown::Link {
+                range: 0..1,
+                target: markdown::LinkTarget::Markdown {
+                    destination: href.into(),
+                },
+            };
+            assert!(host_term(&value).is_none(), "{href}");
+        }
+    }
+    #[test]
+    fn global_limit_and_host_occurrence_identity() {
+        let blocks = markdown::parse("[[A|same]] [[B|same]]");
+        let preview = markdown::IncludePreview {
+            items: vec![
+                markdown::PreviewItem::Host(blocks.clone()),
+                markdown::PreviewItem::Include {
+                    index: 0,
+                    directive: "![[X]]".into(),
+                    blocks: blocks.clone(),
+                },
+                markdown::PreviewItem::Host(blocks),
+            ],
+            unsupported: vec![],
+        };
+        let result = candidates(&preview);
+        assert_eq!(result.len(), 4);
+        assert_eq!((result[0].item, result[2].item), (0, 2));
+        assert_ne!(result[0].link.target, result[1].link.target);
+        let preview = markdown::IncludePreview {
+            items: (0..40)
+                .map(|_| markdown::PreviewItem::Host(markdown::parse("[[A]]")))
+                .collect(),
+            unsupported: vec![],
+        };
+        assert_eq!(candidates(&preview).len(), MAX_HOST_LINKS);
+    }
+    fn ticket() -> Ticket {
+        let note = live::NoteKey {
+            vault: "host".into(),
+            note_id: 42,
+        };
+        Ticket {
+            identity: Identity {
+                source: LinkSource {
+                    note: note.clone(),
+                    etag: "body".into(),
+                    launch_generation: 1,
+                    storage_generation: 2,
+                    request: 3,
+                },
+                route: note,
+            },
+            serial: 4,
+            epoch: 5,
+            mode: 6,
+            scope: "host".into(),
+            scope_revision: 7,
+            registry: ("host".into(), vec!["host".into(), "foreign".into()]),
+            candidate: Candidate {
+                item: 0,
+                block: 0,
+                link: link("[[Target|Alias]]"),
+                label: "Alias".into(),
+                fragment: false,
+            },
+        }
+    }
+    #[test]
+    fn ticket_rejects_each_owner_change_and_duplicate_occurrence() {
+        let expected = ticket();
+        assert!(current_ticket(&expected, Some(&ticket())));
+        assert!(!current_ticket(&expected, None));
+        for i in 0..11 {
+            let mut changed = ticket();
+            match i {
+                0 => changed.identity.source.request += 1,
+                1 => changed.serial += 1,
+                2 => changed.epoch += 1,
+                3 => changed.mode += 1,
+                4 => changed.scope_revision += 1,
+                5 => changed.registry.1.clear(),
+                6 => changed.identity.source.storage_generation += 1,
+                7 => changed.identity.source.note.vault = "foreign".into(),
+                8 => changed.candidate.item += 1,
+                9 => changed.candidate.block += 1,
+                _ => changed.candidate.link = link("[[Another|Alias]]"),
+            };
+            assert!(!current_ticket(&expected, Some(&changed)));
+        }
+        let mut launch = ticket();
+        launch.identity.source.note.vault.clear();
+        assert!(current_ticket(&launch, Some(&launch)));
+        assert_ne!(
+            launch.identity.source.note.vault,
+            expected.identity.source.note.vault
+        );
+    }
+}

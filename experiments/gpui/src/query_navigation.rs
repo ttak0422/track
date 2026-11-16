@@ -13,6 +13,28 @@ pub(super) struct Navigation {
     pub(super) pending: Option<u64>,
     pub(super) notice: Option<String>,
 }
+/// Shared click-time lookup admission. A newer intent retires the old pending
+/// token even while its worker still owns the global permit.
+pub(super) fn claim_link_lookup(
+    busy: &AtomicBool,
+    pending: &mut Option<u64>,
+    notice: &mut Option<String>,
+    token: u64,
+) -> bool {
+    if busy
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        *pending = None;
+        *notice = Some(
+            "Previous navigation canceled; its lookup is still finishing. Try again shortly."
+                .into(),
+        );
+        return false;
+    }
+    *pending = Some(token);
+    true
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Surface {
     Modal,
@@ -528,5 +550,25 @@ mod authority_tests {
             }
         }
         assert_eq!((host, included), (1, 1));
+    }
+}
+
+#[cfg(test)]
+mod link_lookup_admission_tests {
+    use super::*;
+    #[test]
+    fn newer_busy_intent_retires_pending_without_releasing_worker() {
+        let busy = AtomicBool::new(false);
+        let mut pending = None;
+        let mut notice = None;
+        assert!(claim_link_lookup(&busy, &mut pending, &mut notice, 1));
+        assert_eq!(pending, Some(1));
+        assert!(!claim_link_lookup(&busy, &mut pending, &mut notice, 2));
+        assert_eq!(pending, None);
+        assert!(busy.load(Ordering::Acquire));
+        assert!(notice.as_deref().unwrap().contains("finishing"));
+        busy.store(false, Ordering::Release); // original worker has exited
+        assert!(claim_link_lookup(&busy, &mut pending, &mut notice, 3));
+        assert_eq!(pending, Some(3));
     }
 }

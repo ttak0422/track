@@ -326,6 +326,7 @@ impl Workspace {
                     }),
             ))
             .child(self.excerpt_link_controls(item, start, start + blocks.len(), cx))
+            .child(self.host_link_controls(item, start, start + blocks.len(), cx))
     }
 }
 

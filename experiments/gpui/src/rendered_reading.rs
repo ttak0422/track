@@ -38,6 +38,10 @@ pub(crate) struct Mode {
     body_cache: std::cell::RefCell<Option<std::sync::Arc<str>>>,
 }
 impl Mode {
+    pub(crate) fn generation(&self) -> u64 {
+        self.generation
+    }
+
     fn body_snapshot(&self, body: &str) -> std::sync::Arc<str> {
         let mut cached = self.body_cache.borrow_mut();
         if let Some(value) = cached.as_ref().filter(|value| value.as_ref() == body) {
