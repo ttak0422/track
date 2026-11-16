@@ -23,8 +23,10 @@ import (
 )
 
 type Server struct {
-	asyncReads bool
-	queryReads *readBoundary
+	readPolicy      *readPolicy
+	readPolicyError error
+	asyncReads      bool
+	queryReads      *readBoundary
 
 	// active is the vault track web was launched in: the default target of every request and the
 	// only vault the file watcher follows. cfg and store are its config and index, kept as fields
@@ -101,9 +103,13 @@ func New(cfg *config.Config, s *store.Store) *Server { return newServer(cfg, s, 
 
 // Early storage startup must not synchronously resolve optional peer roots or palettes.
 func newServer(cfg *config.Config, s *store.Store, early bool) *Server {
+	return newServerWithReadPolicy(cfg, s, early, nil)
+}
+func newServerWithReadPolicy(cfg *config.Config, s *store.Store, early bool, policy *readPolicy) *Server {
 	// The launch vault carries no wire label: unqualified means "the vault you are in".
 	active := &vaultView{name: activeName(cfg), cfg: cfg, store: s}
 	srv := &Server{
+		readPolicy:    policy.withConfig(cfg),
 		active:        active,
 		queryReads:    newReadBoundary(),
 		cfg:           cfg,
@@ -115,6 +121,9 @@ func newServer(cfg *config.Config, s *store.Store, early bool) *Server {
 		mux:           http.NewServeMux(),
 		webRoot:       embeddedWebRoot,
 		events:        newEventHub(),
+	}
+	if policy != nil && s != nil {
+		srv.readPolicyError = srv.readPolicy.verifyStore(cfg, s)
 	}
 	for name, vaultDir := range cfg.Vaults {
 		if name != active.name {
@@ -151,6 +160,14 @@ func newServer(cfg *config.Config, s *store.Store, early bool) *Server {
 
 func (s *Server) Handler() http.Handler {
 	return s.guard(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.readPolicy != nil && (r.Method != http.MethodGet && r.Method != http.MethodHead || r.URL.Path == "/apps" || strings.HasPrefix(r.URL.Path, "/apps/")) {
+			writeError(w, fmt.Errorf("internal read policy does not authorize this operation"), http.StatusForbidden)
+			return
+		}
+		if s.readPolicyError != nil {
+			writeError(w, s.readPolicyError, http.StatusServiceUnavailable)
+			return
+		}
 		// ServeMux canonicalizes dot segments before routing. The app route has its own strict path
 		// parser so traversal attempts are rejected rather than redirected into the workspace SPA/API.
 		if r.URL.Path == "/apps" || strings.HasPrefix(r.URL.Path, "/apps/") {

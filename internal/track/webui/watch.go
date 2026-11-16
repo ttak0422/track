@@ -1,6 +1,7 @@
 package webui
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -183,11 +184,22 @@ func (s *Server) reconcileAfterChange() {
 	v := s.active
 	v.reindexMu.Lock()
 	defer v.reindexMu.Unlock()
-	if _, err := index.New(v.cfg, v.store).RefreshIfStale(); err != nil {
+	var err error
+	changed := true
+	if s.readPolicy != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), index.StageBudget)
+		defer cancel()
+		changed, err = s.refreshRead(ctx, v)
+	} else {
+		_, err = index.New(v.cfg, v.store).RefreshIfStale()
+	}
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "track web: reindex after change failed: %v\n", err)
 		return
 	}
-	s.events.broadcastChange()
+	if changed {
+		s.events.broadcastChange()
+	}
 }
 
 func (s *Server) watchLoop(watcher *fsnotify.Watcher) {

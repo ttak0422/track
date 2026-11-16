@@ -1,6 +1,7 @@
 package webui
 
 import (
+	"context"
 	"fmt"
 	"github.com/ttak0422/track/internal/track/vaultfile"
 	"net/http"
@@ -21,10 +22,11 @@ import (
 // vault-local and journal ids collide across vaults by construction, so a view — never a bare id —
 // is what decides which files a request touches.
 type vaultView struct {
-	async      bool
-	mutations  vaultGate
-	sharedGate *vaultGate
-	progress   readProgress
+	readVersions map[int64]*vaultfile.NoteRead
+	async        bool
+	mutations    vaultGate
+	sharedGate   *vaultGate
+	progress     readProgress
 
 	// name is the vault's registry identity, used to address it (?vault=) and to list it.
 	name string
@@ -57,7 +59,15 @@ func (s *Server) refresh(v *vaultView) {
 		return
 	}
 	v.lastStale = time.Now()
-	changed, err := index.New(v.cfg, v.store).RefreshIfStale()
+	var changed bool
+	var err error
+	if s.readPolicy != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), index.StageBudget)
+		defer cancel()
+		changed, err = s.refreshRead(ctx, v)
+	} else {
+		changed, err = index.New(v.cfg, v.store).RefreshIfStale()
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "track web: refresh-if-stale failed for vault %q: %v\n", v.name, err)
 		// A failed DB write may prevent persisting the status, so retain the
@@ -148,7 +158,20 @@ func (s *Server) withVault(fn vaultHandler) http.HandlerFunc {
 		if v.store != nil { // file-only handlers may be served without an index
 			v.reindexMu.Lock()
 			var initialized bool
-			initialized, err = index.New(v.cfg, v.store).EnsureInitialized()
+			if s.readPolicy != nil {
+				ctx, cancel := context.WithTimeout(r.Context(), index.StageBudget)
+				ready, readErr := v.store.Initialized()
+				err = readErr
+				if err == nil && !ready {
+					initialized, err = s.refreshRead(ctx, v)
+					if err == nil {
+						v.lastStale = time.Now()
+					}
+				}
+				cancel()
+			} else {
+				initialized, err = index.New(v.cfg, v.store).EnsureInitialized()
+			}
 			v.reindexMu.Unlock()
 			if initialized {
 				s.events.broadcastChange()
@@ -219,7 +242,7 @@ func (s *Server) viewByName(name string) (*vaultView, error) {
 	if _, err := vaultfile.Stat(cfg.VaultDir); err != nil {
 		return nil, fmt.Errorf("vault %q is unavailable: %v", name, err)
 	}
-	st, err := store.Open(cfg.DBPath)
+	st, err := s.readPolicy.withConfig(cfg).open(cfg, store.Open)
 	if err != nil {
 		return nil, fmt.Errorf("open vault %q index: %w", name, err)
 	}

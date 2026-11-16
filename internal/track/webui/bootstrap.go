@@ -29,6 +29,8 @@ type StorageStatus struct {
 	Generation uint64 `json:"generation"`
 }
 type Bootstrap struct {
+	readPolicy       *readPolicy
+	protectedPolicy  *readPolicy
 	mu               sync.Mutex
 	status           StorageStatus
 	server           *Server
@@ -58,7 +60,10 @@ func NewBootstrap(ctx context.Context, lease func(*config.Config) (func(), error
 	return newBootstrap(ctx, config.LoadBounded, store.Open, lease)
 }
 func newBootstrap(ctx context.Context, load func(context.Context, string, bool) (*config.Config, error), open func(string) (*store.Store, error), lease func(*config.Config) (func(), error)) *Bootstrap {
-	return &Bootstrap{status: StorageStatus{Phase: "initializing", ReadOnly: true, Reason: "Workspace listeners are initializing"}, root: ctx, placeholder: New(&config.Config{Provisional: true}, nil), boundary: newReadBoundary(), inboxBoundary: newReadBoundary(), progress: map[int64]*note.Note{}, load: load, open: open, lease: lease}
+	return newBootstrapWithReadPolicy(ctx, load, open, lease, nil)
+}
+func newBootstrapWithReadPolicy(ctx context.Context, load func(context.Context, string, bool) (*config.Config, error), open func(string) (*store.Store, error), lease func(*config.Config) (func(), error), policy *readPolicy) *Bootstrap {
+	return &Bootstrap{readPolicy: policy, protectedPolicy: policy, status: StorageStatus{Phase: "initializing", ReadOnly: true, Reason: "Workspace listeners are initializing"}, root: ctx, placeholder: newServerWithReadPolicy(&config.Config{Provisional: true}, nil, false, policy), boundary: newReadBoundary(), inboxBoundary: newReadBoundary(), progress: map[int64]*note.Note{}, load: load, open: open, lease: lease}
 }
 
 func (b *Bootstrap) start() {
@@ -94,6 +99,7 @@ func (b *Bootstrap) start() {
 	b.running = true
 	b.generation++
 	generation := b.generation
+	policy := b.protectedPolicy
 	b.boundary.advance(generation)
 	ctx, cancel := context.WithCancel(b.root)
 	b.cancel = cancel
@@ -130,6 +136,8 @@ func (b *Bootstrap) start() {
 			b.fail(generation, errors.New("active vault changed; restart after preserving drafts"))
 			return
 		}
+		policy = policy.withConfig(cfg)
+		b.protectedPolicy = policy
 		b.cfgGeneration = generation
 		b.cfg = cfg
 		b.openPending = true
@@ -153,7 +161,7 @@ func (b *Bootstrap) start() {
 			peers = nil
 		}
 		if peers == nil {
-			peers = newServer(cfg, nil, true)
+			peers = newServerWithReadPolicy(cfg, nil, true, policy)
 			peers.enableAsync()
 			b.mu.Lock()
 			if b.generation == generation && !b.closed {
@@ -177,7 +185,11 @@ func (b *Bootstrap) start() {
 			var err error
 			if release == nil && b.lease != nil {
 				var rawRelease func()
-				rawRelease, err = b.lease(cfg)
+				leaseCfg, validationErr := policy.withConfig(cfg).cacheConfig(cfg)
+				err = validationErr
+				if err == nil {
+					rawRelease, err = b.lease(leaseCfg)
+				}
 				freshLease = err == nil
 				if rawRelease != nil {
 					var once sync.Once
@@ -212,7 +224,7 @@ func (b *Bootstrap) start() {
 			// Stop/retry can identify this server even while database opening stalls.
 			var st *store.Store
 			if err == nil {
-				st, err = b.open(cfg.DBPath)
+				st, err = policy.withConfig(cfg).open(cfg, b.open)
 			}
 			if ctx.Err() != nil {
 				if freshLease && release != nil {
@@ -308,7 +320,12 @@ func (b *Bootstrap) start() {
 			}
 			return
 		}
-		srv := newServer(currentCfg, opened.store, true)
+		if err := policy.withConfig(currentCfg).verifyStore(currentCfg, opened.store); err != nil {
+			opened.store.Close()
+			b.fail(generation, err)
+			return
+		}
+		srv := newServerWithReadPolicy(currentCfg, opened.store, true, policy)
 		srv.enableAsync()
 		_ = opened.store.SetReadState(store.ReadState{Partial: true, CheckedAt: time.Now().UnixMilli(), Issues: []store.ReadIssue{{Path: currentCfg.VaultDir, Reason: "index verification pending"}}})
 		b.mu.Lock()
@@ -379,7 +396,7 @@ func (b *Bootstrap) Status() StorageStatus {
 		available := !srv.active.mutationGate().Busy()
 		if !state.Partial && !srv.cfg.Provisional && available {
 			status.Phase = "ready"
-			status.ReadOnly = false
+			status.ReadOnly = b.readPolicy != nil
 			status.Reason = ""
 		} else {
 			status.ReadOnly = true
@@ -497,6 +514,10 @@ func (b *Bootstrap) progressResponse(w http.ResponseWriter, r *http.Request, rea
 	return false
 }
 func (b *Bootstrap) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if b.readPolicy != nil && r.Method != http.MethodGet && r.Method != http.MethodHead {
+		writeError(w, errors.New("internal read policy does not authorize this operation"), http.StatusForbidden)
+		return
+	}
 	// External Markdown is a loopback capability inbox, independent of vault
 	// configuration/index readiness. Keep one inbox across backend generations.
 	if r.URL.Path == "/api/markdown" || r.URL.Path == "/api/markdown/consume" {
@@ -751,7 +772,7 @@ func (b *Bootstrap) statusFor(r *http.Request) StorageStatus {
 	state := view.asyncState()
 	available := !view.mutationGate().Busy()
 	if !view.cfg.Provisional && !state.Partial && available {
-		status.ReadOnly = false
+		status.ReadOnly = b.readPolicy != nil
 		status.Phase = "ready"
 		status.Reason = ""
 	} else {

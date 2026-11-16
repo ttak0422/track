@@ -14,8 +14,9 @@ import (
 )
 
 type Store struct {
-	db *sql.DB
-	tx *sql.Tx
+	openedPath string
+	db         *sql.DB
+	tx         *sql.Tx
 }
 
 // Open opens (creating if necessary) the index database at dbPath, applying the schema on first use.
@@ -55,8 +56,11 @@ func openDB(dbPath string) (*Store, error) {
 		return nil, err
 	}
 
-	return &Store{db: db}, nil
+	return &Store{db: db, openedPath: dbPath}, nil
 }
+
+// OpenedPath is the exact database path supplied at construction.
+func (s *Store) OpenedPath() string { return s.openedPath }
 
 func (s *Store) Close() error {
 	return s.db.Close()
