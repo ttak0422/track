@@ -2,6 +2,8 @@
 mod reading_mode;
 #[path = "rendered_host_links.rs"]
 mod rendered_host_links;
+#[path = "rendered_selection.rs"]
+mod rendered_selection;
 pub(crate) use reading_mode::Mode as ReadingMode;
 #[path = "gallery_covers.rs"]
 mod gallery_covers;
@@ -70,6 +72,7 @@ pub(crate) struct IncludesState {
     mindmap_cache: crate::mindmap_view::Cache,
     copy: preview_copy::CopyUi,
     find: rendered_find::Ui,
+    selection: std::cell::RefCell<rendered_selection::Ui>,
     host_links: std::cell::RefCell<rendered_host_links::Cache>,
 }
 /// Preview controls must not use host-reader gates, which intentionally reject
@@ -138,6 +141,7 @@ impl IncludesState {
             mindmap_cache: Default::default(),
             copy: Default::default(),
             find: Default::default(),
+            selection: Default::default(),
             host_links: Default::default(),
         }
     }
@@ -286,6 +290,7 @@ impl Workspace {
         };
         state.preview_open = true;
         state.find = Default::default();
+        state.selection = Default::default();
         state.copy =
             preview_copy::CopyUi::prepare(state.result.as_ref().and_then(|r| r.as_ref().ok()), cx);
         state.preview_epoch = SERIAL.fetch_add(1, Ordering::Relaxed);
@@ -328,6 +333,7 @@ impl Workspace {
         };
         state.preview_open = false;
         state.find = Default::default();
+        state.selection = Default::default();
         state.copy = Default::default();
         state.mindmap_cache.clear();
         state.flowchart_cache.clear();
@@ -352,6 +358,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<Div> {
         self.begin_rendered_find(dark, cx);
+        self.begin_preview_selection(window, cx);
         let state = self.shell.includes.as_ref().unwrap();
         let identity = state.identity.clone();
         let serial = state.serial;
@@ -451,8 +458,11 @@ impl Workspace {
         }
         self.finish_rendered_find(window, cx);
         let find_controls = self.rendered_find_controls(cx);
+        let selection_controls = self.preview_selection_controls(cx);
         div().id("rendered-includes-preview").size_full().flex().flex_col().p_4()
             .bg(rgb(paper)).text_color(rgb(ink)).track_focus(&focus)
+            .on_mouse_down(gpui::MouseButton::Left, cx.listener(|this, _, _, cx| { this.clear_preview_selection(); cx.notify(); }))
+            .on_scroll_wheel(cx.listener(|this, _, _, cx| { this.clear_preview_selection(); cx.notify(); }))
             .on_action(cx.listener(|this, _: &search_input::FindNext, window, cx| {this.rendered_find_key(Some(true), window, cx);cx.stop_propagation();}))
             .on_action(cx.listener(|this, _: &search_input::FindPrevious, window, cx| {this.rendered_find_key(Some(false), window, cx);cx.stop_propagation();}))
             .on_action(cx.listener(|this, _: &search_input::CloseFind, window, cx| {this.rendered_find_key(None, window, cx);cx.stop_propagation();}))
@@ -462,9 +472,9 @@ impl Workspace {
                 cx.stop_propagation();
             }))
             .child(div().flex().justify_between().child("Rendered content (read-only)").child(div().id("close-rendered-includes-preview").cursor_pointer().child("Close preview (Esc)").on_click(cx.listener(move |this, _, window, cx| this.close_rendered_user(&close_identity, serial, window, cx)))))
-            .child("Engine-resolved snapshots; completeness and currentness are not guaranteed. Partial inline preview: only isolated top-level includes are embedded. Inline link clicks, task changes and recursive includes are unavailable. Ordinary host prose offers at most 16 explicit Open host link controls/statuses from the first 256 parsed links and 8192 host blocks; host fragments remain inert. These controls cover a bounded prefix only; return to Source to inspect remaining links. Find searches displayed ordinary host/include prose, not rich projections or their source disclosures. Host query rows provide explicit Open note controls; included query rows remain inert. Gallery covers support bounded local PNG/JPEG only. Text selection is unavailable. Tagged code and displayed source have explicit Copy controls (plain text, up to 256 KiB).")
+            .child("Engine-resolved snapshots; completeness and currentness are not guaranteed. Partial inline preview: only isolated top-level includes are embedded. Inline link clicks, task changes and recursive includes are unavailable. Ordinary host prose offers at most 16 explicit Open host link controls/statuses from the first 256 parsed links and 8192 host blocks; host fragments remain inert. These controls cover a bounded prefix only; return to Source to inspect remaining links. Find searches displayed ordinary host/include prose, not rich projections or their source disclosures. Host query rows provide explicit Open note controls; included query rows remain inert. Gallery covers support bounded local PNG/JPEG only. Single-paragraph display-text selection is available below. Tagged code and displayed source have explicit Copy controls (plain text, up to 256 KiB).")
             .child(reading_controls).child(refresh_status)
-            .child(find_controls)
+            .child(find_controls).child(selection_controls)
             .child(div().id(gpui::SharedString::from(format!("rendered-includes-scroll-{serial}"))).track_scroll(&scroll).flex_1().min_h_0().overflow_y_scroll().child(body))
     }
     fn includes_identity(&self) -> Option<Identity> {
@@ -606,6 +616,7 @@ impl Workspace {
             state.query_sources.clear();
         }
         state.find = Default::default();
+        state.selection = Default::default();
         let Some(permit) = Permit::acquire() else {
             state.fetching = false;
             let warning =
@@ -688,6 +699,7 @@ impl Workspace {
                             state.refresh_warning = None;
                             state.preview_epoch = SERIAL.fetch_add(1, Ordering::Relaxed);
                             state.find = Default::default();
+                            state.selection = Default::default();
                             state.query_nav = Default::default();
                             state.query_pages.clear();
                             state.query_sources.clear();

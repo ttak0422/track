@@ -307,6 +307,7 @@ impl Workspace {
             )
         });
         let find = state.find.presentation(state, item, start, blocks);
+        let selection = self.preview_selection_presentation(item, start, blocks, cx);
         div()
             .id(gpui::SharedString::from(format!(
                 "preview-code-{serial}-{epoch}-{item}-{start}"
@@ -314,7 +315,7 @@ impl Workspace {
             .when(generated, |d| {
                 d.child("Generated snapshot data (not original query source)")
             })
-            .child(markdown::render_preview_code_find(
+            .child(markdown::render_preview_selection(
                 blocks,
                 dark,
                 &callbacks,
@@ -324,6 +325,7 @@ impl Workspace {
                         active: *active,
                         anchors,
                     }),
+                selection.as_ref(),
             ))
             .child(self.excerpt_link_controls(item, start, start + blocks.len(), cx))
             .child(self.host_link_controls(item, start, start + blocks.len(), cx))

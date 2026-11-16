@@ -715,7 +715,7 @@ In an owned-server session, **Rendered preview** can resolve a limited `viewspec
 fence through the existing engine and draw its supported native chart. This
 requires ViewSpec version 2, a line or bar mark, inline metric records and a
 primary category/value encoding. The original specification stays visible with an
-explicit source Copy control. Preview text selection remains unavailable.
+explicit source Copy control. Rendered content additionally supports the bounded single-paragraph displayed-text selection described below; code/source Copy remains separate.
 
 A small fixture example:
 
@@ -1255,3 +1255,13 @@ Only ordinary host paragraph links are eligible, not table cells, images, query/
 Lookups run only on explicit activation and share the existing bounded preview navigation worker. A newer click while that worker is busy cancels the older navigation intent and asks you to retry after the worker finishes; it does not start another worker. Missing targets, engine-reported ambiguity/errors, uncertain results and storage changes retain the current preview with a notice. Ordinary duplicate-title resolution still follows the existing engine resolver; this feature does not add a title-collision scan. Refresh, source/request changes, mode off/on, Close, scope/registry or storage changes reject old controls and completions. No new API, dependency, external opener or canonical note mutation is added; existing engine read/index behavior remains.
 
 Cloud tests exercise extracted production admission, wiki parsing, normalization, resolver namespace and stale-ticket logic with lightweight model/fake-client types. Full GPUI compilation and native focus, layout and navigation remain unverified.
+
+### Copy selected text in Rendered content
+
+In **Rendered content (read-only)**, drag within one fully visible, non-link prose paragraph and choose **Copy selected text**. This copies only the selected displayed characters: no Markdown decoration, destination URL, vault path or citation is added. Bold, emphasis and inline code can be crossed within the paragraph. Forward and reverse selections use Unicode grapheme boundaries; soft wrapping does not insert extra line breaks.
+
+This first slice is single-paragraph only. It does not extend across paragraphs or include boundaries, and excludes link-containing paragraphs, headings, lists, quotes, tables, images, query/diagram internals and source disclosures. Repeated included excerpts have independent selection identities. At most 256 rendered slices admit selection. A selected payload above 256 KiB is rejected, never silently truncated. Existing code/source Copy controls, source-reader selection and clipboard shortcuts are unchanged; use the explicit preview button rather than relying on Cmd-C.
+
+Scrolling, reflow, source/refresh/navigation changes, mode off/on, scope/storage changes, Find or a competing preview control invalidate the selection or reject its old Copy action. Dragging outside the measured paragraph cancels rather than guessing a nearest character; there is no auto-scroll or keyboard extension. An unchanged layout can repaint without canceling a drag. Selection and copying never alter host reading positions, history or note contents, and perform no extra read request. **Copy submitted** means the GPUI clipboard API was called, not that pasting into another application was verified.
+
+Cloud tests cover extracted production eligibility, grapheme selection, owner/occurrence retirement, geometry checks and payload limits using lightweight UI/model stubs. Full GPUI compilation, native soft-wrap/pointer event ordering and clipboard paste behavior remain unverified.

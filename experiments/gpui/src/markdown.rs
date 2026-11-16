@@ -327,6 +327,11 @@ impl SelectionMeasurements {
             s.ready = true;
         }
     }
+    /// A single ready row without cloning every measured paragraph.
+    pub(crate) fn measured_row(&self, index: usize) -> Option<MeasuredSelectionText> {
+        let s = self.0.borrow();
+        s.ready.then(|| s.rows.get(&index).cloned()).flatten()
+    }
     pub fn snapshot(&self) -> Option<std::collections::BTreeMap<usize, MeasuredSelectionText>> {
         let s = self.0.borrow();
         s.ready.then(|| s.rows.clone())
@@ -3167,6 +3172,45 @@ pub(crate) fn render_preview_code_find(
     render_reader(blocks, dark, None, None, find, Some(copy), None, None)
 }
 
+/// Preview-only selection has no link navigation callbacks or host positions.
+pub(crate) fn render_preview_selection(
+    blocks: &[Block],
+    dark: bool,
+    copy: &CodeCallbacks,
+    find: Option<FindPresentation<'_>>,
+    selection: Option<&SelectionCallbacks>,
+) -> Div {
+    let elements = render_elements(
+        blocks,
+        dark,
+        None,
+        None,
+        find,
+        Some(copy),
+        None,
+        None,
+        selection,
+    );
+    let theme = ReaderTheme::new(dark);
+    let reader = div()
+        .w_full()
+        .min_w_0()
+        .flex()
+        .flex_col()
+        .text_size(px(16.))
+        .line_height(px(BODY_LINE_HEIGHT))
+        .font_family(".SystemUIFont")
+        .text_color(rgb(theme.ink))
+        .children(elements);
+    if let Some(selection) = selection {
+        let measurements = selection.measurements.clone();
+        let generation = selection.generation;
+        reader.on_children_prepainted(move |_, _, _| measurements.commit(generation))
+    } else {
+        reader
+    }
+}
+
 pub fn render_preview_code(blocks: &[Block], dark: bool, copy: &CodeCallbacks) -> Div {
     render_reader(blocks, dark, None, None, None, Some(copy), None, None)
 }
@@ -3242,6 +3286,7 @@ pub fn render_with_positions(
         copy,
         images,
         inline,
+        None,
     );
     if let Some((index, panel)) = query_panel {
         if index < elements.len() {
@@ -3318,7 +3363,7 @@ fn render_reader(
         .font_family(".SystemUIFont")
         .text_color(rgb(theme.ink))
         .children(render_elements(
-            blocks, dark, anchors, callbacks, find, copy, images, inline,
+            blocks, dark, anchors, callbacks, find, copy, images, inline, None,
         ))
 }
 
@@ -3326,7 +3371,7 @@ fn render_reader(
 /// as one direct child; wrapping the returned vector defeats child-index anchors.
 /// Each row carries the same body metrics as render_themed.
 pub fn render_block_elements_themed(blocks: &[Block], dark: bool) -> Vec<AnyElement> {
-    render_elements(blocks, dark, None, None, None, None, None, None)
+    render_elements(blocks, dark, None, None, None, None, None, None, None)
 }
 
 /// Snapshot viewer only: direct child order is the accepted block order.
@@ -3347,6 +3392,7 @@ pub(crate) fn render_snapshot_elements(
         None,
         Some(images),
         None,
+        None,
     )
 }
 
@@ -3359,6 +3405,7 @@ fn render_elements(
     copy: Option<&CodeCallbacks>,
     images: Option<&std::collections::BTreeMap<usize, crate::raster::Decoded>>,
     inline: Option<&InlineIncludes>,
+    selection_override: Option<&SelectionCallbacks>,
 ) -> Vec<AnyElement> {
     let theme = ReaderTheme::new(dark);
     let entries = anchors
@@ -3565,8 +3612,8 @@ fn render_elements(
             }
             let offset = text.len() - block.text.len();
             let visible_spans = resolved_spans(&block.spans, &block.links, callbacks);
-            let selection = callbacks
-                .and_then(|c| c.selection.as_ref())
+            let selection = selection_override
+                .or_else(|| callbacks.and_then(|c| c.selection.as_ref()))
                 .filter(|_| crate::reader_selection::eligible_display(block));
             let selected = selection
                 .and_then(|c| c.selected.iter().find(|(i, _)| *i == index))
