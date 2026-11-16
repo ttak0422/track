@@ -29,6 +29,9 @@ var internalReadRoutes = map[string][]string{
 	"/api/metrics-dashboard":       nil,               // Local compute, not required by this capability.
 	"/api/viewspec":                {http.MethodPost}, // Inline or local data-file computation.
 	"/api/asset":                   {http.MethodGet, http.MethodHead},
+	"/api/timeline/projects":       nil, // Timeline is not part of the audited native read capability.
+	"/api/timeline/project":        nil,
+	"/api/timeline":                nil,
 	"/api/ogp":                     nil, // External HTTP fetch, despite being GET.
 	"/api/hierarchy":               {http.MethodGet},
 	"/api/graph/local":             {http.MethodGet},

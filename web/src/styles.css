@@ -6033,3 +6033,113 @@ textarea.modal-input:focus-visible {
 .metrics-dashboard-meta dl > div { display: grid; grid-template-columns: minmax(6em, 1fr) 3fr; gap: 12px; }
 .metrics-dashboard-meta dd { margin: 0; white-space: pre-wrap; }
 
+
+/* Timeline controls use the text-control variant; content stays on the reader sheet. */
+.task-timeline {
+  margin-block: 1.5em;
+}
+.task-timeline-toggle {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+.task-timeline-toggle:hover,
+.task-timeline-toggle:focus-visible {
+  color: var(--text);
+}
+.task-timeline-toggle[aria-expanded="true"] {
+  color: var(--text);
+  font-weight: 500;
+}
+.task-timeline-items,
+.task-timeline-history {
+  padding-inline-start: 0;
+  list-style: none;
+}
+.task-timeline-items li,
+.task-timeline-history li {
+  margin-block: 0.5em;
+  overflow-wrap: anywhere;
+}
+.task-timeline-history time {
+  color: var(--muted);
+}
+
+.agent-timeline {
+  width: 100%;
+  max-width: var(--measure);
+  margin-inline: auto;
+  padding: 2em 1em;
+}
+.agent-timeline section,
+.agent-timeline details {
+  margin-block: 1.5em;
+}
+.agent-timeline h2,
+.agent-timeline h3 {
+  margin-block-start: 1.5em;
+}
+.agent-timeline p,
+.agent-timeline li {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.agent-timeline summary,
+.timeline-text-button {
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+.agent-timeline summary:hover,
+.agent-timeline summary:focus-visible,
+.timeline-text-button:hover,
+.timeline-text-button:focus-visible {
+  color: var(--text);
+}
+.timeline-text-button:disabled {
+  cursor: default;
+  color: var(--faint);
+}
+.agent-form fieldset {
+  border: 0;
+  padding: 0;
+  display: grid;
+  gap: 1em;
+  margin-block: 1em;
+}
+.agent-form label {
+  display: grid;
+  gap: 0.25em;
+}
+.agent-timeline input,
+.agent-timeline select {
+  color: var(--text);
+  font: inherit;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  min-width: 0;
+  max-width: 100%;
+}
+.agent-timeline input:focus,
+.agent-timeline select:focus {
+  border-bottom-color: var(--mark);
+}
+.agent-timeline textarea {
+  color: var(--text);
+  font: inherit;
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  min-height: 5em;
+  resize: vertical;
+}
+.agent-events pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

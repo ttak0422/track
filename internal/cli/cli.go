@@ -85,6 +85,10 @@ func Run(args []string) int {
 		return cmdToggle(rest)
 	case "task":
 		return cmdTask(rest)
+	case "timeline-project":
+		return cmdTimelineProject(rest)
+	case "timeline":
+		return cmdTimeline(rest)
 	case "tasks":
 		return cmdTasks(rest)
 	case "event":
@@ -224,6 +228,10 @@ Usage:
   track task date (--id N | --title S | --path P) --line N [--sched YYYY-MM-DD] [--due YYYY-MM-DD]
                                         write a task's scheduled and/or due token; an empty value clears
                                         that token, and passing neither flag is an error (JSON)
+  track timeline-project list|get|apply [--id ID]
+                                        manage explicit agent work records; apply reads JSON stdin
+  track timeline (--id N | --title S | --path P)
+                                        read task tree, progress and recorded history (JSON)
   track tasks [--id N | --title S | --path P] [--state A,B] [--due YYYY-MM-DD] [--overdue]
               [--sort priority]         list indexed tasks with state/deadline filters (JSON)
   track cite --id N [--version SHA256] [--heading S | --block S | --page N | --start-line N --end-line N]

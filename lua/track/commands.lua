@@ -194,6 +194,10 @@ function M.setup()
       require("track.links").show()
    end, { desc = "Show links from the current note" })
 
+   register("timeline", function(opts)
+      require("track.timeline_view").open(opts.fargs[1])
+   end, { nargs = "?", desc = "Open an agent timeline project or choose one" })
+
    register("graph", function()
       require("track.graph").show()
    end, { desc = "Show a local note graph around the current note" })

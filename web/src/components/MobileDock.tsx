@@ -1,3 +1,4 @@
+import { IconTimeline } from "@tabler/icons-react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { IconMicrophone } from "@tabler/icons-react";
 import {
@@ -228,6 +229,12 @@ export function MobileDock() {
         setOpen(false);
         void navigate({ to: "/markdown", search: {} });
       },
+    });
+    actions.push({
+      key: "timeline",
+      label: "Agent timeline",
+      icon: <RailIcon Icon={IconTimeline} />,
+      run: () => { setOpen(false); void navigate({ to: "/timeline" }); },
     });
     actions.push({
       key: "tasks",

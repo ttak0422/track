@@ -357,3 +357,42 @@ produce the standard JSON error with exit code 1. There is no fallback to anothe
 version, the live URL, or a search snippet. ID references are vault-local: use the
 same vault (or `--vault NAME`) for save/list/cite. Renaming is supported; moving the
 note into a different vault does not migrate its source versions.
+
+## Reading a task timeline
+
+`track timeline --id N` (or `--title S` / `--path P`) returns the current per-note task tree,
+explicit checkbox counts, and persisted state transitions in one JSON snapshot. The
+`schema_version: 1` contract is described in [task-timeline.md](task-timeline.md). This is a
+read model, not an agent-run recorder: do not treat task line numbers as stable identities or
+use recorded history as a cursor. Mutations still use the ordinary task commands.
+
+## Reporting explicit agent work
+
+Use `timeline-project` for stable-ID agent work, separately from note checkbox lines.
+The [Agent timelines help](../help/note/1794726000000.md) describes every record kind.
+A worker must explicitly select a vault and project, use a unique owner label, read the
+current revision, and submit only information intended for that local journal. Track
+never discovers agents or collects their conversations automatically.
+
+An integration should retain each exact outgoing request until its outcome is known.
+Retry an uncertain result with the same request and event identity. A revision conflict
+is not permission to overwrite newer task fields: reconcile with the current record or
+stop visibly. Do not generate a fresh identity solely because a subprocess timed out.
+
+Poll control requests for the worker's own task and owner. Acknowledge a request only
+when accepted; publish completion only after entering the requested safe state. Keep
+reading controls while paused, so a resume can be received. Task status and control
+receipts are separate records, not an atomic process-control transaction. A crash may
+leave an acknowledged request without completion; a replacement process must reconcile
+its actual state rather than claiming that the earlier operation succeeded. Owner labels
+route records but do not authenticate writers.
+
+The opt-in [worker reference example](../../examples/timeline-worker/README.md) demonstrates
+this protocol through the CLI with bounded simulated work. It executes no model, shell
+workload or remote request. It is an integration example, not a background dispatcher.
+
+The [Codex JSONL adapter](../../examples/codex-timeline/README.md) is a concrete integration
+for an existing `codex exec --json` invocation. It accepts only explicit stdin and records
+allowlisted lifecycle/count metadata. It does not inspect private session directories or import
+agent/user messages. This adapter is observational: the one-way CLI event stream provides no
+safe acknowledgement mechanism for pause/resume. Do not advertise those controls for Codex.

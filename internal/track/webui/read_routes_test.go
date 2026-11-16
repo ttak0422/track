@@ -181,7 +181,7 @@ func TestInternalReadDeniedBeforeDispatch(t *testing.T) {
 	}, store.Open, nil, p)
 	defer b.Close()
 	routes := []struct{ method, path string }{
-		{"POST", "/api/note"}, {"PUT", "/api/note"}, {"DELETE", "/api/note"}, {"POST", "/api/journal"}, {"POST", "/api/note/meta"}, {"POST", "/api/note/read"}, {"POST", "/api/task"}, {"PUT", "/api/calendar-event"}, {"POST", "/api/asset"}, {"GET", "/api/ogp?url=https://example.invalid"}, {"GET", "/api/requests"}, {"GET", "/api/requests/id"}, {"POST", "/api/requests/id/run"}, {"GET", "/api/agents"}, {"POST", "/api/metrics-dashboard"}, {"GET", "/apps/app/"}, {"GET", "/__track/apps/launch/app/"}, {"GET", "/api/notes/"}, {"GET", "/api/%6eotes"}, {"GET", "/api/unknown"}, {"HEAD", "/api/note"}, {"DELETE", "/api/storage"}, {"POST", "/api/storage/"},
+		{"POST", "/api/note"}, {"PUT", "/api/note"}, {"DELETE", "/api/note"}, {"POST", "/api/journal"}, {"POST", "/api/note/meta"}, {"POST", "/api/note/read"}, {"POST", "/api/task"}, {"PUT", "/api/calendar-event"}, {"POST", "/api/asset"}, {"GET", "/api/ogp?url=https://example.invalid"}, {"GET", "/api/timeline/projects"}, {"POST", "/api/timeline/project"}, {"GET", "/api/timeline"}, {"GET", "/api/requests"}, {"GET", "/api/requests/id"}, {"POST", "/api/requests/id/run"}, {"GET", "/api/agents"}, {"POST", "/api/metrics-dashboard"}, {"GET", "/apps/app/"}, {"GET", "/__track/apps/launch/app/"}, {"GET", "/api/notes/"}, {"GET", "/api/%6eotes"}, {"GET", "/api/unknown"}, {"HEAD", "/api/note"}, {"DELETE", "/api/storage"}, {"POST", "/api/storage/"},
 	}
 	for _, tc := range routes {
 		for _, h := range []http.Handler{s.Handler(), b} {
