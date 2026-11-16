@@ -18,3 +18,8 @@ func cacheSingleLink(info fs.FileInfo) bool {
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	return ok && stat.Nlink == 1
 }
+
+func cacheUnlinked(info fs.FileInfo) bool {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	return ok && stat.Nlink == 0
+}

@@ -9,3 +9,4 @@ const cacheIdentitySupported = false
 
 func cacheOwned(fs.FileInfo) bool      { return false }
 func cacheSingleLink(fs.FileInfo) bool { return false }
+func cacheUnlinked(fs.FileInfo) bool   { return false }

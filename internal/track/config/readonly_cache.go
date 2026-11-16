@@ -244,6 +244,23 @@ func validateCacheEntry(namespace, path string, entry fs.DirEntry, walkErr error
 	if !cacheOwned(info) || info.Mode().Perm()&0022 != 0 || (!info.IsDir() && !info.Mode().IsRegular()) {
 		return fmt.Errorf("read-only cache entry must be owned, not shared-writable and a regular file/directory: %q", path)
 	}
+	// An unlink racing with a successful stat can report an already unlinked
+	// inode. Re-observe this descendant once; do not accept a zero-link inode
+	// itself, retry hardlinks, or skip validation of a replacement entry.
+	if info.Mode().IsRegular() && cacheUnlinked(info) && path != namespace && containsPath(namespace, path) {
+		info, err = os.Lstat(path)
+		if missingChild(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if !cacheOwned(info) || info.Mode().Perm()&0022 != 0 || !info.Mode().IsRegular() {
+			// WalkDir would not descend into a replacement directory after
+			// enumerating this entry as a file. Fail rather than skip its tree.
+			return fmt.Errorf("read-only cache replacement must be owned, not shared-writable and a regular file: %q", path)
+		}
+	}
 	if !info.IsDir() && !cacheSingleLink(info) {
 		return fmt.Errorf("read-only cache file must have exactly one link: %q", path)
 	}
