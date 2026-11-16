@@ -4207,7 +4207,7 @@ impl Render for Workspace {
         self.sync_math();
         self.reset_stale_handoff();
         if self.handoff_active() {
-            return self.render_handoff(dark, (p.paper, p.ink, p.line), cx);
+            return self.render_handoff(dark, (p.paper, p.ink, p.line), window, cx);
         }
         self.invalidate_recent_panel(window);
         self.reset_stale_includes();

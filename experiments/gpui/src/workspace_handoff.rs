@@ -11,6 +11,7 @@ use std::sync::{
 #[derive(Default)]
 pub(crate) struct HandoffUi {
     open: bool,
+    find: SnapshotFindUi,
     launch: Option<u64>,
     serial: u64,
     // Kept even when the surface closes: a canceled consume may still be running.
@@ -38,6 +39,8 @@ impl HandoffUi {
         self.image_cancel.clone()
     }
     fn close(&mut self) {
+        self.find.model.close();
+        self.retire_find();
         self.image_cancel.store(true, Ordering::Release);
         self.images = Default::default();
         self.open = false;
@@ -60,6 +63,7 @@ impl HandoffUi {
     }
 
     fn begin_consume(&mut self) -> u64 {
+        self.retire_find();
         self.renew_image_job();
         self.serial = self.serial.wrapping_add(1);
         self.selection_serial = self.selection_serial.wrapping_add(1);
@@ -268,6 +272,7 @@ impl Workspace {
         let Some(launch) = state.launch else { return };
         state.history_target = history_target;
         state.selecting = true;
+        state.retire_find();
         state.selection_serial = state.selection_serial.wrapping_add(1);
         let selection = state.selection_serial;
         state.message = "Preparing selected document…".into();
@@ -410,6 +415,18 @@ impl Workspace {
         cx.notify();
     }
     fn close_handoff(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.shell.handoff.open
+            || !window.is_window_active()
+            || self
+                .shell
+                .handoff
+                .find
+                .input
+                .as_ref()
+                .is_some_and(|input| input.read(cx).is_composing())
+        {
+            return;
+        }
         self.shell.handoff.close();
         if let Some(focus) = &self.shell.reader_focus {
             window.focus(focus);
@@ -451,11 +468,14 @@ impl Workspace {
         &mut self,
         dark: bool,
         colors: (u32, u32, u32),
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
+        self.sync_handoff_find(dark, window, cx);
         let (paper, ink, line) = colors;
         let state = &self.shell.handoff;
         let focus = state.focus.as_ref().unwrap().clone();
+        let find_owner = state.find_identity();
         let mut header = div()
             .flex()
             .flex_wrap()
@@ -463,9 +483,19 @@ impl Workspace {
             .child("External snapshot · read-only")
             .child(
                 div()
+                    .id("snapshot-find-open")
+                    .cursor_pointer()
+                    .child("Find")
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.open_handoff_find(&find_owner, window, cx);
+                        cx.stop_propagation();
+                    })),
+            )
+            .child(
+                div()
                     .id("close-handoff")
                     .cursor_pointer()
-                    .child("Close (Esc)")
+                    .child("Close viewer")
                     .on_click(cx.listener(|this, _, window, cx| this.close_handoff(window, cx))),
             );
         if state.capability.is_some() {
@@ -619,16 +649,317 @@ impl Workspace {
                 dark,
                 &callbacks,
                 &state.images.images,
+                state
+                    .find
+                    .anchors
+                    .as_ref()
+                    .filter(|_| state.find.model.open && state.find_identity().is_some())
+                    .map(|anchors| markdown::FindPresentation {
+                        matches: &state.find.model.matches,
+                        active: state.find.model.active,
+                        anchors,
+                    }),
             ));
         let message = state.message.clone();
+        let find_open = state.find.model.open;
         div().id("external-markdown-viewer").size_full().flex().flex_col().p_4().gap_3().bg(rgb(paper)).text_color(rgb(ink)).track_focus(&focus)
-            .on_key_down(cx.listener(|this,event:&gpui::KeyDownEvent,window,cx| { if event.keystroke.key == "escape" { this.close_handoff(window,cx); } cx.stop_propagation(); }))
+            .on_action(cx.listener(|this,_:&search_input::FindNext,window,cx| {if this.handoff_find_focused(window,cx) {this.step_handoff_find(true,window,cx);}cx.stop_propagation();}))
+            .on_action(cx.listener(|this,_:&search_input::FindPrevious,window,cx| {if this.handoff_find_focused(window,cx) {this.step_handoff_find(false,window,cx);}cx.stop_propagation();}))
+            .on_action(cx.listener(|this,_:&search_input::CloseFind,window,cx| {if this.handoff_find_focused(window,cx) {this.close_handoff_find(window,cx);}cx.stop_propagation();}))
+            .on_key_down(cx.listener(|this,event:&gpui::KeyDownEvent,window,cx| {
+                if event.keystroke.key == "escape" && !this.shell.handoff.find.input.as_ref().is_some_and(|i| i.read(cx).is_composing()) {
+                    if this.shell.handoff.find.model.open {this.close_handoff_find(window,cx);} else {this.close_handoff(window,cx);}
+                }
+                cx.stop_propagation();
+            }))
             .child(header).child(self.handoff_entry(cx))
+            .when(find_open, |root| root.child(self.handoff_find_bar(cx)))
             .child("Open consumes this one-use handoff. If opening fails, run track markdown again.")
-            .child("Memory-only snapshot. Local Markdown file/heading links and viewer Back/Forward use native heading anchors. Standalone snapshot PNG/JPEG images are bounded; original image text remains. Other images, external/wiki links, embeds, editing, Find and host navigation remain disabled. Generate a new handoff to refresh.")
+            .child("Memory-only snapshot. Local Markdown file/heading links and viewer Back/Forward use native heading anchors. Standalone snapshot PNG/JPEG images are bounded; original image text remains. Other images, external/wiki links, embeds, editing and host navigation remain disabled. Find searches only this displayed document. Generate a new handoff to refresh.")
             .child(message)
             .child(div().flex().flex_1().min_h_0().gap_3()
                 .child(div().id("handoff-files").w(px(260.)).overflow_y_scroll().border_r_1().border_color(rgb(line)).child(files)).child(body))
+    }
+}
+
+#[derive(Default)]
+struct SnapshotFindUi {
+    model: snapshot_find::Model,
+    input: Option<gpui::Entity<search_input::SearchInput>>,
+    anchors: Option<std::rc::Rc<markdown::FindAnchors>>,
+    pending: bool,
+    retries: u8,
+}
+impl HandoffUi {
+    fn find_context(&self) -> snapshot_find::Identity {
+        snapshot_find::Identity {
+            snapshot: self.serial,
+            selection: self.selection_serial,
+            file: self.selected.clone(),
+        }
+    }
+    fn find_identity(&self) -> Option<snapshot_find::Identity> {
+        (self.selection_available() && self.snapshot.is_some()).then(|| self.find_context())
+    }
+    fn retire_find(&mut self) {
+        self.find.model.bind(None, &[]);
+        self.find.anchors = None;
+        self.find.pending = false;
+    }
+}
+impl Workspace {
+    fn sync_handoff_find(&mut self, dark: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if self.shell.handoff.find.input.is_none() {
+            let input = cx.new(|cx| {
+                search_input::SearchInput::with_purpose(search_input::InputPurpose::ReaderFind, cx)
+            });
+            self.subscriptions.push(cx.subscribe(
+                &input,
+                |this, _, event: &search_input::SearchChanged, cx| {
+                    let state = &mut this.shell.handoff;
+                    state.find.model.query = event.0.clone();
+                    let identity = state.find_identity();
+                    if state.find.model.bind(identity.clone(), &state.blocks) {
+                        state.find.anchors = identity.map(|_| {
+                            std::rc::Rc::new(markdown::FindAnchors::new(
+                                &state.blocks,
+                                &state.scroll,
+                            ))
+                        });
+                    }
+                    if state.open && state.find.model.open {
+                        state.find.model.evaluate(&state.blocks);
+                        state.find.pending = state.find.model.active.is_some();
+                        state.find.retries = 0;
+                    }
+                    cx.notify();
+                },
+            ));
+            self.shell.handoff.find.input = Some(input);
+        }
+        let state = &mut self.shell.handoff;
+        state
+            .find
+            .input
+            .as_ref()
+            .unwrap()
+            .update(cx, |input, _| input.set_dark(dark));
+        let identity = state.find_identity();
+        let changed = state.find.model.bind(identity.clone(), &state.blocks);
+        if changed || state.find.anchors.is_none() {
+            state.find.anchors = identity.as_ref().map(|_| {
+                std::rc::Rc::new(markdown::FindAnchors::new(&state.blocks, &state.scroll))
+            });
+        }
+        if changed {
+            state.find.pending = false; // Navigation/heading intent wins over passive re-evaluation.
+            state.find.retries = 0;
+        }
+        if !state.find.pending {
+            return;
+        }
+        state.find.pending = false;
+        let Some(ticket) = state.find.model.ticket(identity.as_ref()) else {
+            return;
+        };
+        let Some(anchors) = state.find.anchors.clone() else {
+            return;
+        };
+        let weak = cx.entity().downgrade();
+        window.on_next_frame(move |window, cx| {
+            let _ = weak.update(cx, |this, cx| {
+                let state = &mut this.shell.handoff;
+                if !state.find.model.reveal_current(
+                    &ticket,
+                    state.find_identity().as_ref(),
+                    state
+                        .find
+                        .anchors
+                        .as_ref()
+                        .is_some_and(|current| std::rc::Rc::ptr_eq(current, &anchors)),
+                    window.is_window_active(),
+                    state
+                        .find
+                        .input
+                        .as_ref()
+                        .is_some_and(|i| i.read(cx).is_composing()),
+                ) {
+                    return;
+                }
+                if !anchors.scroll_to_hit(&ticket.hit, window.viewport_size())
+                    && state.find.retries == 0
+                {
+                    state.find.retries = 1;
+                    state.find.pending = true;
+                }
+                cx.notify();
+            });
+        });
+    }
+    fn open_handoff_find(
+        &mut self,
+        expected: &Option<snapshot_find::Identity>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use gpui::Focusable;
+        let state = &mut self.shell.handoff;
+        if !window.is_window_active() || expected.is_none() || state.find_identity() != *expected {
+            return;
+        }
+        let Some(input) = state.find.input.clone() else {
+            return;
+        };
+        if input.read(cx).is_composing() {
+            return;
+        }
+        state.find.model.open = true;
+        state.find.model.evaluate(&state.blocks);
+        state.find.pending = state.find.model.active.is_some();
+        state.find.retries = 0;
+        input.update(cx, |input, cx| input.select_all(cx));
+        window.focus(&input.focus_handle(cx));
+        cx.notify();
+    }
+    fn step_handoff_find(&mut self, forward: bool, window: &Window, cx: &mut Context<Self>) {
+        let state = &mut self.shell.handoff;
+        if !window.is_window_active()
+            || !state.find.model.open
+            || !state.find.model.current(state.find_identity().as_ref())
+            || state
+                .find
+                .input
+                .as_ref()
+                .is_some_and(|i| i.read(cx).is_composing())
+        {
+            return;
+        }
+        state.find.model.step(forward);
+        state.find.pending = state.find.model.active.is_some();
+        state.find.retries = 0;
+        cx.notify();
+    }
+    fn handoff_find_focused(&self, window: &Window, cx: &App) -> bool {
+        use gpui::Focusable;
+        let state = &self.shell.handoff;
+        state.open
+            && state.find.model.open
+            && state
+                .find
+                .input
+                .as_ref()
+                .is_some_and(|input| input.focus_handle(cx).is_focused(window))
+    }
+    fn click_handoff_find(
+        &mut self,
+        expected: &snapshot_find::Identity,
+        revision: u64,
+        forward: bool,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let state = &self.shell.handoff;
+        if !state
+            .find
+            .model
+            .action_current(expected, &state.find_context(), revision)
+        {
+            return;
+        }
+        self.step_handoff_find(forward, window, cx);
+    }
+    fn close_handoff_find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let state = &mut self.shell.handoff;
+        if !state.open
+            || !state.find.model.open
+            || !window.is_window_active()
+            || state
+                .find
+                .input
+                .as_ref()
+                .is_some_and(|i| i.read(cx).is_composing())
+        {
+            return;
+        }
+        state.find.model.close();
+        state.find.pending = false;
+        state.find.anchors = None;
+        if let Some(focus) = &state.focus {
+            window.focus(focus);
+        }
+        cx.notify();
+    }
+    fn handoff_find_bar(&self, cx: &mut Context<Self>) -> Div {
+        let find = &self.shell.handoff.find;
+        let previous_owner = self.shell.handoff.find_context();
+        let next_owner = previous_owner.clone();
+        let close_owner = previous_owner.clone();
+        let revision = find.model.revision();
+        let status = if let Some(error) = &find.model.matches.error {
+            error.clone()
+        } else if find.model.query.is_empty() {
+            "Current document only".into()
+        } else if self.shell.handoff.find_identity().is_none() {
+            "Find paused while the document changes".into()
+        } else if find.model.matches.hits.is_empty() {
+            "No matches".into()
+        } else {
+            format!(
+                "{} of {}{}",
+                find.model.active.map_or(0, |i| i + 1),
+                find.model.matches.hits.len(),
+                if find.model.matches.truncated {
+                    "+ (limited)"
+                } else {
+                    ""
+                }
+            )
+        };
+        div()
+            .flex()
+            .flex_wrap()
+            .gap_2()
+            .items_center()
+            .child(div().w(px(250.)).max_w_full().children(find.input.clone()))
+            .child(status)
+            .child(
+                div()
+                    .id("snapshot-find-prev")
+                    .cursor_pointer()
+                    .child("Previous")
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.click_handoff_find(&previous_owner, revision, false, window, cx);
+                        cx.stop_propagation();
+                    })),
+            )
+            .child(
+                div()
+                    .id("snapshot-find-next")
+                    .cursor_pointer()
+                    .child("Next")
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.click_handoff_find(&next_owner, revision, true, window, cx);
+                        cx.stop_propagation();
+                    })),
+            )
+            .child(
+                div()
+                    .id("snapshot-find-close")
+                    .cursor_pointer()
+                    .child("Close Find")
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        let state = &this.shell.handoff;
+                        if !state.find.model.action_current(
+                            &close_owner,
+                            &state.find_context(),
+                            revision,
+                        ) {
+                            return;
+                        }
+                        this.close_handoff_find(window, cx);
+                        cx.stop_propagation();
+                    })),
+            )
     }
 }
 

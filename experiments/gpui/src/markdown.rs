@@ -3327,13 +3327,14 @@ pub(crate) fn render_snapshot_elements(
     dark: bool,
     callbacks: &LinkCallbacks,
     images: &std::collections::BTreeMap<usize, crate::raster::Decoded>,
+    find: Option<FindPresentation<'_>>,
 ) -> Vec<AnyElement> {
     render_elements(
         blocks,
         dark,
         None,
         Some(callbacks),
-        None,
+        find,
         None,
         Some(images),
         None,

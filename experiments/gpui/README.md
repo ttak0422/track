@@ -898,7 +898,7 @@ does not consume it. A failed replacement keeps the previously opened snapshot.
 The external viewer is a separate, ephemeral read-only snapshot. Choose among its
 Markdown files using paged filenames; selection makes no filesystem or network
 request. Close returns to the unchanged vault reader. Bounded same-snapshot Markdown file links are supported; external/wiki links, unsupported images, nested
-includes, tasks, Find, reading checkpoints and editing are unavailable here.
+includes, tasks, reading checkpoints and editing are unavailable here.
 The snapshot is not imported, saved, automatically refreshed or restored after
 restart. Generate a fresh handoff to reflect source-folder changes.
 
@@ -1217,3 +1217,11 @@ A successfully loaded internal reader-link preview offers **Pin**. Pin retains t
 Graph and reader pins share a four-card ceiling. New pins at capacity report the limit and never evict another card. Explicit duplicate pin intents retain the existing vault-qualified identity and raise it; different vaults with the same numeric ID remain distinct. Hovering an already-pinned target retains the existing graph behavior: no duplicate card or fetch is created. Use that card's selector/title control to bring it forward; merely hovering does not change its stacking order.
 
 Reader pins are frozen accepted snapshots: hover timers and late completions cannot replace their content. Launch/storage, working-scope revision, verified available registry and session permission changes retire their authority, with checks at presentation and action time. They are not live-synchronized or restored across restart. Cloud model tests cover lifecycle and ownership, not full GPUI compilation or native pointer/keyboard/IME behavior.
+
+### Find inside an external snapshot
+
+Choose **Find** in the external snapshot viewer to search only the current displayed document. Matching is literal, case-insensitive and whitespace-flexible, across inline decoration boundaries but never across independent paragraphs or table cells. Headings, code and table cell text are included. The file list, viewer chrome, image pixels/OCR and undisplayed source are not searched. Original image captions and any literal fallback text actually displayed remain searchable.
+
+**Next / Previous** wrap through matches; Enter / Shift-Enter work when the dedicated Find input has focus. Highlights use the same rendered block/cell text, and a guarded after-layout reveal brings the active match's first laid-out line into view. Close Find or Escape removes highlights; Escape closes Find before the viewer. Input composition blocks step/close, and viewer Find actions do not operate the host reader's query or history. Host Cmd-F/G support is unchanged; use the explicit viewer Find control.
+
+The query is retained across file changes, but matches and native geometry are recomputed for the newly accepted file. Passive re-evaluation does not override file/heading navigation's scroll intent. Pending file selection or snapshot replacement pauses Find and invalidates old reveal tickets; failed replacement can resume searching the retained document with fresh ownership. Queries above 4096 bytes are rejected for evaluation, and at most 10,000 matches are retained with an explicit limit indicator. Search does not add filesystem/network requests or vault writes. Full GPUI compilation and native Find/scroll/input/IME behavior remain unverified; isolated cloud tests cover the model and adapter boundaries only.
