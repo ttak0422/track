@@ -2,6 +2,8 @@
 mod reading_mode;
 #[path = "rendered_contents.rs"]
 mod rendered_contents;
+#[path = "rendered_external_links.rs"]
+mod rendered_external_links;
 #[path = "rendered_host_links.rs"]
 mod rendered_host_links;
 #[path = "rendered_selection.rs"]
@@ -77,6 +79,7 @@ pub(crate) struct IncludesState {
     selection: std::cell::RefCell<rendered_selection::Ui>,
     contents: rendered_contents::Ui,
     host_links: std::cell::RefCell<rendered_host_links::Cache>,
+    external_links: std::cell::RefCell<rendered_external_links::Cache>,
 }
 /// Preview controls must not use host-reader gates, which intentionally reject
 /// this surface. Capture only competing actions and composition here.
@@ -147,6 +150,7 @@ impl IncludesState {
             selection: Default::default(),
             contents: Default::default(),
             host_links: Default::default(),
+            external_links: Default::default(),
         }
     }
     fn query_page_action(
@@ -482,7 +486,7 @@ impl Workspace {
                 cx.stop_propagation();
             }))
             .child(div().flex().justify_between().child("Rendered content (read-only)").child(div().id("close-rendered-includes-preview").cursor_pointer().child("Close preview (Esc)").on_click(cx.listener(move |this, _, window, cx| this.close_rendered_user(&close_identity, serial, window, cx)))))
-            .child("Engine-resolved snapshots; completeness and currentness are not guaranteed. Partial inline preview: only isolated top-level includes are embedded. Inline link clicks, task changes and recursive includes are unavailable. Ordinary host prose offers at most 16 explicit Open host link controls/statuses from the first 256 parsed links and 8192 host blocks; only verified same-host Markdown #heading links can jump locally; other host fragments remain inert. These controls cover a bounded prefix only; return to Source to inspect remaining links. Find searches displayed ordinary host/include prose, not rich projections or their source disclosures. Host query rows provide explicit Open note controls; included query rows remain inert. Gallery covers support bounded local PNG/JPEG only. Single-paragraph display-text selection is available below. Tagged code and displayed source have explicit Copy controls (plain text, up to 256 KiB).")
+            .child("Engine-resolved snapshots; completeness and currentness are not guaranteed. Partial inline preview: only isolated top-level includes are embedded. Inline link clicks, task changes and recursive includes are unavailable. Ordinary host prose offers at most 16 explicit Open host link controls/statuses from the first 256 parsed links and 8192 host blocks; only verified same-host Markdown #heading links can jump locally; other host fragments remain inert. External HTTP(S) prose links have at most 16 explicit Open in browser controls across host and valid includes (256 links/8192 blocks scanned, URL maximum 4096 bytes); labels and normalized destinations are shown, with no hover fetch. These controls cover a bounded prefix only; return to Source to inspect remaining links. Find searches displayed ordinary host/include prose, not rich projections or their source disclosures. Host query rows provide explicit Open note controls; included query rows remain inert. Gallery covers support bounded local PNG/JPEG only. Single-paragraph display-text selection is available below. Tagged code and displayed source have explicit Copy controls (plain text, up to 256 KiB).")
             .child(reading_controls).child(refresh_status).child(refresh_controls)
             .child(find_controls).child(selection_controls).child(contents_controls)
             .child(div().id(gpui::SharedString::from(format!("rendered-includes-scroll-{serial}"))).track_scroll(&scroll).flex_1().min_h_0().overflow_y_scroll().child(body))
