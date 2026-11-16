@@ -1,5 +1,12 @@
 //! Pure memory-only paths and history. No filesystem/URL resolver is involved.
 pub(crate) fn resolve(current: &str, target: &str) -> Option<String> {
+    resolve_extension(current, target, &["md", "markdown"])
+}
+pub(crate) fn resolve_extension(
+    current: &str,
+    target: &str,
+    extensions: &[&str],
+) -> Option<String> {
     if target.is_empty() || target.len() > 4096 || target.trim() != target {
         return None;
     }
@@ -27,7 +34,10 @@ pub(crate) fn resolve(current: &str, target: &str) -> Option<String> {
         return None;
     }
     let ext = target.rsplit_once('.')?.1;
-    if !ext.eq_ignore_ascii_case("md") && !ext.eq_ignore_ascii_case("markdown") {
+    if !extensions
+        .iter()
+        .any(|allowed| ext.eq_ignore_ascii_case(allowed))
+    {
         return None;
     }
     let mut parts: Vec<&str> = current.split('/').collect();

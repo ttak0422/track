@@ -3665,20 +3665,25 @@ fn render_elements(
                                 .object_fit(gpui::ObjectFit::Contain),
                         ),
                 )
-                .child(
-                    div()
-                        .id(SharedString::from(format!("enlarge-image-{index}")))
-                        .text_size(px(12.))
-                        .child("Enlarge")
-                        .when_some(
-                            callbacks.and_then(|callbacks| callbacks.enlarge.clone()),
-                            |control, enlarge| {
-                                control.cursor_pointer().on_click(move |_, window, cx| {
-                                    enlarge(index, window, cx);
-                                    cx.stop_propagation();
-                                })
-                            },
-                        ),
+                .when(
+                    !callbacks.is_some_and(|callbacks| callbacks.snapshot_local),
+                    |row| {
+                        row.child(
+                            div()
+                                .id(SharedString::from(format!("enlarge-image-{index}")))
+                                .text_size(px(12.))
+                                .child("Enlarge")
+                                .when_some(
+                                    callbacks.and_then(|callbacks| callbacks.enlarge.clone()),
+                                    |control, enlarge| {
+                                        control.cursor_pointer().on_click(move |_, window, cx| {
+                                            enlarge(index, window, cx);
+                                            cx.stop_propagation();
+                                        })
+                                    },
+                                ),
+                        )
+                    },
                 )
             } else {
                 row
@@ -6970,5 +6975,17 @@ mod snapshot_link_domain_tests {
         ));
         // Domain admission is not destination authority: both render paths still
         // require callbacks.resolved, supplied only by the strict snapshot map.
+    }
+}
+
+#[cfg(test)]
+mod snapshot_image_occurrence_tests {
+    use super::*;
+    #[test]
+    fn snapshot_images_use_only_exact_standalone_parser_nodes() {
+        let source = "![standalone](../images/a.png)\n\nprefix ![inline](a.png)\n\n[![linked](a.png)](other.md)\n\n```md\n![code](a.png)\n```\n\n| Image |\n|---|\n| ![table](a.png) |\n";
+        let blocks = preview_blocks(source).unwrap();
+        let refs: Vec<_> = blocks.iter().filter_map(|b| b.image.as_deref()).collect();
+        assert_eq!(refs, vec!["../images/a.png"]);
     }
 }

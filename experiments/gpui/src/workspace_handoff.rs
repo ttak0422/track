@@ -2,6 +2,10 @@
 use super::*;
 use gpui::{Div, Stateful};
 use markdown_handoff::{Capability, Snapshot};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 
 #[derive(Default)]
 pub(crate) struct HandoffUi {
@@ -17,6 +21,8 @@ pub(crate) struct HandoffUi {
     history_target: Option<usize>,
     links: Vec<(markdown::Link, String)>,
     blocks: Vec<markdown::Block>,
+    images: snapshot_images::Prepared,
+    image_cancel: Arc<AtomicBool>,
     page: usize,
     selecting: bool,
     selection_serial: u64,
@@ -25,7 +31,14 @@ pub(crate) struct HandoffUi {
     scroll: gpui::ScrollHandle,
 }
 impl HandoffUi {
+    fn renew_image_job(&mut self) -> Arc<AtomicBool> {
+        self.image_cancel.store(true, Ordering::Release);
+        self.image_cancel = Arc::new(AtomicBool::new(false));
+        self.image_cancel.clone()
+    }
     fn close(&mut self) {
+        self.image_cancel.store(true, Ordering::Release);
+        self.images = Default::default();
         self.open = false;
         self.serial = self.serial.wrapping_add(1);
         self.capability = None;
@@ -46,6 +59,7 @@ impl HandoffUi {
     }
 
     fn begin_consume(&mut self) -> u64 {
+        self.renew_image_job();
         self.serial = self.serial.wrapping_add(1);
         self.selection_serial = self.selection_serial.wrapping_add(1);
         self.selecting = false;
@@ -75,6 +89,24 @@ impl HandoffUi {
             .find(|(candidate, _)| candidate == link)
             .map(|(_, path)| path.as_str())
     }
+    fn accept_images(
+        &mut self,
+        serial: u64,
+        selection: u64,
+        launch: u64,
+        path: &str,
+        images: snapshot_images::Prepared,
+    ) -> bool {
+        if !self.accepts(serial, launch)
+            || self.selection_serial != selection
+            || self.selected != path
+            || !self.selection_available()
+        {
+            return false;
+        }
+        self.images = images;
+        true
+    }
     fn complete_selection(
         &mut self,
         selection: u64,
@@ -97,6 +129,7 @@ impl HandoffUi {
                     .as_ref()
                     .map(|s| snapshot_links_for(s, &path, &blocks))
                     .unwrap_or_default();
+                self.images = Default::default();
                 self.blocks = blocks;
                 self.history
                     .accept(path.clone(), self.history_target.take());
@@ -129,6 +162,7 @@ impl HandoffUi {
                 self.history.reset(snapshot.active.clone());
                 self.history_target = None;
                 self.links = snapshot_links_for(&snapshot, &snapshot.active, &blocks);
+                self.images = Default::default();
                 self.blocks = blocks;
                 self.snapshot = Some(snapshot);
                 self.page = 0;
@@ -198,6 +232,8 @@ impl Workspace {
         };
         let path = file.path.clone();
         let source = file.text.clone();
+        let image_files = state.snapshot.as_ref().unwrap().images.clone();
+        let cancel = state.renew_image_job();
         let serial = state.serial;
         let Some(launch) = state.launch else { return };
         state.history_target = history_target;
@@ -205,9 +241,12 @@ impl Workspace {
         state.selection_serial = state.selection_serial.wrapping_add(1);
         let selection = state.selection_serial;
         state.message = "Preparing selected document…".into();
-        let job = cx
-            .background_executor()
-            .spawn(async move { markdown::preview_blocks(&source) });
+        let image_path = path.clone();
+        let job = cx.background_executor().spawn(async move {
+            let blocks = markdown::preview_blocks(&source)?;
+            let images = snapshot_images::prepare(&image_files, &image_path, &blocks, &cancel);
+            Ok::<_, String>((blocks, images))
+        });
         cx.spawn(async move |this, cx| {
             let result = job.await;
             let _ = this.update(cx, |this, cx| {
@@ -215,7 +254,15 @@ impl Workspace {
                     && this.live.as_ref().map(|s| s.client().launch_generation) == Some(launch);
                 let state = &mut this.shell.handoff;
                 if current {
-                    state.complete_selection(selection, serial, launch, path, result);
+                    let (result, images) = match result {
+                        Ok((blocks, images)) => (Ok(blocks), Some(images)),
+                        Err(error) => (Err(error), None),
+                    };
+                    if state.complete_selection(selection, serial, launch, path.clone(), result) {
+                        if let Some(images) = images {
+                            state.accept_images(serial, selection, launch, &path, images);
+                        }
+                    }
                 }
                 cx.notify();
             });
@@ -288,6 +335,7 @@ impl Workspace {
         };
         let serial = self.shell.handoff.begin_consume(); // acquire and retire selection before spawning
         self.shell.handoff.message = "Opening once… Closing cannot undo consumption.".into();
+        let cancel = self.shell.handoff.image_cancel.clone();
         let job = cx.background_executor().spawn(async move {
             let snapshot = client
                 .consume_markdown(capability)
@@ -297,7 +345,9 @@ impl Workspace {
                 .ok_or("Invalid active document.")?;
             let blocks = markdown::preview_blocks(&file.text)
                 .map_err(|_| "Document is too complex to render safely.".to_owned())?;
-            Ok::<_, String>((snapshot, blocks))
+            let images =
+                snapshot_images::prepare(&snapshot.images, &snapshot.active, &blocks, &cancel);
+            Ok::<_, String>((snapshot, blocks, images))
         });
         cx.spawn(async move |this, cx| {
             let result = job.await;
@@ -312,7 +362,17 @@ impl Workspace {
                     cx.notify();
                     return;
                 }
-                this.shell.handoff.complete(serial, launch, result);
+                let (result, images) = match result {
+                    Ok((snapshot, blocks, images)) => (Ok((snapshot, blocks)), Some(images)),
+                    Err(error) => (Err(error), None),
+                };
+                if this.shell.handoff.complete(serial, launch, result) {
+                    if let Some(images) = images {
+                        let state = &mut this.shell.handoff;
+                        let path = state.selected.clone();
+                        state.accept_images(serial, state.selection_serial, launch, &path, images);
+                    }
+                }
                 cx.notify();
             });
         })
@@ -523,18 +583,22 @@ impl Workspace {
             .overflow_y_scroll()
             .p_4()
             .child(state.selected.clone())
-            .child(markdown::render_with_links(
+            .child(state.images.status.clone())
+            .child(markdown::render_with_links_and_find(
                 &state.blocks,
                 dark,
                 None,
                 &callbacks,
+                None,
+                None,
+                Some(&state.images.images),
             ));
         let message = state.message.clone();
         div().id("external-markdown-viewer").size_full().flex().flex_col().p_4().gap_3().bg(rgb(paper)).text_color(rgb(ink)).track_focus(&focus)
             .on_key_down(cx.listener(|this,event:&gpui::KeyDownEvent,window,cx| { if event.keystroke.key == "escape" { this.close_handoff(window,cx); } cx.stop_propagation(); }))
             .child(header).child(self.handoff_entry(cx))
             .child("Open consumes this one-use handoff. If opening fails, run track markdown again.")
-            .child("Memory-only snapshot. Existing local Markdown file links and viewer Back/Forward only (no fragments). Images, external/wiki links, embeds, editing, Find and host navigation remain disabled. Generate a new handoff to refresh.")
+            .child("Memory-only snapshot. Existing local Markdown file links and viewer Back/Forward only (no fragments). Standalone snapshot PNG/JPEG images are bounded; original image text remains. Other images, external/wiki links, embeds, editing, Find and host navigation remain disabled. Generate a new handoff to refresh.")
             .child(message)
             .child(div().flex().flex_1().min_h_0().gap_3()
                 .child(div().id("handoff-files").w(px(260.)).overflow_y_scroll().border_r_1().border_color(rgb(line)).child(files)).child(body))
@@ -562,8 +626,48 @@ mod tests {
         assert!(state.snapshot.is_none());
         assert!(state.blocks.is_empty());
     }
+    #[test]
+    fn images_publish_only_for_current_selection_and_cancel_releases_on_close() {
+        let mut state = HandoffUi {
+            open: true,
+            launch: Some(1),
+            serial: 2,
+            selection_serial: 3,
+            selected: "a.md".into(),
+            ..Default::default()
+        };
+        assert!(state.accept_images(
+            2,
+            3,
+            1,
+            "a.md",
+            snapshot_images::Prepared {
+                status: "ready".into(),
+                ..Default::default()
+            }
+        ));
+        for (serial, revision, launch, path) in [
+            (1, 3, 1, "a.md"),
+            (2, 2, 1, "a.md"),
+            (2, 3, 2, "a.md"),
+            (2, 3, 1, "b.md"),
+        ] {
+            assert!(!state.accept_images(serial, revision, launch, path, Default::default()));
+            assert_eq!(state.images.status, "ready");
+        }
+        let old = state.renew_image_job();
+        state.begin_consume();
+        assert!(old.load(Ordering::Acquire));
+        assert_eq!(state.images.status, "ready"); // retained until replacement succeeds
+        let cancel = state.image_cancel.clone();
+        state.close();
+        assert!(cancel.load(Ordering::Acquire));
+        assert!(state.images.status.is_empty());
+        assert!(!state.accept_images(2, 3, 1, "a.md", Default::default()));
+    }
     fn snapshot(path: &str) -> Snapshot {
         Snapshot {
+            images: Default::default(),
             active: path.into(),
             files: vec![markdown_handoff::MarkdownFile {
                 path: path.into(),

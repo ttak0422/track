@@ -3,7 +3,11 @@ use serde::{
     Deserialize, Deserializer,
     de::{self, SeqAccess, Visitor},
 };
-use std::{collections::HashSet, fmt};
+use std::{
+    collections::{BTreeMap, HashSet},
+    fmt,
+    sync::Arc,
+};
 pub const WIRE_LIMIT: usize = 24 * 1024 * 1024;
 const TOTAL_LIMIT: usize = 16 * 1024 * 1024;
 const MARKDOWN_LIMIT: usize = 2 * 1024 * 1024;
@@ -70,6 +74,7 @@ pub struct MarkdownFile {
 pub struct Snapshot {
     pub active: String,
     pub files: Vec<MarkdownFile>,
+    pub images: Arc<BTreeMap<String, Arc<[u8]>>>,
 }
 impl Snapshot {
     pub fn selected(&self, path: &str) -> Option<&MarkdownFile> {
@@ -102,6 +107,7 @@ impl Snapshot {
         let mut seen = HashSet::new();
         let mut total = 0usize;
         let mut files = Vec::new();
+        let mut images = BTreeMap::new();
         for file in wire.files {
             if !valid_path(&file.path) || !seen.insert(file.path.clone()) {
                 return Err("Invalid or duplicate snapshot path");
@@ -119,13 +125,16 @@ impl Snapshot {
             } else {
                 return Err("Unsupported snapshot file type");
             };
-            let data = decode_base64(&file.data, limit, TOTAL_LIMIT - total, markdown)?;
+            let raster = matches!(ext.as_str(), "png" | "jpg" | "jpeg");
+            let data = decode_base64(&file.data, limit, TOTAL_LIMIT - total, markdown || raster)?;
             total += data.1;
             if markdown {
                 files.push(MarkdownFile {
                     path: file.path,
                     text: String::from_utf8(data.0).map_err(|_| "Markdown must be UTF-8")?,
                 });
+            } else if raster {
+                images.insert(file.path, Arc::from(data.0));
             }
         }
         if !files.iter().any(|f| f.path == wire.active) {
@@ -134,6 +143,7 @@ impl Snapshot {
         Ok(Self {
             active: wire.active,
             files,
+            images: Arc::new(images),
         })
     }
 }
@@ -185,7 +195,7 @@ fn bounded_files<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<WireFile>, D::Er
     d.deserialize_seq(Files)
 }
 // Canonical standard base64, with decoded size checked before allocation. Images
-// are validated without allocating or decoding their content into image objects.
+// retain PNG/JPEG encoded bytes, but no image objects are created here.
 fn decode_base64(
     s: &str,
     limit: usize,
@@ -287,6 +297,7 @@ mod tests {
         let snapshot = Snapshot::decode(&bytes).unwrap();
         assert_eq!(snapshot.markdown("日本語.md"), Some("# Example\n"));
         assert!(snapshot.markdown("a.PNG").is_none());
+        assert_eq!(snapshot.images["a.PNG"].as_ref(), &[0]);
         assert!(snapshot.markdown("/tmp/a.md").is_none());
         assert_eq!(snapshot.page_count(), 1);
     }

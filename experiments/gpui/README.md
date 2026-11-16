@@ -897,7 +897,7 @@ does not consume it. A failed replacement keeps the previously opened snapshot.
 
 The external viewer is a separate, ephemeral read-only snapshot. Choose among its
 Markdown files using paged filenames; selection makes no filesystem or network
-request. Close returns to the unchanged vault reader. Bounded same-snapshot Markdown file links are supported; external/wiki links, images, nested
+request. Close returns to the unchanged vault reader. Bounded same-snapshot Markdown file links are supported; external/wiki links, unsupported images, nested
 includes, tasks, Find, reading checkpoints and editing are unavailable here.
 The snapshot is not imported, saved, automatically refreshed or restored after
 restart. Generate a fresh handoff to reflect source-folder changes.
@@ -1193,3 +1193,11 @@ An explicit Home disclosure reads `/api/notes?sort=created&limit=100` for the se
 ### External snapshot local Markdown navigation
 
 The consumed snapshot viewer can follow relative Markdown file links to exact existing `.md`/`.markdown` snapshot entries, plus viewer-local Back/Forward (100 successful selections). The host vault/history is untouched. Strict single percent-decoding and root-bounded path normalization reject absolute/scheme/backslash/control/query/fragment targets and malformed UTF-8; missing files are inert, never resolved through the filesystem, network, vault or OS. Link admission is computed once on accepted parse against at most 5000 snapshot paths, considering only the first 256 parsed link occurrences. Cached entries grant no independent authority: activation rechecks consume serial, selected-file revision, current file and exact parsed link; close/replacement invalidates them. Snapshot limits and one-consume/one-selection guards remain. Cloud tests do not establish full GPUI compilation or native interaction behavior.
+
+### External snapshot PNG/JPEG images
+
+Opening a consumed snapshot or selecting one of its Markdown files prepares standalone PNG/JPEG image references from that document's directory. For example, `![Diagram](../images/diagram.png)` can display only the exact image entry already contained in the accepted snapshot. No file, vault, HTTP, OS or external URL fallback is used. The original image text/alt stays visible, including when the image is missing, corrupt, unsupported or over a limit. Images fit the reader width without distortion; they do not offer Enlarge, animation, inline/table placement or linked-image interaction. SVG, HTML, data/file URLs, query strings, fragments and root-escaping paths are unsupported.
+
+Only the first 16 standalone occurrences and at most 8 unique paths are considered per selected document. Duplicate paths share the same decoded resource. The existing 16 MiB total decoded snapshot-file payload limit remains; PNG/JPEG encoded bytes are now retained in memory. Rendering additionally limits each image to 4 MiB encoded bytes, 2048 pixels per edge and 4 million pixels, with a 16 MiB unique retained-pixel budget per prepared document. Previous displayed resources can coexist with a replacement job; decoder temporaries and GPU resources are not a hard process-memory bound.
+
+A single process-wide image worker permit remains held until decoding ends. Decode happens off the UI thread; cancellation is checked between images, not a hard interruption of one decode. Busy preparation preserves the text and reports images unavailable; select the file again to retry. Completion is accepted only for the current snapshot, selected-file revision and viewer lifetime. Close releases displayed image resources and cancels pending presentation. No new request, dependency or mutation API is added. Cloud source/decoder tests do not establish full GPUI compilation or native layout behavior.
