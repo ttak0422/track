@@ -2056,46 +2056,86 @@ impl ReadClient {
         Ok(result)
     }
 
-    pub fn full_graph(&self, vault: &str) -> Result<(crate::graph::Graph, Fields), Error> {
-        let value: Value = self.get("/api/graph", &vault_query(vault))?;
-        if value
-            .get("vault")
-            .and_then(Value::as_str)
-            .is_some_and(|v| v != vault)
+    // The launch view uses an empty wire label, even when requested by its
+    // registered name. Only a separately verified launch identity permits that
+    // alias; a foreign graph must never inherit the active namespace.
+    fn graph_scope_inputs(vault: &str, launch: &str) -> Result<(), Error> {
+        if [vault, launch]
+            .iter()
+            .any(|name| name.len() > 1024 || name.chars().any(char::is_control))
         {
-            return Err(Error::Shape("graph vault identity mismatch".into()));
+            return Err(Error::Config("Invalid graph vault scope".into()));
+        }
+        Ok(())
+    }
+    fn scoped_graph_response(
+        mut value: Value,
+        vault: &str,
+        launch: &str,
+    ) -> Result<(crate::graph::Graph, Fields), Error> {
+        let canonical = if vault.is_empty() { launch } else { vault };
+        let normalize = |object: &mut serde_json::Map<String, Value>| -> Result<(), Error> {
+            match object.get("vault") {
+                // Missing metadata is the legacy single-scoped response shape.
+                None => {}
+                Some(Value::String(wire)) if calendar_range_vault_matches(vault, wire, launch) => {}
+                _ => return Err(Error::Shape("graph vault identity mismatch".into())),
+            }
+            object.insert("vault".into(), Value::String(canonical.into()));
+            Ok(())
+        };
+        normalize(
+            value
+                .as_object_mut()
+                .ok_or_else(|| Error::Shape("Invalid graph response".into()))?,
+        )?;
+        if let Some(nodes) = value
+            .pointer_mut("/graph/nodes")
+            .and_then(Value::as_array_mut)
+        {
+            for node in nodes {
+                normalize(
+                    node.as_object_mut()
+                        .ok_or_else(|| Error::Shape("Invalid graph node".into()))?,
+                )?;
+            }
         }
         let response: crate::graph::GraphResponse =
             serde_json::from_value(value.clone()).map_err(|e| Error::Shape(e.to_string()))?;
-        if response.graph.center_id != 0 {
-            return Err(Error::Shape("full graph center identity mismatch".into()));
-        }
         let mut fields: Fields =
             serde_json::from_value(value).map_err(|e| Error::Shape(e.to_string()))?;
         fields.remove("graph");
         Ok((response.graph, fields))
     }
 
-    pub fn local_graph(&self, key: &NoteKey) -> Result<(crate::graph::Graph, Fields), Error> {
+    pub fn full_graph(
+        &self,
+        vault: &str,
+        launch: &str,
+    ) -> Result<(crate::graph::Graph, Fields), Error> {
+        Self::graph_scope_inputs(vault, launch)?;
+        let value: Value = self.get("/api/graph", &vault_query(vault))?;
+        let (graph, fields) = Self::scoped_graph_response(value, vault, launch)?;
+        if graph.center_id != 0 {
+            return Err(Error::Shape("full graph center identity mismatch".into()));
+        }
+        Ok((graph, fields))
+    }
+
+    pub fn local_graph(
+        &self,
+        key: &NoteKey,
+        launch: &str,
+    ) -> Result<(crate::graph::Graph, Fields), Error> {
+        Self::graph_scope_inputs(&key.vault, launch)?;
         let mut args = vault_query(&key.vault);
         args.push(("id", key.note_id.to_string()));
         let value: Value = self.get("/api/graph/local", &args)?;
-        if value
-            .get("vault")
-            .and_then(Value::as_str)
-            .is_some_and(|vault| vault != key.vault)
-        {
-            return Err(Error::Shape("graph vault identity mismatch".into()));
-        }
-        let response: crate::graph::GraphResponse =
-            serde_json::from_value(value.clone()).map_err(|e| Error::Shape(e.to_string()))?;
-        if response.graph.center_id != key.note_id {
+        let (graph, fields) = Self::scoped_graph_response(value, &key.vault, launch)?;
+        if graph.center_id != key.note_id {
             return Err(Error::Shape("graph center identity mismatch".into()));
         }
-        let mut diagnostics: Fields =
-            serde_json::from_value(value).map_err(|e| Error::Shape(e.to_string()))?;
-        diagnostics.remove("graph");
-        Ok((response.graph, diagnostics))
+        Ok((graph, fields))
     }
 
     /// Refresh-only strict namespace proof before legacy alias normalization.
@@ -5100,7 +5140,7 @@ mod tests {
         for scope in ["", "work space"] {
             let body = serde_json::json!({"vault":scope,"graph":{"center_id":0,"nodes":[{"note_id":-42,"title":"A"}],"edges":[]},"read_state":{"partial":true}}).to_string();
             let (client, request) = mock(200, Box::leak(body.into_boxed_str()));
-            let (graph, fields) = client.full_graph(scope).unwrap();
+            let (graph, fields) = client.full_graph(scope, "main").unwrap();
             assert_eq!(graph.nodes[0].note_id, -42);
             assert_eq!(graph.nodes[0].area_score, None);
             assert_eq!(fields["read_state"]["partial"], true);
@@ -5113,10 +5153,10 @@ mod tests {
             assert!(!wire.contains("id="));
         }
         let (client, request) = mock(200, r#"{"graph":{"nodes":[],"edges":[]}}"#);
-        assert!(client.full_graph("").unwrap().0.nodes.is_empty());
+        assert!(client.full_graph("", "main").unwrap().0.nodes.is_empty());
         request.join().unwrap();
         let (client, request) = mock(409, r#"{"error":"invalid link format"}"#);
-        let error = client.full_graph("").unwrap_err().to_string();
+        let error = client.full_graph("", "main").unwrap_err().to_string();
         assert!(error.contains("409") && error.contains("invalid link format"));
         request.join().unwrap();
     }
@@ -5128,10 +5168,13 @@ mod tests {
             r#"{"vault":"work","graph":{"center_id":42,"nodes":[],"edges":[]},"read_state":{"partial":true}}"#,
         );
         let (graph, fields) = client
-            .local_graph(&NoteKey {
-                vault: "work".into(),
-                note_id: 42,
-            })
+            .local_graph(
+                &NoteKey {
+                    vault: "work".into(),
+                    note_id: 42,
+                },
+                "main",
+            )
             .unwrap();
         assert_eq!(graph.center_id, 42);
         assert!(graph.nodes.is_empty());
@@ -5144,10 +5187,13 @@ mod tests {
         );
         assert!(
             client
-                .local_graph(&NoteKey {
-                    vault: "work".into(),
-                    note_id: 42
-                })
+                .local_graph(
+                    &NoteKey {
+                        vault: "work".into(),
+                        note_id: 42
+                    },
+                    "main"
+                )
                 .is_err()
         );
         request.join().unwrap();
@@ -5309,7 +5355,10 @@ mod tests {
         assert!(data.notes.is_empty());
         assert_eq!(data.diagnostics["read_state"]["partial"], true);
     }
-    fn mock(status: u16, body: impl Into<String>) -> (ReadClient, thread::JoinHandle<String>) {
+    pub(super) fn mock(
+        status: u16,
+        body: impl Into<String>,
+    ) -> (ReadClient, thread::JoinHandle<String>) {
         let body = body.into();
         use std::io::Write;
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
@@ -7489,3 +7538,7 @@ mod registry_contract;
 #[cfg(test)]
 #[path = "live_bound_fixture.rs"]
 mod bound_fixture;
+
+#[cfg(test)]
+#[path = "live_graph_contract.rs"]
+mod graph_contract_tests;

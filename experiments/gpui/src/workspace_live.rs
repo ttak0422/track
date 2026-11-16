@@ -513,6 +513,17 @@ impl Workspace {
             return;
         };
         let key = note.note.key();
+        let Some((launch_name, names)) = self.follow_registry() else {
+            self.read_error =
+                Some("Graph requires current vault discovery. Retry after loading.".into());
+            cx.notify();
+            return;
+        };
+        if !key.vault.is_empty() && !names.contains(&key.vault) {
+            self.read_error = Some("Graph vault is unavailable.".into());
+            cx.notify();
+            return;
+        }
         let expected_epoch = self.accepted_storage_generation;
         self.graph_request += 1;
         let request = self.graph_request;
@@ -522,7 +533,7 @@ impl Workspace {
         let job = cx.background_executor().spawn(async move {
             let client = session.client();
             let before = client.storage();
-            let result = client.local_graph(&key);
+            let result = client.local_graph(&key, &launch_name);
             let after = client.storage();
             if !matches!((&before,&after),(Ok(a),Ok(b)) if a.generation==b.generation && expected_epoch == Some(b.generation)) {
                 return (Err(live::Error::Stale), after);

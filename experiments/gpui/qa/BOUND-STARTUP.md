@@ -67,3 +67,20 @@ test executable while another suite was running is the suspected harness cause.
 The final complete run was serialized and passed. This does not resolve the
 separately documented historical recovery-store concurrency issue. Full GPUI
 compilation and macOS runtime were not performed for this unit.
+
+## Scoped browsing compatibility
+
+The real Go bridge reproduced a native graph mismatch: an explicitly requested
+launch vault still has an empty wire label, which the earlier native adapter
+rejected. Full and local graph reads now use the caller's current verified launch
+identity to recognize that alias. They preserve canonical node namespaces and
+reject explicit foreign labels, malformed labels and wrong graph centers. Missing
+legacy optional labels remain scoped to the request. This is not a broader
+ordinary-vault admission grant.
+
+The synthetic browsing scenario uses two vaults with the same note IDs and checks
+lists, tags, scoped/workspace search, recent-created order, full/local graph
+identities, finite note navigation and protected inventories. The help correction
+is in `docs/help/note/1785024017000.md`. `nix develop --command make site` could not
+run in this container because `nix` is not installed; rendered help and full
+GPUI/native interaction remain unverified.

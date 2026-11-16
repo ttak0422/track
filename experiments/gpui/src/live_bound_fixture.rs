@@ -775,3 +775,6 @@ fn synthetic_bound_session_is_finite_only_and_reaps_its_owner() {
         admission_process_tests::protected_inventory(&fixture.0)
     );
 }
+
+#[path = "live_bound_workflows.rs"]
+mod workflows;

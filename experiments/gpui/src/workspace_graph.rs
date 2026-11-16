@@ -73,13 +73,26 @@ impl Workspace {
             cx.notify();
             return;
         };
+        let Some((launch_name, names)) = self.follow_registry() else {
+            self.full_graph.loading = false;
+            self.full_graph.status =
+                "Graph requires current vault discovery. Retry after loading.".into();
+            cx.notify();
+            return;
+        };
+        if !scope.is_empty() && !names.contains(&scope) {
+            self.full_graph.loading = false;
+            self.full_graph.status = "Graph vault is unavailable.".into();
+            cx.notify();
+            return;
+        }
         let launch = session.client().launch_generation;
         let epoch = self.accepted_storage_generation;
         let captured_scope = scope.clone();
         let job = cx.background_executor().spawn(async move {
             let client = session.client();
             let before = client.storage();
-            let result = client.full_graph(&captured_scope);
+            let result = client.full_graph(&captured_scope, &launch_name);
             let after = client.storage();
             if !matches!((&before, &after), (Ok(a), Ok(b)) if a.generation == b.generation && Some(b.generation) == epoch) {
                 return Err(live::Error::Stale);
