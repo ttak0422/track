@@ -396,3 +396,7 @@ for an existing `codex exec --json` invocation. It accepts only explicit stdin a
 allowlisted lifecycle/count metadata. It does not inspect private session directories or import
 agent/user messages. This adapter is observational: the one-way CLI event stream provides no
 safe acknowledgement mechanism for pause/resume. Do not advertise those controls for Codex.
+
+## Normal-session timeline transport
+
+`track timeline-session init|start|show|task|report|hook` provides explicit vault/project-bound, run-scoped task updates on the existing timeline engine. See [session integration](../../examples/session-timeline/README.md) for the shared skill, opt-in hooks, privacy boundary, retry semantics and verified compatibility limits. The low-level revision-checked `timeline-project apply` remains available.
