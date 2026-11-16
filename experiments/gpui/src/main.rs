@@ -356,6 +356,9 @@ impl Workspace {
         expected: Option<live::JournalExpectation>,
         cx: &mut Context<Self>,
     ) {
+        if live_mode_waiting(self.live_requested, self.live.is_some()) {
+            return;
+        }
         let Some(note) = self.snapshot.notes.get(index) else {
             return;
         };
@@ -573,7 +576,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 _ => return Err(format!("unknown option: {flag}").into()),
             }
         }
-        let read_root=read_fixture_root.as_ref().or(fixture_option.as_ref()).or(session_fixture.as_ref()).ok_or("Ordinary vault launch is disabled: engine reads can write activity sidecars. Use synthetic/JSON input or --developer-read-fixture with an isolated disposable fixture and {} config.")?;
+        let read_root=read_fixture_root.as_ref().or(fixture_option.as_ref()).or(session_fixture.as_ref()).ok_or("Ordinary vault launch remains disabled. Use synthetic/JSON input or --developer-read-fixture with an isolated disposable fixture and {} config.")?;
         let read_proof = live::ReadFixture::capture(
             read_root,
             vault.as_deref().ok_or("--vault is required")?,
@@ -650,7 +653,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 "explicit vault / CLI".into()
             },
-            Some(backend),
+            if live_config.is_some() {
+                None
+            } else {
+                Some(backend)
+            },
         )
     } else if args.len() == 1 {
         (
@@ -800,7 +807,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     false // Keep the window available to report shutdown failures.
                 });
                 let workspace = cx.new(|cx| {
-                    let backend_is_fixture = backend.is_none();
+                    let backend_is_fixture = backend.is_none() && live_config.is_none();
                     let mut session_ui = workspace_session::SessionUi::new(session_options);
                     if developer_draft_recovery {
                         session_ui.enable_recovery();

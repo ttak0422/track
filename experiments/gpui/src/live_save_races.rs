@@ -327,6 +327,15 @@ fn owned_engine_post_preflight_conflict_and_lost_ack() {
         )
         .unwrap(),
     );
+    config.creation_fixture = Some(
+        CreateFixture::capture(
+            &fixture.0.join("vault"),
+            &fixture.0.join("vault"),
+            config.config.as_deref(),
+            config.cache.as_deref(),
+        )
+        .unwrap(),
+    );
     let mut server = OwnedServer::start(config).expect("owned readiness");
     let pid = server.child.as_ref().unwrap().id();
     let client = server.client();

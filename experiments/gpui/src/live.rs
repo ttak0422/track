@@ -107,6 +107,29 @@ impl LaunchConfig {
             read_fixture: None,
         }
     }
+    fn canonical_read_only(&self) -> bool {
+        self.creation_fixture.is_none()
+    }
+    fn configure_read_mode(&self, command: &mut Command) -> Result<(), Error> {
+        if self.canonical_read_only() {
+            let cache = self.cache.as_ref().ok_or_else(|| {
+                Error::Config(
+                    "Canonical read fixtures require an explicit private cache root".into(),
+                )
+            })?;
+            use std::os::unix::fs::PermissionsExt;
+            if std::fs::metadata(cache)?.permissions().mode() & 0o077 != 0 {
+                return Err(Error::Config(
+                    "Canonical read fixture cache must have private permissions (0700)".into(),
+                ));
+            }
+            command
+                .arg("--canonical-read-only")
+                .arg("--read-only-cache-root")
+                .arg(cache);
+        }
+        Ok(())
+    }
     fn validate(&self) -> Result<(), Error> {
         for (name, path) in [
             ("executable", Some(&self.executable)),
@@ -133,6 +156,25 @@ impl LaunchConfig {
             || self.request_timeout.is_zero()
         {
             return Err(Error::Config("invalid port or timeout".into()));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CanonicalCapability {
+    protocol: String,
+    version: u64,
+    canonical_read_only: bool,
+}
+impl CanonicalCapability {
+    fn validate(&self) -> Result<(), Error> {
+        if self.protocol != "track-canonical-read-only"
+            || self.version != 1
+            || !self.canonical_read_only
+        {
+            return Err(Error::Startup("Owned engine does not advertise the required canonical-read-only protocol version 1".into()));
         }
         Ok(())
     }
@@ -1126,6 +1168,49 @@ impl ReadClient {
     }
 }
 impl ReadClient {
+    fn require_canonical_capability(&self, timeout: Duration) -> Result<(), Error> {
+        if !self.is_alive() {
+            return Err(Error::Stale);
+        }
+        let mut response = self
+            .http
+            .get(format!("{}/api/capabilities", self.origin))
+            .header("Cache-Control", "no-cache, no-store")
+            .timeout(timeout)
+            .send()
+            .map_err(|e| Error::Transport(e.to_string()))?;
+        if response.status().as_u16() != 200 {
+            return Err(Error::Startup(format!(
+                "Canonical capability endpoint returned HTTP {}",
+                response.status().as_u16()
+            )));
+        }
+        let json_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.split(';').next())
+            .is_some_and(|v| v.trim().eq_ignore_ascii_case("application/json"));
+        if !json_type {
+            return Err(Error::Shape(
+                "Canonical capability requires application/json".into(),
+            ));
+        }
+        let mut bytes = Vec::new();
+        (&mut response)
+            .take(4097)
+            .read_to_end(&mut bytes)
+            .map_err(|e| Error::Transport(e.to_string()))?;
+        if bytes.len() > 4096 {
+            return Err(Error::Oversized);
+        }
+        if !self.is_alive() {
+            return Err(Error::Stale);
+        }
+        let capability: CanonicalCapability =
+            serde_json::from_slice(&bytes).map_err(|e| Error::Shape(e.to_string()))?;
+        capability.validate()
+    }
     fn get<T: DeserializeOwned>(&self, path: &str, query: &[(&str, String)]) -> Result<T, Error> {
         self.get_with_timeout(path, query, None)
     }
@@ -2759,7 +2844,7 @@ impl OwnedServer {
         if canceled.load(Ordering::Acquire) {
             return Err(Error::Stale);
         }
-        config.read_fixture.as_ref().ok_or_else(|| Error::Config("Ordinary vault launch is disabled until the engine has a canonical-read-only contract. Use synthetic/JSON input or an explicitly verified disposable read fixture.".into()))?.verify_launch(&config).map_err(Error::Config)?;
+        config.read_fixture.as_ref().ok_or_else(|| Error::Config("Ordinary vault launch remains disabled pending native verification. Use synthetic/JSON input or an explicitly verified disposable fixture.".into()))?.verify_launch(&config).map_err(Error::Config)?;
         if let Some(fixture) = &config.creation_fixture {
             fixture.verify_launch(&config).map_err(Error::Config)?;
         }
@@ -2824,6 +2909,10 @@ impl OwnedServer {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        config.configure_read_mode(&mut cmd)?;
+        if let Some(fixture) = &config.creation_fixture {
+            fixture.verify_launch(&config).map_err(Error::Config)?;
+        }
         config
             .read_fixture
             .as_ref()
@@ -2856,6 +2945,7 @@ impl OwnedServer {
         };
         let start = Instant::now();
         let mut last = String::new();
+        let mut capability_verified = !config.canonical_read_only();
         while start.elapsed() < config.startup_timeout {
             if canceled.load(Ordering::Acquire) {
                 owner.shutdown()?;
@@ -2863,6 +2953,33 @@ impl OwnedServer {
             }
             owner.check_running()?;
             if ready.load(Ordering::Acquire) {
+                if !capability_verified {
+                    let timeout = config
+                        .startup_timeout
+                        .saturating_sub(start.elapsed())
+                        .max(Duration::from_millis(1))
+                        .min(config.request_timeout)
+                        .min(Duration::from_secs(3));
+                    let result = owner.client.require_canonical_capability(timeout);
+                    if canceled.load(Ordering::Acquire) {
+                        owner.shutdown()?;
+                        return Err(Error::Stale);
+                    }
+                    if let Err(error) = result {
+                        owner.shutdown()?;
+                        return Err(Error::Startup(format!(
+                            "Canonical read-only handshake failed; no fallback: {error}"
+                        )));
+                    }
+                    owner.check_running()?;
+                    if start.elapsed() >= config.startup_timeout {
+                        owner.shutdown()?;
+                        return Err(Error::Startup(
+                            "Canonical capability startup deadline exceeded".into(),
+                        ));
+                    }
+                    capability_verified = true;
+                }
                 match owner.client.vaults_with_timeout(Some(
                     config
                         .startup_timeout
@@ -3212,6 +3329,14 @@ mod tests {
         )
         .unwrap();
         std::fs::create_dir_all(config.cache.as_ref().unwrap()).unwrap();
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(
+                config.cache.as_ref().unwrap(),
+                std::fs::Permissions::from_mode(0o700),
+            )
+            .unwrap();
+        }
         std::fs::write(config.config.as_ref().unwrap(), "{}\n").unwrap();
         config.read_fixture = Some(
             ReadFixture::capture(
@@ -3285,6 +3410,15 @@ mod tests {
         config.config = Some(fixture.0.join("config.yml"));
         config.cache = Some(fixture.0.join("cache"));
         authorize_read_fixture(&mut config);
+        config.creation_fixture = Some(
+            CreateFixture::capture(
+                &fixture.0.join("vault"),
+                &fixture.0.join("vault"),
+                config.config.as_deref(),
+                config.cache.as_deref(),
+            )
+            .unwrap(),
+        );
         let mut server = OwnedServer::start(config).expect("owned fixture server readiness");
         let pid = server.child.as_ref().unwrap().id();
         let client = server.client();
@@ -3540,6 +3674,14 @@ mod tests {
             ));
             std::fs::create_dir_all(root.join("vault")).unwrap();
             std::fs::create_dir(root.join("cache")).unwrap();
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(
+                    root.join("cache"),
+                    std::fs::Permissions::from_mode(0o700),
+                )
+                .unwrap();
+            }
             std::fs::write(root.join("config"), "{}\n").unwrap();
             std::fs::write(
                 root.join("vault/.track-native-edit-fixture"),
@@ -7158,3 +7300,11 @@ mod refresh_namespace_tests {
         assert!(matches("", "host", "host"));
     }
 }
+
+#[cfg(test)]
+#[path = "live_capability_process.rs"]
+mod capability_process_tests;
+
+#[cfg(test)]
+#[path = "live_capability_tests.rs"]
+mod capability_tests;

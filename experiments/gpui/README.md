@@ -61,11 +61,14 @@ cargo test --manifest-path experiments/gpui/Cargo.toml
 
 ## Disposable-fixture launch only
 
-Ordinary vaults are blocked: existing engine startup, watch and read refresh paths can write canonical activity sidecars. A UI that exposes no editing controls is not a canonical-read-only engine contract. Synthetic data and explicitly supplied JSON snapshots remain available without an engine process. All live-feature descriptions below now apply only to verified disposable fixtures until that engine contract exists.
+Ordinary vaults are blocked: existing engine startup, watch and read refresh paths can write canonical activity sidecars. A UI that exposes no editing controls is not a canonical-read-only engine contract. Synthetic data and explicitly supplied JSON snapshots remain available without an engine process. All live-feature descriptions below still apply only to verified disposable fixtures; ordinary launch requires a separate native safety review.
 
 A fixture must be a canonical directory beneath the OS temporary directory, with `.track-native-edit-fixture` containing exactly `disposable-fixture-only` plus LF, an existing isolated temporary cache directory, and an explicit temporary config file containing only `{}` (surrounding whitespace allowed). Configured peer registries are rejected. Vault/cache trees reject symlinks, hardlinked regular files and special files; config/marker must be single-link regular files. Verification repeats before child execution. This is a controlled-fixture boundary, not protection against concurrent hostile filesystem changes.
 
 `--developer-read-fixture` authorizes engine reads only and does not enable editing, creation, recovery or persistence. Existing edit/session fixture opt-ins also require the same stricter read proof. Children receive a cleared environment, fixed `/usr/bin:/bin` PATH, explicit fixture paths, private HOME/XDG/TMPDIR and fixture working directory; ambient registry, editor, loader and proxy overrides are not inherited.
+
+Owned HTTP read fixtures, including session-only fixtures, now request the engine's canonical-read-only mode with the explicit fixture cache as its private root. That root must already have permissions `0700`. After the exact owned-process readiness token, native requires `GET /api/capabilities` to return JSON with protocol `track-canonical-read-only`, integer version `1`, and `canonical_read_only:true`, before any vault/storage reads. Missing, unsupported, malformed, false or timed-out capabilities terminate and reap that child; there is no retry without the mode flags or fallback to CLI. The handshake is not storage readiness or an OS sandbox. Explicit editing/creation fixture authority alone retains writable engine mode; session persistence does not grant canonical-write authority. CLI-only disposable-fixture behavior is unchanged. Native launch remains fixture-gated even with a valid capability. Browser/GUI behavior is not established by headless process tests.
+
 
 For an already prepared disposable fixture:
 
