@@ -1,7 +1,7 @@
 package webui
 
-// Internal only. This policy does not enable a public read-only server capability:
-// endpoint authorization and a public launch contract are separate work.
+// Immutable canonical-read-only policy shared by the explicit web launch mode
+// and its internal test constructors. HTTP authorization is enforced separately.
 import (
 	"context"
 	"errors"

@@ -396,7 +396,7 @@ func (b *Bootstrap) Status() StorageStatus {
 		available := !srv.active.mutationGate().Busy()
 		if !state.Partial && !srv.cfg.Provisional && available {
 			status.Phase = "ready"
-			status.ReadOnly = b.readPolicy != nil
+			status.ReadOnly = false
 			status.Reason = ""
 		} else {
 			status.ReadOnly = true
@@ -514,8 +514,22 @@ func (b *Bootstrap) progressResponse(w http.ResponseWriter, r *http.Request, rea
 	return false
 }
 func (b *Bootstrap) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if b.readPolicy != nil && r.Method != http.MethodGet && r.Method != http.MethodHead {
+	if b.readPolicy != nil {
+		// Storage retry precedes server dispatch, so it must retain the same
+		// Host/Origin protections as the APIs even before a backend is ready.
+		b.placeholder.guard(http.HandlerFunc(b.serveHTTP)).ServeHTTP(w, r)
+		return
+	}
+	b.serveHTTP(w, r)
+}
+
+func (b *Bootstrap) serveHTTP(w http.ResponseWriter, r *http.Request) {
+	if b.readPolicy != nil && !internalReadRequestAllowed(r, true) {
 		writeError(w, errors.New("internal read policy does not authorize this operation"), http.StatusForbidden)
+		return
+	}
+	if r.URL.Path == "/api/capabilities" {
+		writeCapabilities(w, r, b.readPolicy != nil)
 		return
 	}
 	// External Markdown is a loopback capability inbox, independent of vault
@@ -531,7 +545,7 @@ func (b *Bootstrap) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, b.Status())
 		return
 	}
-	if r.URL.Path != "/api/events" && (r.Method == http.MethodGet || r.Method == http.MethodHead || readOnlyPost(r.URL.Path)) {
+	if r.URL.Path != "/api/events" && (r.Method == http.MethodGet || r.Method == http.MethodHead || readOnlyPost(r.URL.Path) || b.readPolicy != nil && internalReadRequestAllowed(r, true)) {
 		ctx, cancel := context.WithTimeout(r.Context(), readResponseBudget)
 		defer cancel()
 		r = r.WithContext(ctx)
@@ -586,7 +600,7 @@ func (b *Bootstrap) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet && b.statusFor(r).ReadOnly && b.progressResponse(w, r, "storage is not fully verified; showing confirmed information read-only") {
 		return
 	}
-	if r.Method != http.MethodGet && r.Method != http.MethodHead && !readOnlyPost(r.URL.Path) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead && !readOnlyPost(r.URL.Path) && !(b.readPolicy != nil && internalReadRequestAllowed(r, true)) {
 		if b.statusFor(r).ReadOnly {
 			writeError(w, errors.New("storage is not verified; writes are disabled"), http.StatusConflict)
 			return
@@ -772,7 +786,7 @@ func (b *Bootstrap) statusFor(r *http.Request) StorageStatus {
 	state := view.asyncState()
 	available := !view.mutationGate().Busy()
 	if !view.cfg.Provisional && !state.Partial && available {
-		status.ReadOnly = b.readPolicy != nil
+		status.ReadOnly = false
 		status.Phase = "ready"
 		status.Reason = ""
 	} else {

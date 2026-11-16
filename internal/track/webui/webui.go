@@ -160,7 +160,7 @@ func newServerWithReadPolicy(cfg *config.Config, s *store.Store, early bool, pol
 
 func (s *Server) Handler() http.Handler {
 	return s.guard(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.readPolicy != nil && (r.Method != http.MethodGet && r.Method != http.MethodHead || r.URL.Path == "/apps" || strings.HasPrefix(r.URL.Path, "/apps/")) {
+		if s.readPolicy != nil && !internalReadRequestAllowed(r, false) {
 			writeError(w, fmt.Errorf("internal read policy does not authorize this operation"), http.StatusForbidden)
 			return
 		}
@@ -485,6 +485,7 @@ func StopWeb(cfg *config.Config, addr string) (stopped bool, err error) {
 // defaulting to the vault the server was launched in. Note ids are vault-local and journal ids
 // collide across vaults outright, so that default would silently read (and write) the wrong file.
 func (s *Server) routes() {
+	s.mux.HandleFunc("/api/capabilities", s.handleCapabilities)
 	s.mux.HandleFunc("/api/search", s.handleSearch)
 	s.mux.HandleFunc("/api/notes", s.withVault(s.handleNotes))
 	s.mux.HandleFunc("/api/activity", s.withVault(s.handleActivity))

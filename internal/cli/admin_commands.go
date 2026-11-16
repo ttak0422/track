@@ -304,8 +304,14 @@ func cmdRefreshAll(args []string) int {
 func cmdWeb(args []string) int {
 	fs := flag.NewFlagSet("web", flag.ContinueOnError)
 	addr := fs.String("addr", "127.0.0.1:8765", "listen address")
+	canonicalReadOnly := fs.Bool("canonical-read-only", false, "serve canonical vault content without modifying it")
+	readOnlyCacheRoot := fs.String("read-only-cache-root", "", "required existing private absolute cache root for canonical-read-only")
 	if code, ok := parseArgs(fs, args); !ok {
 		return code
+	}
+
+	if *canonicalReadOnly != (*readOnlyCacheRoot != "") {
+		return fail("web: --canonical-read-only and --read-only-cache-root must be supplied together")
 	}
 
 	ctx, cancel, err := webServerContext()
@@ -314,6 +320,17 @@ func cmdWeb(args []string) int {
 	}
 	defer cancel()
 
+	lease := func(cfg *config.Config) (func(), error) { return webui.AcquireWebPID(cfg, *addr) }
+	var bootstrap *webui.Bootstrap
+	if *canonicalReadOnly {
+		bootstrap, err = webui.NewCanonicalReadOnlyBootstrap(ctx, *readOnlyCacheRoot, lease)
+		if err != nil {
+			return fail("web: %v", err)
+		}
+	} else {
+		bootstrap = webui.NewBootstrap(ctx, lease)
+	}
+
 	fmt.Fprintf(os.Stderr, "track web: http://%s\n", *addr)
 	readyToken := os.Getenv(desktopReadyTokenEnv)
 	onReady := func() {
@@ -321,7 +338,7 @@ func cmdWeb(args []string) int {
 			fmt.Fprintf(os.Stderr, "TRACK_DESKTOP_READY:%s\n", readyToken)
 		}
 	}
-	if err := webui.ServeBootstrapWithLifecycle(ctx, webui.NewBootstrap(ctx, func(cfg *config.Config) (func(), error) { return webui.AcquireWebPID(cfg, *addr) }), *addr, onReady); err != nil {
+	if err := webui.ServeBootstrapWithLifecycle(ctx, bootstrap, *addr, onReady); err != nil {
 		return fail("web: %v", err)
 	}
 	return 0

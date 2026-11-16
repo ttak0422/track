@@ -38,19 +38,10 @@ func ReadOnlyCachePath(root string, cfg *Config, configurationFiles []string) (s
 	if cfg == nil || cfg.VaultDir == "" || cfg.DBPath == "" || len(configurationFiles) == 0 {
 		return "", errors.New("read-only cache: active vault, normal DB and configuration paths are required")
 	}
-	if err := absoluteClean(root); err != nil {
+	if err := validateReadOnlyCacheRoot(root); err != nil {
 		return "", err
 	}
-	if err := cacheAncestors(root); err != nil {
-		return "", err
-	}
-	info, err := os.Lstat(root)
-	if err != nil {
-		return "", fmt.Errorf("read-only cache root: %w", err)
-	}
-	if !info.IsDir() || !cacheOwned(info) || info.Mode().Perm()&0077 != 0 {
-		return "", errors.New("read-only cache root must be a private directory owned by the current user")
-	}
+
 	namespace := filepath.Join(root, readOnlyCacheNamespace)
 	vaults := []string{cfg.VaultDir}
 	for _, peer := range cfg.Vaults {
@@ -109,6 +100,35 @@ func ReadOnlyCachePath(root string, cfg *Config, configurationFiles []string) (s
 		return "", err
 	}
 	return filepath.Join(namespace, vaultCacheKey(active), indexDBName()), nil
+}
+
+// ValidateReadOnlyCacheRoot checks only the explicitly supplied private cache
+// tree, without creating files or loading a vault. Full separation validation
+// still requires ReadOnlyCachePath once configuration is available.
+func ValidateReadOnlyCacheRoot(root string) error {
+	if err := validateReadOnlyCacheRoot(root); err != nil {
+		return err
+	}
+	return validateCacheTree(filepath.Join(root, readOnlyCacheNamespace))
+}
+func validateReadOnlyCacheRoot(root string) error {
+	if !cacheIdentitySupported {
+		return errors.New("read-only cache file identity validation is unsupported on this platform")
+	}
+	if err := absoluteClean(root); err != nil {
+		return err
+	}
+	if err := cacheAncestors(root); err != nil {
+		return err
+	}
+	info, err := os.Lstat(root)
+	if err != nil {
+		return fmt.Errorf("read-only cache root: %w", err)
+	}
+	if !info.IsDir() || !cacheOwned(info) || info.Mode().Perm()&0077 != 0 {
+		return errors.New("read-only cache root must be a private directory owned by the current user")
+	}
+	return nil
 }
 
 func absoluteClean(path string) error {
@@ -189,27 +209,45 @@ func validateCacheTree(namespace string) error {
 	}
 	count := 0
 	return filepath.WalkDir(namespace, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return fmt.Errorf("read-only cache entry %q: %w", path, walkErr)
-		}
 		count++
 		if count > readOnlyCacheEntryLimit {
 			return errors.New("read-only cache validation entry limit exceeded")
 		}
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-		if !cacheOwned(info) || info.Mode().Perm()&0022 != 0 || (!info.IsDir() && !info.Mode().IsRegular()) {
-			return fmt.Errorf("read-only cache entry must be owned, not shared-writable and a regular file/directory: %q", path)
-		}
-		if !info.IsDir() {
-			if !cacheSingleLink(info) {
-				return fmt.Errorf("read-only cache file must have exactly one link: %q", path)
-			}
-		}
-		return nil
+		return validateCacheEntry(namespace, path, entry, walkErr)
 	})
+}
+
+// SQLite can remove a peer's WAL/SHM between directory enumeration and Info.
+// A missing descendant is no longer an entry to validate. Do not relax the
+// required private-root checks, namespace identity, known symlink rejection, or
+// any other error. This remains a point-in-time validation, not a path lease.
+func validateCacheEntry(namespace, path string, entry fs.DirEntry, walkErr error) error {
+	missingChild := func(err error) bool {
+		return path != namespace && containsPath(namespace, path) && errors.Is(err, os.ErrNotExist)
+	}
+	if entry != nil && entry.Type()&os.ModeSymlink != 0 {
+		return fmt.Errorf("read-only cache entry must not be a symlink: %q", path)
+	}
+	if walkErr != nil {
+		if missingChild(walkErr) {
+			return nil
+		}
+		return fmt.Errorf("read-only cache entry %q: %w", path, walkErr)
+	}
+	info, err := entry.Info()
+	if err != nil {
+		if missingChild(err) {
+			return nil
+		}
+		return err
+	}
+	if !cacheOwned(info) || info.Mode().Perm()&0022 != 0 || (!info.IsDir() && !info.Mode().IsRegular()) {
+		return fmt.Errorf("read-only cache entry must be owned, not shared-writable and a regular file/directory: %q", path)
+	}
+	if !info.IsDir() && !cacheSingleLink(info) {
+		return fmt.Errorf("read-only cache file must have exactly one link: %q", path)
+	}
+	return nil
 }
 
 // Resolve an ordinary cache's existing ancestors without creating missing ones.
