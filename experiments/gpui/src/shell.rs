@@ -5465,6 +5465,12 @@ impl Render for Workspace {
             });
         let query = self.search.read(cx).query().to_lowercase();
         let result_indices = self.search_result_indices(cx);
+        let live_search = self.live.is_some();
+        let search_row_height = if live_search {
+            search_excerpt::ROW_HEIGHT
+        } else {
+            64.
+        };
         let search_panel = div()
             .absolute()
             .left(
@@ -5476,7 +5482,8 @@ impl Render for Workspace {
             .h(if query.trim().is_empty() {
                 px(72.)
             } else {
-                (px(74.) + px(result_indices.len().max(1) as f32 * 64.)).min(height * 0.70)
+                (px(74.) + px(result_indices.len().max(1) as f32 * search_row_height))
+                    .min(height * 0.70)
             })
             .w(px(640.).min(window.viewport_size().width - px(48.)))
             .bg(rgb(p.paper))
@@ -5505,6 +5512,14 @@ impl Render for Workspace {
                                     let note = this.snapshot.notes.get(i)?;
                                     (note.title.clone(), note.tags.clone())
                                 };
+                                // Project only the same accepted row used by title/tags. No
+                                // independent cache, sorting, fetch, or clickable excerpt.
+                                let detail = this
+                                    .search_results
+                                    .get(i)
+                                    .filter(|_| this.live.is_some())
+                                    .map(|note| search_excerpt::project(&note.additional))
+                                    .unwrap_or_default();
                                 let refinement = this
                                     .shell
                                     .search_refinement
@@ -5523,9 +5538,12 @@ impl Render for Workspace {
                                 Some(
                                     div()
                                         .id(i)
-                                        .h(px(64.))
+                                        .h(px(search_row_height))
                                         .px_5()
                                         .py_3()
+                                        .when(live_search, |row| {
+                                            row.py(px(search_excerpt::VERTICAL_PADDING))
+                                        })
                                         .overflow_hidden()
                                         .cursor_pointer()
                                         .border_b_1()
@@ -5538,6 +5556,15 @@ impl Render for Workspace {
                                         .child(
                                             div()
                                                 .id(("search-result-title", i))
+                                                .when(live_search, |title| {
+                                                    title
+                                                        .h(px(search_excerpt::TITLE_HEIGHT))
+                                                        .line_height(px(
+                                                            search_excerpt::TITLE_HEIGHT,
+                                                        ))
+                                                        .whitespace_nowrap()
+                                                        .overflow_hidden()
+                                                })
                                                 .text_size(px(13.))
                                                 .cursor_pointer()
                                                 .child(title)
@@ -5558,6 +5585,11 @@ impl Render for Workspace {
                                         )
                                         .child(
                                             div()
+                                                .when(live_search, |tags| {
+                                                    tags.h(px(search_excerpt::TAG_HEIGHT))
+                                                        .line_height(px(search_excerpt::TAG_HEIGHT))
+                                                        .whitespace_nowrap()
+                                                })
                                                 .text_size(px(10.))
                                                 .text_color(rgb(p.muted))
                                                 .flex()
@@ -5599,7 +5631,31 @@ impl Render for Workspace {
                                                             ))
                                                     },
                                                 )),
-                                        ),
+                                        )
+                                        .when_some(detail.reason, |row, reason| {
+                                            row.child(
+                                                div()
+                                                    .h(px(search_excerpt::REASON_HEIGHT))
+                                                    .line_height(px(search_excerpt::REASON_HEIGHT))
+                                                    .whitespace_nowrap()
+                                                    .overflow_hidden()
+                                                    .text_size(px(10.))
+                                                    .text_color(rgb(p.muted))
+                                                    .child(reason),
+                                            )
+                                        })
+                                        .when_some(detail.excerpt, |row, excerpt| {
+                                            row.child(
+                                                div()
+                                                    .h(px(search_excerpt::EXCERPT_HEIGHT))
+                                                    .line_height(px(search_excerpt::EXCERPT_HEIGHT))
+                                                    .whitespace_nowrap()
+                                                    .overflow_hidden()
+                                                    .text_size(px(11.))
+                                                    .text_color(rgb(p.muted))
+                                                    .child(excerpt),
+                                            )
+                                        }),
                                 )
                             })
                             .collect()
