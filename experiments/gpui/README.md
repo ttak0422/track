@@ -1233,3 +1233,13 @@ The explicit **Find in preview** control searches only ordinary displayed host t
 Next/Previous wrap, Enter/Shift-Enter act in the dedicated input, and Escape closes Find before the preview. Composition blocks step/close. Highlights and guarded after-layout reveal use per-slice geometry, never host source indices, Find state, reading positions or history. Source/refresh/close/scope/page changes invalidate old callbacks and geometry. Host Cmd-F/G behavior is unchanged.
 
 Bounds: 4 KiB query, first 8,192 eligible blocks / 2 MiB displayed text and 10,000 matches, with a visible limited indicator. Text bounds do not claim hard RSS bounds. There are no additional requests, dependencies or vault mutations. Cloud actual-source model/guard tests use lightweight Markdown data types; full GPUI/native input/layout/scroll remain unverified.
+
+### Session-only rendered reading
+
+**Use rendered reading for this session** opts accepted live notes into the existing read-only rendered preview. A memory-only preference survives note navigation; an exact accepted-owner ticket allows one automatic engine render attempt per acceptance, not one request per frame. Busy/error requires explicit **Reload / Retry rendered content**. This re-resolves accepted host text, not a fresh host-note GET; ordinary Reload is unchanged. There is no SSE retry loop or new API/dependency.
+
+The preview header provides guarded Back/Forward and Source/off controls; existing query/include Open actions retain the mode for the next note. Closing the view turns it off. Other navigation remains available after Source. This is a limited preview-based reading path, not general-link/editing/selection parity. Home/Calendar/Graph are unchanged, and no mode or rendered scroll checkpoint is persisted.
+
+Same-source refresh can retain accepted content with an explicit warning only when body/request/task state/scope/registry/storage match. Source changes and off-on retire old workers/controls. Dirty/recovery history vetoes precede preview retirement; temporary modal/IME ownership never authorizes automatic focus theft. Existing single-worker and resource bounds remain. Actual-source lifecycle tests use lightweight identity stubs; full GPUI/native focus, dialog and navigation verification remains unavailable in this cloud-only workflow.
+
+In this first slice, rendered-header Back/Forward supports adjacent note and Home history entries only. For a Tag, Calendar or Graph destination it displays “return to Source” instead of activating an unsupported transition. Source mode retains the ordinary navigation guards and full existing history controls.

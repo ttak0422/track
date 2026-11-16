@@ -1,3 +1,6 @@
+#[path = "rendered_reading.rs"]
+mod reading_mode;
+pub(crate) use reading_mode::Mode as ReadingMode;
 #[path = "gallery_covers.rs"]
 mod gallery_covers;
 #[path = "include_navigation.rs"]
@@ -48,6 +51,9 @@ pub(crate) struct IncludesState {
     inline_open: bool,
     serial: u64,
     result: Option<Result<Snapshot, String>>,
+    fetching: bool,
+    refresh_warning: Option<String>,
+    reading_ticket: Option<reading_mode::Ticket>,
     preview_open: bool,
     preview_focus: Option<gpui::FocusHandle>,
     preview_scroll: gpui::ScrollHandle,
@@ -112,6 +118,9 @@ impl IncludesState {
             inline_open: false,
             serial: 0,
             result: None,
+            fetching: false,
+            refresh_warning: None,
+            reading_ticket: None,
             preview_open: false,
             preview_focus: None,
             preview_scroll: gpui::ScrollHandle::new(),
@@ -344,6 +353,16 @@ impl Workspace {
         let serial = state.serial;
         let focus = state.preview_focus.as_ref().unwrap().clone();
         let scroll = state.preview_scroll.clone();
+        let reading_controls = self.reading_controls(&identity, serial, true, cx);
+        let refresh_status = if state.fetching {
+            "Refreshing rendered content; previous same-source snapshot may be shown.".to_owned()
+        } else {
+            state
+                .refresh_warning
+                .as_ref()
+                .map(|e| format!("Refresh failed; previous same-source snapshot retained: {e}"))
+                .unwrap_or_default()
+        };
         let (paper, ink, line) = colors;
         let close_identity = identity.clone();
         let mut body = div().flex().flex_col().gap_3();
@@ -434,12 +453,13 @@ impl Workspace {
             .on_action(cx.listener(|this, _: &search_input::FindPrevious, window, cx| {this.rendered_find_key(Some(false), window, cx);cx.stop_propagation();}))
             .on_action(cx.listener(|this, _: &search_input::CloseFind, window, cx| {this.rendered_find_key(None, window, cx);cx.stop_propagation();}))
             .on_key_down(cx.listener(move |this, event: &gpui::KeyDownEvent, window, cx| {
-                if event.keystroke.key == "escape" && !this.rendered_find_escape(window, cx) { this.close_includes_preview(&identity, serial, window, cx); }
+                if event.keystroke.key == "escape" && !this.rendered_find_escape(window, cx) { this.close_rendered_user(&identity, serial, window, cx); }
                 // No host Find, navigation, checkpoint, task, link or copy shortcuts.
                 cx.stop_propagation();
             }))
-            .child(div().flex().justify_between().child("Rendered content (read-only)").child(div().id("close-rendered-includes-preview").cursor_pointer().child("Close preview (Esc)").on_click(cx.listener(move |this, _, window, cx| this.close_includes_preview(&close_identity, serial, window, cx)))))
+            .child(div().flex().justify_between().child("Rendered content (read-only)").child(div().id("close-rendered-includes-preview").cursor_pointer().child("Close preview (Esc)").on_click(cx.listener(move |this, _, window, cx| this.close_rendered_user(&close_identity, serial, window, cx)))))
             .child("Engine-resolved snapshots; completeness and currentness are not guaranteed. Partial inline preview: only isolated top-level includes are embedded. General links, task changes, recursive includes are unavailable. Find searches displayed ordinary host/include prose, not rich projections or their source disclosures. Host query rows provide explicit Open note controls; included query rows remain inert. Gallery covers support bounded local PNG/JPEG only. Text selection is unavailable. Tagged code and displayed source have explicit Copy controls (plain text, up to 256 KiB).")
+            .child(reading_controls).child(refresh_status)
             .child(find_controls)
             .child(div().id(gpui::SharedString::from(format!("rendered-includes-scroll-{serial}"))).track_scroll(&scroll).flex_1().min_h_0().overflow_y_scroll().child(body))
     }
@@ -452,6 +472,12 @@ impl Workspace {
             || self.quit_session.failure().is_some()
             || self.read_error.is_some()
         {
+            return None;
+        }
+        self.includes_source_identity()
+    }
+    fn includes_source_identity(&self) -> Option<Identity> {
+        if self.read_error.is_some() {
             return None;
         }
         let source = self.current_link_source()?;
@@ -482,19 +508,50 @@ impl Workspace {
     }
     pub(crate) fn reset_stale_includes(&mut self) {
         if self.shell.includes.as_ref().is_some_and(|s| {
-            self.includes_identity().as_ref() != Some(&s.identity) || !self.includes_body_current(s)
+            if let Some(ticket) = &s.reading_ticket {
+                !self.reading_ticket_lifetime(ticket) || !self.includes_body_current(s)
+            } else {
+                self.includes_identity().as_ref() != Some(&s.identity)
+                    || !self.includes_body_current(s)
+            }
         }) {
+            if self
+                .shell
+                .includes
+                .as_ref()
+                .is_some_and(|s| s.reading_ticket.is_some())
+            {
+                self.shell.rendered_reading.retire();
+            }
             self.shell.includes = None;
         }
     }
     fn includes_fetch(&mut self, identity: Identity, cx: &mut Context<Self>) {
+        if self.shell.rendered_reading.enabled {
+            return;
+        }
+        self.includes_fetch_owned(identity, None, cx);
+    }
+    fn includes_fetch_owned(
+        &mut self,
+        identity: Identity,
+        mode: Option<reading_mode::Ticket>,
+        cx: &mut Context<Self>,
+    ) {
         if self.inline_includes_active() || self.query_inline_active() {
             return;
         }
-        if self.includes_identity().as_ref() != Some(&identity)
-            || !self.pin_keyboard_available(cx)
-            || !self.find_available()
-        {
+        let allowed = if let Some(ticket) = &mode {
+            self.reading_ticket_current(ticket)
+                && if self.includes_preview_active() {
+                    self.query_control_gate(&identity, cx).allowed()
+                } else {
+                    self.pin_keyboard_available(cx) && self.find_available()
+                }
+        } else {
+            self.pin_keyboard_available(cx) && self.find_available()
+        };
+        if self.includes_identity().as_ref() != Some(&identity) || !allowed {
             return;
         }
         let tasks = self.accepted_tasks();
@@ -507,6 +564,13 @@ impl Workspace {
             return;
         };
         let serial = SERIAL.fetch_add(1, Ordering::Relaxed);
+        let retain = mode
+            .as_ref()
+            .zip(state.reading_ticket.as_ref())
+            .is_some_and(|(new, old)| new.same_owner(old))
+            && state.accepted_body.as_deref()
+                == Some(self.current_note.as_ref().unwrap().body.as_str())
+            && matches!(state.result, Some(Ok(_)));
         state.accepted_body = Some(self.current_note.as_ref().unwrap().body.clone());
         state.tasks_invalidated = self
             .current_note
@@ -517,23 +581,36 @@ impl Workspace {
             .get("tasks")
             .is_some_and(serde_json::Value::is_null);
         state.serial = serial;
-        state.result = None;
-        state.mindmap_cache.clear();
-        state.flowchart_cache.clear();
-        state.gallery = Default::default();
-        state.viewspecs = Default::default();
-        state.preview_open = false;
-        state.copy = Default::default();
-        state.gallery.cancel();
-        state.viewspecs.cancel();
-        state.query_nav = Default::default();
-        state.query_inline = Default::default();
-        state.query_pages.clear();
-        state.query_sources.clear();
+        if !retain {
+            state.result = None;
+        }
+        state.fetching = true;
+        state.refresh_warning = None;
+        state.reading_ticket = mode.clone();
+        if !retain {
+            state.mindmap_cache.clear();
+            state.flowchart_cache.clear();
+            state.gallery.cancel();
+            state.viewspecs.cancel();
+            state.gallery = Default::default();
+            state.viewspecs = Default::default();
+            state.preview_open = false;
+            state.copy = Default::default();
+            state.query_nav = Default::default();
+            state.query_inline = Default::default();
+            state.query_pages.clear();
+            state.query_sources.clear();
+        }
+        state.find = Default::default();
         let Some(permit) = Permit::acquire() else {
-            state.result = Some(Err(
-                "An earlier include request is still finishing. Refresh shortly.".into(),
-            ));
+            state.fetching = false;
+            let warning =
+                "An earlier render request is still finishing. Use explicit Retry.".to_owned();
+            if retain {
+                state.refresh_warning = Some(warning);
+            } else {
+                state.result = Some(Err(warning));
+            }
             cx.notify();
             return;
         };
@@ -570,7 +647,15 @@ impl Workspace {
         cx.spawn(async move |this, cx| {
             let result = job.await;
             let _ = this.update(cx, |this, cx| {
-                if this.includes_identity().as_ref() != Some(&identity)
+                let source = if mode.is_some() {
+                    this.includes_source_identity()
+                } else {
+                    this.includes_identity()
+                };
+                if mode
+                    .as_ref()
+                    .is_some_and(|ticket| !this.reading_ticket_lifetime(ticket))
+                    || source.as_ref() != Some(&identity)
                     || this
                         .shell
                         .includes
@@ -589,8 +674,38 @@ impl Workspace {
                     .as_mut()
                     .filter(|s| s.accepts(&identity, serial))
                 {
-                    state.result = Some(result);
+                    state.fetching = false;
+                    match result {
+                        Err(error) if matches!(state.result, Some(Ok(_))) && mode.is_some() => {
+                            state.refresh_warning = Some(error)
+                        }
+                        result => {
+                            state.result = Some(result);
+                            state.refresh_warning = None;
+                            state.preview_epoch = SERIAL.fetch_add(1, Ordering::Relaxed);
+                            state.find = Default::default();
+                            state.query_nav = Default::default();
+                            state.query_pages.clear();
+                            state.query_sources.clear();
+                            state.mindmap_cache.clear();
+                            state.flowchart_cache.clear();
+                            state.gallery.cancel();
+                            state.viewspecs.cancel();
+                            state.gallery = Default::default();
+                            state.viewspecs = Default::default();
+                            if state.preview_open {
+                                state.copy = preview_copy::CopyUi::prepare(
+                                    state.result.as_ref().and_then(|r| r.as_ref().ok()),
+                                    cx,
+                                );
+                            }
+                        }
+                    }
                     cx.notify();
+                }
+                if this.includes_preview_active() {
+                    this.load_gallery(cx);
+                    this.load_viewspecs(cx);
                 }
             });
         })
@@ -746,7 +861,15 @@ impl Workspace {
     pub(crate) fn includes_inspector(&mut self, cx: &mut Context<Self>) -> Div {
         let mut view = div().mb_3().text_size(px(12.));
         let Some(identity) = self.includes_identity() else {
-            self.shell.includes = None;
+            if !self
+                .shell
+                .includes
+                .as_ref()
+                .and_then(|s| s.reading_ticket.as_ref())
+                .is_some_and(|ticket| self.reading_ticket_lifetime(ticket))
+            {
+                self.shell.includes = None;
+            }
             return view;
         };
         if self
@@ -757,19 +880,25 @@ impl Workspace {
         {
             self.shell.includes = Some(IncludesState::new(identity.clone()));
         }
+        let serial = self.shell.includes.as_ref().unwrap().serial;
+        view = view.child(self.reading_controls(&identity, serial, false, cx));
+        let reading = self.shell.rendered_reading.enabled;
         let open = self.shell.includes.as_ref().unwrap().open;
         let captured = identity.clone();
         view = view.child(
             div()
                 .id("includes-toggle")
-                .cursor_pointer()
-                .child(if open {
+                .when(!reading, |d| d.cursor_pointer())
+                .child(if reading {
+                    "Rendered content (session mode active)"
+                } else if open {
                     "▾ Rendered content (read-only)"
                 } else {
                     "▸ Rendered content (read-only)"
                 })
                 .on_click(cx.listener(move |this, _, _, cx| {
-                    if this.includes_identity().as_ref() != Some(&captured)
+                    if this.shell.rendered_reading.enabled
+                        || this.includes_identity().as_ref() != Some(&captured)
                         || !this.pin_keyboard_available(cx)
                         || !this.find_available()
                     {
@@ -804,7 +933,7 @@ impl Workspace {
         }
         let captured = identity.clone();
         view=view.child("Engine-resolved snapshots; refresh to request updated excerpts. Completeness and currentness are not guaranteed. Host Find does not search excerpts.")
-            .child(div().id("includes-refresh").cursor_pointer().child("Refresh rendered content").on_click(cx.listener(move |this,_,_,cx|this.includes_fetch(captured.clone(),cx))));
+            .when(!reading, |v|v.child(div().id("includes-refresh").cursor_pointer().child("Refresh rendered content").on_click(cx.listener(move |this,_,_,cx|this.includes_fetch(captured.clone(),cx)))));
         let Some(result) = &self.shell.includes.as_ref().unwrap().result else {
             return view.child("Loading rendered content…");
         };

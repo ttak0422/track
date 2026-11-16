@@ -517,6 +517,8 @@ pub struct ShellState {
     relation_pages: reader_relations::Pages,
     pub(crate) recent: workspace_recent::State,
     pub(crate) includes: Option<workspace_includes::IncludesState>,
+    pub(crate) rendered_reading: workspace_includes::ReadingMode,
+    pub(crate) rendered_return_focus: Option<gpui::FocusHandle>,
     pub(crate) note_tasks: Option<workspace_note_tasks::NoteTasksState>,
     pub(crate) hierarchy: Option<workspace_hierarchy::HierarchyState>,
     pub(crate) reader_hierarchy: Option<workspace_hierarchy::ReaderHierarchy>,
@@ -650,6 +652,8 @@ impl Default for ShellState {
             note_tasks: None,
             recent: Default::default(),
             includes: None,
+            rendered_reading: Default::default(),
+            rendered_return_focus: None,
             relation_pages: Default::default(),
             weekly: None,
             recent_created: None,
@@ -3770,6 +3774,7 @@ impl Workspace {
         if !self.history.commit(&ticket) {
             return;
         }
+        self.retire_reading_history_preview();
         self.shell.search_open = false;
         self.shell.vault_menu = false;
         self.shell.tab_menu = false;
@@ -4211,6 +4216,7 @@ impl Render for Workspace {
         }
         self.invalidate_recent_panel(window);
         self.reset_stale_includes();
+        self.sync_rendered_reading(window, cx);
         if self.includes_preview_active() {
             return self.rendered_includes_preview(dark, (p.paper, p.ink, p.line), window, cx);
         }
