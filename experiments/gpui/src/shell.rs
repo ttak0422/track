@@ -1453,10 +1453,7 @@ impl Workspace {
         self.shell.reader_hover = None;
     }
     fn reader_hover_document(&self, window: &Window, cx: &App) -> Option<code_copy::Document> {
-        if self.shell.selection.is_some()
-            || !window.is_window_active()
-            || !self.previews.model.pinned.is_empty()
-        {
+        if self.shell.selection.is_some() || !window.is_window_active() {
             return None;
         }
         let focus_allowed = window.focused(cx).is_none()
@@ -1494,7 +1491,7 @@ impl Workspace {
                 .map(|handle| handle.offset()),
         )
     }
-    fn reader_hover_current(&self, window: &Window, cx: &App) -> bool {
+    pub(crate) fn reader_hover_current(&self, window: &Window, cx: &App) -> bool {
         let Some(owner) = &self.shell.reader_hover else {
             return false;
         };

@@ -1,4 +1,4 @@
-//! Full-graph preview lifecycle foundation; not wired to the local reader graph.
+//! Shared graph and reader preview lifecycle, with immutable accepted reader pins.
 //! Clock values are monotonic milliseconds supplied by the UI. Reads are emitted
 //! only by `advance`; transport/UI must never infer a target from current selection.
 #![allow(dead_code)]
@@ -146,6 +146,7 @@ pub struct Preview {
     pub rect: Option<CardRect>,
     pub state: State,
     pointer_inside: bool,
+    frozen: bool,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PinResult {
@@ -409,6 +410,7 @@ impl Previews {
             rect: None,
             state: State::Loading,
             pointer_inside: false,
+            frozen: false,
         });
         Some(read)
     }
@@ -426,6 +428,9 @@ impl Previews {
         let Some(preview) = target else {
             return false;
         };
+        if preview.frozen {
+            return false;
+        }
         preview.state = match result {
             Ok(content) => State::Ready(content),
             Err(error) => State::Failed(error),
@@ -471,6 +476,34 @@ impl Previews {
         }
         self.pin()
     }
+    /// Only an accepted reader preview may become an immutable snapshot.
+    pub fn pin_ready_identity(&mut self, identity: &Read) -> PinResult {
+        if !self
+            .transient
+            .as_ref()
+            .is_some_and(|p| &p.read == identity && matches!(p.state, State::Ready(_)))
+        {
+            return PinResult::NothingToPin;
+        }
+        if self
+            .pinned
+            .iter()
+            .any(|p| p.read.target == identity.target && !matches!(p.state, State::Ready(_)))
+        {
+            return PinResult::NothingToPin;
+        }
+        let result = self.pin();
+        if result == PinResult::Pinned {
+            if let Some(pin) = self
+                .pinned
+                .iter_mut()
+                .find(|p| p.read.target == identity.target)
+            {
+                pin.frozen = true;
+            }
+        }
+        result
+    }
     pub fn unpin_identity(&mut self, identity: &Read, now: u64) -> bool {
         let Some(index) = self.pinned.iter().position(|p| &p.read == identity) else {
             return false;
@@ -503,6 +536,12 @@ impl Previews {
         if self.transient.is_none() {
             return PinResult::NothingToPin;
         }
+        let target = &self.transient.as_ref().unwrap().read.target;
+        if let Some(existing) = self.pinned.iter().find(|pin| &pin.read.target == target) {
+            self.raised = Some(existing.read.clone());
+            self.clear_transient();
+            return PinResult::Pinned;
+        }
         if self.pinned.len() >= MAX_PINS {
             return PinResult::CapacityReached;
         }
@@ -511,6 +550,7 @@ impl Previews {
             .unwrap();
         let mut preview = self.transient.take().unwrap();
         preview.placement_slot = Some(slot);
+        self.raised = Some(preview.read.clone());
         self.pinned.push(preview);
         self.close_at = None;
         PinResult::Pinned
@@ -1008,5 +1048,117 @@ mod geometry_tests {
         assert!(!p.geometry_active());
         assert!(!p.begin_geometry(&b, (0., 0.), rect(), true, (680., 480.)));
         assert!(p.transient.as_ref().unwrap().rect.is_none());
+    }
+}
+
+#[cfg(test)]
+mod reader_pin_tests {
+    use super::*;
+    fn model() -> Previews {
+        let mut p = Previews::default();
+        p.set_scope(Scope {
+            session: 1,
+            graph: 1,
+            vault: "main".into(),
+        });
+        p
+    }
+    fn read(p: &mut Previews, id: i64) -> Read {
+        p.hover(
+            Target {
+                vault: "main".into(),
+                note_id: id,
+            },
+            (10., 20.),
+            0,
+        );
+        p.advance(OPEN_DELAY_MS).unwrap()
+    }
+    fn content(title: &str) -> Content {
+        Content {
+            title: title.into(),
+            body: "snapshot".into(),
+            read_only: true,
+            partial: true,
+            diagnostics: vec!["partial fixture".into()],
+        }
+    }
+    #[test]
+    fn reader_pin_is_ready_only_and_immutable_after_navigation() {
+        let mut p = model();
+        let r = read(&mut p, 1);
+        assert_eq!(p.pin_ready_identity(&r), PinResult::NothingToPin);
+        p.complete(&r, Err("failed".into()));
+        assert_eq!(p.pin_ready_identity(&r), PinResult::NothingToPin);
+        p.complete(&r, Ok(content("accepted")));
+        assert_eq!(p.pin_ready_identity(&r), PinResult::Pinned);
+        p.navigate();
+        p.set_scope(Scope {
+            session: 1,
+            graph: 2,
+            vault: "main".into(),
+        });
+        p.leave_opener(500);
+        p.advance(1000);
+        assert_eq!(p.pinned.len(), 1);
+        assert!(!p.complete(&r, Ok(content("late"))));
+        assert_eq!(p.pinned[0].state, State::Ready(content("accepted")));
+        let second = read(&mut p, 2);
+        assert!(p.close_identity(&r));
+        assert_eq!(p.transient.as_ref().unwrap().read, second);
+        assert!(p.pinned.is_empty());
+    }
+    #[test]
+    fn reader_pin_shared_capacity_duplicate_and_vault_identity() {
+        let mut p = model();
+        for id in 1..=4 {
+            let r = read(&mut p, id);
+            p.complete(&r, Ok(content("body")));
+            assert_eq!(p.pin_ready_identity(&r), PinResult::Pinned);
+            p.navigate();
+        }
+        let new = read(&mut p, 5);
+        p.complete(&new, Ok(content("new")));
+        assert_eq!(p.pin_ready_identity(&new), PinResult::CapacityReached);
+        assert_eq!(p.pinned.len(), 4);
+        // A duplicate explicit intent never evicts content, even at capacity.
+        let mut duplicate = p.pinned[0].clone();
+        duplicate.read.token = 100;
+        duplicate.placement_slot = None;
+        duplicate.state = State::Ready(content("replacement forbidden"));
+        let duplicate_read = duplicate.read.clone();
+        p.transient = Some(duplicate);
+        assert_eq!(p.pin_ready_identity(&duplicate_read), PinResult::Pinned);
+        assert_eq!(p.pinned.len(), 4);
+        assert_eq!(p.raised, Some(p.pinned[0].read.clone()));
+        assert_eq!(p.pinned[0].state, State::Ready(content("body")));
+        let old = p.pinned[3].read.clone();
+        p.close_identity(&old);
+        p.set_scope(Scope {
+            session: 1,
+            graph: 3,
+            vault: "foreign".into(),
+        });
+        p.hover(
+            Target {
+                vault: "foreign".into(),
+                note_id: 1,
+            },
+            (0., 0.),
+            0,
+        );
+        let foreign = p.advance(OPEN_DELAY_MS).unwrap();
+        p.complete(&foreign, Ok(content("foreign")));
+        assert_eq!(p.pin_ready_identity(&foreign), PinResult::Pinned);
+        assert_eq!(
+            p.pinned
+                .iter()
+                .filter(|p| p.read.target.note_id == 1)
+                .count(),
+            2
+        );
+        p.invalidate_session();
+        assert!(p.pinned.is_empty());
+        assert!(!p.complete(&foreign, Ok(content("late"))));
     }
 }

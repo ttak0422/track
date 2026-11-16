@@ -1,4 +1,4 @@
-//! Read-only full-graph overlays, isolated from reader/editor document state.
+//! Shared read-only graph/reader preview overlays, isolated from document state.
 use super::*;
 use graph_preview::{CardRect, Content, PinResult, Previews, Read, State, Target};
 use std::time::{Duration, Instant};
@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 pub struct PreviewUi {
     pub model: Previews,
     pub(crate) reader_due: bool,
+    reader_pins: std::collections::BTreeMap<u64, ReaderPinOwner>,
     clock: Instant,
     activation: Option<gpui::Subscription>,
     selector_scroll: gpui::ScrollHandle,
@@ -21,6 +22,7 @@ impl Default for PreviewUi {
         Self {
             model: Previews::default(),
             reader_due: false,
+            reader_pins: Default::default(),
             clock: Instant::now(),
             activation: None,
             selector_scroll: gpui::ScrollHandle::new(),
@@ -47,6 +49,7 @@ impl PreviewUi {
             .map(|p| p.read.token)
             .collect();
         self.parsed.retain(|token, _| live.contains(token));
+        self.reader_pins.retain(|token, _| live.contains(token));
         self.focus
             .retain(|(token, _), _| self.model.pinned.iter().any(|p| p.read.token == *token));
     }
@@ -55,6 +58,20 @@ impl PreviewUi {
         self.wake = None;
         self.deadline = None;
         self.generation += 1;
+    }
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ReaderPinOwner {
+    launch: u64,
+    storage: u64,
+    scope: u64,
+    registry: (String, Vec<String>),
+}
+impl ReaderPinOwner {
+    fn matches(&self, current: Option<&Self>, vault: &str, permitted: bool) -> bool {
+        current == Some(self)
+            && permitted
+            && (vault.is_empty() || self.registry.1.iter().any(|name| name == vault))
     }
 }
 #[derive(Default)]
@@ -84,6 +101,104 @@ fn pin_entry_focus_allowed(has_focus: bool, reader_focused: bool) -> bool {
     !has_focus || reader_focused
 }
 impl Workspace {
+    fn reader_pin_owner(&self) -> Option<ReaderPinOwner> {
+        let session = self.live.as_ref()?;
+        let storage = session.initial_storage.as_ref()?;
+        if storage.phase != "ready" || self.accepted_storage_generation != Some(storage.generation)
+        {
+            return None;
+        }
+        Some(ReaderPinOwner {
+            launch: session.client().launch_generation,
+            storage: storage.generation,
+            scope: self.shell.scope_revision,
+            registry: self.follow_registry()?,
+        })
+    }
+    fn reader_pin_current(&self, identity: &Read) -> bool {
+        self.previews
+            .reader_pins
+            .get(&identity.token)
+            .is_none_or(|owner| {
+                owner.matches(
+                    self.reader_pin_owner().as_ref(),
+                    &identity.target.vault,
+                    self.session_ui.permits(&identity.target.vault),
+                )
+            })
+    }
+    fn sync_reader_pins(&mut self) {
+        let stale: Vec<_> = self
+            .previews
+            .model
+            .pinned
+            .iter()
+            .chain(self.previews.model.transient.iter())
+            .filter(|p| !self.reader_pin_current(&p.read))
+            .map(|p| p.read.clone())
+            .collect();
+        for read in stale {
+            self.previews.model.close_identity(&read);
+        }
+        self.previews.prune_content();
+    }
+    fn preview_control_available(&self, identity: &Read, window: &Window, cx: &App) -> bool {
+        window.is_window_active()
+            && self.preview_present(identity)
+            && self.pin_keyboard_available(cx)
+            && !self.reader_preview_routing_blocked(cx)
+            && !self.editor_shortcut_blocked(cx)
+            && !(self.reader_hover_active()
+                && self
+                    .previews
+                    .model
+                    .transient
+                    .as_ref()
+                    .is_some_and(|p| &p.read == identity)
+                && !self.reader_hover_current(window, cx))
+    }
+    fn pin_reader_preview(&mut self, identity: &Read, window: &Window, cx: &mut Context<Self>) {
+        if !self.preview_control_available(identity, window, cx)
+            || !self.reader_hover_current(window, cx)
+        {
+            return;
+        }
+        let Some(owner) = self.reader_pin_owner() else {
+            return;
+        };
+        if !owner.matches(
+            Some(&owner),
+            &identity.target.vault,
+            self.session_ui.permits(&identity.target.vault),
+        ) {
+            return;
+        }
+        self.sync_reader_pins();
+        match self.previews.model.pin_ready_identity(identity) {
+            PinResult::Pinned => {
+                if let Some(pin) = self
+                    .previews
+                    .model
+                    .pinned
+                    .iter()
+                    .find(|p| p.read.target == identity.target)
+                {
+                    self.previews.reader_pins.insert(pin.read.token, owner);
+                }
+                self.clear_reader_hover_owner();
+                self.previews.reader_due = false;
+                // Retire opener/close deadline without touching immutable pins.
+                self.previews.model.navigate();
+                self.previews.cancel_wake();
+                self.previews.message.clear();
+            }
+            PinResult::CapacityReached => {
+                self.previews.message =
+                    "Four pinned previews maximum. Close or unpin a preview first.".into()
+            }
+            PinResult::NothingToPin => {}
+        }
+    }
     pub(crate) fn pin_keyboard_available(&self, cx: &App) -> bool {
         if self.handoff_active() || self.includes_preview_active() {
             return false;
@@ -124,6 +239,7 @@ impl Workspace {
         {
             return false;
         }
+        self.sync_reader_pins();
         let pin = if m.shift {
             self.previews.model.pinned.last()
         } else {
@@ -164,7 +280,8 @@ impl Workspace {
         window: &mut gpui::Window,
         cx: &mut Context<Self>,
     ) {
-        if !focus.is_focused(window)
+        if !self.preview_control_available(identity, window, cx)
+            || !focus.is_focused(window)
             || !self.pin_keyboard_available(cx)
             || !self
                 .previews
@@ -241,6 +358,9 @@ impl Workspace {
         window: &mut gpui::Window,
         cx: &mut Context<Self>,
     ) {
+        if !self.preview_control_available(identity, window, cx) {
+            return;
+        }
         if !self
             .previews
             .model
@@ -456,13 +576,15 @@ impl Workspace {
         .detach();
     }
     fn preview_present(&self, read: &Read) -> bool {
-        self.previews
-            .model
-            .transient
-            .as_ref()
-            .into_iter()
-            .chain(self.previews.model.pinned.iter())
-            .any(|preview| &preview.read == read)
+        self.reader_pin_current(read)
+            && self
+                .previews
+                .model
+                .transient
+                .as_ref()
+                .into_iter()
+                .chain(self.previews.model.pinned.iter())
+                .any(|preview| &preview.read == read)
     }
     pub(crate) fn render_graph_previews(
         &mut self,
@@ -470,6 +592,7 @@ impl Workspace {
         viewport: gpui::Size<gpui::Pixels>,
         cx: &mut Context<Self>,
     ) -> Vec<gpui::AnyElement> {
+        self.sync_reader_pins();
         self.previews.prune_content();
         for preview in &self.previews.model.pinned {
             for control in ["title", "unpin", "open", "close"] {
@@ -502,6 +625,8 @@ impl Workspace {
         let reader_transient = self.reader_hover_active();
         let mut cards: Vec<_> = ordered.into_iter().map(|(pinned, preview)| {
                 let identity = preview.read.clone();
+                let reader_card = !pinned && reader_transient;
+                let can_pin = !reader_card || matches!(preview.state, State::Ready(_));
                 let hover_identity = identity.clone();
                 let open_identity = identity.clone();
                 let pin_identity = identity.clone();
@@ -545,13 +670,14 @@ impl Workspace {
                         .on_mouse_down(gpui::MouseButton::Left, cx.listener(move |this,event: &gpui::MouseDownEvent,window,cx| {
                             this.observe_preview_activation(window, cx);
                             cx.stop_propagation();
-                            if pinned && this.previews.model.begin_geometry(&drag_identity, (f32::from(event.position.x), f32::from(event.position.y)), rect, false, viewport_size) { cx.notify(); }
+                            if pinned && this.preview_control_available(&drag_identity, window, cx) && this.previews.model.begin_geometry(&drag_identity, (f32::from(event.position.x), f32::from(event.position.y)), rect, false, viewport_size) { cx.notify(); }
                         })))
                         .child(div().text_xs().truncate().child(format!("{} · ID {}", if identity.target.vault.is_empty() { "launch vault" } else { &identity.target.vault }, identity.target.note_id)))
                         .child(div().flex().flex_wrap().gap_3().text_xs()
-                            .when(!reader_transient, |controls| controls.child(div().id(("preview-pin", identity.token as usize)).cursor_pointer().child(if pinned { "Unpin" } else { "Pin" })
-                                .on_click(cx.listener(move |this,_,_,cx| {
-                                    if !this.preview_present(&pin_identity) { return; }
+                            .when(can_pin, |controls| controls.child(div().id(("preview-pin", identity.token as usize)).cursor_pointer().child(if pinned { "Unpin" } else { "Pin" })
+                                .on_click(cx.listener(move |this,_,window,cx| {
+                                    if !this.preview_control_available(&pin_identity, window, cx) { return; }
+                                    if reader_card { this.pin_reader_preview(&pin_identity, window, cx); cx.stop_propagation(); cx.notify(); return; }
                                     this.previews.message.clear();
                                     if pinned { this.previews.model.unpin_identity(&pin_identity, this.previews.now()); }
                                     else if this.previews.model.pin_identity(&pin_identity) == PinResult::CapacityReached {
@@ -560,16 +686,16 @@ impl Workspace {
                                     this.schedule_preview(cx); cx.stop_propagation(); cx.notify();
                                 })))
                             .child(div().id(("preview-open", identity.token as usize)).cursor_pointer().child("Open as page")
-                                .on_click(cx.listener(move |this,_,_,cx| {
-                                    if !this.preview_present(&open_identity) { return; }
+                                .on_click(cx.listener(move |this,_,window,cx| {
+                                    if !this.preview_control_available(&open_identity, window, cx) { return; }
                                     this.open_live_key(live::NoteKey { vault: open_identity.target.vault.clone(), note_id: open_identity.target.note_id }, cx);
                                     cx.stop_propagation();
                                 })))
                             )
                             .child(div().id(("preview-close", identity.token as usize)).cursor_pointer().child("Close")
-                                .on_click(cx.listener(move |this,_,_,cx| {
-                                    if !this.preview_present(&close_identity) { return; }
-                                    if this.reader_hover_active() { this.cancel_transient_preview(); } else { this.previews.model.close_identity(&close_identity); }
+                                .on_click(cx.listener(move |this,_,window,cx| {
+                                    if !this.preview_control_available(&close_identity, window, cx) { return; }
+                                    if reader_card && this.reader_hover_active() { this.cancel_transient_preview(); } else { this.previews.model.close_identity(&close_identity); }
                                     this.previews.message.clear(); this.schedule_preview(cx); cx.stop_propagation(); cx.notify();
                                 })))
                         ))
@@ -582,7 +708,7 @@ impl Workspace {
                         .on_mouse_down(gpui::MouseButton::Left, cx.listener(move |this,event: &gpui::MouseDownEvent,window,cx| {
                             this.observe_preview_activation(window, cx);
                             cx.stop_propagation();
-                            if this.previews.model.begin_geometry(&resize_identity, (f32::from(event.position.x), f32::from(event.position.y)), rect, true, viewport_size) { cx.notify(); }
+                            if this.preview_control_available(&resize_identity, window, cx) && this.previews.model.begin_geometry(&resize_identity, (f32::from(event.position.x), f32::from(event.position.y)), rect, true, viewport_size) { cx.notify(); }
                         }))))
                     .when(!self.previews.message.is_empty(), |el| el.child(div().p_2().text_xs().child(self.previews.message.clone())))
                     .into_any_element()
@@ -629,7 +755,7 @@ impl Workspace {
                                     .when(control == "title", |el| el.w_full().child(div().truncate().child(format!("{} · ID {}",if identity.target.vault.is_empty() { "launch vault" } else { &identity.target.vault },identity.target.note_id))))
                                     .on_key_down(cx.listener(move |this,event: &gpui::KeyDownEvent,window,cx| this.pin_control_key(&key_identity,control,&key_focus,rect,event,window,cx)))
                                     .on_click(cx.listener(move |this,_,window,cx| {
-                                        if !this.pin_keyboard_available(cx) || !this.previews.model.pinned.iter().any(|p| p.read == click_identity) { return; }
+                                        if !this.preview_control_available(&click_identity, window, cx) || !this.previews.model.pinned.iter().any(|p| p.read == click_identity) { return; }
                                         window.focus(&click_focus);
                                         this.activate_pin_control(&click_identity,control,window,cx);
                                         cx.stop_propagation();
@@ -650,9 +776,17 @@ impl Workspace {
                     .absolute()
                     .inset_0()
                     .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .on_mouse_move(
-                        cx.listener(move |this, event: &gpui::MouseMoveEvent, _, cx| {
+                    .on_mouse_move(cx.listener(
+                        move |this, event: &gpui::MouseMoveEvent, window, cx| {
                             cx.stop_propagation();
+                            if !window.is_window_active()
+                                || !this.reader_pin_current(&move_identity)
+                                || this.editor_shortcut_blocked(cx)
+                            {
+                                this.previews.model.end_geometry_for(&move_identity);
+                                cx.notify();
+                                return;
+                            }
                             this.previews.model.update_geometry(
                                 &move_identity,
                                 (f32::from(event.position.x), f32::from(event.position.y)),
@@ -660,8 +794,8 @@ impl Workspace {
                                 event.pressed_button == Some(gpui::MouseButton::Left),
                             );
                             cx.notify();
-                        }),
-                    )
+                        },
+                    ))
                     .on_mouse_up(
                         gpui::MouseButton::Left,
                         cx.listener(move |this, _, _, cx| {
@@ -1114,5 +1248,46 @@ mod tests {
         assert!(content.body.is_empty() && content.partial && content.read_only);
         assert_eq!(content.title, "Empty");
         assert_eq!(content.diagnostics.len(), 2);
+    }
+}
+
+#[cfg(test)]
+mod reader_pin_owner_tests {
+    use super::*;
+    #[test]
+    fn reader_pin_owner_survives_note_navigation_not_source_scope_or_permissions() {
+        let owner = ReaderPinOwner {
+            launch: 1,
+            storage: 2,
+            scope: 3,
+            registry: ("main".into(), vec!["foreign".into(), "main".into()]),
+        };
+        // No reader note/request in this immutable snapshot owner: normal Back and
+        // note-to-note transitions do not change this acceptance context.
+        assert!(
+            !PinKeyboardContext {
+                closing: true,
+                ..Default::default()
+            }
+            .allowed()
+        );
+        assert!(PinKeyboardContext::default().allowed());
+        assert!(owner.matches(Some(&owner), "foreign", true));
+        assert!(owner.matches(Some(&owner), "", true));
+        assert!(!owner.matches(Some(&owner), "missing", true));
+        assert!(!owner.matches(Some(&owner), "main", false));
+        assert!(!owner.matches(None, "main", true));
+        let mut changed = owner.clone();
+        changed.launch += 1;
+        assert!(!owner.matches(Some(&changed), "main", true));
+        changed = owner.clone();
+        changed.storage += 1;
+        assert!(!owner.matches(Some(&changed), "main", true));
+        changed = owner.clone();
+        changed.scope += 1;
+        assert!(!owner.matches(Some(&changed), "main", true));
+        changed = owner.clone();
+        changed.registry.1.remove(0);
+        assert!(!owner.matches(Some(&changed), "main", true));
     }
 }
