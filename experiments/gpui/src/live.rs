@@ -680,7 +680,13 @@ fn validate_calendar_content(
     Ok(())
 }
 fn range_dates(since: &str, until: &str) -> Option<Vec<String>> {
-    if !event_date_valid(since) || !event_date_valid(until) || since > until {
+    // Match the engine's finite projection domain, including its end-date bound.
+    if !event_date_valid(since)
+        || !event_date_valid(until)
+        || since.starts_with("9999")
+        || until.starts_with("9999")
+        || since > until
+    {
         return None;
     }
     let mut days = vec![since.to_owned()];
@@ -6436,6 +6442,62 @@ mod tests {
         assert_eq!(range_dates("2026-01-01", "2026-02-11").unwrap().len(), 42);
         assert!(range_dates("2026-01-01", "2026-02-12").is_none());
         assert!(range_dates("2026-02-02", "2026-02-01").is_none());
+    }
+    #[test]
+    fn calendar_range_year_domain_is_checked_before_transport() {
+        for date in ["0001-01-01", "9998-12-31"] {
+            assert_eq!(range_dates(date, date).unwrap(), vec![date]);
+            for content in [false, true] {
+                let day = if content {
+                    serde_json::json!({"date":date,"task_count":0,"tasks":[],"note_count":0,"notes":[]})
+                } else {
+                    serde_json::json!({"date":date,"count":0,"previews":[]})
+                };
+                let payload = serde_json::json!({"vault":"work","since":date,"until":date,
+                    "time_zone":"UTC","today":date,"days":[day]});
+                let (client, worker) = mock(200, payload.to_string());
+                for (since, until) in [
+                    ("0000-12-31", "0001-01-01"),
+                    ("9999-01-01", "9999-01-01"),
+                    ("9998-12-31", "9999-01-01"),
+                    ("9999-12-31", "9999-12-31"),
+                ] {
+                    assert!(matches!(
+                        client.calendar_range("work", "host", since, until, "UTC"),
+                        Err(Error::Config(_))
+                    ));
+                    assert!(matches!(
+                        client.calendar_content("work", "host", since, until, "UTC"),
+                        Err(Error::Config(_))
+                    ));
+                }
+                // The mock accepts exactly one request: every rejected input above
+                // leaves this valid boundary-year request as its first transport.
+                if content {
+                    assert!(
+                        client
+                            .calendar_content("work", "host", date, date, "UTC")
+                            .is_ok()
+                    );
+                } else {
+                    assert!(
+                        client
+                            .calendar_range("work", "host", date, date, "UTC")
+                            .is_ok()
+                    );
+                }
+                let request = worker.join().unwrap();
+                let endpoint = if content {
+                    "/api/calendar-activity/range?"
+                } else {
+                    "/api/calendar-events/range?"
+                };
+                assert!(request.contains(endpoint));
+                assert!(request.contains(&format!("since={date}&until={date}")));
+            }
+        }
+        assert_eq!(range_dates("9998-11-20", "9998-12-31").unwrap().len(), 42);
+        assert!(range_dates("9998-11-19", "9998-12-31").is_none());
     }
     #[test]
     fn range_api_failure_is_not_a_zero_event_snapshot() {

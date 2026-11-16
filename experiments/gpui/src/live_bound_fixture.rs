@@ -778,3 +778,6 @@ fn synthetic_bound_session_is_finite_only_and_reaps_its_owner() {
 
 #[path = "live_bound_workflows.rs"]
 mod workflows;
+
+#[path = "live_bound_calendar.rs"]
+mod calendar_workflows;

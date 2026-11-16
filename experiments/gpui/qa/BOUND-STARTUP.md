@@ -84,3 +84,18 @@ identities, finite note navigation and protected inventories. The help correctio
 is in `docs/help/note/1785024017000.md`. `nix develop --command make site` could not
 run in this container because `nix` is not installed; rendered help and full
 GPUI/native interaction remain unverified.
+
+## Home and calendar reads
+
+A second real-Go scenario exercises two same-ID vaults with populated dated notes,
+open/completed tasks and existing journals. Agenda, task listings, calendar
+note/task summaries and journal-to-note navigation preserve scope. Missing
+journals and empty event day/range queries do not create canonical files or a
+calendar directory. The final protected inventory remains unchanged. This
+scenario does not cover populated calendar-event files, DST or native rendering.
+
+Range preflight now matches the Go projection domain of years 0001 through 9998;
+year 9999 is rejected before HTTP for both event and note/activity ranges. This
+leaves the 42-day cap, ordinary-vault gate and explicit named-zone semantics
+unchanged. The help date-domain wording was updated; the previously recorded
+Nix/site-rendering limitation still applies.
