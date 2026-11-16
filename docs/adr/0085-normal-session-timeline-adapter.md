@@ -21,7 +21,11 @@ Require explicit vault/project binding. Derive a run from a domain-separated
 agent/session hash, keep it stable over resume/compact, and scope task IDs to the
 run. Record attachment once with a deterministic event identity. New session IDs
 create new runs. Hooks fail open and remain inert without explicit opt-in.
-They supply identity/context only, never infer task completion.
+They supply identity and a self-contained automatic-work policy, never infer task
+completion. Reviewed project instruction templates reinforce the policy without
+requiring per-conversation invocation. A missing hook context skips automatic
+tracking rather than prompting for session labels. Skills provide detailed syntax
+but are not the sole activation mechanism.
 
 Task flags patch existing records and preserve omitted values. Exact resulting
 state is a no-op. Revision conflicts require caller reconciliation, except the

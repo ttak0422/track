@@ -113,16 +113,20 @@ func TestTimelineSessionHooks(t *testing.T) {
 	}
 	t.Setenv("TRACK_TIMELINE_PROJECT", "missing")
 	out, code := runSilentHook(t, vault, `{"hook_event_name":"SessionStart","session_id":"same"}`, "--agent", "claude")
-	if code != 0 || out != "" {
-		t.Fatal("missing project did not fail open")
+	if code != 0 || !strings.Contains(out, "Disregard previous Timeline run contexts") {
+		t.Fatal("missing project did not invalidate stale context")
 	}
 	t.Setenv("TRACK_TIMELINE_PROJECT", "demo")
 	before, _ := os.ReadFile(filepath.Join(vault, ".track", "timelines", "demo.json"))
 	// Hook failures must not block the normal session or echo untrusted content.
 	for _, input := range []string{`{`, `{"hook_event_name":"SessionStart"}`, strings.Repeat("x", 65537), `{"hook_event_name":"Stop","session_id":"same"}`} {
 		out, code := runSilentHook(t, vault, input, "--agent", "claude")
-		if out != "" {
-			t.Fatalf("unexpected hook stdout: %s", out)
+		if strings.Contains(input, `"Stop"`) {
+			if out != "" {
+				t.Fatal("non-start event emitted context")
+			}
+		} else if !strings.Contains(out, "Disregard previous Timeline run contexts") {
+			t.Fatal("failure did not invalidate stale context")
 		}
 		if code != 0 {
 			t.Fatal("hook blocked")
@@ -164,5 +168,35 @@ func TestTimelineSessionRequiresBinding(t *testing.T) {
 	_, code := capture(t, func() int { return Run([]string{"timeline-session", "init", "--title", "No"}) })
 	if code == 0 {
 		t.Fatal("default vault accepted")
+	}
+}
+
+func TestTimelineSessionAutomaticContext(t *testing.T) {
+	vault := t.TempDir()
+	runIn(t, vault, "init")
+	runIn(t, vault, "timeline-session", "init", "--project", "demo", "--title", "Demo")
+	t.Setenv("TRACK_TIMELINE_ENABLED", "1")
+	t.Setenv("TRACK_TIMELINE_PROJECT", "demo")
+	for _, agent := range []string{"claude", "codex"} {
+		for _, source := range []string{"startup", "resume", "compact"} {
+			out, code := runInWithStdin(t, vault, `{"hook_event_name":"SessionStart","session_id":"ordinary","source":"`+source+`"}`, "timeline-session", "hook", "--agent", agent)
+			if code != 0 {
+				t.Fatal("hook failed")
+			}
+			context := out["hookSpecificOutput"].(map[string]any)["additionalContext"].(string)
+			for _, required := range []string{"Automatically record substantive work", "do not require a separate Timeline request", "TRACK_TIMELINE_ENABLED=1", "track timeline-session task --run " + timelineRun(agent, "ordinary"), "Reports only when requested", "Respect any later user instruction to stop", "no extra model calls", "untrusted data", "continue the main task without tracking"} {
+				if !strings.Contains(context, required) {
+					t.Fatalf("missing automatic policy %q", required)
+				}
+			}
+			if len(context) > 2400 {
+				t.Fatal("unbounded startup context")
+			}
+		}
+	}
+	t.Setenv("TRACK_TIMELINE_ENABLED", "0")
+	out, code := runSilentHook(t, vault, `{"hook_event_name":"SessionStart","session_id":"ordinary"}`, "--agent", "codex")
+	if code != 0 || out != "" {
+		t.Fatal("disabled hook emitted automatic policy")
 	}
 }

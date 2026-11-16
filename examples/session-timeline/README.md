@@ -24,12 +24,13 @@ set it globally for unrelated repositories. The hook never trusts its incoming
 
 Copy `track-timeline/SKILL.md` into the intended repository's
 `.claude/skills/track-timeline/SKILL.md` for Claude, or
-`.agents/skills/track-timeline/SKILL.md` for Codex. Review the skill and use the
-agent's supported invocation/discovery workflow. Explicitly request timeline
-tracking in the normal conversation. Skill loading and execution remain subject
-to that client's trust and permission settings.
+`.agents/skills/track-timeline/SKILL.md` for Codex. Review the skill, then merge `WORKSPACE-INSTRUCTIONS.md` into the project
+`CLAUDE.md` (Claude) and/or `AGENTS.md` (Codex), preserving existing instructions.
+The standing policy selects substantive work automatically after opt-in; **do not
+request Timeline or invoke a skill in every conversation**. Instruction loading
+and execution remain subject to the client's trust and permission settings.
 
-### Optional lifecycle context
+### Lifecycle context for automatic use
 
 Review and **merge**, rather than overwrite, `claude.settings.json` into the
 intended Claude settings, or `codex.hooks.json` into the intended Codex hooks
@@ -41,8 +42,13 @@ export TRACK_TIMELINE_ENABLED=1
 claude  # or: codex
 ```
 
-The command SessionStart hook passes the real session ID to Track; Track hashes
+For automatic normal-session use, install the reviewed hook once. The command
+SessionStart hook passes the real session ID to Track; Track hashes
 agent + session ID into an opaque run ID and returns it as additional context.
+It also supplies a compact, self-contained automatic-work policy, including CLI
+examples, so activation does not rely solely on skill discovery. Persistent
+workspace instructions reinforce the same opt-in gate. Neither mechanism changes
+permissions or guarantees model compliance.
 Startup/resume/compact with the same ID reuse a single attachment event. A new
 ID (including a fork/clear that changes ID) gets a new run. The hook does not
 create tasks or mark any done. No Stop/SessionEnd hook is installed.
@@ -50,13 +56,21 @@ create tasks or mark any done. No Stop/SessionEnd hook is installed.
 Without `TRACK_TIMELINE_ENABLED=1`, the hook exits silently without reading stdin
 or opening the store. Set it to `0` or remove the reviewed hook to disable it.
 This disables lifecycle integration, **not explicit CLI writes** or the skill;
-stop requesting the skill/remove it if you want no manual updates either.
+the persistent policy and skill must skip automatic writes when it is disabled.
+Direct user-requested CLI writes remain explicit actions, not automatic tracking.
 
 Malformed/oversized input, an unavailable vault/project, or a store failure
-produces a generic stderr diagnostic and exit 0. No hook input is echoed. A
+produces a generic stderr diagnostic, a static context invalidating inherited
+Timeline run IDs, and exit 0. This prevents a failed startup from silently reusing
+a forked conversation's previous run. No hook input is echoed. If the client never
+executes the hook at all, that invalidation cannot be delivered; client hook
+execution remains a required live acceptance check. A
 missing Track binary is a client-level hook error: review PATH or remove the
-hook. No background jobs, MCP server, or additional model billing are involved.
-The skill remains usable if hooks are absent or disabled:
+hook. No background jobs, MCP server, or separate model API calls are involved.
+Normal-session context and tool calls can increase ordinary token usage.
+Without a successful hook context, automatic tracking skips rather than asking
+for a new label every session. The following **manual diagnostic fallback** is
+available, but is not the ordinary-session workflow:
 
 ```sh
 track timeline-session start --agent codex --session my-stable-session-label
@@ -94,7 +108,9 @@ files. Claude users select `--agent claude` instead.
 ## Compatibility evidence (2026-11-16)
 
 The build environment has `codex-cli 0.167.0-alpha.4`; Claude is not installed.
-Hook fixtures and CLI behavior are tested without a live model session. Neither
+An isolated CODEX_HOME reports `Not logged in`; no account credentials were copied
+or sign-in attempted. Hook fixtures and CLI behavior are tested without a live
+model session. No-invocation model behavior is therefore **not yet live verified**. Neither
 interactive-client integration nor a minimum supported client release has been
 live-verified; check your installed client's `/hooks` and skill support first.
 Do not assume old Codex `notify` has the same contract as SessionStart hooks.
@@ -112,3 +128,20 @@ Product references (not imported dependencies):
 Both integrate inside their own session runtime. Track instead keeps storage
 independent and offers a portable skill/CLI. Their native UI APIs and automatic
 model-report schedules are not reproduced here.
+
+Persistent instruction references: [Claude project instructions](https://code.claude.com/docs/en/memory), [Codex AGENTS.md](https://learn.chatgpt.com/docs/agent-configuration/agents-md). These are context instructions, not enforcement or permission grants.
+
+## Live acceptance check (still required)
+
+In a disposable repository and vault, complete the one-time setup above, start
+an ordinary interactive client, and ask only: `Add a small sum function and test
+it.` Do not mention Timeline or invoke its skill. Confirm that the project gains
+a sanitized task plan and verified progress updates. Resume and compact the same
+session and confirm the same run and task IDs are reused. Start a new session and
+confirm separation. Then disable TRACK_TIMELINE_ENABLED before launching again:
+ordinary work must proceed with no automatic Timeline records or repeated setup
+questions. Repeat with missing binding/Track and denied shell permissions.
+
+Run this with both supported clients using an authorized test account. CLI tests
+assert the delivered policy and journal behavior, not that a model obeys it.
+Do not reuse real user tasks or copy account credentials merely to run this check.
