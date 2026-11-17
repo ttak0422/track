@@ -99,7 +99,7 @@ enum State {
     Rejected,
     Complete,
 }
-struct FixturePreflightReview {
+pub(crate) struct FixturePreflightReview {
     proof: read_inputs::SyntheticCanonical,
     runtime: PrivateRuntime,
     command: Command,
@@ -142,11 +142,11 @@ impl FixturePreflightReview {
             spawn_attempts: 0,
         })
     }
-    fn check(&self, dialog: &RequestDialog, canceled: &AtomicBool) -> Result<(), Error> {
+    fn check(&self, snapshot: &PreviewCorrelation, canceled: &AtomicBool) -> Result<(), Error> {
         if canceled.load(Ordering::Acquire)
-            || dialog.stamp() != self.stamp
-            || dialog.request() != &self.request
-            || dialog.decision() != Decision::PreviewConfirmed
+            || snapshot.stamp != self.stamp
+            || snapshot.request != self.request
+            || !snapshot.confirmed
             || context(&self.command)? != self.context
             || CommandShape::capture(&self.command) != self.shape
             || self.command.get_program() != self.proof.launch().executable.as_os_str()
@@ -158,13 +158,20 @@ impl FixturePreflightReview {
         Ok(())
     }
     fn capture(&mut self, dialog: &RequestDialog, canceled: &AtomicBool) -> Result<Value, Error> {
+        self.capture_snapshot(&PreviewCorrelation::capture(dialog), canceled)
+    }
+    fn capture_snapshot(
+        &mut self,
+        snapshot: &PreviewCorrelation,
+        canceled: &AtomicBool,
+    ) -> Result<Value, Error> {
         if self.state != State::Reviewed {
             return Err(rejected());
         }
         // Fail closed before any fallible operation; only the successful result
         // advances to Complete. Restoring an input never revives this review.
         self.state = State::Rejected;
-        self.check(dialog, canceled)?;
+        self.check(snapshot, canceled)?;
         let request = launch_protocol::BoundLaunchRequest::new(
             self.context.clone(),
             workspace_provenance::RequestedSelector::Registered("work".into()),
@@ -183,7 +190,7 @@ impl FixturePreflightReview {
             canceled,
             Some(payload),
         );
-        self.check(dialog, canceled)?;
+        self.check(snapshot, canceled)?;
         let bytes = outcome?;
         let text = std::str::from_utf8(&bytes).map_err(|_| rejected())?;
         let mut lines = text
@@ -217,12 +224,70 @@ impl FixturePreflightReview {
         {
             return Err(rejected());
         }
-        self.check(dialog, canceled)?;
+        self.check(snapshot, canceled)?;
         self.state = State::Complete;
         Ok(value)
     }
+    /// Pure UI handoff. All filesystem/command revalidation remains in run().
+    pub(crate) fn into_worker(
+        self,
+        dialog: &RequestDialog,
+        canceled: std::sync::Arc<AtomicBool>,
+    ) -> Result<FixtureWorker, Error> {
+        let snapshot = PreviewCorrelation::capture(dialog);
+        if self.state != State::Reviewed
+            || !snapshot.confirmed
+            || snapshot.stamp != self.stamp
+            || snapshot.request != self.request
+        {
+            return Err(rejected());
+        }
+        Ok(FixtureWorker {
+            review: self,
+            snapshot,
+            canceled,
+        })
+    }
     fn cleanup_empty(&mut self) -> std::io::Result<CleanupOutcome> {
         self.runtime.cleanup_empty()
+    }
+}
+// Immutable correlation is not the current UI state and is not authority.
+struct PreviewCorrelation {
+    stamp: EventStamp,
+    request: WorkspaceRequest,
+    confirmed: bool,
+}
+impl PreviewCorrelation {
+    fn capture(d: &RequestDialog) -> Self {
+        Self {
+            stamp: d.stamp(),
+            request: d.request().clone(),
+            confirmed: d.decision() == Decision::PreviewConfirmed,
+        }
+    }
+}
+pub(crate) struct FixtureWorker {
+    review: FixturePreflightReview,
+    snapshot: PreviewCorrelation,
+    canceled: std::sync::Arc<AtomicBool>,
+}
+pub(crate) struct FixtureWorkerResult {
+    pub(crate) succeeded: bool,
+    _owner: FixturePreflightReview,
+}
+impl FixtureWorker {
+    pub(crate) fn run(mut self) -> FixtureWorkerResult {
+        let succeeded = self
+            .review
+            .capture_snapshot(&self.snapshot, &self.canceled)
+            .is_ok();
+        // No automatic directory deletion on success, cancellation, stale result,
+        // dropped receiver, or dropped view. Retain the descriptor owner in result.
+        FixtureWorkerResult {
+            succeeded,
+            _owner: self.review,
+        }
     }
 }
 #[cfg(test)]
@@ -413,6 +478,57 @@ mod tests {
         // Explicit fixture owner removes only the file it created, never gate cleanup.
         std::fs::remove_file(sentinel).unwrap();
         assert_eq!(review.cleanup_empty().unwrap(), CleanupOutcome::Removed);
+    }
+    #[test]
+    fn worker_canceled_before_execution_does_not_spawn_or_delete_runtime() {
+        let (_fixture, review, mut dialog) = setup(&std::env::current_exe().unwrap());
+        confirm(&mut dialog);
+        let canceled = std::sync::Arc::new(AtomicBool::new(false));
+        let worker = review.into_worker(&dialog, canceled.clone()).unwrap();
+        canceled.store(true, Ordering::Release);
+        let mut result = std::thread::spawn(move || worker.run()).join().unwrap();
+        assert!(!result.succeeded);
+        assert_eq!(result._owner.spawn_attempts, 0);
+        assert!(result._owner.runtime.path().exists());
+        assert_eq!(
+            result._owner.cleanup_empty().unwrap(),
+            CleanupOutcome::Removed
+        );
+    }
+    #[test]
+    #[ignore = "explicit Go fixture bridge binary and synthetic-only opt-in"]
+    fn background_fixture_worker_has_one_current_completion_and_keeps_owner() {
+        use crate::workspace_preflight_task::PreviewFlight;
+        assert_eq!(
+            std::env::var("TRACK_NATIVE_TEST_SYNTHETIC_ONLY").as_deref(),
+            Ok("1")
+        );
+        let binary = PathBuf::from(std::env::var_os("TRACK_NATIVE_BOUND_TEST_BINARY").unwrap());
+        assert!(binary.is_absolute());
+        let (fixture, review, mut dialog) = setup(&binary);
+        let before = admission_process_tests::protected_inventory(&fixture.0);
+        confirm(&mut dialog);
+        let mut flight = PreviewFlight::new();
+        let ticket = flight.start(&dialog).unwrap();
+        assert!(flight.start(&dialog).is_none());
+        let worker = review
+            .into_worker(&dialog, ticket.canceled().clone())
+            .unwrap();
+        let mut result = std::thread::spawn(move || worker.run()).join().unwrap();
+        assert!(result.succeeded);
+        assert_eq!(result._owner.spawn_attempts, 1);
+        assert!(flight.accept(&ticket, &dialog));
+        assert!(!flight.accept(&ticket, &dialog));
+        assert_eq!(
+            admission_process_tests::protected_inventory(&fixture.0),
+            before
+        );
+        assert!(OwnedServer::start(result._owner.proof.launch()).is_err());
+        assert!(result._owner.runtime.path().exists());
+        assert_eq!(
+            result._owner.cleanup_empty().unwrap(),
+            CleanupOutcome::Removed
+        );
     }
     #[test]
     #[ignore = "explicit Go fixture bridge binary and synthetic-only opt-in"]

@@ -454,3 +454,53 @@ public writable-fixture save test. Linux tests check and linked build passed,
 with independent review. Go source was unchanged. GUI/macOS, real consent and
 ordinary admission remain untested or disabled as applicable. This test-only
 binding adds no user workflow and needs no help-vault change.
+
+## Bounded asynchronous fixture handoff
+
+This handoff is limited to one fixture preflight worker for a test view's
+lifetime. Confirmation remains a preview choice. Independent fixture authority
+moves into the worker; no real-workspace authority is manufactured from it.
+The UI-side handoff checks only immutable correlation data and performs no
+filesystem validation or blocking process wait. The background worker retains
+proof, runtime and process ownership and performs the existing checks.
+
+Cancellation, request replacement and view destruction signal the same shared
+cancellation flag. Replacement never creates a new review automatically. Result
+acceptance must additionally match the exact flight identity, current dialog
+instance/generation, displayed request and decision; a late result is not proof
+that a cancelled request should be restored. Dropping a view must not join the
+worker on the GUI thread or abandon its owned-child cleanup. Runtime directories
+are not recursively removed on completion, discard or view destruction.
+
+The bounded acceptance target is deterministic headless ordering tests, a real-Go
+fixture completion and compilation of the GPUI asynchronous wiring. This cloud
+shell has neither DISPLAY nor WAYLAND_DISPLAY configured, and Xvfb is not
+installed. This slice does not change the environment to add a display. Actual
+GUI event delivery, focus, IME and
+real-Go cancellation initiated through that GUI remain separate acceptance work.
+No serve, real consent, ordinary-vault admission or broader test expansion is
+part of this handoff.
+
+The prepared-fixture view now schedules the owned worker on GPUI's background
+executor and uses a detached weak-view awaiter. Display-only previews remain
+inert. The prepared action is labelled "Run fixture preflight", and status never
+claims an access grant or automatic runtime cleanup. A completed result retains
+its runtime owner; ignoring or dropping it closes descriptors without deleting
+paths. Cancellation/replace/drop never resets a flight for another worker.
+
+Four headless flight tests cover duplicate/wrong completion, cancellation before
+start, barrier-controlled running cancellation/replacement/drop, and cancellation
+after worker completion but before UI acceptance. Seven gate tests include the
+actual Go background-worker success and a canceled-before-run worker with zero
+spawn attempts. Both groups passed in the adapter and actual GPUI-linked tests.
+The complete adapter passed 372 tests (24 ignored); actual GPUI-linked `live::`
+checks passed 194 with explicit Go binaries and the existing public writable-save
+exclusion. Final Linux tests check/link and independent review passed. No GUI
+was displayed. Real-Go in-flight cancellation initiated by GUI events is not
+claimed: only the headless ordering tests, forwarding and prior transport
+cancellation checks support that boundary. Go source is unchanged.
+
+This finite implementation checkpoint is complete. Actual GUI acceptance and
+real-workspace consent/admission are the next separate decisions, not reasons to
+keep extending this fixture suite. The ordinary gate stays closed. This test-only
+wiring adds no public workflow and requires no help-vault update.

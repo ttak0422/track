@@ -84,6 +84,8 @@ mod workspace_live;
 mod workspace_read_request;
 #[cfg(test)]
 mod workspace_read_request_view;
+#[cfg(test)]
+mod workspace_preflight_task;
 mod workspace_note_tasks;
 mod workspace_open_tasks;
 mod workspace_preview;
