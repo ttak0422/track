@@ -3024,6 +3024,10 @@ impl OwnedServer {
         if let StartupAdmission::SyntheticBound(proof) = &mut admission {
             proof.capture(&mut cmd, config.startup_timeout, canceled)?;
         }
+        #[cfg(test)]
+        if matches!(&admission, StartupAdmission::SyntheticBound(_)) {
+            cmd.stdin(Stdio::piped());
+        }
         drop((first, second));
         let mut child = cmd.spawn()?;
         let logs = Arc::new(Mutex::new(VecDeque::new()));
@@ -3055,6 +3059,28 @@ impl OwnedServer {
             storage_error: None,
         };
         let start = Instant::now();
+        #[cfg(test)]
+        if let StartupAdmission::SyntheticBound(proof) = &mut admission {
+            // Establish owner cleanup and output drains before transmitting.
+            // This shares the readiness deadline and does not own a process group.
+            let payload = proof.take_serve_request()?;
+            let stdin = owner.child.as_mut().and_then(|child| child.stdin.take())
+                .ok_or_else(|| Error::Startup("Missing owned request pipe".into()))?;
+            let mut request = request_pipe::RequestPipe::new(stdin, payload)?;
+            loop {
+                if canceled.load(Ordering::Acquire) {
+                    owner.shutdown()?;
+                    return Err(Error::Stale);
+                }
+                if start.elapsed() >= config.startup_timeout {
+                    owner.shutdown()?;
+                    return Err(Error::Startup("Bound request startup deadline exceeded".into()));
+                }
+                owner.check_running()?;
+                if request.pump()? { break; }
+                thread::sleep(Duration::from_millis(5));
+            }
+        }
         let mut last = String::new();
         let mut capability_verified = !config.canonical_read_only();
         while start.elapsed() < config.startup_timeout {
@@ -7598,6 +7624,9 @@ mod workspace_provenance;
 
 #[path = "live_launch_protocol.rs"]
 mod launch_protocol;
+
+#[path = "live_request_pipe.rs"]
+mod request_pipe;
 
 #[cfg(test)]
 #[path = "live_admission_process.rs"]

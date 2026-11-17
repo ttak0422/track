@@ -112,6 +112,7 @@ pub(super) struct SyntheticBound {
     root: PathBuf,
     nonce: String,
     revision: Option<String>,
+    serve_request: Option<Vec<u8>>,
 }
 impl SyntheticBound {
     fn new(proof: read_inputs::SyntheticCanonical, root: PathBuf) -> Result<Self, Error> {
@@ -122,6 +123,7 @@ impl SyntheticBound {
             root,
             nonce: entropy.iter().map(|b| format!("{b:02x}")).collect(),
             revision: None,
+            serve_request: None,
         };
         result.verify()?;
         Ok(result)
@@ -185,8 +187,7 @@ impl SyntheticBound {
             self.nonce.clone(),
         )
         .map_err(|_| invalid())?;
-        let preflight = String::from_utf8(protocol.preflight().map_err(|_| invalid())?)
-            .map_err(|_| invalid())?;
+        let preflight = protocol.preflight().map_err(|_| invalid())?;
         let mut capture = Command::new(command.get_program());
         capture
             .args(command.get_args())
@@ -199,12 +200,11 @@ impl SyntheticBound {
         }
         capture
             .env("GO_TRACK_BOUND_MODE", "capture")
-            .env("GO_TRACK_BOUND_REQUEST", preflight)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .process_group(0);
-        let bytes = capture_bytes(&mut capture, timeout.min(Duration::from_secs(10)), canceled)?;
+        let bytes = capture_exchange(&mut capture, timeout.min(Duration::from_secs(10)), canceled, Some(preflight))?;
         let text = std::str::from_utf8(&bytes).map_err(|_| invalid())?;
         let mut lines = text
             .lines()
@@ -238,11 +238,12 @@ impl SyntheticBound {
         let manifest: Manifest = serde_json::from_str(raw).map_err(|_| invalid())?;
         self.validate_manifest(&manifest)?;
         self.proof.verify_bindings().map_err(Error::Config)?;
-        let serve = String::from_utf8(protocol.serve(&manifest.revision).map_err(|_| invalid())?)
-            .map_err(|_| invalid())?;
-        command.env("GO_TRACK_BOUND_REQUEST", serve);
+        self.serve_request = Some(protocol.serve(&manifest.revision).map_err(|_| invalid())?);
         self.revision = Some(manifest.revision);
         Ok(())
+    }
+    pub(super) fn take_serve_request(&mut self) -> Result<Vec<u8>, Error> {
+        self.serve_request.take().ok_or_else(invalid)
     }
     fn validate_manifest(&self, m: &Manifest) -> Result<(), Error> {
         if m.version != 1
@@ -368,11 +369,25 @@ fn capture_bytes(
     timeout: Duration,
     canceled: &AtomicBool,
 ) -> Result<Vec<u8>, Error> {
+    capture_exchange(command, timeout, canceled, None)
+}
+fn capture_exchange(
+    command: &mut Command,
+    timeout: Duration,
+    canceled: &AtomicBool,
+    payload: Option<Vec<u8>>,
+) -> Result<Vec<u8>, Error> {
     if canceled.load(Ordering::Acquire) {
         return Err(Error::Stale);
     }
+    if payload.is_some() { command.stdin(Stdio::piped()); }
     let mut child = command.spawn()?;
     let outcome = (|| {
+        let mut request = match payload {
+            Some(payload) => Some(request_pipe::RequestPipe::new(child.stdin.take().ok_or_else(invalid)?, payload)?),
+            None => None,
+        };
+        let mut sent = request.is_none();
         let mut out = child.stdout.take().ok_or_else(invalid)?;
         let fd = out.as_raw_fd();
         let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
@@ -388,6 +403,9 @@ fn capture_bytes(
             if Instant::now() >= deadline {
                 return Err(Error::Startup("Manifest capture timed out".into()));
             }
+            if let Some(request) = &mut request {
+                sent = request.pump()?;
+            }
             let mut chunk = [0u8; 4096];
             match out.read(&mut chunk) {
                 Ok(n) => {
@@ -400,6 +418,7 @@ fn capture_bytes(
                 Err(e) => return Err(Error::Io(e)),
             }
             if capture_exited(&child)? {
+                if !sent { return Err(invalid()); }
                 // Drain only bytes currently available; never wait on inherited pipes.
                 loop {
                     match out.read(&mut chunk) {
@@ -522,6 +541,26 @@ fn capture_is_bounded_and_cancelable() {
         ),
         Err(Error::Oversized)
     ));
+}
+
+#[test]
+fn capture_duplex_request_uses_one_bounded_exchange() {
+    let run = |script: &str, timeout, canceled: &AtomicBool| {
+        let mut command = Command::new("/bin/sh");
+        command.args(["-c", script]).stdout(Stdio::piped())
+            .stderr(Stdio::null()).process_group(0);
+        capture_exchange(&mut command, timeout, canceled, Some(vec![b'x'; 192 * 1024]))
+    };
+    // The child fills stdout before consuming stdin. A blocking write_all
+    // before output draining would deadlock once both pipe buffers are full.
+    let bytes = run("head -c 65536 /dev/zero; cat >/dev/null; printf complete",
+        Duration::from_secs(3), &AtomicBool::new(false)).unwrap();
+    assert_eq!(bytes.len(), 65536 + 8);
+    assert!(bytes[..65536].iter().all(|byte| *byte == 0));
+    assert_eq!(&bytes[65536..], b"complete");
+    assert!(matches!(run("exec sleep 3", Duration::from_millis(30), &AtomicBool::new(false)), Err(Error::Startup(_))));
+    assert!(run("printf early-exit", Duration::from_secs(2), &AtomicBool::new(false)).is_err());
+    assert!(matches!(run("exit 0", Duration::from_secs(2), &AtomicBool::new(true)), Err(Error::Stale)));
 }
 
 #[test]
@@ -740,18 +779,14 @@ fn synthetic_bound_wrong_revision_exits_without_cache_or_note_writes() {
             .count(),
         0
     );
-    let request = cmd.get_envs()
-        .find(|(key, _)| *key == "GO_TRACK_BOUND_REQUEST")
-        .and_then(|(_, value)| value)
-        .unwrap();
-    let mut wrong: Value = serde_json::from_str(request.to_str().unwrap()).unwrap();
+    let mut wrong: Value = serde_json::from_slice(&bound.take_serve_request().unwrap()).unwrap();
     wrong["revision"] = serde_json::json!("0".repeat(64));
-    cmd.env("GO_TRACK_BOUND_REQUEST", serde_json::to_string(&wrong).unwrap())
-        .stdin(Stdio::null())
+    let payload = serde_json::to_vec(&wrong).unwrap();
+    cmd.stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .process_group(0);
-    assert!(capture_bytes(&mut cmd, Duration::from_secs(5), &AtomicBool::new(false)).is_err());
+    assert!(capture_exchange(&mut cmd, Duration::from_secs(5), &AtomicBool::new(false), Some(payload)).is_err());
     assert_eq!(
         std::fs::read_dir(fixture.0.join("private"))
             .unwrap()

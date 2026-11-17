@@ -181,7 +181,12 @@ func TestNativeBoundFixtureBridge(t *testing.T) {
 			t.Error(err)
 		}
 	}()
-	rawRequest := []byte(os.Getenv("GO_TRACK_BOUND_REQUEST"))
+	readContext, stopRead := context.WithTimeout(ctx, 5*time.Second)
+	rawRequest, err := readBoundLaunchPipe(readContext, os.Stdin)
+	stopRead()
+	if err != nil {
+		t.Fatal(err)
+	}
 	request, err := parseBoundLaunch(rawRequest)
 	expectedMode := "serve"
 	if mode == "capture" {

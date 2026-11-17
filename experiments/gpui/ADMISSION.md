@@ -219,11 +219,10 @@ fixture command after ownership values are installed, not from an expectation
 manufactured by the child. The context record now stores literal cwd as a string
 so aliases cannot compare equal through Path component normalization.
 
-The request format allows up to 256 KiB; the test bridge conveys small fixture
-requests through one environment variable outside the manifest-hashed namespace.
-That is not a production transport guarantee: OS per-string exec limits may be
-smaller. A future production caller needs an explicitly bounded/cancelable
-transport and authority/lifecycle review rather than adopting the test wrapper.
+The request format allows up to 256 KiB. The initial bridge used one environment
+variable, which could exceed OS per-string exec limits. The bounded pipe slice
+below replaces that mechanism completely. A future production caller still
+needs authority/lifecycle review rather than adopting the fixture wrapper.
 No ordinary launch, actual workspace grant, private-root creation or native GUI
 acceptance is introduced by this internal slice.
 
@@ -237,3 +236,39 @@ the retired loose environment field, retaining the original no-write assertions.
 Real-GPUI Linux tests check and no-run link also passed. Independent review
 confirmed the ASCII-field-name fix and lifecycle boundaries. Mac/GUI and public
 production transport remain unverified; the ordinary gate stays closed.
+
+## Bounded owned-pipe transport
+
+The fixture bridge now receives requests only through its owned stdin pipe,
+not an environment payload. Rust advances bounded nonblocking partial writes;
+preflight alternates those writes with stdout draining under one capture deadline
+so neither full pipe can deadlock the other. Completion closes stdin to deliver
+EOF. A partial send, early exit, overflow, cancellation or timeout does not publish
+a successful preflight. Existing owned-group cleanup remains specific to capture.
+
+For serve, the existing exact-child owner and output drains are established
+before transmission. Sending and readiness share one deadline. Failure retains
+the existing kill/reap cleanup; no process-group authority is invented for serve.
+
+Go requires a pipe and a deadline, captures its FD once, switches that descriptor
+to nonblocking raw reads and checks cancellation between reads/waits. It consumes
+at most the byte limit plus one, requires EOF and closes the owned input on every
+return. There is no potentially stranded background read goroutine, regular-file
+fallback or old environment-request fallback. The test bridge applies a bounded
+five-second request-read phase; its existing owner watcher and outer startup
+bounds remain. Decode/context checks still precede bootstrap publication.
+
+This closes the environment-size transport gap for controlled owned pipes. It
+does not create a private runtime directory, authorize workspace peers, make a
+filesystem sandbox, introduce a public CLI or open ordinary-vault admission.
+These bounds apply to the exchange and admission checks, not a strict wall-clock
+promise for kernel I/O or process reaping. Existing cleanup/reaper limitations
+remain; the transport does not strengthen them into an OS-level guarantee.
+
+Pipe verification passed webui/config Go package tests and pipe/protocol race
+checks three times. Rust tests include payloads larger than pipe capacity, an
+unread pipe, early child exit, EOF closure and a 192 KiB request with 64 KiB of
+child output emitted before input consumption. The complete source adapter
+passed 348 tests (20 ignored); the real-Go live-module matrix passed 166.
+Real-GPUI Linux tests check and no-run link passed, with independent lifecycle
+review. No user-facing workflow changed; Mac/GUI acceptance remains separate.
