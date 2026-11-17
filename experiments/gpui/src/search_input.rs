@@ -1,5 +1,6 @@
 //! Native single-line search, not a Markdown editor. Offsets in state are UTF-8;
 //! only the platform input protocol uses UTF-16. Composition edits also emit queries.
+//! Ordinary navigation/deletion uses grapheme clusters; platform ranges keep scalar precision.
 use gpui::{
     App, Bounds, ClipboardItem, Context, CursorStyle, ElementInputHandler, EntityInputHandler,
     EventEmitter, FocusHandle, Focusable, KeyBinding, MouseButton, MouseDownEvent, MouseMoveEvent,
@@ -7,6 +8,7 @@ use gpui::{
     fill, point, prelude::*, px, rgb, size,
 };
 use std::ops::Range;
+use unicode_segmentation::UnicodeSegmentation;
 
 actions!(
     track_search,
@@ -130,18 +132,47 @@ fn byte_range(text: &str, range: Range<usize>) -> Range<usize> {
     a.min(b)..a.max(b)
 }
 fn previous(text: &str, at: usize) -> usize {
-    text.char_indices()
+    text.grapheme_indices(true)
         .map(|(i, _)| i)
         .take_while(|i| *i < at)
         .last()
         .unwrap_or(0)
 }
 fn next(text: &str, at: usize) -> usize {
-    text.char_indices()
+    text.grapheme_indices(true)
         .map(|(i, _)| i)
         .find(|i| *i > at)
         .unwrap_or(text.len())
 }
+fn grapheme_floor(text: &str, at: usize) -> usize {
+    if at >= text.len() {
+        return text.len();
+    }
+    text.grapheme_indices(true)
+        .map(|(i, _)| i)
+        .take_while(|i| *i <= at)
+        .last()
+        .unwrap_or(0)
+}
+fn grapheme_ceil(text: &str, at: usize) -> usize {
+    text.grapheme_indices(true)
+        .map(|(i, _)| i)
+        .find(|i| *i >= at)
+        .unwrap_or(text.len())
+}
+fn deletion_range(text: &str, selected: Range<usize>, forward: bool) -> Range<usize> {
+    let start = grapheme_floor(text, selected.start);
+    let end = grapheme_ceil(text, selected.end);
+    if start != end {
+        return start..end;
+    }
+    if forward {
+        start..next(text, end)
+    } else {
+        previous(text, start)..end
+    }
+}
+
 fn single_line(text: &str) -> String {
     text.chars()
         .map(|c| {
@@ -376,11 +407,22 @@ impl SearchInput {
         utf16_at_byte(&self.text, r.start)..utf16_at_byte(&self.text, r.end)
     }
     fn move_caret(&mut self, at: usize, extend: bool, cx: &mut Context<Self>) {
-        self.caret = at;
+        if self.is_composing() {
+            return;
+        }
+        self.caret = grapheme_floor(&self.text, at);
         if !extend {
-            self.anchor = at;
+            self.anchor = self.caret;
         }
         cx.notify();
+    }
+    fn delete_command(&mut self, forward: bool, cx: &mut Context<Self>) {
+        // Preedit belongs to the platform; ordinary commands must not consume it.
+        if self.is_composing() {
+            return;
+        }
+        let range = deletion_range(&self.text, self.selection(), forward);
+        self.replace(Some(self.utf16_range(range)), "", false, None, cx);
     }
     fn replace(
         &mut self,
@@ -559,20 +601,17 @@ impl Render for SearchInput {
             .on_action(cx.listener(|s, _: &ExtendHome, _, cx| s.move_caret(0, true, cx)))
             .on_action(cx.listener(|s, _: &ExtendEnd, _, cx| s.move_caret(s.text.len(), true, cx)))
             .on_action(cx.listener(|s, _: &SelectAll, _, cx| {
+                if s.is_composing() {
+                    return;
+                }
                 s.anchor = 0;
                 s.move_caret(s.text.len(), true, cx);
             }))
             .on_action(cx.listener(|s, _: &Backspace, _, cx| {
-                if s.selection().is_empty() {
-                    s.anchor = previous(&s.text, s.caret);
-                }
-                s.replace(None, "", false, None, cx);
+                s.delete_command(false, cx);
             }))
             .on_action(cx.listener(|s, _: &Delete, _, cx| {
-                if s.selection().is_empty() {
-                    s.anchor = next(&s.text, s.caret);
-                }
-                s.replace(None, "", false, None, cx);
+                s.delete_command(true, cx);
             }))
             .on_action(cx.listener(|s, _: &Copy, _, cx| s.copy_selection(cx)))
             .on_action(cx.listener(|s, _: &Cut, _, cx| {
@@ -825,6 +864,41 @@ mod tests {
         assert_eq!(previous("日😀a", 7), 3);
         assert_eq!(next("日😀a", 8), 8);
         assert_eq!(previous("日😀a", 0), 0);
+    }
+    #[test]
+    fn navigation_and_deletion_keep_search_graphemes_whole() {
+        let text = "日本語 👩‍💻か\u{3099}🇯🇵x";
+        let clusters: Vec<_> = text
+            .grapheme_indices(true)
+            .map(|(i, _)| i)
+            .chain([text.len()])
+            .collect();
+        for pair in clusters.windows(2) {
+            assert_eq!(next(text, pair[0]), pair[1]);
+            assert_eq!(previous(text, pair[1]), pair[0]);
+            assert_eq!(
+                deletion_range(text, pair[0]..pair[0], true),
+                pair[0]..pair[1]
+            );
+            assert_eq!(
+                deletion_range(text, pair[1]..pair[1], false),
+                pair[0]..pair[1]
+            );
+        }
+        let mut query = "日本語 👩‍💻".to_owned();
+        let range = deletion_range(&query, query.len()..query.len(), false);
+        query.replace_range(range, "");
+        assert_eq!(query, "日本語 ");
+        assert_eq!(deletion_range("か\u{3099}", 3..3, false), 0..6);
+        assert_eq!(deletion_range("か\u{3099}", 3..3, true), 0..6);
+        assert_eq!(deletion_range("か\u{3099}", 3..6, true), 0..6);
+    }
+    #[test]
+    fn platform_ranges_retain_scalar_precision_inside_graphemes() {
+        assert_eq!(byte_range("か\u{3099}", 1..2), 3..6);
+        assert_eq!(byte_range("👩‍💻", 2..3), 4..7);
+        assert_eq!(grapheme_floor("👩‍💻", 4), 0);
+        assert_eq!(grapheme_ceil("👩‍💻", 4), 11);
     }
     #[test]
     fn search_is_single_line() {
