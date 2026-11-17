@@ -339,16 +339,23 @@ impl CreationStore {
 mod tests {
     use super::*;
     use std::os::unix::fs::{PermissionsExt, symlink};
+    static NEXT_FIXTURE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     struct Fixture(PathBuf);
     impl Fixture {
         fn new() -> Self {
-            let root = std::env::temp_dir().canonicalize().unwrap().join(format!(
-                "track-create-receipt-{}-{}",
-                std::process::id(),
+            Self::at_time(
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
-                    .as_nanos()
+                    .as_nanos(),
+            )
+        }
+        fn at_time(timestamp: u128) -> Self {
+            let root = std::env::temp_dir().canonicalize().unwrap().join(format!(
+                "track-create-receipt-{}-{}-{}",
+                std::process::id(),
+                NEXT_FIXTURE.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+                timestamp
             ));
             std::fs::create_dir(&root).unwrap();
             for name in ["vault", "cache"] {
@@ -382,6 +389,15 @@ mod tests {
             std::fs::remove_dir_all(&self.0).unwrap();
         }
     }
+    #[test]
+    fn fixture_roots_are_distinct_when_clock_timestamps_match() {
+        let first = Fixture::at_time(7);
+        let second = Fixture::at_time(7);
+        assert_ne!(first.0, second.0);
+        assert!(first.open().is_ok());
+        assert!(second.open().is_ok());
+    }
+
     #[test]
     fn crash_after_intent_before_post_is_unresolved_on_restart() {
         let fixture = Fixture::new();
