@@ -172,3 +172,24 @@ passed. Capture behavior, error assertions and time limits were not relaxed.
 The save timeout was not reproduced in the isolated rerun; its cause is not
 established and no save behavior or timeout was changed. These results do not
 open the ordinary-vault gate or establish complete UI compatibility.
+
+## Populated calendar projections
+
+A further real-Go scenario seeds fixed canonical event records before startup.
+The engine validates their normalized fields and saved revision fingerprints;
+no event-write endpoint or new fixture authority is introduced. Both generated
+vaults use the same event IDs with distinct titles. Explicit main/work and the
+empty launch scope preserve event and linked-note identity.
+
+The scenario covers a two-day all-day event with an exclusive end and a timed
+event spanning the New York autumn offset change. Engine day boundaries span
+25 hours in New York and 24 hours in UTC; range counts and preview identity are
+checked against the event list. Canonical inventories remain unchanged after
+owned shutdown. Cancelled/deleted records, preview truncation, spring clock
+changes and GUI presentation are not covered by this scenario. Production code
+and the ordinary-vault gate are unchanged, so no user-facing help change applies.
+
+With this scenario included, the source adapter passed 329 tests (20 ignored)
+and the isolated real-Go live matrix passed 147 tests. The real GPUI Linux
+`cargo check --locked --tests` and `cargo test --locked --no-run` also succeeded;
+this remains compile/link evidence, not GUI execution.
