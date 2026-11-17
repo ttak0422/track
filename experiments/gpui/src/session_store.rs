@@ -157,6 +157,17 @@ pub struct SessionStore {
     pub reading_positions: Vec<ReadingPosition>,
     recent_notes: Option<Vec<RecentEntry>>,
 }
+impl Drop for SessionStore {
+    fn drop(&mut self) {
+        // A concurrently spawned child can inherit this open file description
+        // until exec closes CLOEXEC descriptors. Closing only our descriptor
+        // would leave the lock held during that window and reject a new owner.
+        // Writes are synchronized before returning; there is no deferred flush.
+        // SAFETY: _lock owns a valid descriptor until after this Drop returns.
+        unsafe { libc::flock(self._lock.as_raw_fd(), libc::LOCK_UN) };
+    }
+}
+
 fn err(e: impl std::fmt::Display) -> String {
     format!("Fixture tab persistence disabled: {e}")
 }

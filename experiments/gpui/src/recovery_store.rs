@@ -235,6 +235,66 @@ mod tests {
         }
     }
     #[test]
+    fn dropping_store_releases_lock_while_forked_child_is_before_exec() {
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "session_store::recovery_store::tests::forked_lock_helper",
+                "--test-threads=1",
+                "--nocapture",
+            ])
+            .env("TRACK_RECOVERY_FORK_HELPER", "1")
+            .status()
+            .unwrap();
+        assert!(status.success());
+    }
+
+    #[test]
+    fn forked_lock_helper() {
+        if std::env::var_os("TRACK_RECOVERY_FORK_HELPER").is_none() {
+            return;
+        }
+        let f = Fixture::new();
+        let s = f.open();
+        let mut release = [0; 2];
+        assert_eq!(unsafe { libc::pipe(release.as_mut_ptr()) }, 0);
+        // Model another test spawning a process between fork and exec. CLOEXEC
+        // does not close inherited lock descriptors until exec actually runs.
+        let pid = unsafe { libc::fork() };
+        assert!(pid >= 0);
+        if pid == 0 {
+            // Only async-signal-safe calls after fork in the threaded harness.
+            unsafe {
+                libc::close(release[1]);
+                let mut byte = 0u8;
+                libc::read(release[0], (&mut byte as *mut u8).cast(), 1);
+                libc::_exit(0);
+            }
+        }
+        unsafe { libc::close(release[0]) };
+        // A live owner must still exclude a second writer.
+        let while_owned = SessionStore::open(
+            &f.0.join("vault"),
+            &f.0.join("config"),
+            &f.0.join("cache"),
+            vec!["one".into()],
+        );
+        drop(s);
+        let reopened = SessionStore::open(
+            &f.0.join("vault"),
+            &f.0.join("config"),
+            &f.0.join("cache"),
+            vec!["one".into()],
+        );
+        // Always release/reap the child before assertions, including failures.
+        unsafe { libc::close(release[1]) };
+        let mut status = 0;
+        assert_eq!(unsafe { libc::waitpid(pid, &mut status, 0) }, pid);
+        assert_eq!(status, 0);
+        assert!(while_owned.is_err());
+        assert!(reopened.is_ok(), "{}", reopened.err().unwrap());
+    }
+    #[test]
     fn durable_roundtrip_unresolved_interruption_and_exact_clear() {
         let f = Fixture::new();
         let mut s = f.open();
