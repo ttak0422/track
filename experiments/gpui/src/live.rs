@@ -7632,6 +7632,10 @@ mod request_pipe;
 mod private_runtime;
 
 #[cfg(test)]
+#[path = "live_private_runtime_contract.rs"]
+mod private_runtime_contract_tests;
+
+#[cfg(test)]
 #[path = "live_admission_process.rs"]
 mod admission_process_tests;
 

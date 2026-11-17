@@ -311,3 +311,52 @@ and no-run link passed. Independent review found no blocking issue. Go code is
 unchanged in this slice. These checks do not validate macOS, GUI equivalence,
 workspace authorization or populated-runtime reclamation. The ordinary gate
 remains closed; this internal-only primitive adds no user workflow or help change.
+
+## Explicit workspace intent and owned-root preflight
+
+The intended native read-request scope is the selected active vault plus the
+complete registered peer set, made explicit at the request boundary. This keeps
+shipping web workspace semantics: active selection is not a request to narrow
+peer access. Unknown or unavailable peers still must not fall back to the active
+vault. This scope decision does not authorize a real workspace. A production
+intent/consent UI and its deliberate enablement remain separate gates; no request,
+registry, manifest or successful comparison may generate a grant by itself.
+
+The current integration is limited to the existing generated-fixture authority.
+It passes a newly owned runtime child under that fixture's private parent to
+Go's actual manifest resolver and separation validation, preserving the fixture's
+original HOME/XDG/configuration context. The test bridge permits an independently
+specified alternative root only for preflight capture, only as a directly owned
+private child with the generated name shape. This bridge check is not proof of
+new creation: Rust retains the actual creator handle and checks its identity.
+Serve refuses the override. No
+public CLI route, production grant constructor or new admission variant exists.
+
+The native side compares the returned observation with the independently known
+active selector and complete fixture peer set, while retaining the runtime owner.
+The observation is evidence of Go validation, not authorization or a substitute
+for subsequent drift checks. Preflight must leave the private runtime empty and
+canonical fixture inventories unchanged. Explicit empty-only cleanup remains
+separate; unknown contents are retained rather than deleted. This integration
+does not solve populated-cache reclamation, crash recovery, or prove safe ordinary
+workspace launch.
+
+The first actual GPUI-linked integration run failed the bridge's exact fixture
+configuration-byte check. The actual dependency graph enables
+`serde_json/preserve_order`, while the source adapter did not; a `json!` fixture
+object therefore had a different key order. The fixture generator now serializes
+an explicit sorted map (including the already-sorted peer registry), with an
+exact-byte regression. The Go check remains strict. This is a test-fixture encoding
+fix, not relaxation of manifest validation or a change to production config.
+
+After that fixture fix, both new integration cases and the encoding regression
+passed in the actual GPUI-linked executable. Its full `live::`-filtered isolated
+run (including the matching `workspace_live` unit tests, excluding the separate
+public writable-fixture save test) passed 187 tests using
+the explicitly supplied real Go binaries, without starting a GUI. The source
+adapter passed 356 tests (22 integration tests ignored in that ordinary run).
+Go webui/config package tests passed; override-boundary race tests passed three
+times. Final real-GPUI Linux tests check and no-run link passed. Independent
+review found no blocking issue. These are fixture/headless checks, not macOS,
+GUI parity, actual user consent or ordinary-workspace release evidence. No
+user-facing workflow changed, so no help-vault update was needed.

@@ -189,6 +189,17 @@ mod tests {
             let _ = std::fs::remove_dir_all(&self.0);
         }
     }
+    #[test]
+    fn synthetic_config_encoding_matches_sorted_go_fixture_bytes() {
+        let registry = BTreeMap::from([
+            ("work".into(), PathBuf::from("/fixture/home/work")),
+            ("main".into(), PathBuf::from("/fixture/home/main")),
+        ]);
+        assert_eq!(
+            SyntheticCanonical::config_bytes(&registry, Path::new("/fixture/normal")),
+            br#"{"cache_dir":"/fixture/normal","default_vault":"main","vaults":{"main":"/fixture/home/main","work":"/fixture/home/work"}}"#
+        );
+    }
     fn fixture() -> (Fixture, LaunchConfig, PathBuf, PathBuf) {
         let root = std::env::temp_dir().join(format!(
             "track-input-plan-{}-{}",
@@ -439,7 +450,15 @@ impl SyntheticCanonical {
         registry: &BTreeMap<String, PathBuf>,
         normal_cache: &Path,
     ) -> Vec<u8> {
-        serde_json::to_vec(&serde_json::json!({"default_vault":"main", "vaults":registry,"cache_dir":normal_cache})).unwrap()
+        // Go's fixture bridge requires exact sorted JSON bytes. GPUI enables
+        // serde_json/preserve_order transitively, so json! object insertion order
+        // is not a portable fixture encoding. Serialize an explicit sorted map.
+        let fields = BTreeMap::from([
+            ("cache_dir", serde_json::to_value(normal_cache).unwrap()),
+            ("default_vault", serde_json::json!("main")),
+            ("vaults", serde_json::to_value(registry).unwrap()),
+        ]);
+        serde_json::to_vec(&fields).unwrap()
     }
     pub(super) fn capture(
         root: &Path,

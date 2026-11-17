@@ -154,6 +154,38 @@ func nativeBoundOwner() (context.Context, context.CancelFunc, string, error) {
 	return ctx, cancel, token, nil
 }
 
+// Test-only preflight may observe a parent-created private runtime child. This
+// does not authorize serving from that child or weaken whole-fixture validation.
+func nativeBoundExpectedPrivateRoot(root, mode string) (string, error) {
+	parent := filepath.Join(root, "private")
+	override, present := os.LookupEnv("GO_TRACK_BOUND_PREFLIGHT_PRIVATE_ROOT")
+	if !present {
+		return parent, nil
+	}
+	reject := errors.New("invalid fixture preflight private root")
+	if mode != "capture" || !filepath.IsAbs(override) || filepath.Clean(override) != override || filepath.Dir(override) != parent {
+		return "", reject
+	}
+	name := filepath.Base(override)
+	suffix, ok := strings.CutPrefix(name, "track-private-")
+	if !ok || len(suffix) != 32 || strings.ContainsFunc(suffix, func(c rune) bool { return !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') }) {
+		return "", reject
+	}
+	canonical, err := filepath.EvalSymlinks(override)
+	if err != nil || canonical != override {
+		return "", reject
+	}
+	info, err := os.Lstat(override)
+	if err != nil || !info.IsDir() || info.Mode().Perm() != 0700 {
+		return "", reject
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || int(stat.Uid) != os.Geteuid() {
+		return "", reject
+	}
+	return override, nil
+}
+
 func TestNativeBoundFixtureBridge(t *testing.T) {
 	mode := os.Getenv("GO_TRACK_BOUND_MODE")
 	if mode == "" {
@@ -167,6 +199,10 @@ func TestNativeBoundFixtureBridge(t *testing.T) {
 		t.Fatal("fixture selector must be work")
 	}
 	if err := nativeBoundFixture(root); err != nil {
+		t.Fatal(err)
+	}
+	expectedPrivateRoot, err := nativeBoundExpectedPrivateRoot(root, mode)
+	if err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel, token, err := nativeBoundOwner()
@@ -192,7 +228,7 @@ func TestNativeBoundFixtureBridge(t *testing.T) {
 	if mode == "capture" {
 		expectedMode = "preflight"
 	}
-	if err != nil || *request.Mode != expectedMode || *request.Selector.Name != "work" || *request.Selector.Path != "" || *request.PrivateRoot != filepath.Join(root, "private") {
+	if err != nil || *request.Mode != expectedMode || *request.Selector.Name != "work" || *request.Selector.Path != "" || *request.PrivateRoot != expectedPrivateRoot {
 		t.Fatal("fixture request does not match bridge invocation")
 	}
 	if mode == "capture" {
@@ -353,6 +389,79 @@ func TestNativeBoundOwnerRequiresRealParentAndToken(t *testing.T) {
 				case <-time.After(time.Second):
 					t.Fatal("owner context not canceled")
 				}
+			}
+		})
+	}
+}
+
+func TestNativeBoundPreflightPrivateRoot(t *testing.T) {
+	for _, kind := range []string{"valid", "default", "serve", "empty", "outside", "nested", "uppercase", "short", "relative", "unclean", "missing", "symlink", "mode"} {
+		t.Run(kind, func(t *testing.T) {
+			root := nativeBoundValidationFixture(t)
+			parent := filepath.Join(root, "private")
+			child := filepath.Join(parent, "track-private-"+strings.Repeat("a", 32))
+			if err := os.Mkdir(child, 0700); err != nil {
+				t.Fatal(err)
+			}
+			override := child
+			mode := "capture"
+			switch kind {
+			case "default":
+			case "serve":
+				mode = "serve"
+			case "empty":
+				override = ""
+			case "outside":
+				override = filepath.Join(root, "track-private-"+strings.Repeat("a", 32))
+			case "nested":
+				override = filepath.Join(child, "track-private-"+strings.Repeat("a", 32))
+			case "uppercase":
+				override = filepath.Join(parent, "track-private-"+strings.Repeat("A", 32))
+			case "short":
+				override = filepath.Join(parent, "track-private-a")
+			case "relative":
+				override = "private/track-private-" + strings.Repeat("a", 32)
+			case "unclean":
+				override = parent + "/./" + filepath.Base(child)
+			case "missing":
+				override = filepath.Join(parent, "track-private-"+strings.Repeat("b", 32))
+			case "symlink":
+				override = filepath.Join(parent, "track-private-"+strings.Repeat("b", 32))
+				if err := os.Symlink(child, override); err != nil {
+					t.Fatal(err)
+				}
+			case "mode":
+				if err := os.Chmod(child, 0755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if kind == "default" {
+				old, present := os.LookupEnv("GO_TRACK_BOUND_PREFLIGHT_PRIVATE_ROOT")
+				os.Unsetenv("GO_TRACK_BOUND_PREFLIGHT_PRIVATE_ROOT")
+				t.Cleanup(func() {
+					if present {
+						os.Setenv("GO_TRACK_BOUND_PREFLIGHT_PRIVATE_ROOT", old)
+					} else {
+						os.Unsetenv("GO_TRACK_BOUND_PREFLIGHT_PRIVATE_ROOT")
+					}
+				})
+			} else {
+				t.Setenv("GO_TRACK_BOUND_PREFLIGHT_PRIVATE_ROOT", override)
+			}
+			got, err := nativeBoundExpectedPrivateRoot(root, mode)
+			if kind == "valid" || kind == "default" {
+				want := child
+				if kind == "default" {
+					want = parent
+				}
+				if err != nil || got != want {
+					t.Fatal("valid root rejected", err)
+				}
+				if err = nativeBoundFixture(root); err != nil {
+					t.Fatal("whole fixture rejected", err)
+				}
+			} else if err == nil {
+				t.Fatal("invalid override accepted")
 			}
 		})
 	}

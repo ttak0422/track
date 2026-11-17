@@ -371,7 +371,7 @@ fn capture_bytes(
 ) -> Result<Vec<u8>, Error> {
     capture_exchange(command, timeout, canceled, None)
 }
-fn capture_exchange(
+pub(super) fn capture_exchange(
     command: &mut Command,
     timeout: Duration,
     canceled: &AtomicBool,
