@@ -5010,6 +5010,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "taffy",
  "tokio",
  "unicase",
  "unicode-segmentation",

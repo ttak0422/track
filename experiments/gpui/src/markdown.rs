@@ -3172,6 +3172,10 @@ pub(crate) fn render_preview_code_find(
     render_reader(blocks, dark, None, None, find, Some(copy), None, None)
 }
 
+fn preview_prose_flow() -> Div {
+    div().block().w_full().min_w_0()
+}
+
 /// Preview-only selection has no link navigation callbacks or host positions.
 pub(crate) fn render_preview_selection(
     blocks: &[Block],
@@ -3192,12 +3196,10 @@ pub(crate) fn render_preview_selection(
         selection,
     );
     let theme = ReaderTheme::new(dark);
-    let reader = div()
-        .w_full()
-        .min_w_0()
-        .flex_shrink_0()
-        .flex()
-        .flex_col()
+    // Block flow resolves each prose row's max-width before measuring wrapped
+    // height. Taffy 0.9 flex-column sizing can instead measure width:100% at the
+    // wide parent width, then constrain painting to 640px with a one-line box.
+    let reader = preview_prose_flow()
         .text_size(px(16.))
         .line_height(px(BODY_LINE_HEIGHT))
         .font_family(".SystemUIFont")
@@ -3397,12 +3399,6 @@ pub(crate) fn render_snapshot_elements(
     )
 }
 
-// A prose block keeps its measured text height inside flex-column readers.
-// Shrinking only its box would leave wrapped text painting over the next block.
-fn reader_block_row() -> Div {
-    div().w_full().min_w_0().flex_shrink_0()
-}
-
 fn render_elements(
     blocks: &[Block],
     dark: bool,
@@ -3427,7 +3423,9 @@ fn render_elements(
         .iter()
         .enumerate()
         .map(|(index, block)| {
-            let mut row = reader_block_row()
+            let mut row = div()
+                .w_full()
+                .min_w_0()
                 .text_size(px(16.))
                 .line_height(px(BODY_LINE_HEIGHT))
                 .font_family(".SystemUIFont")
@@ -7093,11 +7091,98 @@ mod snapshot_heading_tests {
 }
 
 #[cfg(test)]
-mod reader_block_layout_tests {
-    use super::*;
+mod preview_prose_layout_tests {
+    use super::preview_prose_flow;
+    use gpui::Styled;
+    use taffy::prelude::*;
+
+    // Use the same layout engine/version as GPUI, with width-sensitive text
+    // measurement. Style assertions alone missed the measured-height bug.
     #[test]
-    fn wrapped_reader_blocks_keep_their_measured_height() {
-        let mut row = reader_block_row();
-        assert_eq!(row.style().flex_shrink, Some(0.));
+    fn constrained_preview_rows_reserve_wrapped_height_and_keep_column_alignment() {
+        let mut reader = preview_prose_flow();
+        assert_eq!(reader.style().display, Some(gpui::Display::Block));
+        for width in [480.0_f32, 640.0, 1906.0] {
+            let mut tree: TaffyTree<f32> = TaffyTree::new();
+            let mut rows = Vec::new();
+            let mut texts = Vec::new();
+            // Long paragraph, short paragraph, heading, and wrapped list item.
+            for natural_width in [1600.0, 200.0, 900.0, 2100.0] {
+                let text = tree
+                    .new_leaf_with_context(Style::default(), natural_width)
+                    .unwrap();
+                let row = tree
+                    .new_with_children(
+                        Style {
+                            display: Display::Block,
+                            size: Size {
+                                width: percent(1.0),
+                                height: auto(),
+                            },
+                            max_size: Size {
+                                width: length(640.0),
+                                height: auto(),
+                            },
+                            margin: Rect {
+                                left: auto(),
+                                right: auto(),
+                                top: length(13.0),
+                                bottom: length(0.0),
+                            },
+                            ..Default::default()
+                        },
+                        &[text],
+                    )
+                    .unwrap();
+                rows.push(row);
+                texts.push(text);
+            }
+            let root = tree
+                .new_with_children(
+                    Style {
+                        display: Display::Block,
+                        size: Size {
+                            width: length(width),
+                            height: auto(),
+                        },
+                        ..Default::default()
+                    },
+                    &rows,
+                )
+                .unwrap();
+            tree.compute_layout_with_measure(
+                root,
+                Size::MAX_CONTENT,
+                |known, available, _, natural, _| {
+                    let natural = natural.copied().unwrap_or(0.0);
+                    let width = known
+                        .width
+                        .or(match available.width {
+                            AvailableSpace::Definite(width) => Some(width),
+                            _ => None,
+                        })
+                        .unwrap_or(natural)
+                        .max(1.0);
+                    Size {
+                        width: natural.min(width),
+                        height: (natural / width).ceil() * 29.6,
+                    }
+                },
+            )
+            .unwrap();
+            let mut previous_bottom = 0.0;
+            for (row, text) in rows.into_iter().zip(texts) {
+                let row = tree.layout(row).unwrap();
+                let text = tree.layout(text).unwrap();
+                assert_eq!(row.size.width, width.min(640.0));
+                assert_eq!(row.location.x, ((width - row.size.width) / 2.0).round());
+                assert!(
+                    row.size.height >= text.size.height,
+                    "row {row:?}, text {text:?}"
+                );
+                assert!(row.location.y >= previous_bottom + 12.0);
+                previous_bottom = row.location.y + row.size.height;
+            }
+        }
     }
 }
