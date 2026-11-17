@@ -272,3 +272,42 @@ child output emitted before input consumption. The complete source adapter
 passed 348 tests (20 ignored); the real-Go live-module matrix passed 166.
 Real-GPUI Linux tests check and no-run link passed, with independent lifecycle
 review. No user-facing workflow changed; Mac/GUI acceptance remains separate.
+
+## Inactive private-runtime ownership primitive
+
+The native ownership helper creates a new unpredictable child directory only
+beneath an explicitly supplied, current-user-owned parent that is not writable
+by group or other users. It does not choose a system runtime location, read
+HOME/XDG defaults, adopt an existing root or repair permissions. Parent and child directory descriptors retain observed identities;
+creation uses exclusive relative directory operations and never follows an
+existing child symlink. Tests supply generated fixture parents only. There is no
+production caller or new admission conversion.
+
+Ownership is not workspace authorization or a separation proof. Before any
+future launch, Go's manifest and `ReadOnlyCachePath` must still validate the root
+against every protected vault, configuration file and ordinary cache namespace.
+The caller must separately authorize the parent location before creation; this
+helper cannot establish that creating a directory there is appropriate.
+
+Cleanup is deliberately empty-only and explicit. Unexpected contents, changed
+identity or an unverifiable path are retained rather than recursively deleted.
+Dropping the handle closes descriptors without filesystem deletion. A served
+cache normally leaves a nonempty namespace, so this is not completed cache
+reclamation or crash recovery. Tracking owned descendants and coordinating
+cleanup with lease/store/process termination remain separate work. Identity
+checks and relative directory operations do not eliminate malicious same-user
+replacement races between a check and a syscall; no filesystem sandbox or
+atomic pathname ownership guarantee is claimed.
+
+Seven focused tests cover exclusive creation, existing-name collisions,
+parent/child directory and symlink replacement, permission drift, nonempty
+retention, explicit empty cleanup and descriptor-only Drop. A fresh exact-test
+subprocess applies a restrictive umask and verifies that the successfully created
+but invalid-mode directory is reported and retained, not repaired or removed.
+The same seven tests passed in the actual Linux GPUI-linked test executable
+without starting the GUI. The complete source adapter passed 355 tests (20
+ignored); the real-Go live-module matrix passed 173. Real-GPUI Linux tests check
+and no-run link passed. Independent review found no blocking issue. Go code is
+unchanged in this slice. These checks do not validate macOS, GUI equivalence,
+workspace authorization or populated-runtime reclamation. The ordinary gate
+remains closed; this internal-only primitive adds no user workflow or help change.

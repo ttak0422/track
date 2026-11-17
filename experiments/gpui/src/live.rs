@@ -7628,6 +7628,9 @@ mod launch_protocol;
 #[path = "live_request_pipe.rs"]
 mod request_pipe;
 
+#[path = "live_private_runtime.rs"]
+mod private_runtime;
+
 #[cfg(test)]
 #[path = "live_admission_process.rs"]
 mod admission_process_tests;
