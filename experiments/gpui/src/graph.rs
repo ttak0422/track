@@ -821,6 +821,159 @@ pub fn force_layout_cancellable(
     if cancelled() { None } else { Some(nodes) }
 }
 
+/// Interactive relaxation owns no task, timer, camera or graph data. The view lends
+/// its current positions for one bounded tick and discards this state on replacement.
+/// The initial solver remains background-only; this starts from the visible layout.
+pub struct ElasticLayout {
+    velocities: Vec<Point>,
+    forces: Vec<Point>,
+    springs: Vec<(usize, usize)>,
+    remaining: usize,
+    quiet: usize,
+}
+impl ElasticLayout {
+    pub const NODE_LIMIT: usize = 1000;
+    pub const EDGE_BUDGET: usize = 4096;
+    const TICK_LIMIT: usize = 240;
+
+    pub fn new(graph: &Graph, nodes: &[LayoutNode]) -> Option<Self> {
+        if nodes.len() > Self::NODE_LIMIT || nodes.iter().any(|n| !n.position.finite()) {
+            return None;
+        }
+        let index: BTreeMap<_, _> = nodes
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (n.node.note_id, i))
+            .collect();
+        // Bound preprocessing as well as tick work, including duplicate-heavy
+        // input. Sample across the entire response, not just its first nodes.
+        // The view discloses this link-quality reduction for oversized inputs.
+        let count = graph.edges.len().min(Self::EDGE_BUDGET);
+        let springs: BTreeSet<_> = (0..count)
+            .filter_map(|i| {
+                let index_in_input = if count <= 1 {
+                    0
+                } else {
+                    i * (graph.edges.len() - 1) / (count - 1)
+                };
+                let edge = &graph.edges[index_in_input];
+                let (&a, &b) = (index.get(&edge.source_id)?, index.get(&edge.target_id)?);
+                (a != b).then_some((a.min(b), a.max(b)))
+            })
+            .collect();
+        Some(Self {
+            velocities: vec![Point::default(); nodes.len()],
+            forces: vec![Point::default(); nodes.len()],
+            springs: springs.into_iter().collect(),
+            remaining: 0,
+            quiet: 0,
+        })
+    }
+    pub fn wake(&mut self) {
+        self.remaining = Self::TICK_LIMIT;
+        self.quiet = 0;
+    }
+    pub fn active(&self) -> bool {
+        self.remaining > 0
+    }
+    pub fn stop(&mut self) {
+        self.remaining = 0;
+        self.velocities.fill(Point::default());
+    }
+    /// At most one fixed simulation step. `held` follows the pointer exactly and
+    /// has no retained velocity; passing None releases it, including the center.
+    pub fn tick(&mut self, nodes: &mut [LayoutNode], held: Option<i64>) -> bool {
+        if !self.active() {
+            return false;
+        }
+        if nodes.len() != self.velocities.len() || nodes.iter().any(|n| !n.position.finite()) {
+            self.stop();
+            return false;
+        }
+        self.remaining -= 1;
+        for (force, node) in self.forces.iter_mut().zip(nodes.iter()) {
+            *force = Point {
+                x: -node.position.x * 0.015,
+                y: -node.position.y * 0.015,
+            };
+        }
+        // Beyond 300 nodes, sample repulsion pairs deterministically and weight
+        // their contribution. Link work is separately bounded at construction;
+        // graphs below the edge budget retain every unique valid spring.
+        let stride = nodes.len().div_ceil(300).max(1);
+        for a in 0..nodes.len() {
+            for b in ((a + 1 + a % stride)..nodes.len()).step_by(stride) {
+                let mut dx = nodes[a].position.x - nodes[b].position.x;
+                let mut dy = nodes[a].position.y - nodes[b].position.y;
+                // A deterministic direction separates exactly coincident nodes.
+                if dx.abs() + dy.abs() < 0.001 {
+                    let angle = (a * 37 + b * 17) as f64;
+                    dx = angle.cos();
+                    dy = angle.sin();
+                }
+                let squared = (dx * dx + dy * dy).max(4.);
+                let strength = 1800. * stride as f64 / (squared * squared.sqrt());
+                let (fx, fy) = (dx * strength, dy * strength);
+                self.forces[a].x += fx;
+                self.forces[a].y += fy;
+                self.forces[b].x -= fx;
+                self.forces[b].y -= fy;
+            }
+        }
+        for &(a, b) in &self.springs {
+            let dx = nodes[b].position.x - nodes[a].position.x;
+            let dy = nodes[b].position.y - nodes[a].position.y;
+            let distance = dx.hypot(dy).max(0.001);
+            let strength = (distance - 70.) * 0.035 / distance;
+            let (fx, fy) = (dx * strength, dy * strength);
+            self.forces[a].x += fx;
+            self.forces[a].y += fy;
+            self.forces[b].x -= fx;
+            self.forces[b].y -= fy;
+        }
+        // Cool smoothly before the hard work limit instead of visibly snapping.
+        let cooling = (self.remaining as f64 / 60.).min(1.);
+        let mut movement = 0_f64;
+        for ((node, velocity), force) in
+            nodes.iter_mut().zip(&mut self.velocities).zip(&self.forces)
+        {
+            if Some(node.node.note_id) == held {
+                *velocity = Point::default();
+                continue;
+            }
+            velocity.x = (velocity.x + force.x * 0.35) * 0.78;
+            velocity.y = (velocity.y + force.y * 0.35) * 0.78;
+            let length = velocity.x.hypot(velocity.y);
+            let scale = (10. / length.max(10.)) * cooling;
+            let delta = Point {
+                x: velocity.x * scale,
+                y: velocity.y * scale,
+            };
+            let next = Point {
+                x: node.position.x + delta.x,
+                y: node.position.y + delta.y,
+            };
+            if !next.finite() {
+                *velocity = Point::default();
+                continue;
+            }
+            node.position = next;
+            movement = movement.max(delta.x.hypot(delta.y));
+        }
+        self.quiet = if movement < 0.025 { self.quiet + 1 } else { 0 };
+        if self.quiet >= 12 || self.remaining == 0 {
+            self.stop();
+        }
+        movement > 0.
+    }
+}
+
+/// Screen-pixel click slop is latched by the view, so returning to the press
+/// location cannot turn a drag into navigation.
+pub fn exceeds_click_slop(start: Point, current: Point) -> bool {
+    (current.x - start.x).abs() + (current.y - start.y).abs() > 4.
+}
+
 #[cfg(test)]
 mod force_tests {
     use super::*;
@@ -1314,6 +1467,283 @@ mod paint_visibility_tests {
                     }
                 );
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod elastic_tests {
+    use super::*;
+    fn chain() -> (Graph, Vec<LayoutNode>) {
+        let mut graph = fixture(3);
+        graph.edges = vec![
+            GraphEdge {
+                source_id: 1,
+                target_id: 2,
+            },
+            GraphEdge {
+                source_id: 2,
+                target_id: 3,
+            },
+        ];
+        let nodes = force_layout(&graph, ForceOptions::default(), &BTreeMap::new());
+        (graph, nodes)
+    }
+    #[test]
+    fn elastic_hold_moves_neighbors_and_release_moves_held_node_then_stops() {
+        let (graph, mut nodes) = chain();
+        let before = nodes.clone();
+        let mut state = ElasticLayout::new(&graph, &nodes).unwrap();
+        nodes[0].position.x += 150.;
+        let held = nodes[0].position;
+        state.wake();
+        for _ in 0..40 {
+            state.tick(&mut nodes, Some(1));
+        }
+        assert_eq!(nodes[0].position, held);
+        assert!((nodes[1].position.x - before[1].position.x).abs() > 1.);
+        assert!((nodes[2].position.x - before[2].position.x).abs() > 1.);
+        state.wake();
+        state.tick(&mut nodes, None);
+        assert_ne!(nodes[0].position, held);
+        let first = nodes[0].position;
+        for _ in 0..10 {
+            state.tick(&mut nodes, None);
+        }
+        assert_ne!(nodes[0].position, first);
+        let mut steps = 11;
+        while state.active() {
+            state.tick(&mut nodes, None);
+            steps += 1;
+            assert!(steps <= 240);
+        }
+        let settled = nodes.iter().map(|n| n.position).collect::<Vec<_>>();
+        assert!(!state.tick(&mut nodes, None));
+        assert_eq!(
+            nodes.iter().map(|n| n.position).collect::<Vec<_>>(),
+            settled
+        );
+        assert!(nodes.iter().all(|n| n.position.finite()));
+    }
+    #[test]
+    fn release_motion_diminishes_before_the_work_limit() {
+        let (graph, mut nodes) = chain();
+        let mut state = ElasticLayout::new(&graph, &nodes).unwrap();
+        nodes[0].position.x += 150.;
+        state.wake();
+        for _ in 0..40 {
+            state.tick(&mut nodes, Some(1));
+        }
+        state.wake();
+        let mut early = 0.;
+        let mut late = 0.;
+        for step in 0..200 {
+            let before = nodes.iter().map(|node| node.position).collect::<Vec<_>>();
+            state.tick(&mut nodes, None);
+            let distance: f64 = nodes
+                .iter()
+                .zip(before)
+                .map(|(node, before)| {
+                    (node.position.x - before.x).hypot(node.position.y - before.y)
+                })
+                .sum();
+            if step < 20 {
+                early += distance;
+            }
+            if step >= 180 {
+                late += distance;
+            }
+        }
+        assert!(
+            early > 1.,
+            "release must visibly move, not immediately freeze"
+        );
+        assert!(
+            late < early * 0.1,
+            "motion should diminish before the 240-tick bound: early={early}, late={late}"
+        );
+    }
+
+    #[test]
+    fn elastic_limits_degenerate_graphs_and_non_finite_inputs_are_safe() {
+        assert!(ElasticLayout::new(&fixture(1001), &circular_layout(&fixture(1001))).is_none());
+        for count in [0, 1, 20] {
+            let mut graph = fixture(count);
+            graph.edges = vec![
+                GraphEdge {
+                    source_id: 1,
+                    target_id: 1,
+                },
+                GraphEdge {
+                    source_id: 1,
+                    target_id: 9999,
+                },
+            ];
+            let mut nodes = circular_layout(&graph);
+            for node in &mut nodes {
+                node.position = Point::default();
+            }
+            let mut state = ElasticLayout::new(&graph, &nodes).unwrap();
+            state.wake();
+            for _ in 0..250 {
+                state.tick(&mut nodes, None);
+            }
+            assert!(!state.active());
+            assert!(nodes.iter().all(|n| n.position.finite()));
+            if count > 1 {
+                assert_ne!(nodes[0].position, nodes[1].position);
+            }
+        }
+        let (graph, mut nodes) = chain();
+        let mut state = ElasticLayout::new(&graph, &nodes).unwrap();
+        nodes[0].position.x = f64::NAN;
+        assert!(ElasticLayout::new(&graph, &nodes).is_none());
+        state.wake();
+        assert!(!state.tick(&mut nodes, None));
+        assert!(!state.active());
+    }
+    #[test]
+    fn elastic_duplicate_edges_do_not_multiply_forces_and_stop_is_explicit() {
+        let (mut graph, mut first) = chain();
+        let mut a = ElasticLayout::new(&graph, &first).unwrap();
+        graph.edges.extend(graph.edges.clone());
+        graph.edges.push(GraphEdge {
+            source_id: 2,
+            target_id: 1,
+        });
+        let mut second = first.clone();
+        let mut b = ElasticLayout::new(&graph, &second).unwrap();
+        a.wake();
+        b.wake();
+        for _ in 0..20 {
+            a.tick(&mut first, None);
+            b.tick(&mut second, None);
+        }
+        assert_eq!(
+            first.iter().map(|n| n.position).collect::<Vec<_>>(),
+            second.iter().map(|n| n.position).collect::<Vec<_>>()
+        );
+        a.stop();
+        assert!(!a.active());
+        assert!(!a.tick(&mut first, None));
+    }
+    #[test]
+    fn sampled_spacing_still_moves_late_nodes_and_all_link_neighbors() {
+        let mut graph = fixture(1000);
+        graph.edges = vec![GraphEdge {
+            source_id: 999,
+            target_id: 1000,
+        }];
+        let mut nodes = circular_layout(&graph);
+        let mut state = ElasticLayout::new(&graph, &nodes).unwrap();
+        nodes[998].position.x += 150.;
+        let held = nodes[998].position;
+        let last = nodes[999].position;
+        state.wake();
+        for _ in 0..20 {
+            state.tick(&mut nodes, Some(999));
+        }
+        assert_eq!(nodes[998].position, held);
+        assert!((nodes[999].position.x - last.x).abs() > 1.);
+        assert!(nodes.iter().all(|node| node.position.finite()));
+    }
+
+    #[test]
+    fn dense_and_duplicate_inputs_bound_preprocessing_and_include_tail_links() {
+        let mut graph = fixture(1000);
+        graph.edges = vec![
+            GraphEdge {
+                source_id: 1,
+                target_id: 2
+            };
+            100_000
+        ];
+        graph.edges.push(GraphEdge {
+            source_id: 999,
+            target_id: 1000,
+        });
+        let nodes = circular_layout(&graph);
+        let state = ElasticLayout::new(&graph, &nodes).unwrap();
+        assert!(state.springs.len() <= ElasticLayout::EDGE_BUDGET);
+        assert!(state.springs.contains(&(998, 999)));
+        assert_eq!(state.springs.len(), 2);
+        graph.edges = (1..=1000)
+            .flat_map(|a| {
+                ((a + 1)..=1000).map(move |b| GraphEdge {
+                    source_id: a,
+                    target_id: b,
+                })
+            })
+            .collect();
+        let state = ElasticLayout::new(&graph, &nodes).unwrap();
+        assert_eq!(state.springs.len(), ElasticLayout::EDGE_BUDGET);
+        assert!(state.springs.contains(&(998, 999)));
+    }
+
+    #[test]
+    #[ignore = "manual dense/duplicate input CPU timing"]
+    fn elastic_dense_input_benchmark() {
+        for duplicate in [false, true] {
+            let mut graph = fixture(1000);
+            graph.edges = if duplicate {
+                vec![
+                    GraphEdge {
+                        source_id: 1,
+                        target_id: 2
+                    };
+                    500_000
+                ]
+            } else {
+                (1..=1000)
+                    .flat_map(|a| {
+                        ((a + 1)..=1000).map(move |b| GraphEdge {
+                            source_id: a,
+                            target_id: b,
+                        })
+                    })
+                    .collect()
+            };
+            let mut nodes = circular_layout(&graph);
+            let start = std::time::Instant::now();
+            let mut state = ElasticLayout::new(&graph, &nodes).unwrap();
+            let prepare = start.elapsed().as_secs_f64() * 1000.;
+            state.wake();
+            let start = std::time::Instant::now();
+            for _ in 0..100 {
+                state.tick(&mut nodes, None);
+            }
+            eprintln!(
+                "elastic duplicate={duplicate}, {} input edges: prepare {prepare:.3}ms, {} springs, tick mean {:.3}ms",
+                graph.edges.len(),
+                state.springs.len(),
+                start.elapsed().as_secs_f64() * 10.
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "manual CPU tick timing, not native frame/input-to-photon performance"]
+    fn elastic_tick_benchmark() {
+        for count in [100, 300, 1000] {
+            let graph = fixture(count);
+            let mut nodes = force_layout(&graph, ForceOptions::default(), &BTreeMap::new());
+            let mut state = ElasticLayout::new(&graph, &nodes).unwrap();
+            nodes[0].position.x += 150.;
+            state.wake();
+            let mut timings = Vec::new();
+            while state.active() {
+                let start = std::time::Instant::now();
+                state.tick(&mut nodes, None);
+                timings.push(start.elapsed().as_secs_f64() * 1000.);
+            }
+            timings.sort_by(f64::total_cmp);
+            eprintln!(
+                "elastic CPU tick {count} nodes: {} ticks, mean {:.3}ms, p95 {:.3}ms, max {:.3}ms",
+                timings.len(),
+                timings.iter().sum::<f64>() / timings.len() as f64,
+                timings[timings.len() * 95 / 100],
+                timings.last().unwrap()
+            );
         }
     }
 }

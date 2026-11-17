@@ -1,7 +1,5 @@
-//! Native GPUI canvas. Circular fallback followed by a bounded background force snapshot.
-//! This is independent initial relaxation, not continuous physics or compatibility parity.
-//! Dragging directly repositions a node and its attached edges; neighbors do not elastically
-//! rearrange. Positions last only until graph data is replaced. Leaving the canvas ends a drag.
+//! Native GPUI canvas with a background initial layout and bounded interactive
+//! relaxation. Animation is requested only by a rendered view, never a timer.
 use crate::graph::{self, Graph, LayoutNode, Point, Viewport};
 use gpui::{
     Bounds, Context, MouseButton, PathBuilder, Pixels, Window, canvas, div, fill, point,
@@ -125,6 +123,9 @@ pub struct GraphView {
     camera_intent: graph::CameraIntent,
     pending_fit: Option<(u64, u64)>, // layout generation, camera revision
     layout_status: &'static str,
+    elastic: Option<graph::ElasticLayout>,
+    last_frame: Option<std::time::Instant>,
+    last_render: Option<std::time::Instant>,
 }
 impl gpui::EventEmitter<OpenNote> for GraphView {}
 
@@ -158,6 +159,9 @@ impl GraphView {
             camera_intent: graph::CameraIntent::default(),
             pending_fit: None,
             layout_status: "circular initial layout",
+            elastic: None,
+            last_frame: None,
+            last_render: None,
         }
     }
     pub fn set_graph(&mut self, graph: Graph, cx: &mut Context<Self>) {
@@ -194,7 +198,7 @@ impl GraphView {
                 }
                 this.nodes = nodes;
                 this.queue_auto_fit(camera_revision);
-                this.layout_status = "force snapshot · drag has no elastic physics";
+                this.layout_status = "drag nodes to explore connections";
                 this.hovered = None;
                 cx.notify();
             });
@@ -297,6 +301,7 @@ impl GraphView {
         cx.notify();
     }
     pub fn reset_view(&mut self, cx: &mut Context<Self>) {
+        self.stop_animation();
         self.camera_intent.changed();
         if self.overview {
             cx.emit(PreviewIntent::Cancel);
@@ -359,6 +364,9 @@ impl GraphView {
         self.layout_cancelled.store(true, Ordering::Relaxed);
         self.layout_generation = self.layout_generation.wrapping_add(1);
         self.layout_status = "keyboard inspection · layout snapshot held";
+        if let Some(elastic) = &mut self.elastic {
+            elastic.stop();
+        }
         self.viewport.offset = Point {
             x: -node.position.x * self.viewport.scale,
             y: -node.position.y * self.viewport.scale,
@@ -371,6 +379,14 @@ impl GraphView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if event.keystroke.key == "escape" && (self.node_drag.is_some() || self.pan_from.is_some())
+        {
+            self.release_drag(true);
+            cx.emit(PreviewIntent::Cancel);
+            cx.stop_propagation();
+            cx.notify();
+            return;
+        }
         if !self
             .keyboard_allowed
             .as_ref()
@@ -423,6 +439,134 @@ impl GraphView {
         cx.notify();
     }
 
+    fn begin_pointer_gesture(&mut self) {
+        // A fresh press is evidence of live input, not a hidden-view return.
+        // This applies to blank-space panning and click candidates alike.
+        self.last_render = None;
+        self.click_start = None;
+    }
+
+    fn needs_animation_frame(&self) -> bool {
+        self.elastic.as_ref().is_some_and(|state| state.active())
+            || self.node_drag.is_some()
+            || self.pan_from.is_some()
+    }
+
+    fn stop_animation(&mut self) {
+        if let Some(elastic) = &mut self.elastic {
+            elastic.stop();
+        }
+        self.last_frame = None;
+    }
+
+    fn release_drag(&mut self, cancel: bool) {
+        let was_dragging = self.node_drag.is_some() && self.click_start.is_none();
+        self.node_drag = None;
+        self.pan_from = None;
+        if cancel {
+            self.click_start = None;
+        }
+        if was_dragging {
+            self.last_frame = None;
+            if let Some(elastic) = &mut self.elastic {
+                elastic.wake();
+            }
+        }
+    }
+
+    fn move_dragged_node(&mut self, p: Point) -> bool {
+        let Some((id, previous)) = self.node_drag else {
+            return false;
+        };
+        if self
+            .click_start
+            .is_some_and(|(_, start)| !graph::exceeds_click_slop(start, p))
+        {
+            return false;
+        }
+        self.click_start = None;
+        if previous == p {
+            return false;
+        }
+        self.camera_intent.changed();
+        self.pending_fit = None;
+        if self.elastic.is_none() {
+            self.elastic = graph::ElasticLayout::new(&self.graph, &self.nodes);
+        }
+        let moved = graph::drag_node(
+            &mut self.nodes,
+            id,
+            &self.viewport,
+            Point {
+                x: p.x - previous.x,
+                y: p.y - previous.y,
+            },
+        );
+        self.node_drag = Some((id, p));
+        if let Some(elastic) = &mut self.elastic {
+            if !elastic.active() {
+                self.last_frame = None;
+            }
+            elastic.wake();
+            self.layout_status = if self.nodes.len() > 300
+                || self.graph.edges.len() > graph::ElasticLayout::EDGE_BUDGET
+            {
+                "elastic layout · sampled forces"
+            } else {
+                "elastic layout"
+            };
+        } else {
+            self.layout_status = "manual positions · elastic limit 1,000 nodes";
+        }
+        moved
+    }
+
+    /// No independently recurring job: a hidden canvas cannot request another
+    /// frame. The next render releases a hold after inactivity or a hidden gap.
+    fn advance_animation(&mut self, active: bool, now: std::time::Instant) {
+        let hidden_gap = self
+            .last_render
+            .is_some_and(|last| now.duration_since(last).as_millis() > 250);
+        self.last_render = Some(now);
+        if !active || hidden_gap {
+            self.release_drag(true);
+            self.stop_animation();
+            return;
+        }
+        if !self.elastic.as_ref().is_some_and(|state| state.active()) {
+            return;
+        }
+        let elapsed = self.last_frame.map(|last| now.duration_since(last));
+        if elapsed.is_none_or(|elapsed| elapsed >= std::time::Duration::from_secs_f64(1. / 60.)) {
+            self.last_frame = Some(now);
+            let held = self.node_drag.map(|(id, _)| id);
+            if let Some(elastic) = &mut self.elastic {
+                elastic.tick(&mut self.nodes, held);
+                if !elastic.active() {
+                    self.layout_status = if self.nodes.len() > 300
+                        || self.graph.edges.len() > graph::ElasticLayout::EDGE_BUDGET
+                    {
+                        "elastic layout settled · sampled forces"
+                    } else {
+                        "elastic layout settled"
+                    };
+                }
+            }
+        }
+    }
+
+    fn animate(&mut self, window: &mut Window) {
+        self.advance_animation(window.is_window_active(), std::time::Instant::now());
+        if self.needs_animation_frame() {
+            // Every press keeps a render lease: click candidates, held nodes,
+            // and background pans. Physics still stops when settled; the lease
+            // ends on release/cancel and cannot reschedule from a hidden view.
+            // GPUI invalidates this view on the next display frame. There is no
+            // callback that could keep scheduling after the view leaves the tree.
+            window.request_animation_frame();
+        }
+    }
+
     fn local(&self, position: gpui::Point<Pixels>) -> Point {
         Point {
             x: f32::from(position.x) as f64 - self.origin.x,
@@ -432,6 +576,7 @@ impl GraphView {
 }
 impl Render for GraphView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.animate(window);
         let focus = self.focus.get_or_insert_with(|| cx.focus_handle()).clone();
         let keyboard_focused = self.overview && focus.is_focused(window);
         let (panel, ink, muted, line, outline, mark) = if self.dark {
@@ -501,11 +646,15 @@ impl Render for GraphView {
                 cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
                     if this.overview { if let Some(focus) = &this.focus { window.focus(focus); } }
                     if this.overview { cx.emit(PreviewIntent::Cancel); }
-                    this.click_start = None;
+                    this.begin_pointer_gesture();
                     let p = this.local(event.position);
                     if let Some(id) =
                         graph::hit_test(&this.nodes, this.graph.center_id, &this.viewport, p)
                     {
+                        // Freeze pending placement as soon as a node is grabbed.
+                        this.layout_cancelled.store(true, Ordering::Relaxed);
+                        this.layout_generation = this.layout_generation.wrapping_add(1);
+                        this.stop_animation();
                         this.click_start = Some((id, p));
                         this.selected = Some(id);
                         this.pan_from = None;
@@ -526,24 +675,8 @@ impl Render for GraphView {
                 let p = this.local(event.position);
                 let previous_hover = this.hovered;
                 let mut moved_geometry = false;
-                if this.click_start.is_some_and(|(_,start)| (p.x-start.x).hypot(p.y-start.y)>4.) { this.click_start=None; }
                 if event.dragging() {
-                    if let Some((id, previous)) = this.node_drag.filter(|(_, previous)| *previous != p) {
-                        moved_geometry = true;
-                        this.layout_cancelled.store(true, Ordering::Relaxed);
-                        this.layout_generation = this.layout_generation.wrapping_add(1);
-                        this.layout_status = "manual positions · no elastic physics";
-                        graph::drag_node(
-                            &mut this.nodes,
-                            id,
-                            &this.viewport,
-                            Point {
-                                x: p.x - previous.x,
-                                y: p.y - previous.y,
-                            },
-                        );
-                        this.node_drag = Some((id, p));
-                    }
+                    moved_geometry |= this.move_dragged_node(p);
                     if let Some(previous) = this.pan_from.filter(|previous| *previous != p) {
                         moved_geometry = true;
                         this.camera_intent.changed();
@@ -554,8 +687,7 @@ impl Render for GraphView {
                         this.pan_from = Some(p);
                     }
                 } else {
-                    this.node_drag = None;
-                    this.pan_from = None;
+                    this.release_drag(true);
                 }
                 this.hovered = graph::hit_test(&this.nodes, this.graph.center_id, &this.viewport, p);
                 if this.overview {
@@ -570,26 +702,29 @@ impl Render for GraphView {
             }))
             .on_mouse_up(
                 MouseButton::Left,
-                cx.listener(|this, _, _, cx| {
-                    if this.overview { if let Some((id,_))=this.click_start.take() { cx.emit(OpenNote(id)); } }
-                    this.pan_from = None;
-                    this.node_drag = None;
+                cx.listener(|this, event: &gpui::MouseUpEvent, _, cx| {
+                    // Some devices deliver a final release position without a
+                    // preceding move. It must still cross the click threshold.
+                    this.move_dragged_node(this.local(event.position));
+                    let click = this.click_start;
+                    this.release_drag(false);
+                    this.click_start = None;
+                    if this.overview { if let Some((id, _)) = click { cx.emit(OpenNote(id)); } }
+                    cx.notify();
                 }),
             )
             .on_mouse_up_out(
                 MouseButton::Left,
-                cx.listener(|this, _, _, _| {
-                    this.pan_from = None;
-                    this.node_drag = None;
+                cx.listener(|this, _, _, cx| {
+                    this.release_drag(true);
+                    cx.notify();
                 }),
             )
             .on_hover(cx.listener(|this, inside, _, cx| {
                 if !inside {
                     if this.overview { cx.emit(PreviewIntent::Leave); }
-                    this.click_start = None;
                     this.hovered = None;
-                    this.node_drag = None;
-                    this.pan_from = None;
+                    this.release_drag(true);
                     cx.notify();
                 }
             }))
@@ -599,7 +734,7 @@ impl Render for GraphView {
                 }
                 if this.overview { cx.emit(PreviewIntent::Cancel); }
                 this.hovered = None;
-                this.click_start = None;
+                this.release_drag(true);
                 this.camera_intent.changed();
                 let delta = event.delta.pixel_delta(px(20.));
                 this.viewport.zoom_at(
@@ -724,10 +859,15 @@ impl Render for GraphView {
                     .text_xs().text_color(rgb(muted)).cursor_pointer().child("↺")
                     .on_mouse_down(MouseButton::Left, |_,_,cx|cx.stop_propagation())
                     .on_click(cx.listener(|this,_,_,cx| {
-                        this.camera_intent.changed();
-                        this.viewport.offset=Point::default(); this.viewport.scale=1.;
-                        this.pan_from=None; this.node_drag=None; cx.stop_propagation(); cx.notify();
+                        this.reset_view(cx);
+                        cx.stop_propagation();
                     }))
+            ))
+            .when(compact && (self.nodes.len() > 300 || self.graph.edges.len() > graph::ElasticLayout::EDGE_BUDGET), |el| el.child(
+                div().absolute().bottom_1().left_1().text_xs().text_color(rgb(muted)).bg(rgb(panel))
+                    .child(if self.nodes.len() > graph::ElasticLayout::NODE_LIMIT {
+                        "Elastic limit: 1,000 nodes"
+                    } else { "Sampled elastic forces" })
             ))
             .when(!compact, |el| el.child(
                 div().absolute().bottom_3().left_3().right_3().p_3()
@@ -975,5 +1115,220 @@ mod cancellation_tests {
         assert!(!new_worker.load(Ordering::Relaxed));
         drop(view);
         assert!(new_worker.load(Ordering::Relaxed));
+    }
+}
+
+#[cfg(test)]
+mod elastic_interaction_tests {
+    use super::*;
+    fn view() -> GraphView {
+        let mut view = GraphView::new(graph::fixture(3));
+        view.viewport = Viewport::new(800., 600.);
+        view.nodes = graph::force_layout(
+            &view.graph,
+            graph::ForceOptions::default(),
+            &BTreeMap::new(),
+        );
+        view.node_drag = Some((1, Point::default()));
+        view.click_start = Some((1, Point::default()));
+        view
+    }
+    #[test]
+    fn click_slop_latches_and_drag_preserves_camera_at_every_zoom() {
+        for scale in [0.015, 1., 4.] {
+            let mut view = view();
+            view.viewport.scale = scale;
+            view.viewport.offset = Point { x: 42., y: -17. };
+            let camera = view.viewport;
+            let before = view.viewport.world_to_screen(view.nodes[0].position);
+            assert!(!view.move_dragged_node(Point { x: 1., y: 1. }));
+            assert!(view.click_start.is_some());
+            assert!(view.elastic.is_none());
+            assert!(view.move_dragged_node(Point { x: 3., y: 2. }));
+            assert!(view.click_start.is_none());
+            let after = view.viewport.world_to_screen(view.nodes[0].position);
+            assert!((after.x - before.x - 3.).abs() < 1e-8);
+            assert!((after.y - before.y - 2.).abs() < 1e-8);
+            view.move_dragged_node(Point::default());
+            assert!(view.click_start.is_none());
+            view.release_drag(false);
+            assert!(view.node_drag.is_none());
+            for _ in 0..20 {
+                view.elastic.as_mut().unwrap().tick(&mut view.nodes, None);
+            }
+            assert_eq!(view.viewport.offset, camera.offset);
+            assert_eq!(view.viewport.scale, camera.scale);
+        }
+    }
+    #[test]
+    fn exact_four_pixel_press_remains_a_click_candidate() {
+        for point in [
+            Point { x: 4., y: 0. },
+            Point { x: 2., y: 2. },
+            Point { x: -2., y: -2. },
+        ] {
+            let mut view = view();
+            let before = view.nodes.iter().map(|n| n.position).collect::<Vec<_>>();
+            assert!(!view.move_dragged_node(point));
+            assert!(view.click_start.is_some());
+            assert!(view.elastic.is_none());
+            assert_eq!(
+                view.nodes.iter().map(|n| n.position).collect::<Vec<_>>(),
+                before
+            );
+        }
+    }
+
+    #[test]
+    fn current_layout_camera_fit_and_title_policy_do_not_rewind_positions() {
+        let mut view = view();
+        view.move_dragged_node(Point { x: 150., y: 0. });
+        view.release_drag(true);
+        let positions = view.nodes.iter().map(|n| n.position).collect::<Vec<_>>();
+        let generation = view.layout_generation;
+        // Exercise the pure model operations used by Reset and title rendering.
+        // Event dispatch/Context notification requires native UI QA, not this test.
+        view.stop_animation();
+        assert!(view.fit_measured_view());
+        for titles in [false, true] {
+            view.titles = titles;
+            assert_eq!(
+                graph::show_label(view.viewport, view.titles, true, 0, false),
+                titles
+            );
+            assert_eq!(
+                view.nodes.iter().map(|n| n.position).collect::<Vec<_>>(),
+                positions
+            );
+            assert_eq!(view.layout_generation, generation);
+        }
+    }
+
+    #[test]
+    fn cancel_releases_hold_and_replacement_discards_motion() {
+        let mut view = view();
+        view.move_dragged_node(Point { x: 150., y: 0. });
+        view.release_drag(true);
+        assert!(view.node_drag.is_none() && view.click_start.is_none());
+        assert!(view.elastic.as_ref().unwrap().active());
+        let old = Arc::clone(&view.layout_cancelled);
+        view.replace_graph_state(graph::fixture(1));
+        assert!(old.load(Ordering::Relaxed));
+        assert!(view.elastic.is_none() && view.node_drag.is_none());
+        assert!(view.last_frame.is_none());
+        assert_eq!(view.nodes[0].position, Point::default());
+    }
+    #[test]
+    fn inactive_or_hidden_gap_cancels_without_ticking_and_idle_camera_does_not_wake() {
+        for inactive in [true, false] {
+            let mut view = view();
+            view.move_dragged_node(Point { x: 150., y: 0. });
+            let now = std::time::Instant::now();
+            view.last_render = Some(now - std::time::Duration::from_secs(1));
+            let before = view.nodes.iter().map(|n| n.position).collect::<Vec<_>>();
+            view.advance_animation(!inactive, now);
+            assert!(view.node_drag.is_none() && view.click_start.is_none());
+            assert!(!view.elastic.as_ref().unwrap().active());
+            assert_eq!(
+                view.nodes.iter().map(|n| n.position).collect::<Vec<_>>(),
+                before
+            );
+            view.viewport.pan(Point { x: 100., y: 0. });
+            view.advance_animation(true, now);
+            assert!(!view.elastic.as_ref().unwrap().active());
+            assert_eq!(
+                view.nodes.iter().map(|n| n.position).collect::<Vec<_>>(),
+                before
+            );
+        }
+    }
+    #[test]
+    fn frame_rate_is_bounded_and_small_jitter_cancellation_has_no_elastic_job() {
+        let mut view = view();
+        view.move_dragged_node(Point { x: 150., y: 0. });
+        view.release_drag(false);
+        let now = std::time::Instant::now();
+        view.advance_animation(true, now);
+        let before = view.nodes.iter().map(|n| n.position).collect::<Vec<_>>();
+        view.advance_animation(true, now + std::time::Duration::from_millis(1));
+        assert_eq!(
+            view.nodes.iter().map(|n| n.position).collect::<Vec<_>>(),
+            before
+        );
+        view.advance_animation(true, now + std::time::Duration::from_millis(17));
+        assert_ne!(
+            view.nodes.iter().map(|n| n.position).collect::<Vec<_>>(),
+            before
+        );
+        let mut click = super::elastic_interaction_tests::view();
+        click.move_dragged_node(Point { x: 1., y: 0. });
+        click.release_drag(true);
+        assert!(
+            click.click_start.is_none() && click.node_drag.is_none() && click.elastic.is_none()
+        );
+    }
+    #[test]
+    fn stationary_press_then_drag_and_idle_background_pan_keep_live_lease() {
+        let now = std::time::Instant::now();
+        let mut held = view();
+        held.begin_pointer_gesture();
+        held.click_start = Some((1, Point::default()));
+        for frame in 0..40 {
+            assert!(held.needs_animation_frame());
+            held.advance_animation(true, now + std::time::Duration::from_millis(frame * 17));
+        }
+        assert!(held.move_dragged_node(Point { x: 100., y: 0. }));
+        held.advance_animation(true, now + std::time::Duration::from_millis(40 * 17));
+        assert_eq!(held.node_drag.map(|(id, _)| id), Some(1));
+
+        let mut pan = GraphView::new(graph::fixture(3));
+        pan.last_render = Some(now - std::time::Duration::from_secs(3));
+        pan.begin_pointer_gesture();
+        pan.pan_from = Some(Point::default());
+        for frame in 0..40 {
+            assert!(pan.needs_animation_frame());
+            pan.advance_animation(true, now + std::time::Duration::from_millis(frame * 17));
+            assert!(pan.pan_from.is_some());
+        }
+        pan.release_drag(true);
+        assert!(!pan.needs_animation_frame());
+        held.advance_animation(false, now + std::time::Duration::from_millis(41 * 17));
+        assert!(!held.needs_animation_frame());
+    }
+
+    #[test]
+    fn settled_hold_keeps_pointer_ownership_across_regular_render_frames() {
+        let mut view = view();
+        view.move_dragged_node(Point { x: 150., y: 0. });
+        let now = std::time::Instant::now();
+        for frame in 0..400 {
+            view.advance_animation(true, now + std::time::Duration::from_millis(frame * 17));
+        }
+        assert!(!view.elastic.as_ref().unwrap().active());
+        assert_eq!(view.node_drag.map(|(id, _)| id), Some(1));
+        assert!(view.move_dragged_node(Point { x: 200., y: 0. }));
+        assert!(view.elastic.as_ref().unwrap().active());
+        view.release_drag(false);
+        assert!(view.node_drag.is_none());
+    }
+    #[test]
+    fn release_position_alone_crosses_click_threshold() {
+        for release in [Point { x: 5., y: 0. }, Point { x: 3., y: 2. }] {
+            let mut view = view();
+            // Exactly the mouse-up path, with no intervening move event.
+            view.move_dragged_node(release);
+            let click = view.click_start;
+            view.release_drag(false);
+            assert!(click.is_none());
+        }
+    }
+    #[test]
+    fn release_after_long_hold_restarts_without_stale_frame_timestamp() {
+        let mut view = view();
+        view.move_dragged_node(Point { x: 150., y: 0. });
+        view.last_frame = Some(std::time::Instant::now() - std::time::Duration::from_secs(5));
+        view.release_drag(false);
+        assert!(view.last_frame.is_none());
+        assert!(view.elastic.as_ref().unwrap().active());
     }
 }
