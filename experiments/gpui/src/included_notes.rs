@@ -35,7 +35,7 @@ impl Include {
     }
 }
 /// One accepted render response; never installed into the source reader.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Response {
     pub markdown: String,
     pub entries: Vec<Include>,

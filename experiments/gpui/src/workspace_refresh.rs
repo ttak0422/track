@@ -39,6 +39,7 @@ fn signal(session: Option<&live::Session>) -> live_refresh::Signal {
             let e = s.events();
             live_refresh::Signal {
                 change: e.change,
+                data: e.data,
                 gaps: e.gaps,
                 connected: e.connected,
             }
@@ -51,6 +52,38 @@ fn unchanged(
     new: &live::NoteResponse,
 ) -> bool {
     old == &new.note && related == &new.related_and_diagnostics
+}
+#[derive(Debug, PartialEq, Eq)]
+enum DependencyUpdate {
+    Unchanged,
+    Defer,
+    Replace,
+}
+fn dependency_update(
+    old: Option<&crate::included_notes::Response>,
+    new: Option<&crate::included_notes::Response>,
+    rendered: bool,
+    measured_top: bool,
+) -> DependencyUpdate {
+    if old == new {
+        DependencyUpdate::Unchanged
+    } else if rendered && !measured_top {
+        DependencyUpdate::Defer
+    } else {
+        DependencyUpdate::Replace
+    }
+}
+fn validate_dependencies(response: &crate::included_notes::Response) -> Result<(), live::Error> {
+    if response.entries.iter().any(|entry| {
+        entry.error.as_ref().is_some_and(|error| !error.is_empty()) || !entry.bad_options.is_empty()
+    }) {
+        return Err(live::Error::Shape(
+            "Incomplete rendered dependencies; previous snapshot retained".into(),
+        ));
+    }
+    markdown::included_preview(response)
+        .map(|_| ())
+        .map_err(live::Error::Shape)
 }
 fn same_body_inputs(old: &live::NoteBody, new: &live::NoteBody) -> bool {
     old.body == new.body && old.note.additional.get("tasks") == new.note.additional.get("tasks")
@@ -180,6 +213,8 @@ impl Workspace {
         let client = self.live.as_ref().unwrap().client();
         let before_note = self.current_note.as_ref().unwrap().clone();
         let before_related = self.current_related.clone();
+        let before_dependencies = self.refresh_dependencies().cloned();
+        let dependency_tasks = before_dependencies.as_ref().map(|_| self.accepted_tasks());
         let mode = self.shell.rendered_reading.generation();
         let interaction = (
             self.refresh_reader_interaction(),
@@ -205,11 +240,24 @@ impl Workspace {
                     &worker_ticket.owner.source.note,
                     &worker_ticket.owner.registry.0,
                 );
+                let result = result?;
+                let dependencies = if let Some(tasks) = dependency_tasks {
+                    let dependencies =
+                        client.included_notes(&result.note.note.vault, &result.note.body)?;
+                    validate_dependencies(&dependencies)?;
+                    Some(workspace_includes::Snapshot::build(
+                        dependencies,
+                        &result.note.body,
+                        tasks,
+                    ))
+                } else {
+                    None
+                };
                 let after = client.storage()?;
                 if after.phase != "ready" || after.generation != expected {
                     return Err(live::Error::Stale);
                 }
-                result
+                Ok((result, dependencies))
             })();
             result
         });
@@ -220,18 +268,26 @@ impl Workspace {
                 let owner=this.refresh_owner();
                 let safe=active&&this.refresh_safe(window,cx)&&this.shell.rendered_reading.generation()==mode
                     && (this.refresh_reader_interaction(),this.refresh_rendered_interaction())==interaction
-                    && this.current_note.as_ref()==Some(&before_note)&&this.current_related==before_related;
+                    && this.current_note.as_ref()==Some(&before_note)&&this.current_related==before_related
+                    && this.refresh_dependencies() == before_dependencies.as_ref();
                 if !this.refresh.model.complete(&ticket,owner.as_ref(),safe,now){
                     this.refresh.notice=Some("Automatic refresh deferred after an interaction or source change.".into());cx.notify();return;
                 }
                 match result {
                     Err(e)=>this.refresh.notice=Some(format!("Refresh failed; previous accepted snapshot retained: {e}. Use Retry.")),
-                    Ok(response)=>{
+                    Ok((response, dependencies))=>{
                         if response.note.note.key()!=ticket.owner.source.note || response.note.note.file_kind!=before_note.note.file_kind
                             || response.note.read_only || partial(&response.related_and_diagnostics){
                             this.refresh.notice=Some("Incomplete check. Return to Source, then View > Reload.".into());
                         }else if unchanged(&before_note,&before_related,&response){
-                            this.refresh.notice=Some("Current note checked; no accepted content changed.".into());
+                            match dependency_update(before_dependencies.as_ref(), dependencies.as_ref().map(|snapshot| &snapshot.response), this.includes_preview_active(), this.refresh_rendered_top()) {
+                                DependencyUpdate::Unchanged => this.refresh.notice=Some("Current note checked; no accepted content changed.".into()),
+                                DependencyUpdate::Defer => this.refresh.notice=Some("Rendered dependencies changed. Return to the top and Retry current-note check.".into()),
+                                DependencyUpdate::Replace => if let Some(dependencies) = dependencies {
+                                    this.accept_refresh_dependencies(dependencies, cx);
+                                    this.refresh.notice=Some("Current note's rendered dependencies refreshed.".into());
+                                },
+                            }
                         }else{
                             let same=same_body_inputs(&before_note,&response.note);
                             let top=if this.includes_preview_active(){this.refresh_rendered_top()}else{this.refresh_reader_top(window)};
@@ -397,6 +453,62 @@ mod tests {
     }
     fn response(v: Value) -> live::NoteResponse {
         serde_json::from_value(v).unwrap()
+    }
+    fn dependencies(markdown: &str) -> crate::included_notes::Response {
+        crate::included_notes::Response {
+            markdown: markdown.into(),
+            entries: vec![],
+        }
+    }
+    #[test]
+    fn unchanged_dependencies_preserve_projection_even_below_top() {
+        let old = dependencies("query result A");
+        let same = old.clone();
+        assert_eq!(
+            dependency_update(Some(&old), Some(&same), true, false),
+            DependencyUpdate::Unchanged
+        );
+    }
+    #[test]
+    fn query_only_change_requires_top_but_source_discards_hidden_cache() {
+        let old = dependencies("query result A");
+        let new = dependencies("query result B");
+        assert_eq!(
+            dependency_update(Some(&old), Some(&new), true, false),
+            DependencyUpdate::Defer
+        );
+        assert_eq!(
+            dependency_update(Some(&old), Some(&new), true, true),
+            DependencyUpdate::Replace
+        );
+        assert_eq!(
+            dependency_update(Some(&old), Some(&new), false, false),
+            DependencyUpdate::Replace
+        );
+    }
+    #[test]
+    fn include_metadata_and_excerpt_changes_are_not_host_noops() {
+        let old = crate::included_notes::decode(serde_json::json!({
+            "markdown": "![[target]]", "includes": [{"line":0,"source_line":0,"caption":"target","note_id":42,"kind":"note","etag":"v1","lines":["old"]}]
+        }), "").unwrap();
+        let mut new = old.clone();
+        new.entries[0].excerpt = "new".into();
+        assert_eq!(
+            dependency_update(Some(&old), Some(&new), true, true),
+            DependencyUpdate::Replace
+        );
+        new = old.clone();
+        new.entries[0].title = Some("renamed".into());
+        assert_eq!(
+            dependency_update(Some(&old), Some(&new), true, true),
+            DependencyUpdate::Replace
+        );
+        new.entries[0].error = Some("partial".into());
+        assert!(validate_dependencies(&new).is_err());
+        new.entries[0].error = None;
+        new.entries[0].bad_options.push("unsupported".into());
+        assert!(validate_dependencies(&new).is_err());
+        assert!(validate_dependencies(&dependencies(&"x".repeat(16 * 1024 * 1024 + 1))).is_err());
     }
     #[test]
     fn all_accepted_fields_participate_in_noop() {

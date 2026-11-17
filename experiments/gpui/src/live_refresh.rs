@@ -4,6 +4,7 @@ const MIN_INTERVAL_MS: u64 = 2000;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Signal {
     pub change: u64,
+    pub data: u64,
     pub gaps: u64,
     pub connected: bool,
 }
@@ -82,11 +83,14 @@ impl<O: Clone + PartialEq> Model<O> {
             self.signal = signal;
             self.safe = false;
         }
-        if signal.change == u64::MAX || signal.gaps == u64::MAX {
+        if signal.change == u64::MAX || signal.data == u64::MAX || signal.gaps == u64::MAX {
             self.disable();
             return;
         }
-        if signal.change != self.signal.change || signal.gaps != self.signal.gaps {
+        if signal.change != self.signal.change
+            || signal.data != self.signal.data
+            || signal.gaps != self.signal.gaps
+        {
             self.pending = Some(now);
         }
         self.signal = signal;
@@ -160,6 +164,7 @@ mod tests {
     fn signal(n: u64) -> Signal {
         Signal {
             change: n,
+            data: 0,
             gaps: 0,
             connected: true,
         }
@@ -181,6 +186,47 @@ mod tests {
         assert!(m.pending());
         assert!(m.claim(2499).is_none());
         assert!(m.claim(2500).is_some());
+    }
+    #[test]
+    fn data_only_event_schedules_and_inflight_data_is_not_lost() {
+        let mut m = enabled();
+        let first = m.claim(500).unwrap();
+        assert!(m.complete(&first, Some(&1), true, 600));
+        let data = Signal {
+            data: 1,
+            ..signal(0)
+        };
+        m.observe(Some(1), data, 700, true);
+        let ticket = m.claim(2500).unwrap();
+        m.observe(Some(1), Signal { data: 2, ..data }, 2600, true);
+        assert!(m.complete(&ticket, Some(&1), true, 2700));
+        assert!(m.pending());
+        assert!(m.claim(4500).is_some());
+    }
+    #[test]
+    fn data_saturation_disables_refresh() {
+        let mut m = enabled();
+        m.observe(
+            Some(1),
+            Signal {
+                data: u64::MAX,
+                ..signal(0)
+            },
+            500,
+            true,
+        );
+        assert!(!m.enabled);
+        assert!(m.claim(1000).is_none());
+    }
+    #[test]
+    fn dependency_read_rejects_navigation_and_interaction_changes() {
+        let mut m = enabled();
+        let ticket = m.claim(500).unwrap();
+        assert!(!m.complete(&ticket, Some(&2), true, 600));
+        let mut m = enabled();
+        let ticket = m.claim(500).unwrap();
+        assert!(!m.complete(&ticket, Some(&1), false, 600));
+        assert!(m.pending());
     }
     #[test]
     fn failure_is_one_attempt_until_new_signal_or_retry() {
@@ -223,6 +269,7 @@ mod tests {
         let t = m.claim(500).unwrap();
         let gap = Signal {
             change: 0,
+            data: 0,
             gaps: 1,
             connected: false,
         };

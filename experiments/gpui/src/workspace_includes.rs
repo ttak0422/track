@@ -112,13 +112,32 @@ impl QueryPageGate {
                 || self.composing)
     }
 }
-struct Snapshot {
+pub(crate) struct Snapshot {
     query_positions: Result<std::collections::BTreeMap<usize, usize>, String>,
     inline: Result<markdown::InlineIncludes, String>,
     boards: task_boards::Boards,
-    response: crate::included_notes::Response,
+    pub(crate) response: crate::included_notes::Response,
     preview: Result<markdown::IncludePreview, String>,
     queries: std::collections::BTreeMap<(usize, usize), Result<crate::query_view::View, String>>,
+}
+impl Snapshot {
+    pub(crate) fn build(
+        response: crate::included_notes::Response,
+        body: &str,
+        tasks: Result<std::sync::Arc<Vec<live::NoteTask>>, String>,
+    ) -> Self {
+        let mut preview = markdown::included_preview(&response);
+        preview_copy::normalize(&mut preview);
+        let (queries, boards) = task_boards::project_with_source(&preview, tasks, Some(body));
+        Self {
+            query_positions: markdown::inline_query_positions(body, &response),
+            inline: markdown::inline_includes(body, &response),
+            boards,
+            response,
+            preview,
+            queries,
+        }
+    }
 }
 impl IncludesState {
     fn new(identity: Identity) -> Self {
@@ -657,22 +676,12 @@ impl Workspace {
             let response = client
                 .included_notes(&captured.source.note.vault, &body)
                 .map_err(|e| e.to_string())?;
-            let mut preview = markdown::included_preview(&response);
-            preview_copy::normalize(&mut preview);
+            let snapshot = Snapshot::build(response, &body, tasks);
             let after = client.storage().map_err(|e| e.to_string())?;
             if after.phase != "ready" || after.generation != captured.source.storage_generation {
                 return Err("Storage changed. Reload the workspace.".into());
             }
-            let (queries, boards) = task_boards::project_with_source(&preview, tasks, Some(&body));
-            let inline = markdown::inline_includes(&body, &response);
-            Ok(Snapshot {
-                query_positions: markdown::inline_query_positions(&body, &response),
-                inline,
-                boards,
-                response,
-                preview,
-                queries,
-            })
+            Ok(snapshot)
         });
         cx.spawn(async move |this, cx| {
             let result = job.await;
@@ -1407,6 +1416,57 @@ fn project_queries(
 }
 
 impl Workspace {
+    /// The accepted dependency snapshot is part of refresh ownership even when
+    /// the host's body and ETag have not changed.
+    pub(crate) fn refresh_dependencies(&self) -> Option<&crate::included_notes::Response> {
+        self.shell
+            .includes
+            .as_ref()?
+            .result
+            .as_ref()?
+            .as_ref()
+            .ok()
+            .map(|s| &s.response)
+    }
+
+    /// Called only after current-note refresh validates owner, interaction and
+    /// measured-top gates. Source mode has no visible projection to replace.
+    pub(crate) fn accept_refresh_dependencies(
+        &mut self,
+        snapshot: Snapshot,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.includes_preview_active() {
+            self.shell.includes = None;
+            return;
+        }
+        let Some(state) = self.shell.includes.as_mut() else {
+            return;
+        };
+        state.result = Some(Ok(snapshot));
+        state.refresh_warning = None;
+        state.preview_epoch = SERIAL.fetch_add(1, Ordering::Relaxed);
+        state.find = Default::default();
+        state.selection = Default::default();
+        state.contents = Default::default();
+        state.query_nav = Default::default();
+        state.query_inline = Default::default();
+        state.query_pages.clear();
+        state.query_sources.clear();
+        state.mindmap_cache.clear();
+        state.flowchart_cache.clear();
+        state.gallery.cancel();
+        state.viewspecs.cancel();
+        state.gallery = Default::default();
+        state.viewspecs = Default::default();
+        state.copy = preview_copy::CopyUi::prepare(
+            state.result.as_ref().and_then(|r| r.as_ref().ok()),
+            cx,
+        );
+        self.load_gallery(cx);
+        self.load_viewspecs(cx);
+    }
+
     pub(crate) fn refresh_rendered_interaction(&self) -> Option<(u64, u64, u64, u64, u64)> {
         self.shell.includes.as_ref().map(|s| {
             (
