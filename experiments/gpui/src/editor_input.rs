@@ -1013,6 +1013,10 @@ mod tests {
         }
     }
     #[test]
+    #[expect(
+        clippy::reversed_empty_ranges,
+        reason = "reversed ranges are intentional malformed input, not iterators"
+    )]
     fn malformed_ranges_are_safe() {
         assert_eq!(byte_range("😀日", 1..99), 0..7);
         assert_eq!(byte_range("😀日", 3..0), 0..7);
