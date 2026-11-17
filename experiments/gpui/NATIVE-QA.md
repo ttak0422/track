@@ -1957,3 +1957,25 @@ After verification, all 82 public-help fixture file hashes remained unchanged
 and both owned engine ports were closed. Normal-vault editing remains disabled;
 full IME, clipboard formats, accessibility, matched Web screenshots, multiple
 viewport sizes and dirty/failed-save termination still need dedicated coverage.
+
+## Dependency refresh and inherited writer locks, 2026-11-17
+
+Follow-up unit/adapter coverage now includes data-only refresh hints, data arriving
+in flight, saturated counters, unchanged/changed include and query projections,
+measured-top deferral, navigation/interaction rejection and partial/oversize
+response retention. Existing rendered dependencies are fetched in the current-note
+worker even when host content is unchanged; projection building stays off the UI
+thread. The integrated macOS suite passed with 1,084 tests and 25 ignored; Clippy
+all-targets completed successfully with existing warnings. A dedicated HTTP
+same-host/dependency-change worker test and native dependency-change interaction
+have not yet been performed. These are not claimed as end-to-end acceptance.
+
+A separate isolated subprocess test deterministically reproduced an inherited
+writer-lock failure: a forked child held the shared open file description before
+exec, so closing the parent's store did not release flock. Explicit unlock in
+SessionStore::drop makes that regression pass while retaining live-owner exclusion.
+The recovery/session subset passed 42 tests; intermediate integrated parallel
+(16 threads) and serial runs each passed 1,081 tests with 25 ignored. This proves
+and fixes the reproduced mechanism, not the exact cause of every historical lock
+failure. No timeout, ownership check or ordinary-vault gate was relaxed. Historical
+bound-readiness timeouts remain a separate investigation.
