@@ -118,3 +118,112 @@ func TestWatchCanonicalMetadataUpdateAndLossRetainSafety(t *testing.T) {
 	}
 	assertCanonicalInventory(t, baseline, f.canonical()...)
 }
+
+func canonicalMetadataWatcher(t *testing.T) (sentinelFixture, *store.Store, <-chan serverEvent) {
+	t.Helper()
+	f := newSentinelFixture(t)
+	policy, err := newReadPolicy(f.cache, []string{f.configuration})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := policy.open(f.cfg, store.Open)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := newServerWithReadPolicy(f.cfg, st, true, policy)
+	s.enableAsync()
+	s.refresh(s.active)
+	sentinelViewReady(t, s.active)
+	s.startWatch()
+	ch := s.events.subscribe()
+	t.Cleanup(func() {
+		s.events.unsubscribe(ch)
+		s.closeViews()
+		st.Close()
+	})
+	return f, st, ch
+}
+
+func TestWatchCanonicalMetadataDirectoryRemovalAndRecreation(t *testing.T) {
+	f, st, ch := canonicalMetadataWatcher(t)
+	meta, _, err := note.ReadMetadata(f.cfg.MetadataPath(100))
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Props = map[string]any{"status": "BEFORE"}
+	if err := note.WriteMetadata(f.cfg.MetadataPath(100), meta); err != nil {
+		t.Fatal(err)
+	}
+	awaitMetadataChange(t, ch, func() bool { return hasWatchedStatus(st, 100, "BEFORE") })
+
+	if err := os.RemoveAll(f.cfg.MetadataDir()); err != nil {
+		t.Fatal(err)
+	}
+	baseline := canonicalInventory(t, f.canonical()...)
+	awaitMetadataChange(t, ch, func() bool {
+		state, err := st.ReadState()
+		return err == nil && state.Partial && hasWatchedStatus(st, 100, "BEFORE")
+	})
+	if _, err := os.Stat(f.cfg.MetadataDir()); !os.IsNotExist(err) {
+		t.Fatalf("missing metadata directory was recreated: %v", err)
+	}
+	assertCanonicalInventory(t, baseline, f.canonical()...)
+
+	// Recreate the directory and first sidecar in one burst. No body changes or
+	// HTTP reads may repair a missed watch registration.
+	meta.Props["status"] = "RESTORED"
+	if err := note.WriteMetadata(f.cfg.MetadataPath(100), meta); err != nil {
+		t.Fatal(err)
+	}
+	baseline = canonicalInventory(t, f.canonical()...)
+	awaitMetadataChange(t, ch, func() bool {
+		state, err := st.ReadState()
+		return err == nil && !state.Partial && hasWatchedStatus(st, 100, "RESTORED")
+	})
+	assertCanonicalInventory(t, baseline, f.canonical()...)
+
+	// This second edit proves that the replacement directory itself is watched,
+	// rather than only being reconciled once from its parent's create event.
+	meta.Props["status"] = "AFTER"
+	if err := note.WriteMetadata(f.cfg.MetadataPath(100), meta); err != nil {
+		t.Fatal(err)
+	}
+	baseline = canonicalInventory(t, f.canonical()...)
+	awaitMetadataChange(t, ch, func() bool { return hasWatchedStatus(st, 100, "AFTER") })
+	assertCanonicalInventory(t, baseline, f.canonical()...)
+}
+
+func TestWatchTrackGenerationChangesDoNotRepublishOrBroadcast(t *testing.T) {
+	f, st, ch := canonicalMetadataWatcher(t)
+	revision, err := st.Revision()
+	if err != nil {
+		t.Fatal(err)
+	}
+	gen := f.cfg.GenDir()
+	if err := os.MkdirAll(gen, 0755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(gen, "synthetic-generation")
+	if err := os.WriteFile(path, []byte("fixture snapshot\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(path, path+".replaced"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(gen); err != nil {
+		t.Fatal(err)
+	}
+	baseline := canonicalInventory(t, f.canonical()...)
+	// More than six watcher debounce intervals: unrelated .track/gen changes
+	// must emit no event at all, not merely avoid a sustained notification loop.
+	select {
+	case event := <-ch:
+		t.Fatalf("generation-only changes emitted %q", event.name)
+	case <-time.After(2 * time.Second):
+	}
+	after, err := st.Revision()
+	if err != nil || after != revision {
+		t.Fatalf("generation-only changes republished index: before=%d after=%d err=%v", revision, after, err)
+	}
+	assertCanonicalInventory(t, baseline, f.canonical()...)
+}
