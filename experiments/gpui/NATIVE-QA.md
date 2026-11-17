@@ -2023,3 +2023,59 @@ claim to have fixed all historical production readiness failures.
 Four manually created dependency-QA files were moved out after testing. All 82
 original canonical fixture file hashes matched the baseline, and both owned
 ports were closed after quit. No personal vault or ordinary launch gate was used.
+
+
+## Metadata-only query updates and compact layout, 2026-11-17
+
+The next native pass reproduced an actual engine watcher gap. Changing only a
+query result note's YAML property left the accepted table unchanged; a later
+HTTP read refreshed the index and caused the delayed projection update. The
+non-recursive watcher covered note/journal/data paths, not `.track/notes`. It now
+watches metadata and its parent, including directories created after startup.
+Go regressions inspect committed index state and change events without HTTP
+reads, retain partial/old-data safety after a sidecar disappears, and verify that
+read-only startup never creates metadata directories. Five focused safety/watch
+tests passed with the race detector in three repetitions.
+
+After rebuilding both native and Go fixture executables, a query-only host
+showed CHARLIE. Changing only its result note's `props.status` to DELTA updated
+the native table and displayed the rendered-dependencies-refreshed notice in the
+next observation, without a manual reload, navigation, or additional HTTP read.
+The host Markdown was unchanged.
+
+Reusing a derived cache after moving the earlier disposable include notes out
+correctly produced partial storage: deletion was not confirmed by enumeration.
+Restoring those fixture copies cleared the condition. This was not treated as
+a reason to weaken canonical read safety. All 82 original fixture hashes remained
+unchanged; no personal vault was accessed.
+
+The OS now exposes the fixed window name `Track Native Experimental`; this was
+confirmed in the native accessibility tree. The body and search field still have
+no semantic accessibility tree in pinned GPUI 0.2.2; see ACCESSIBILITY.md.
+Rendered controls/help now scroll separately from the body, and floating menu
+height is viewport-bounded. Independent header scrolling was observed natively;
+minimum-height geometry has unit coverage, not a completed 480px visual pass.
+
+The full Go WebUI package passed outside the sandbox. Its initial sandbox run
+failed only in existing process-identity tests because `/bin/ps` was denied;
+that restriction was not bypassed in production code.
+
+A subsequent long-document check found overlapping paragraphs only in Rendered
+reading. Temporary numeric-only layout diagnostics showed a 640x29px paragraph
+box containing 640x89px shaped text. Flex shrink and row display changes did not
+fix it and were removed. The rendered prose parent's flex-column/percentage-width
+measurement path used a wider preliminary width than the final 640px text.
+Changing only that parent to normal block flow fixed the native display: the
+three-line introduction, following paragraphs, dashboard and lower multiline
+list rows no longer overlap; short text remains left-aligned. Source layout
+was unchanged. The diagnostic probe and its temporary launcher setting were
+removed after measurement.
+
+Final integrated Rust validation: 1,097 passed, 0 failed, 25 ignored; native
+build and all-target/all-feature Clippy completed successfully with existing
+warnings. The wrapped-height regression uses GPUI's existing Taffy 0.9.0
+layout engine at widths 480, 640 and 1906px, including short text alignment.
+The eight added dependency/query fixture files are retained for reproducibility
+in the disposable vault; its 82 original canonical hashes still match. Both
+owned ports were closed after quit. Actual IME composition, semantic AX controls,
+Dock interaction and 480px native visual acceptance remain unverified.
