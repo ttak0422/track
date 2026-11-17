@@ -7590,6 +7590,9 @@ mod capability_tests;
 #[path = "live_read_inputs.rs"]
 mod read_inputs;
 
+#[path = "live_launch_context.rs"]
+mod launch_context;
+
 #[cfg(test)]
 #[path = "live_admission_process.rs"]
 mod admission_process_tests;
