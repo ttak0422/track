@@ -1931,3 +1931,29 @@ Clean Cmd-Q terminated the fixture and closed both owned ports. All 82 fixture
 canonical file hashes remained unchanged. Existing application windows and
 personal vaults were not used. Matched Web/native screenshots, accessibility,
 multiple viewport sizes and dirty/failed-save termination remain separate gates.
+
+## Embedded icons and integrated macOS checks, 2026-11-17
+
+The integrated metadata/search, icon and scoped BeautifulRust candidate built
+successfully on Apple Silicon using Rust 1.100 and the system Clang linker.
+The native packaged application displayed the embedded navigation symbols and
+Track brand in both light and dark themes, replacing the mixed text/hand-drawn
+rail. The bundle helper's five tests passed, and the generated bundle's icon
+bytes matched `desktop/Resources/Track.icns`. This verifies packaging metadata
+and rail rendering, not a visual Dock/Finder icon comparison. A resize attempt
+did not produce a smaller viewport, so short-window rail scrolling remains
+unverified. The synthetic launch did not open a vault.
+
+The integrated native Rust suite completed with 1,076 passed, zero failed and
+25 ignored. Four test-fixture temp roots are now canonicalized on macOS so
+`/var` versus `/private/var` aliases do not violate the deliberate canonical-root
+checks. One initial capability fixture timed out before those final runs; its
+focused repetitions passed without a production change, so the underlying
+intermittent timeout is not considered resolved. Earlier Go config/webui tests
+and three focused bound-process drift runs passed. These results do not close
+historical parallel recovery-store or bound-readiness timeout investigations.
+
+After verification, all 82 public-help fixture file hashes remained unchanged
+and both owned engine ports were closed. Normal-vault editing remains disabled;
+full IME, clipboard formats, accessibility, matched Web screenshots, multiple
+viewport sizes and dirty/failed-save termination still need dedicated coverage.
