@@ -789,15 +789,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
-                titlebar: if cfg!(target_os = "macos") {
-                    Some(gpui::TitlebarOptions {
-                        title: None,
-                        appears_transparent: true,
-                        traffic_light_position: None,
-                    })
-                } else {
-                    None
-                },
+                titlebar: native_window::titlebar_options(),
                 window_min_size: Some(size(px(680.), px(480.))),
                 is_movable: true,
                 is_resizable: true,

@@ -1,6 +1,16 @@
 //! Public AppKit adaptation for the GPUI window created by this process.
 //! No global settings, private selectors, other windows, or background-thread UI.
 
+/// A stable OS window name, without disclosing the current note or vault path.
+/// The transparent titlebar keeps the existing visible workspace unchanged.
+pub(crate) fn titlebar_options() -> Option<gpui::TitlebarOptions> {
+    cfg!(target_os = "macos").then(|| gpui::TitlebarOptions {
+        title: Some("Track Native Experimental".into()),
+        appears_transparent: true,
+        traffic_light_position: None,
+    })
+}
+
 #[cfg(target_os = "macos")]
 #[allow(unexpected_cfgs)] // objc 0.2 macros probe their historical cargo-clippy feature.
 pub fn configure(window: &gpui::Window) -> Result<(), &'static str> {
@@ -64,4 +74,21 @@ pub fn configure(window: &gpui::Window) -> Result<(), &'static str> {
 #[cfg(not(target_os = "macos"))]
 pub fn configure(_: &gpui::Window) -> Result<(), &'static str> {
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn window_identity_is_named_without_changing_titlebar_policy() {
+        let titlebar = super::titlebar_options();
+        assert_eq!(titlebar.is_some(), cfg!(target_os = "macos"));
+        if let Some(titlebar) = titlebar {
+            assert_eq!(
+                titlebar.title.unwrap().to_string(),
+                "Track Native Experimental"
+            );
+            assert!(titlebar.appears_transparent);
+            assert!(titlebar.traffic_light_position.is_none());
+        }
+    }
 }
