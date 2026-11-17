@@ -1907,3 +1907,27 @@ owned startup/cleanup, finite reads and sticky invalidation without enabling an
 ordinary-vault path. The harness's image carrier is a stub, so this is neither a
 full GPUI build nor native UI/IME/clipboard acceptance. Production v1 and the
 ordinary-launch gate remain unchanged.
+
+## Metadata columns and search hit isolation, 2026-11-17
+
+On Apple Silicon/macOS 27.2.1, the candidate built from `8da1dc4` with the
+metadata/search correction was exercised against a disposable public-help copy,
+explicit private configuration/cache and owned canonical-read-only engine.
+At a 947-pixel-wide captured window, the old metadata labels collapsed to one
+glyph per line and overlapped later reader content. Reserving a non-shrinking
+110-pixel label column restored CREATED/UPDATED and ordinary property rows.
+
+Native search checks covered input-panel clicks, panel padding, plain-text paste,
+Enter to open Syntax, repeated opening and outside-click dismissal. The old
+backdrop also activated the reader control underneath the dismissal click; an
+occluding backdrop with stopped mouse/click propagation now dismisses without
+opening the underlying rendered-content inspector. The panel also occludes its
+own bounds. Japanese composition was observed and clearing after commit worked,
+but this is not full IME validation. Early automation paste attempts dismissed
+search; that separate cause remains unestablished, rather than being attributed
+to this backdrop fix.
+
+Clean Cmd-Q terminated the fixture and closed both owned ports. All 82 fixture
+canonical file hashes remained unchanged. Existing application windows and
+personal vaults were not used. Matched Web/native screenshots, accessibility,
+multiple viewport sizes and dirty/failed-save termination remain separate gates.
