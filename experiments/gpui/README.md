@@ -20,6 +20,17 @@ Install Nix, Rust 1.99 or newer and Apple's Command Line Tools, then run:
 cargo run --locked --release --manifest-path experiments/gpui/Cargo.toml
 ```
 
+To package that macOS binary with the existing Track Finder/Dock icon, use a new path:
+
+```sh
+python3 experiments/gpui/package-macos.py \
+  --binary experiments/gpui/target/release/track-gpui-poc \
+  --output "/tmp/Track Native Experimental.app"
+```
+
+The helper refuses existing outputs. It does not install, sign, notarize or launch
+anything; the experimental bundle has a separate identity from Track.app.
+
 The default is a synthetic 10,000-note fixture. Use the floating search action to find and select notes in a virtualized overlay. GPUI uses native Metal rendering, not WKWebView.
 Runtime shader compilation avoids requiring the full Xcode Metal compiler.
 If a Nix-provided GCC shadows Apple’s toolchain, set `CC=/usr/bin/clang`,

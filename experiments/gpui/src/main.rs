@@ -60,6 +60,7 @@ mod search_refinement;
 mod selection_lines;
 mod session_store;
 mod shell;
+mod rail_icons;
 mod snapshot_find;
 mod snapshot_images;
 mod snapshot_links;
@@ -677,7 +678,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("expected a single JSON path or explicit vault options".into());
     };
     let input_trace_enabled = input_trace::initialize(developer_fixture.is_some());
-    Application::new().run(move |cx: &mut App| {
+    let application = Application::new().with_assets(rail_icons::Assets);
+    application.run(move |cx: &mut App| {
         if input_trace_enabled {
             cx.observe_keystrokes(|event, _, _| input_trace::key(event))
                 .detach();

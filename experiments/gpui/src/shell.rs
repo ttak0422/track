@@ -1,6 +1,7 @@
 //! Native one-sheet shell. Only backed actions are interactive.
 use super::*;
-use gpui::{Div, Focusable, PathBuilder, Stateful, WindowAppearance, canvas, point};
+use crate::rail_icons::Icon;
+use gpui::{Div, Focusable, Stateful, WindowAppearance, point};
 
 fn native_find_enabled(
     active_workspace: bool,
@@ -2380,89 +2381,15 @@ fn metadata_badge(flag: &crate::note_metadata::Flag, p: Palette) -> Div {
         .child(metadata_text(flag.label()))
 }
 
-fn rail_button(id: &'static str, glyph: &'static str, p: Palette, active: bool) -> Stateful<Div> {
-    let color = if active { p.mark } else { p.muted };
-    div()
-        .id(id)
-        .w(px(40.))
-        .h(px(40.))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded_md()
-        .cursor_pointer()
-        .child(
-            canvas(
-                |_, _, _| (),
-                move |bounds, _, window, _| {
-                    let mut path = PathBuilder::stroke(px(1.5));
-                    let at = |x: f32, y: f32| {
-                        point(
-                            bounds.left() + px(x * 20. / 24.),
-                            bounds.top() + px(y * 20. / 24.),
-                        )
-                    };
-                    let segments: Vec<Vec<(f32, f32)>> = match glyph {
-                        "home" => vec![
-                            vec![(3., 11.), (12., 3.), (21., 11.)],
-                            vec![
-                                (5., 10.),
-                                (5., 21.),
-                                (10., 21.),
-                                (10., 14.),
-                                (14., 14.),
-                                (14., 21.),
-                                (19., 21.),
-                                (19., 10.),
-                            ],
-                        ],
-                        "search" => {
-                            let mut ring: Vec<_> = (0..=32)
-                                .map(|i| {
-                                    let a = i as f32 * std::f32::consts::TAU / 32.;
-                                    (10.5 + 6.5 * a.cos(), 10.5 + 6.5 * a.sin())
-                                })
-                                .collect();
-                            ring.push((15.1, 15.1));
-                            vec![ring, vec![(15.1, 15.1), (21., 21.)]]
-                        }
-                        "info" => vec![vec![(12., 5.), (12., 6.)], vec![(12., 10.), (12., 19.)]],
-                        "reload" => {
-                            let arc = (0..=24)
-                                .map(|i| {
-                                    let a = 0.6 + i as f32 * 5.0 / 24.;
-                                    (12. + 8. * a.cos(), 12. + 8. * a.sin())
-                                })
-                                .collect();
-                            vec![arc, vec![(21., 3.), (21., 9.), (15., 9.)]]
-                        }
-                        _ => {
-                            let ring = (0..=32)
-                                .map(|i| {
-                                    let a = i as f32 * std::f32::consts::TAU / 32.;
-                                    (12. + 8. * a.cos(), 12. + 8. * a.sin())
-                                })
-                                .collect();
-                            vec![ring, vec![(12., 4.), (12., 20.)]]
-                        }
-                    };
-                    for points in segments {
-                        for (i, (x, y)) in points.into_iter().enumerate() {
-                            if i == 0 {
-                                path.move_to(at(x, y));
-                            } else {
-                                path.line_to(at(x, y));
-                            }
-                        }
-                    }
-                    if let Ok(path) = path.build() {
-                        window.paint_path(path, rgb(color));
-                    }
-                },
-            )
-            .w(px(20.))
-            .h(px(20.)),
-        )
+fn rail_button(id: &'static str, icon: Icon, p: Palette, active: bool) -> Stateful<Div> {
+    let color = if active {
+        p.mark
+    } else if icon == Icon::Home {
+        p.ink
+    } else {
+        p.muted
+    };
+    crate::rail_icons::button(id, icon, color, p.paper).cursor_pointer()
 }
 
 fn label(text: &'static str, p: Palette) -> Div {
@@ -4842,9 +4769,9 @@ impl Render for Workspace {
                     }),
             );
         let rail = div()
-            .absolute()
-            .left(px(8.))
-            .top((height - px(250.)) / 2.)
+            .id("native-icon-rail")
+            .max_h((height - px(72.)).max(px(120.)))
+            .overflow_y_scroll()
             .w(px(50.))
             .py_2()
             .flex()
@@ -4857,18 +4784,14 @@ impl Render for Workspace {
             .rounded_lg()
             .children(
                 [
-                    (false, "history-back", "Back"),
-                    (true, "history-forward", "Forward"),
+                    (false, "history-back", Icon::Back),
+                    (true, "history-forward", Icon::Forward),
                 ]
                 .into_iter()
-                .map(|(forward, id, label)| {
+                .map(|(forward, id, icon)| {
                     let enabled = self.history.peek(forward).is_some();
-                    div()
-                        .id(id)
-                        .text_size(px(10.))
-                        .text_color(rgb(p.muted))
+                    crate::rail_icons::button(id, icon, p.muted, p.paper)
                         .opacity(if enabled { 1.0 } else { 0.4 })
-                        .child(label)
                         .when(enabled, |button| {
                             button.cursor_pointer().on_click(
                                 cx.listener(move |this, _, _, cx| {
@@ -4879,25 +4802,20 @@ impl Render for Workspace {
                 }),
             )
             .child(
-                div()
-                    .id("recent-toggle")
-                    .py_2()
-                    .text_size(px(10.))
-                    .cursor_pointer()
-                    .child("Recent")
+                rail_button("recent-toggle", Icon::Recent, p, self.recent_open())
                     .on_click(cx.listener(|this, _, window, cx| this.toggle_recent(window, cx))),
             )
             .when(
                 !home && !full_graph_active && !calendar_active && self.tag_page.is_none(),
-                |rail| rail.child(self.reader_hierarchy_entry(window, cx)),
+                |rail| rail.child(self.reader_hierarchy_entry(p.muted, p.paper, window, cx)),
             )
             .child(
-                rail_button("home", "home", p, home).on_click(cx.listener(|this, _, _, cx| {
+                rail_button("home", Icon::Home, p, home).on_click(cx.listener(|this, _, _, cx| {
                     this.open_home(cx);
                 })),
             )
             .child(
-                rail_button("search", "search", p, self.shell.search_open).on_click(cx.listener(
+                rail_button("search", Icon::Search, p, self.shell.search_open).on_click(cx.listener(
                     |this, _, window, cx| {
                         if this.shell.search_open {
                             this.dismiss_search(window, cx);
@@ -4913,34 +4831,16 @@ impl Render for Workspace {
                 )),
             )
             .child(
-                div()
-                    .id("calendar-open")
-                    .text_size(px(9.))
-                    .cursor_pointer()
-                    .child("Calendar")
+                rail_button("calendar-open", Icon::Calendar, p, calendar_active)
                     .on_click(cx.listener(|this, _, _, cx| this.open_calendar(cx))),
             )
             .child(
-                div()
-                    .id("full-graph-open")
-                    .text_size(px(9.))
-                    .cursor_pointer()
-                    .child("Full graph")
+                rail_button("full-graph-open", Icon::Graph, p, full_graph_active)
                     .on_click(cx.listener(|this, _, _, cx| this.open_full_graph(cx))),
             )
             .when(self.find_available(), |rail| {
                 rail.child(
-                    div()
-                        .id("reader-find-open")
-                        .w(px(32.))
-                        .h(px(28.))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .text_size(px(10.))
-                        .text_color(rgb(p.muted))
-                        .cursor_pointer()
-                        .child("Find")
+                    rail_button("reader-find-open", Icon::Find, p, false)
                         .on_click(cx.listener(|this, _, window, cx| this.open_find(window, cx))),
                 )
             })
@@ -4964,18 +4864,12 @@ impl Render for Workspace {
             })
             .when(self.creation_available(), |rail| {
                 rail.child(
-                    div()
-                        .id("create-note-open")
-                        .px_1()
-                        .py_2()
-                        .text_xs()
-                        .cursor_pointer()
-                        .child("New")
+                    rail_button("create-note-open", Icon::New, p, false)
                         .on_click(cx.listener(|this, _, _, cx| this.request_create_note(cx))),
                 )
             })
             .child(
-                rail_button("reload", "reload", p, false)
+                rail_button("reload", Icon::Reload, p, false)
                     .on_click(cx.listener(|this, _, _, cx| this.load_notes(cx))),
             )
             .when(
@@ -4987,7 +4881,7 @@ impl Render for Workspace {
             )
             .child(div().w(px(24.)).h(px(1.)).my_1().bg(rgb(p.line)))
             .child(
-                rail_button("theme", "theme", p, false).on_click(cx.listener(
+                rail_button("theme", Icon::Theme, p, false).on_click(cx.listener(
                     move |this, _, _, cx| {
                         this.shell.dark = Some(!dark);
                         cx.notify();
@@ -4995,13 +4889,23 @@ impl Render for Workspace {
                 )),
             )
             .child(
-                rail_button("diagnostics", "info", p, self.shell.diagnostics).on_click(
+                rail_button("diagnostics", Icon::Info, p, self.shell.diagnostics).on_click(
                     cx.listener(|this, _, _, cx| {
                         this.shell.diagnostics = !this.shell.diagnostics;
                         cx.notify();
                     }),
                 ),
             );
+        // Keep every action reachable in short windows. The inner rail scrolls;
+        // the outer frame centers it only in the space below the tab strip.
+        let rail = div()
+            .absolute()
+            .left(px(8.))
+            .top(px(56.))
+            .bottom(px(16.))
+            .flex()
+            .items_center()
+            .child(rail);
         let aside = div()
             .id("context-rail")
             .overflow_y_scroll()

@@ -583,6 +583,8 @@ impl Workspace {
     }
     pub(crate) fn reader_hierarchy_entry(
         &self,
+        color: u32,
+        background: u32,
         window: &Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
@@ -591,10 +593,12 @@ impl Workspace {
             && !self.hierarchy_other_owner_blocked(cx)
             && self.native_find_available(false, window, cx)
             && identity.is_some();
-        div()
-            .id("reader-hierarchy-entry")
-            .text_size(px(9.))
-            .child("Hierarchy")
+        crate::rail_icons::button(
+            "reader-hierarchy-entry",
+            crate::rail_icons::Icon::Hierarchy,
+            color,
+            background,
+        )
             .opacity(if enabled { 1. } else { 0.4 })
             .when(enabled, |entry| {
                 entry
