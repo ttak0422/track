@@ -192,3 +192,48 @@ The final candidate also passed real-GPUI Linux `cargo check --locked --tests`
 and `cargo test --locked --no-run`. These are compile/link checks, not GUI
 acceptance. The gate is unchanged; this internal-only slice adds no user-facing
 workflow and therefore no help-vault change.
+
+## Internal preflight/serve protocol slice
+
+An unexported Go dispatcher accepts a bounded versioned request containing an
+explicit selector, private root, nonce and parent-supplied final child context.
+Preflight requires an empty revision and returns the existing Go manifest;
+serve requires the exact expected revision and returns the existing lazy bound
+bootstrap. Neither branch listens or adds a public CLI route. The generated
+fixture bridge remains the only caller and retains its exact fixture proof,
+parent watcher, ready-token notification, listener ownership and cleanup.
+
+Before and after dispatch, Go compares the complete HOME/TRACK_/XDG_ entry set,
+PWD presence/value and literal cwd with the supplied expectation. The actual
+parent PID and ready-token shape are checked at that moment; this does not
+replace ongoing owner monitoring or authenticate an arbitrary caller. Failed
+post-checks close a created bootstrap. Cancellation, mismatch or malformed input
+never falls back to an unbound protocol. A nonce remains correlation, not consent.
+The existing manifest revalidation and canonical-write exclusion remain intact.
+
+Requests reject unknown, duplicate, case-aliased and non-ASCII object field
+names, trailing JSON, excessive depth and byte/entry/path limits. Required fields
+and mode-specific revision rules are enforced. Error/Debug output does not expose
+the supplied environment. Rust encodes both phases from the final env-cleared
+fixture command after ownership values are installed, not from an expectation
+manufactured by the child. The context record now stores literal cwd as a string
+so aliases cannot compare equal through Path component normalization.
+
+The request format allows up to 256 KiB; the test bridge conveys small fixture
+requests through one environment variable outside the manifest-hashed namespace.
+That is not a production transport guarantee: OS per-string exec limits may be
+smaller. A future production caller needs an explicitly bounded/cancelable
+transport and authority/lifecycle review rather than adopting the test wrapper.
+No ordinary launch, actual workspace grant, private-root creation or native GUI
+acceptance is introduced by this internal slice.
+
+Protocol verification passed the webui/config Go packages and focused race tests
+three times. Fresh subprocess cases cover malformed/duplicate/case-folded fields,
+mode/revision bounds, cancellation, context/owner mismatches and no premature
+lease or canonical-file changes. The Rust source adapter passed 343 tests
+(20 ignored); its live-module matrix passed 161 with the new Go protocol bridge.
+The wrong-revision fault now changes the structured request revision rather than
+the retired loose environment field, retaining the original no-write assertions.
+Real-GPUI Linux tests check and no-run link also passed. Independent review
+confirmed the ASCII-field-name fix and lifecycle boundaries. Mac/GUI and public
+production transport remain unverified; the ordinary gate stays closed.

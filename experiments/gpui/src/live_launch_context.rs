@@ -4,7 +4,7 @@
 use std::ffi::OsString;
 use std::fmt;
 use std::os::unix::ffi::OsStrExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 const MAX_ENTRIES: usize = 256;
 const MAX_JOINED_BYTES: usize = 64 * 1024;
@@ -13,7 +13,7 @@ const MAX_PATH_BYTES: usize = 4096;
 #[derive(Clone, PartialEq, Eq)]
 pub(super) struct ResolutionContextRequest {
     // Requested lexical cwd, not a claim about a subsequently observed Go cwd.
-    cwd: PathBuf,
+    cwd: String,
     // PWD can influence Go os.Getwd, but is NOT part of its environment hash.
     pwd: Option<String>,
     // Sorted complete KEY=value entries, exactly as Go's manifestContext sorts
@@ -33,17 +33,14 @@ impl ResolutionContextRequest {
         supplied: &[(OsString, OsString)],
     ) -> Result<Self, &'static str> {
         let cwd_text = cwd.to_str().ok_or("Invalid resolution cwd")?;
-        // Pure lexical validation. Path::components alone normalizes './' and
-        // repeated separators, which would silently change supplied context.
+        // Preserve exact lexical cwd, including aliases returned by Go when
+        // PWD names the current directory. String equality must not inherit
+        // Path's component normalization. No filesystem identity is inferred.
         if !cwd.is_absolute()
             || cwd_text.len() > MAX_PATH_BYTES
             || cwd_text.chars().any(char::is_control)
-            || (cwd_text != "/"
-                && cwd_text[1..]
-                    .split('/')
-                    .any(|part| part.is_empty() || part == "." || part == ".."))
         {
-            return Err("Resolution cwd must be bounded, absolute and clean");
+            return Err("Resolution cwd must be bounded and absolute");
         }
         let mut environment = Vec::new();
         let mut pwd = None;
@@ -108,7 +105,7 @@ impl ResolutionContextRequest {
         }
         environment.sort();
         Ok(Self {
-            cwd: cwd.to_owned(),
+            cwd: cwd_text.to_owned(),
             pwd,
             environment,
         })
@@ -123,7 +120,7 @@ impl ResolutionContextRequest {
     }
 
     pub(super) fn cwd(&self) -> &Path {
-        &self.cwd
+        Path::new(&self.cwd)
     }
     pub(super) fn pwd(&self) -> Option<&str> {
         self.pwd.as_deref()
@@ -231,16 +228,7 @@ mod tests {
             entries.push((key, value));
             assert!(ResolutionContextRequest::capture(Path::new("/cwd"), &entries).is_err());
         }
-        for cwd in [
-            "relative",
-            "",
-            "/cwd/../else",
-            "/cwd/./else",
-            "/cwd//else",
-            "/cwd/",
-            "//cwd",
-            "/cwd\n",
-        ] {
+        for cwd in ["relative", "", "/cwd\n"] {
             assert!(
                 ResolutionContextRequest::capture(Path::new(cwd), &env(&[("HOME", "x")])).is_err()
             );
@@ -249,6 +237,18 @@ mod tests {
             ResolutionContextRequest::capture(Path::new("/"), &env(&[("HOME", "relative-home")]))
                 .is_ok()
         );
+    }
+    #[test]
+    fn lexical_cwd_is_preserved_without_path_equality_normalization() {
+        let input = env(&[("HOME", "x")]);
+        let plain = ResolutionContextRequest::capture(Path::new("/cwd"), &input).unwrap();
+        for alias in ["/cwd/.", "/cwd/", "//cwd", "/other/../cwd"] {
+            let observed = ResolutionContextRequest::capture(Path::new(alias), &input).unwrap();
+            assert_eq!(observed.cwd().to_str(), Some(alias));
+            assert_ne!(plain, observed);
+            assert!(!plain.matches_observation(Path::new(alias), &input));
+            assert!(observed.matches_observation(Path::new(alias), &input));
+        }
     }
     #[test]
     fn pwd_is_exact_but_separate_from_go_environment_entries() {

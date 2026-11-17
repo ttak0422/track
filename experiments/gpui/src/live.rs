@@ -7596,6 +7596,9 @@ mod launch_context;
 #[path = "live_workspace_provenance.rs"]
 mod workspace_provenance;
 
+#[path = "live_launch_protocol.rs"]
+mod launch_protocol;
+
 #[cfg(test)]
 #[path = "live_admission_process.rs"]
 mod admission_process_tests;

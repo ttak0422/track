@@ -154,7 +154,6 @@ impl SyntheticBound {
             .env("GO_TRACK_BOUND_MODE", "serve")
             .env("GO_TRACK_BOUND_ROOT", &self.root)
             .env("GO_TRACK_BOUND_SELECTED", "work")
-            .env("GO_TRACK_BOUND_NONCE", &self.nonce)
             .env(
                 "GO_TRACK_BOUND_ADDR",
                 format!("127.0.0.1:{}", self.proof.launch().port),
@@ -167,6 +166,27 @@ impl SyntheticBound {
         timeout: Duration,
         canceled: &AtomicBool,
     ) -> Result<(), Error> {
+        // This command has already been env-cleared by configure and received
+        // the final owned parent/token values. Capture both phases from these
+        // supplied values, not from the child's self-observed environment.
+        let environment = command
+            .get_envs()
+            .filter_map(|(key, value)| value.map(|value| (key.to_owned(), value.to_owned())))
+            .collect::<Vec<_>>();
+        let context = launch_context::ResolutionContextRequest::capture(
+            command.get_current_dir().ok_or_else(invalid)?,
+            &environment,
+        )
+        .map_err(|_| invalid())?;
+        let protocol = launch_protocol::BoundLaunchRequest::new(
+            context,
+            workspace_provenance::RequestedSelector::Registered("work".into()),
+            self.root.join("private").to_str().ok_or_else(invalid)?.to_owned(),
+            self.nonce.clone(),
+        )
+        .map_err(|_| invalid())?;
+        let preflight = String::from_utf8(protocol.preflight().map_err(|_| invalid())?)
+            .map_err(|_| invalid())?;
         let mut capture = Command::new(command.get_program());
         capture
             .args(command.get_args())
@@ -179,6 +199,7 @@ impl SyntheticBound {
         }
         capture
             .env("GO_TRACK_BOUND_MODE", "capture")
+            .env("GO_TRACK_BOUND_REQUEST", preflight)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -217,7 +238,9 @@ impl SyntheticBound {
         let manifest: Manifest = serde_json::from_str(raw).map_err(|_| invalid())?;
         self.validate_manifest(&manifest)?;
         self.proof.verify_bindings().map_err(Error::Config)?;
-        command.env("GO_TRACK_BOUND_REVISION", &manifest.revision);
+        let serve = String::from_utf8(protocol.serve(&manifest.revision).map_err(|_| invalid())?)
+            .map_err(|_| invalid())?;
+        command.env("GO_TRACK_BOUND_REQUEST", serve);
         self.revision = Some(manifest.revision);
         Ok(())
     }
@@ -717,7 +740,13 @@ fn synthetic_bound_wrong_revision_exits_without_cache_or_note_writes() {
             .count(),
         0
     );
-    cmd.env("GO_TRACK_BOUND_REVISION", "0".repeat(64))
+    let request = cmd.get_envs()
+        .find(|(key, _)| *key == "GO_TRACK_BOUND_REQUEST")
+        .and_then(|(_, value)| value)
+        .unwrap();
+    let mut wrong: Value = serde_json::from_str(request.to_str().unwrap()).unwrap();
+    wrong["revision"] = serde_json::json!("0".repeat(64));
+    cmd.env("GO_TRACK_BOUND_REQUEST", serde_json::to_string(&wrong).unwrap())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())

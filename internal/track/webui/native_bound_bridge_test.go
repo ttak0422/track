@@ -181,13 +181,21 @@ func TestNativeBoundFixtureBridge(t *testing.T) {
 			t.Error(err)
 		}
 	}()
-	selector := config.LaunchSelector{Name: "work"}
+	rawRequest := []byte(os.Getenv("GO_TRACK_BOUND_REQUEST"))
+	request, err := parseBoundLaunch(rawRequest)
+	expectedMode := "serve"
 	if mode == "capture" {
-		manifest, err := config.ResolveReadOnlyLaunchManifest(ctx, selector, filepath.Join(root, "private"))
+		expectedMode = "preflight"
+	}
+	if err != nil || *request.Mode != expectedMode || *request.Selector.Name != "work" || *request.Selector.Path != "" || *request.PrivateRoot != filepath.Join(root, "private") {
+		t.Fatal("fixture request does not match bridge invocation")
+	}
+	if mode == "capture" {
+		result, err := dispatchBoundLaunch(ctx, rawRequest, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		raw, err := json.Marshal(manifest)
+		raw, err := json.Marshal(result.Manifest)
 		if err != nil || len(raw) > 128<<10 {
 			t.Fatal("manifest response exceeds fixture bound", err)
 		}
@@ -203,10 +211,11 @@ func TestNativeBoundFixtureBridge(t *testing.T) {
 	if err != nil || number < 1024 || number >= 65535 {
 		t.Fatal("invalid fixture listener port")
 	}
-	b, err := newManifestBoundBootstrap(ctx, selector, filepath.Join(root, "private"), os.Getenv("GO_TRACK_BOUND_REVISION"), os.Getenv("GO_TRACK_BOUND_NONCE"), func(cfg *config.Config) (func(), error) { return AcquireWebPID(cfg, addr) })
+	result, err := dispatchBoundLaunch(ctx, rawRequest, func(cfg *config.Config) (func(), error) { return AcquireWebPID(cfg, addr) })
 	if err != nil {
 		t.Fatal(err)
 	}
+	b := result.Bootstrap
 	defer b.Close()
 	if err = ServeBootstrapWithLifecycle(ctx, b, addr, func() { fmt.Fprintf(os.Stderr, "TRACK_DESKTOP_READY:%s\n", token) }); err != nil {
 		t.Fatal(err)
