@@ -1459,10 +1459,8 @@ impl Workspace {
         state.viewspecs.cancel();
         state.gallery = Default::default();
         state.viewspecs = Default::default();
-        state.copy = preview_copy::CopyUi::prepare(
-            state.result.as_ref().and_then(|r| r.as_ref().ok()),
-            cx,
-        );
+        state.copy =
+            preview_copy::CopyUi::prepare(state.result.as_ref().and_then(|r| r.as_ref().ok()), cx);
         self.load_gallery(cx);
         self.load_viewspecs(cx);
     }
@@ -1478,18 +1476,36 @@ impl Workspace {
             )
         })
     }
-    pub(crate) fn refresh_rendered_idle(&self, cx: &Context<Self>) -> bool {
-        self.shell.includes.as_ref().is_some_and(|s| {
-            s.preview_open
-                && s.reading_ticket.is_some()
-                && !s.fetching
-                && !s.find.is_open()
-                && !s.contents.is_pending()
-                && s.selection.borrow().is_empty()
-                && s.query_nav.pending.is_none()
-                && self.includes_body_current(s)
-                && self.query_control_gate(&s.identity, cx).allowed()
-        })
+    pub(crate) fn refresh_rendered_blocker(&self, cx: &Context<Self>) -> Option<&'static str> {
+        let Some(s) = self.shell.includes.as_ref() else {
+            return Some("rendered snapshot unavailable");
+        };
+        let checks = [
+            (s.preview_open, "rendered preview closed"),
+            (
+                s.reading_ticket.is_some(),
+                "use Rendered reading mode instead of legacy preview",
+            ),
+            (!s.fetching, "rendered read pending"),
+            (!s.find.is_open(), "rendered Find open"),
+            (
+                !s.contents.is_pending(),
+                "rendered heading navigation pending",
+            ),
+            (s.selection.borrow().is_empty(), "rendered selection active"),
+            (s.query_nav.pending.is_none(), "query navigation pending"),
+            (
+                self.includes_body_current(s),
+                "rendered source no longer current",
+            ),
+            (
+                self.query_control_gate(&s.identity, cx).allowed(),
+                "rendered ownership or interaction gate blocked",
+            ),
+        ];
+        checks
+            .into_iter()
+            .find_map(|(allowed, reason)| (!allowed).then_some(reason))
     }
     pub(crate) fn refresh_rendered_top(&self) -> bool {
         self.shell.includes.as_ref().is_some_and(|s| {

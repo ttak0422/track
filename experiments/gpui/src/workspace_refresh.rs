@@ -88,6 +88,42 @@ fn validate_dependencies(response: &crate::included_notes::Response) -> Result<(
 fn same_body_inputs(old: &live::NoteBody, new: &live::NoteBody) -> bool {
     old.body == new.body && old.note.additional.get("tasks") == new.note.additional.get("tasks")
 }
+// The note-local graph is an aside, not a route. Its visibility alone must
+// not block note refresh; full-graph routes and graph gestures still do.
+fn graph_refresh_allowed(full_graph: bool, _aside_graph: bool, gesture: bool) -> bool {
+    !full_graph && !gesture
+}
+/// The bounded read phase shared by the UI worker and loopback transport tests.
+/// Display ownership and interaction checks still run on the UI thread before acceptance.
+pub(crate) fn read_snapshot(
+    client: &live::ReadClient,
+    key: &live::NoteKey,
+    launch_vault: &str,
+    expected_storage: u64,
+    dependency_tasks: Option<Result<std::sync::Arc<Vec<live::NoteTask>>, String>>,
+) -> Result<(live::NoteResponse, Option<workspace_includes::Snapshot>), live::Error> {
+    let before = client.storage()?;
+    if before.phase != "ready" || before.generation != expected_storage {
+        return Err(live::Error::Stale);
+    }
+    let result = client.note_for_refresh(key, launch_vault)?;
+    let dependencies = if let Some(tasks) = dependency_tasks {
+        let dependencies = client.included_notes(&result.note.note.vault, &result.note.body)?;
+        validate_dependencies(&dependencies)?;
+        Some(workspace_includes::Snapshot::build(
+            dependencies,
+            &result.note.body,
+            tasks,
+        ))
+    } else {
+        None
+    };
+    let after = client.storage()?;
+    if after.phase != "ready" || after.generation != expected_storage {
+        return Err(live::Error::Stale);
+    }
+    Ok((result, dependencies))
+}
 impl Workspace {
     fn refresh_owner(&self) -> Option<Owner> {
         let note = self.current_note.as_ref()?;
@@ -120,53 +156,101 @@ impl Workspace {
         })
     }
     fn refresh_safe(&self, window: &Window, cx: &Context<Self>) -> bool {
+        self.refresh_blocker(window, cx).is_none()
+    }
+    fn refresh_blocker(&self, window: &Window, cx: &Context<Self>) -> Option<&'static str> {
         let Some(owner) = self.refresh_owner() else {
-            return false;
+            return Some("accepted note ownership unavailable");
         };
         let Some(session) = self.live.as_ref() else {
-            return false;
+            return Some("live session unavailable");
         };
-        if session.events().unavailable {
-            return false;
-        }
         let vault = &owner.source.note.vault;
         let canonical = if vault.is_empty() {
             &owner.registry.0
         } else {
             vault
         };
-        window.is_window_active()
-            && session.failure().is_none()
-            && session.client().is_alive()
-            && session.initial_storage.as_ref().is_some_and(|s| {
-                s.phase == "ready" && s.generation == owner.source.storage_generation
-            })
-            && owner.registry.1.contains(canonical)
-            && self.session_ui.permits(vault)
-            && self.editing_ui.plain_reader_mode()
-            && self.editing_ui.follow_safe()
-            && !self.follow.controller.enabled()
-            && !self.quit_session.is_closing()
-            && self.quit_session.failure().is_none()
-            && self.live_reader_pending.is_none()
-            && self.read_error.is_none()
-            && !self.show_graph
-            && self.refresh_reader_idle()
-            && !self.reader_hover_active()
-            && !self.recent_open()
-            && !self.creation_open()
-            && !self.search.read(cx).is_composing()
-            && !self.shell.calendar_zone.is_composing(cx)
-            && !self.shell.find.open
-            && !self.shell.find.is_composing(cx)
-            && (!self.session_ui.recovery_enabled()
-                || self.session_ui.recovery_status()
-                    == workspace_session::RecoveryStatus::Ready(draft_recovery::LocalStatus::Empty))
-            && if self.includes_preview_active() {
-                self.refresh_rendered_idle(cx)
-            } else {
-                self.follow_safe(cx)
-            }
+        // Diagnose the same fail-closed gates without exposing note or vault data.
+        let checks = [
+            (!session.events().unavailable, "event stream unavailable"),
+            (window.is_window_active(), "window inactive"),
+            (session.failure().is_none(), "session failure"),
+            (session.client().is_alive(), "owned server stopped"),
+            (
+                session.initial_storage.as_ref().is_some_and(|s| {
+                    s.phase == "ready" && s.generation == owner.source.storage_generation
+                }),
+                "storage not ready or generation changed",
+            ),
+            (
+                owner.registry.1.contains(canonical),
+                "vault registry mismatch",
+            ),
+            (
+                self.session_ui.permits(vault),
+                "session restoration does not permit this vault",
+            ),
+            (
+                self.editing_ui.plain_reader_mode(),
+                "editor not in idle Preview mode",
+            ),
+            (
+                self.editing_ui.follow_safe(),
+                "editor or recovery interaction active",
+            ),
+            (!self.follow.controller.enabled(), "Editor Follow enabled"),
+            (!self.quit_session.is_closing(), "session closing"),
+            (
+                self.quit_session.failure().is_none(),
+                "session shutdown failure",
+            ),
+            (self.live_reader_pending.is_none(), "note read pending"),
+            (self.read_error.is_none(), "note read error retained"),
+            (
+                graph_refresh_allowed(
+                    self.full_graph_active(),
+                    self.show_graph,
+                    self.previews.model.geometry_active(),
+                ),
+                "full graph route or graph gesture active",
+            ),
+            (
+                self.refresh_reader_idle(),
+                "source selection or navigation pending",
+            ),
+            (!self.reader_hover_active(), "source hover action active"),
+            (!self.recent_open(), "recent notes open"),
+            (!self.creation_open(), "note creation open"),
+            (!self.search.read(cx).is_composing(), "search IME composing"),
+            (
+                !self.shell.calendar_zone.is_composing(cx),
+                "calendar IME composing",
+            ),
+            (!self.shell.find.open, "source Find open"),
+            (
+                !self.shell.find.is_composing(cx),
+                "source Find IME composing",
+            ),
+            (
+                !self.session_ui.recovery_enabled()
+                    || self.session_ui.recovery_status()
+                        == workspace_session::RecoveryStatus::Ready(
+                            draft_recovery::LocalStatus::Empty,
+                        ),
+                "draft recovery not empty and ready",
+            ),
+        ];
+        if let Some((_, reason)) = checks.into_iter().find(|(allowed, _)| !allowed) {
+            return Some(reason);
+        }
+        if self.includes_preview_active() {
+            self.refresh_rendered_blocker(cx)
+        } else if !self.follow_safe(cx) {
+            Some("source reader overlay or interaction active")
+        } else {
+            None
+        }
     }
     pub(crate) fn poll_live_refresh(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self
@@ -230,36 +314,13 @@ impl Workspace {
             Some("Checking the current note; accepted text remains visible.".into());
         let job = cx.background_executor().spawn(async move {
             let _permit = permit;
-            let expected = worker_ticket.owner.source.storage_generation;
-            let result = (|| {
-                let before = client.storage()?;
-                if before.phase != "ready" || before.generation != expected {
-                    return Err(live::Error::Stale);
-                }
-                let result = client.note_for_refresh(
-                    &worker_ticket.owner.source.note,
-                    &worker_ticket.owner.registry.0,
-                );
-                let result = result?;
-                let dependencies = if let Some(tasks) = dependency_tasks {
-                    let dependencies =
-                        client.included_notes(&result.note.note.vault, &result.note.body)?;
-                    validate_dependencies(&dependencies)?;
-                    Some(workspace_includes::Snapshot::build(
-                        dependencies,
-                        &result.note.body,
-                        tasks,
-                    ))
-                } else {
-                    None
-                };
-                let after = client.storage()?;
-                if after.phase != "ready" || after.generation != expected {
-                    return Err(live::Error::Stale);
-                }
-                Ok((result, dependencies))
-            })();
-            result
+            read_snapshot(
+                &client,
+                &worker_ticket.owner.source.note,
+                &worker_ticket.owner.registry.0,
+                worker_ticket.owner.source.storage_generation,
+                dependency_tasks,
+            )
         });
         cx.spawn(async move|_,cx|{
             let result=job.await;
@@ -404,6 +465,9 @@ impl Workspace {
                             this.refresh.notice = Some(
                                 "Automatic current-note refresh enabled for this session.".into(),
                             );
+                        } else if let Some(reason) = this.refresh_blocker(window, cx) {
+                            this.refresh.notice =
+                                Some(format!("Automatic refresh paused: {reason}."));
                         }
                         cx.notify();
                     })),
@@ -453,6 +517,15 @@ mod tests {
     }
     fn response(v: Value) -> live::NoteResponse {
         serde_json::from_value(v).unwrap()
+    }
+    #[test]
+    fn note_graph_aside_never_blocks_but_full_route_and_gesture_do() {
+        for aside in [false, true] {
+            assert!(graph_refresh_allowed(false, aside, false));
+            assert!(!graph_refresh_allowed(true, aside, false));
+            assert!(!graph_refresh_allowed(false, aside, true));
+            assert!(!graph_refresh_allowed(true, aside, true));
+        }
     }
     fn dependencies(markdown: &str) -> crate::included_notes::Response {
         crate::included_notes::Response {

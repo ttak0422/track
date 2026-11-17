@@ -3882,6 +3882,134 @@ mod tests {
             task,
         )
     }
+    fn refresh_host() -> String {
+        serde_json::json!({"note":{"note_id":7,"vault":"work","title":"Host","file_kind":"note","path":"note/7.md","body":"![[target]]\n```query\ntag:example\n```","etag":"unchanged","tags":[],"days":[],"flags":[],"props":{}},"links":[]}).to_string()
+    }
+    fn refresh_render(excerpt: &str, query: &str) -> String {
+        serde_json::json!({"markdown":format!("![[target]]\n{query}"),"includes":[{"line":0,"source_line":0,"note_id":8,"kind":"note","etag":"dependency","caption":"target","lines":[excerpt]}]}).to_string()
+    }
+    fn run_refresh(
+        client: &ReadClient,
+    ) -> Result<(NoteResponse, Option<crate::workspace_includes::Snapshot>), Error> {
+        crate::workspace_refresh::read_snapshot(
+            client,
+            &NoteKey {
+                vault: "work".into(),
+                note_id: 7,
+            },
+            "main",
+            2,
+            Some(Ok(Arc::new(vec![]))),
+        )
+    }
+    #[test]
+    fn refresh_worker_reads_changed_include_and_query_with_identical_host() {
+        let old_render = refresh_render("old excerpt", "old query result");
+        for new_render in [
+            refresh_render("new excerpt", "old query result"),
+            refresh_render("old excerpt", "new query result"),
+        ] {
+            let replies = [old_render.clone(), new_render.clone()]
+                .into_iter()
+                .flat_map(|render| {
+                    [
+                        Some((200, SAVE_STORAGE.into())),
+                        Some((200, refresh_host())),
+                        Some((200, render)),
+                        Some((200, SAVE_STORAGE.into())),
+                    ]
+                })
+                .collect();
+            let (client, requests) = save_mock(replies);
+            let (before, old) = run_refresh(&client).unwrap();
+            let (after, new) = run_refresh(&client).unwrap();
+            assert_eq!(before.note, after.note);
+            assert_eq!(
+                before.related_and_diagnostics,
+                after.related_and_diagnostics
+            );
+            assert_ne!(old.unwrap().response, new.unwrap().response);
+            let requests = requests.join().unwrap();
+            assert_eq!(requests.len(), 8);
+            for batch in requests.as_chunks::<4>().0 {
+                assert!(batch[0].starts_with("GET /api/storage "));
+                assert!(batch[1].starts_with("GET /api/note?vault=work&id=7 "));
+                assert!(batch[2].starts_with("POST /api/render?vault=work "));
+                let payload: Value =
+                    serde_json::from_str(batch[2].split("\r\n\r\n").nth(1).unwrap()).unwrap();
+                assert_eq!(payload, serde_json::json!({"body":before.note.body}));
+                assert!(batch[3].starts_with("GET /api/storage "));
+            }
+        }
+    }
+    #[test]
+    fn refresh_worker_without_render_cache_never_requests_dependencies() {
+        let (client, requests) = save_mock(vec![
+            Some((200, SAVE_STORAGE.into())),
+            Some((200, refresh_host())),
+            Some((200, SAVE_STORAGE.into())),
+        ]);
+        let (_, dependencies) = crate::workspace_refresh::read_snapshot(
+            &client,
+            &NoteKey {
+                vault: "work".into(),
+                note_id: 7,
+            },
+            "main",
+            2,
+            None,
+        )
+        .unwrap();
+        assert!(dependencies.is_none());
+        let requests = requests.join().unwrap();
+        assert_eq!(requests.len(), 3);
+        assert!(requests.iter().all(|r| r.starts_with("GET ")));
+    }
+    #[test]
+    fn refresh_worker_rejects_wrong_namespace_before_rendering() {
+        let mut host: Value = serde_json::from_str(&refresh_host()).unwrap();
+        host["note"]["vault"] = serde_json::json!("foreign");
+        let (client, requests) = save_mock(vec![
+            Some((200, SAVE_STORAGE.into())),
+            Some((200, host.to_string())),
+        ]);
+        assert!(matches!(run_refresh(&client), Err(Error::Shape(_))));
+        let requests = requests.join().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(requests.iter().all(|r| r.starts_with("GET ")));
+    }
+    #[test]
+    fn refresh_worker_rejects_storage_rollover_and_partial_dependencies() {
+        let mut partial: Value = serde_json::from_str(&refresh_render("old", "query")).unwrap();
+        partial["includes"][0]["error"] = serde_json::json!("unavailable");
+        for (render, after) in [
+            (
+                refresh_render("new", "query"),
+                Some(r#"{"phase":"ready","read_only":false,"verified":1,"generation":3}"#),
+            ),
+            (partial.to_string(), None),
+        ] {
+            let mut replies = vec![
+                Some((200, SAVE_STORAGE.into())),
+                Some((200, refresh_host())),
+                Some((200, render)),
+            ];
+            if let Some(after) = after {
+                replies.push(Some((200, after.into())));
+            }
+            let (client, requests) = save_mock(replies);
+            let result = run_refresh(&client);
+            if after.is_some() {
+                assert!(matches!(result, Err(Error::Stale)));
+            } else {
+                assert!(matches!(result, Err(Error::Shape(_))));
+            }
+            assert_eq!(
+                requests.join().unwrap().len(),
+                if after.is_some() { 4 } else { 3 }
+            );
+        }
+    }
     fn save_replies(last: Option<(u16, &str)>) -> Vec<Option<(u16, String)>> {
         vec![
             Some((200, SAVE_STORAGE.into())),
