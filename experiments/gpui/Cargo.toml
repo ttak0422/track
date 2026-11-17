@@ -34,3 +34,12 @@ xattr = { path = ".build-deps/xattr" }
 xattr = "=0.2.3"
 zed-async-tar = "=0.5.0-zed"
 async-std = "1.12"
+
+# Focused initial BeautifulRust checks; broader review stays opt-in.
+[lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+
+[lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
+undocumented_unsafe_blocks = "warn"

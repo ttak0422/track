@@ -306,8 +306,8 @@ fn rust_nix_tokens(body: &str, rust: bool) -> Rc<[Token]> {
                 || matches!(bytes[i], b'/' | b'~' | b'<'))
         {
             i = bytes.len();
-        } else if raw_end.is_some() {
-            i += raw_end.unwrap();
+        } else if let Some(end) = raw_end {
+            i += end;
             role = Role::String;
         } else if bytes[i] == b'"' {
             i += 1;
