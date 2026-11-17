@@ -201,6 +201,7 @@ struct Workspace {
     request: u64,
     live_reader_pending: Option<u64>,
     graph_request: u64,
+    pending_local_graph: Option<workspace_live::LocalGraphOwner>,
     graph_view: gpui::Entity<graph_view::GraphView>,
     show_graph: bool,
     full_graph: workspace_graph::FullGraph,
@@ -851,6 +852,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         request: 0,
                         live_reader_pending: None,
                         graph_request: 0,
+                        pending_local_graph: None,
                         graph_view: cx.new(|_| {
                             graph_view::GraphView::new(if backend_is_fixture {
                                 graph::fixture(100)

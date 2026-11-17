@@ -32,6 +32,20 @@ fn note_read_is_current(
         })
 }
 
+/// A delayed graph read belongs to an accepted note, not to whichever route is
+/// visible when asynchronous vault discovery finishes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct LocalGraphOwner {
+    source: shell::LinkSource,
+    scope_revision: u64,
+    graph_request: u64,
+}
+impl LocalGraphOwner {
+    fn accepts(&self, current: Option<&Self>) -> bool {
+        current == Some(self)
+    }
+}
+
 /// A startup result may attach its owned server, but must not replace a newer route.
 #[derive(Clone)]
 struct StartupNavigation {
@@ -502,6 +516,35 @@ impl Workspace {
         self.select_from_ui(index, cx);
     }
 
+    fn local_graph_owner(&self) -> Option<LocalGraphOwner> {
+        let source = self.current_link_source()?;
+        if self.shell.home
+            || self.shell.accepted_title_request != Some(self.request)
+            || self.current_note_request.as_ref() != Some(&source.note)
+            || !note_read_is_current(source.request, self.request, &source.note, &self.tabs)
+        {
+            return None;
+        }
+        Some(LocalGraphOwner {
+            source,
+            scope_revision: self.shell.scope_revision,
+            graph_request: self.graph_request,
+        })
+    }
+    pub(crate) fn retry_local_graph_after_discovery(&mut self, cx: &mut Context<Self>) {
+        let Some(owner) = self.pending_local_graph.take() else {
+            return;
+        };
+        if owner.accepts(self.local_graph_owner().as_ref())
+            && self.follow_registry().is_some()
+            && self.read_error.is_none()
+            && self.editing_ui.follow_safe()
+            && !self.quit_session.is_closing()
+        {
+            self.load_live_graph(cx);
+        }
+    }
+
     pub fn load_live_graph(&mut self, cx: &mut Context<Self>) {
         if self.guard_transition(workspace_edit::Transition::Graph, cx) {
             return;
@@ -513,23 +556,27 @@ impl Workspace {
             return;
         };
         let key = note.note.key();
+        self.graph_request += 1;
+        self.pending_local_graph = None;
+        let Some(owner) = self.local_graph_owner() else {
+            return;
+        };
+        self.show_graph = true;
+        self.graph_view
+            .update(cx, |view, cx| view.set_graph(graph::Graph::default(), cx));
         let Some((launch_name, names)) = self.follow_registry() else {
-            self.read_error =
-                Some("Graph requires current vault discovery. Retry after loading.".into());
+            self.pending_local_graph = Some(owner);
+            self.status = "Local graph waiting for validated vault discovery.".into();
             cx.notify();
             return;
         };
         if !key.vault.is_empty() && !names.contains(&key.vault) {
-            self.read_error = Some("Graph vault is unavailable.".into());
+            self.status = "Local graph vault is unavailable; note retained.".into();
             cx.notify();
             return;
         }
         let expected_epoch = self.accepted_storage_generation;
-        self.graph_request += 1;
-        let request = self.graph_request;
-        self.show_graph = true;
-        self.graph_view
-            .update(cx, |view, cx| view.set_graph(graph::Graph::default(), cx));
+        let registry = (launch_name.clone(), names);
         let job = cx.background_executor().spawn(async move {
             let client = session.client();
             let before = client.storage();
@@ -543,11 +590,17 @@ impl Workspace {
         cx.spawn(async move |this, cx| {
             let (result, storage) = job.await;
             let _ = this.update(cx, |this, cx| {
-                if this.graph_request != request {
+                if !owner.accepts(this.local_graph_owner().as_ref())
+                    || this.follow_registry().as_ref() != Some(&registry)
+                {
                     return;
                 }
                 if let Ok(state) = &storage {
                     this.observe_storage(state, cx);
+                }
+                if !owner.accepts(this.local_graph_owner().as_ref()) {
+                    cx.notify();
+                    return;
                 }
                 match result {
                     Ok((graph, fields)) => {
@@ -556,7 +609,7 @@ impl Workspace {
                             .update(cx, |view, cx| view.set_graph(graph, cx));
                     }
                     Err(error) => {
-                        this.read_error = Some(format!("Graph: {error}"));
+                        this.status = format!("Local graph unavailable; note retained: {error}");
                     }
                 }
                 cx.notify();
@@ -922,6 +975,43 @@ pub(super) fn partial(fields: &std::collections::BTreeMap<String, serde_json::Va
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn graph_owner() -> LocalGraphOwner {
+        LocalGraphOwner {
+            source: shell::LinkSource {
+                note: live::NoteKey {
+                    vault: "fixture".into(),
+                    note_id: 7,
+                },
+                etag: "accepted".into(),
+                request: 2,
+                launch_generation: 3,
+                storage_generation: 4,
+            },
+            scope_revision: 5,
+            graph_request: 6,
+        }
+    }
+    #[test]
+    fn deferred_local_graph_accepts_only_the_same_note_and_lifetime() {
+        let owner = graph_owner();
+        assert!(owner.accepts(Some(&owner)));
+        assert!(!owner.accepts(None));
+        for field in 0..8 {
+            let mut changed = owner.clone();
+            match field {
+                0 => changed.source.note.vault = "other".into(),
+                1 => changed.source.note.note_id += 1,
+                2 => changed.source.etag = "new".into(),
+                3 => changed.source.request += 1,
+                4 => changed.source.launch_generation += 1,
+                5 => changed.source.storage_generation += 1,
+                6 => changed.scope_revision += 1,
+                _ => changed.graph_request += 1,
+            }
+            assert!(!owner.accepts(Some(&changed)), "owner field {field}");
+        }
+    }
+
     #[test]
     fn startup_waits_through_partial_until_ready() {
         let phases = ["initializing", "partial", "partial", "ready"];

@@ -3491,6 +3491,7 @@ impl Workspace {
                             discovery.reconcile_scope(&this.shell.working_scope);
                         this.shell.vault_discovery = Some(discovery);
                         this.shell.vault_error = None;
+                        this.retry_local_graph_after_discovery(cx);
                     }
                     Err(error) => {
                         this.shell.vault_error = Some(error);
