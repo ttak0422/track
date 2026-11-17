@@ -302,7 +302,7 @@ func TestReadOnlyWatcherNeverCreatesMissingVaultDirectories(t *testing.T) {
 	srv := newServer(cfg, nil, true)
 	defer srv.closeViews()
 	srv.startWatch()
-	for _, path := range []string{cfg.NoteDir(), cfg.JournalDir(), cfg.DataDir()} {
+	for _, path := range []string{cfg.NoteDir(), cfg.JournalDir(), cfg.DataDir(), cfg.TrackDir(), cfg.MetadataDir()} {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Fatalf("read-only watcher created %s: %v", path, err)
 		}
