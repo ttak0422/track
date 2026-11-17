@@ -5341,8 +5341,10 @@ impl Render for Workspace {
                                             .gap_3()
                                             .child(
                                                 div()
-                                                    .min_w_0()
-                                                    .max_w(px(160.))
+                                                    // Reserve a real label column: max-width alone
+                                                    // lets the flex value collapse this to a glyph.
+                                                    .w(px(110.))
+                                                    .flex_shrink_0()
                                                     .font_family("monospace")
                                                     .text_size(px(11.))
                                                     .text_color(rgb(p.muted))
@@ -5523,6 +5525,10 @@ impl Render for Workspace {
             64.
         };
         let search_panel = div()
+            .id("search-panel")
+            // The backdrop is a sibling below this panel. Empty panel/input
+            // space must not send a click through and dismiss the search.
+            .occlude()
             .absolute()
             .left(
                 (window.viewport_size().width
@@ -6259,11 +6265,16 @@ impl Render for Workspace {
                 root.child(
                     div()
                         .id("search-backdrop")
+                        .occlude()
                         .absolute()
                         .size_full()
                         .bg(gpui::rgba(0x00000047))
+                        .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
+                            cx.stop_propagation();
+                        })
                         .on_click(cx.listener(|this, _, window, cx| {
                             this.dismiss_search(window, cx);
+                            cx.stop_propagation();
                         })),
                 )
                 .child(search_panel)
