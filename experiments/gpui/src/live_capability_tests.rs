@@ -188,7 +188,7 @@ fn fake_case(
     let requests = http.join().unwrap();
     assert!(
         fixture.0.join("spawns").exists(),
-        "fixture startup failed before spawn (port {port}, pid {}): {startup_error:?}",
+        "fixture startup failed before the shell marker was recorded (port {port}, pid {}): {startup_error:?}",
         std::process::id()
     );
     assert_eq!(
