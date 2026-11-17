@@ -413,7 +413,7 @@ impl Workspace {
         };
         let (paper, ink, line) = colors;
         let close_identity = identity.clone();
-        let mut body = div().flex().flex_col().gap_3();
+        let mut body = div().flex().flex_col().flex_shrink_0().gap_3();
         if let Some(notice) = self.query_navigation_notice() {
             body = body.child(notice);
         }
@@ -425,7 +425,7 @@ impl Workspace {
                         body = body.child(notice.clone());
                     }
                     for (index, item) in preview.items.iter().enumerate() {
-                        let mut row = div().id(gpui::SharedString::from(format!(
+                        let mut row = div().flex_shrink_0().id(gpui::SharedString::from(format!(
                             "include-preview-{serial}-{index}"
                         )));
                         row = match item {
@@ -1670,7 +1670,7 @@ impl Workspace {
         let Some(Ok(snapshot)) = &state.result else {
             return div();
         };
-        let mut body = div().flex().flex_col().gap_3();
+        let mut body = div().flex().flex_col().flex_shrink_0().gap_3();
         let mut ordinary_start = 0;
         for (block_index, block) in blocks.iter().enumerate() {
             let key = (item, block_index);

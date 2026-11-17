@@ -3195,6 +3195,7 @@ pub(crate) fn render_preview_selection(
     let reader = div()
         .w_full()
         .min_w_0()
+        .flex_shrink_0()
         .flex()
         .flex_col()
         .text_size(px(16.))
@@ -3396,6 +3397,12 @@ pub(crate) fn render_snapshot_elements(
     )
 }
 
+// A prose block keeps its measured text height inside flex-column readers.
+// Shrinking only its box would leave wrapped text painting over the next block.
+fn reader_block_row() -> Div {
+    div().w_full().min_w_0().flex_shrink_0()
+}
+
 fn render_elements(
     blocks: &[Block],
     dark: bool,
@@ -3420,9 +3427,7 @@ fn render_elements(
         .iter()
         .enumerate()
         .map(|(index, block)| {
-            let mut row = div()
-                .w_full()
-                .min_w_0()
+            let mut row = reader_block_row()
                 .text_size(px(16.))
                 .line_height(px(BODY_LINE_HEIGHT))
                 .font_family(".SystemUIFont")
@@ -7084,5 +7089,15 @@ mod snapshot_heading_tests {
                 .windows(2)
                 .all(|pair| pair[0].block_index < pair[1].block_index)
         );
+    }
+}
+
+#[cfg(test)]
+mod reader_block_layout_tests {
+    use super::*;
+    #[test]
+    fn wrapped_reader_blocks_keep_their_measured_height() {
+        let mut row = reader_block_row();
+        assert_eq!(row.style().flex_shrink, Some(0.));
     }
 }
