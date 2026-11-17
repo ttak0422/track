@@ -139,3 +139,36 @@ acceptance. PDF rasterization and macOS are not exercised. Asset containment is
 still the existing controlled-fixture/engine contract, not an OS sandbox or a
 promise against hostile filesystem replacement; the ordinary-vault gate stays
 closed.
+
+## Resolver and note relationships
+
+The bound navigation scenario uses duplicate titles and IDs across two vaults,
+resolves local and explicit cross-vault targets, and opens the returned keys
+without substituting the request scope. Resolver responses with an omitted vault
+mean the launch vault; this differs from source-inherited note relation fields.
+The test checks exact backlink/child identities and namespaces, missing-target
+non-creation, another-vault-only target rejection and protected inventories.
+It does not exercise wiki/Markdown syntax parsing, external backlink/trail
+presentation or actual GUI activation. No production resolver behavior changed.
+
+## Linux build and navigation validation
+
+The real (non-stub) GPUI 0.2.2 and xattr 0.2.3 dependencies were materialized from
+hash-verified official archives with the tracked patches and guard markers.
+On Linux x86_64 with Rust 1.99.0, `cargo check --locked`,
+`cargo check --locked --tests` and `cargo test --locked --no-run` against
+`experiments/gpui/Cargo.toml` succeeded. Both native test executables linked.
+This was direct Cargo validation, not execution of the Nix derivation. Existing
+compiler warnings remain; no native executable or GUI was run. Earlier mentions
+of full GPUI being unverified describe the earlier fixture-only runs, not this
+subsequent compile/link check. macOS, painting, input and IME remain unverified.
+
+The source adapter passed 329 tests (19 ignored), and the isolated real-Go live
+matrix passed 146 tests. An earlier run concurrent with native compilation had
+two failures: a process-capture fixture race and a save-race readiness timeout.
+The capture fixture now signals after the background shell has established its
+redirection before its leader exits; ten focused runs and the final suites
+passed. Capture behavior, error assertions and time limits were not relaxed.
+The save timeout was not reproduced in the isolated rerun; its cause is not
+established and no save behavior or timeout was changed. These results do not
+open the ordinary-vault gate or establish complete UI compatibility.

@@ -574,14 +574,16 @@ fn capture_reaps_leader_and_stops_descendants_before_returning() {
         ));
         std::fs::create_dir(&root).unwrap();
         let marker = root.join("escaped");
+        let ready = root.join("redirected");
         let mut command = Command::new("/bin/sh");
         command
             .args([
                 "-c",
-                &format!("(sleep 1; printf escaped > \"$1\") {pipe} & printf marker"),
+                &format!("(printf ready > \"$2\"; sleep 1; printf escaped > \"$1\") {pipe} & while [ ! -f \"$2\" ]; do sleep 0.01; done; printf marker"),
                 "fixture",
             ])
             .arg(&marker)
+            .arg(&ready)
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .process_group(0);
@@ -592,6 +594,7 @@ fn capture_reaps_leader_and_stops_descendants_before_returning() {
             &AtomicBool::new(false),
         );
         assert!(start.elapsed() < Duration::from_secs(1));
+        assert!(ready.exists(), "background redirection was not established");
         if pipe.is_empty() {
             assert!(result.is_err());
         } else {
@@ -787,3 +790,6 @@ mod render_workflows;
 
 #[path = "live_bound_assets.rs"]
 mod asset_workflows;
+
+#[path = "live_bound_navigation.rs"]
+mod navigation_workflows;
