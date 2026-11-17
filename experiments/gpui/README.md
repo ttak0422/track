@@ -143,8 +143,7 @@ focus, IME and accessibility validation remains pending.
 
 Placement starts circular, then settles a bounded deterministic force snapshot on
 a background worker (up to 1,000 nodes). Larger graphs keep circular placement.
-This is not existing force-layout parity: neighbors do not follow drags elastically.
-Persistent positions remain incomplete. No renderer performance advantage is claimed.
+Dragging now reheats a bounded elastic interaction: the held node follows the pointer, neighbors move, and release lets the graph settle instead of permanently pinning the node. Pan/zoom stays unchanged during this motion. Background dragging only pans, and a gesture that exceeds the 4-pixel click threshold does not navigate even if it returns to its starting point. Interaction work stops after at most 240 steps; graphs above 300 nodes or with more than 4,096 input edges use visibly marked sampled forces. Graphs above 1,000 nodes retain the existing circular fallback. Persistent positions remain incomplete. This is implementation and model-test coverage, not verified native feel/animation parity. No renderer performance advantage is claimed.
 See [GRAPH.md](GRAPH.md) for research and validation limits.
 
 ## Owned HTTP server and search

@@ -2079,3 +2079,54 @@ The eight added dependency/query fixture files are retained for reproducibility
 in the disposable vault; its 82 original canonical hashes still match. Both
 owned ports were closed after quit. Actual IME composition, semantic AX controls,
 Dock interaction and 480px native visual acceptance remain unverified.
+
+
+## Elastic graph interaction: implementation checks, 2026-11-17
+
+The graph now has bounded post-drag motion: held nodes follow the pointer,
+neighboring nodes respond, and release removes the hold rather than permanently
+pinning the node. Camera intent is preserved. Background panning does not start
+physics, and a gesture crossing the 4px click boundary cannot navigate on release,
+including when only the final mouse-up position crosses the boundary. Holding
+before moving, holding after settling, focus loss, hidden-view gaps and graph
+replacement have explicit state handling. Reset fits the current positions rather
+than rewinding the layout.
+
+Candidate library APIs were considered; their dynamic hold/release contracts
+and maintenance/dependency tradeoffs did not justify replacing the existing
+bounded solver for this slice. No new runtime dependency was added. This choice
+is not a claim that a custom solver is inherently preferable.
+
+Independent review found and prompted fixes for idle/held gesture cancellation,
+mouse-up click classification and dense-edge work bounds. Model/layout checks
+cover those cases, neighboring motion, release damping before the step limit,
+exact-4px clicks, late-index nodes, camera fit and title-state retention. The
+latter two are pure-state checks, not event-dispatch or native visual acceptance.
+
+Physics is bounded to 1,000 nodes and 240 steps per interaction run. Above 300
+nodes, repulsion is sampled. Edge preparation samples at most 4,096 positions
+across the input and admits no more than 4,096 springs. Sampled forces and the
+above-1,000-node fallback are explicitly reported in the UI. Debug measurements
+for a 1,000-node dense fixture with 499,500 input edges were about 2.65ms setup
+and 2.41ms mean physics step; 500,000 duplicate input edges were about 1.35ms
+setup and 2.31ms per step. These do not include existing all-edge rendering or
+GPU time and do not establish FPS or perceptual parity.
+
+Native drag/release feel, local/full-canvas comparison, real FPS and dense-edge
+rendering remain unverified. During an earlier short-height check, the automation
+surface reported concurrent user interaction and the fixture app changed views.
+UI operations were stopped rather than interrupting that interaction; the old
+fixture app was left running. No ordinary vault was accessed.
+
+One direct full-test invocation reported a readiness deadline in the short
+wrong-ownership fixture case, followed by two mutex-poison cascades. The failure
+preceded the fake shell's marker, not necessarily process spawn. The test-only
+diagnostic now says so; no timeout or production admission check was changed.
+Fixed-binary cwd/PATH comparisons subsequently passed eight focused invocations
+and four full invocations. Those used a slightly newer test binary and do not
+explain the original failure. Its cause remains unresolved.
+
+Final integrated candidate: 1,113 tests passed, 0 failed, 27 ignored; Mac native
+build and all-target/all-feature Clippy succeeded with existing warnings. The
+additional metadata-directory recreation and generation-noise safety tests also
+passed in three race-detector repetitions.
