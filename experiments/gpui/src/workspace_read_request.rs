@@ -86,9 +86,29 @@ pub enum Event {
     Close,
     Enter,
 }
+/// Correlation only, never an access grant. Retaining a stamp keeps its instance
+/// identity alive so a later dialog cannot accidentally reuse it.
+#[derive(Clone)]
+pub struct EventStamp {
+    instance: std::sync::Arc<()>,
+    generation: u64,
+}
+impl PartialEq for EventStamp {
+    fn eq(&self, other: &Self) -> bool {
+        std::sync::Arc::ptr_eq(&self.instance, &other.instance)
+            && self.generation == other.generation
+    }
+}
+impl Eq for EventStamp {}
+impl std::fmt::Debug for EventStamp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("EventStamp { identity: [redacted] }")
+    }
+}
 #[derive(Debug)]
 pub struct RequestDialog {
     request: WorkspaceRequest,
+    instance: std::sync::Arc<()>,
     generation: u64,
     decision: Decision,
 }
@@ -96,12 +116,19 @@ impl RequestDialog {
     pub fn new(request: WorkspaceRequest) -> Self {
         Self {
             request,
+            instance: std::sync::Arc::new(()),
             generation: 1,
             decision: Decision::Pending,
         }
     }
     pub fn request(&self) -> &WorkspaceRequest {
         &self.request
+    }
+    pub fn stamp(&self) -> EventStamp {
+        EventStamp {
+            instance: self.instance.clone(),
+            generation: self.generation,
+        }
     }
     pub fn generation(&self) -> u64 {
         self.generation
@@ -122,8 +149,8 @@ impl RequestDialog {
     }
     /// Denial is terminal; a recorded preview choice can still be dismissed.
     /// Stale events never change a decision. Enter is never consent.
-    pub fn apply(&mut self, generation: u64, event: Event) -> bool {
-        if generation != self.generation || self.decision == Decision::Denied {
+    pub fn apply(&mut self, stamp: &EventStamp, event: Event) -> bool {
+        if *stamp != self.stamp() || self.decision == Decision::Denied {
             return false;
         }
         self.decision = match event {
@@ -155,38 +182,41 @@ mod tests {
     fn pending_cancel_close_and_enter_never_confirm() {
         for event in [Event::Cancel, Event::Close] {
             let mut dialog = RequestDialog::new(request());
+            let first = dialog.stamp();
             assert_eq!(dialog.decision(), Decision::Pending);
-            assert!(!dialog.apply(1, Event::Enter));
-            assert!(dialog.apply(1, event));
+            assert!(!dialog.apply(&first, Event::Enter));
+            assert!(dialog.apply(&first, event));
             assert_eq!(dialog.decision(), Decision::Denied);
-            assert!(!dialog.apply(1, Event::ExplicitConfirm));
-            assert!(!dialog.apply(1, event));
+            assert!(!dialog.apply(&first, Event::ExplicitConfirm));
+            assert!(!dialog.apply(&first, event));
         }
     }
     #[test]
     fn replacement_invalidates_confirmation_and_stale_events() {
         let mut dialog = RequestDialog::new(request());
-        assert!(dialog.apply(1, Event::ExplicitConfirm));
-        assert!(!dialog.apply(1, Event::ExplicitConfirm));
-        assert!(dialog.apply(1, Event::Cancel));
+        let first = dialog.stamp();
+        assert!(dialog.apply(&first, Event::ExplicitConfirm));
+        assert!(!dialog.apply(&first, Event::ExplicitConfirm));
+        assert!(dialog.apply(&first, Event::Cancel));
         assert_eq!(dialog.decision(), Decision::Denied);
         dialog.replace(request()).unwrap();
         assert_eq!(dialog.decision(), Decision::Pending);
         for event in [Event::ExplicitConfirm, Event::Cancel, Event::Close] {
-            assert!(!dialog.apply(1, event));
+            assert!(!dialog.apply(&first, event));
         }
-        assert!(!dialog.apply(2, Event::Enter));
-        assert!(dialog.apply(2, Event::ExplicitConfirm));
+        assert!(!dialog.apply(&dialog.stamp(), Event::Enter));
+        assert!(dialog.apply(&dialog.stamp(), Event::ExplicitConfirm));
     }
     #[test]
     fn confirmed_preview_can_be_dismissed_without_authorizing_access() {
         for event in [Event::Cancel, Event::Close] {
             let mut dialog = RequestDialog::new(request());
-            assert!(dialog.apply(1, Event::ExplicitConfirm));
-            assert!(dialog.apply(1, event));
+            let first = dialog.stamp();
+            assert!(dialog.apply(&first, Event::ExplicitConfirm));
+            assert!(dialog.apply(&first, event));
             assert_eq!(dialog.decision(), Decision::Denied);
-            assert!(!dialog.apply(1, Event::ExplicitConfirm));
-            assert!(!dialog.apply(1, event));
+            assert!(!dialog.apply(&first, Event::ExplicitConfirm));
+            assert!(!dialog.apply(&first, event));
         }
     }
     #[test]
@@ -207,10 +237,11 @@ mod tests {
         assert_eq!(unregistered.active(), ("", "/explicit/vault"));
         assert_eq!(unregistered.rows().count(), 0);
         let mut dialog = RequestDialog::new(alias);
-        assert!(dialog.apply(1, Event::ExplicitConfirm));
+        let first = dialog.stamp();
+        assert!(dialog.apply(&first, Event::ExplicitConfirm));
         dialog.replace(unregistered).unwrap();
         assert_eq!(dialog.decision(), Decision::Pending);
-        assert!(!dialog.apply(1, Event::ExplicitConfirm));
+        assert!(!dialog.apply(&first, Event::ExplicitConfirm));
     }
     #[test]
     fn misleading_bidi_paths_are_rejected_and_debug_is_redacted() {
@@ -226,6 +257,15 @@ mod tests {
             );
         }
         assert!(!format!("{:?}", RequestDialog::new(request())).contains("/fixture"));
+    }
+    #[test]
+    fn stamps_cannot_cross_dialog_instances() {
+        let a = RequestDialog::new(request());
+        let mut b = RequestDialog::new(request());
+        assert_eq!(a.generation(), b.generation());
+        assert_ne!(a.stamp(), b.stamp());
+        assert!(!b.apply(&a.stamp(), Event::ExplicitConfirm));
+        assert_eq!(b.decision(), Decision::Pending);
     }
     #[test]
     fn scope_is_explicit_and_active_is_distinguished() {

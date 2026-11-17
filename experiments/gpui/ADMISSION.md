@@ -408,3 +408,49 @@ but not displayed. Independent review found no blocking issue. Go and live
 transport were unchanged and not revalidated in this presentation-only slice.
 No real vault, Mac or GUI was used. Because there is no user-accessible workflow,
 this test-only prototype has no help-vault update.
+
+## Fixture review binding, not production consent
+
+A preview interaction cannot supply the independent authority missing from the
+production path. The next binding experiment therefore retains the existing
+`SyntheticCanonical` fixture proof as its only authority. It pairs that proof
+with the creator-owned runtime, an independently supplied complete fixture scope,
+the exact displayed request and the final env-cleared child command. No arbitrary
+external command or child-reported scope can substitute for those inputs.
+
+Dialog identity is separate from request generation: two fresh dialogs both
+starting at generation one must not accept each other's events. The reviewed
+combination must remain unchanged through preflight publication. Cancellation,
+stale selection, changed context, changed executable/input bindings or replaced
+runtime, when observed by the checks, fail closed and invalidate that review,
+even if the old values are later restored. Changes entirely between checks are
+not continuously detected. Successful preflight is one-shot, not a reusable
+launch permit.
+
+These are point-in-time fixture checks, not atomic authorization or continuous
+filesystem protection. The transport's cancellation and owned-process cleanup
+remain necessary. A real GUI-to-consent connection, independent real-workspace
+authority source and deliberate production admission review remain unimplemented.
+The ordinary gate stays closed; neither a preview decision nor a preflight
+manifest enables serve or canonical editing.
+
+The binding is a synchronous test helper, not a connected asynchronous GUI
+consent flow. It owns its env-cleared command and compares program, arguments,
+all explicit environment entries and cwd, in addition to the resolution-context
+record. The independently retained runtime descriptor identity must match the
+Go response. A shared cancellation flag is forwarded to the existing bounded
+capture and checked again before result publication. GUI cancellation is not
+wired by this experiment. Unknown runtime contents are retained; no cleanup is
+triggered by a preview decision or a failed check.
+
+Five binding tests passed in the source adapter and actual GPUI-linked tests,
+including real-Go preflight, zero spawn attempts on denied/stale/mismatched
+inputs, sticky rejection after restoration, one-shot completion and nonempty
+runtime retention. Seven preview-model tests passed in both forms, including
+cross-dialog event rejection. The complete adapter passed 367 tests (23 ignored).
+The actual GPUI-linked `live::`-filtered run passed 192 tests with explicit Go
+binaries, including matching `workspace_live` tests and excluding the separate
+public writable-fixture save test. Linux tests check and linked build passed,
+with independent review. Go source was unchanged. GUI/macOS, real consent and
+ordinary admission remain untested or disabled as applicable. This test-only
+binding adds no user workflow and needs no help-vault change.

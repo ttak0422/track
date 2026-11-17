@@ -7636,6 +7636,10 @@ mod private_runtime;
 mod private_runtime_contract_tests;
 
 #[cfg(test)]
+#[path = "live_preview_fixture_gate.rs"]
+mod preview_fixture_gate_tests;
+
+#[cfg(test)]
 #[path = "live_admission_process.rs"]
 mod admission_process_tests;
 

@@ -257,6 +257,16 @@ impl PrivateRuntime {
             "Private runtime name collision limit reached",
         )))
     }
+    /// Test-only correlation with the creator-held descriptor identity.
+    /// This neither re-stats a supplied pathname nor grants launch authority.
+    #[cfg(test)]
+    pub(super) fn matches_observed_identity(&self, observed: &str) -> bool {
+        observed
+            == format!(
+                "{}:{}",
+                self.child_identity.device, self.child_identity.inode
+            )
+    }
     pub(super) fn path(&self) -> &Path {
         &self.path
     }
