@@ -1979,3 +1979,47 @@ The recovery/session subset passed 42 tests; intermediate integrated parallel
 and fixes the reproduced mechanism, not the exact cause of every historical lock
 failure. No timeout, ownership check or ordinary-vault gate was relaxed. Historical
 bound-readiness timeouts remain a separate investigation.
+
+## Native follow-up acceptance and fixture isolation, 2026-11-17
+
+Native testing exposed an additional blocker: `show_graph` denotes a reader
+aside, not Full Graph navigation. The old auto-refresh guard rejected an ordinary
+note whenever that aside was shown. It now distinguishes Full Graph/gestures from
+aside visibility. Paused controls report a bounded reason rather than silently
+ignoring activation. A separate startup ordering bug let local-graph loading
+before vault discovery mark the already accepted article as a failed read.
+Graph loading now waits with a source-scoped owner and retries after discovery;
+graph errors do not overwrite article read errors. Fresh native launch and
+refresh activation passed without the previous spurious article failure.
+
+With auto refresh enabled, a disposable host with an included dependency showed
+ALPHA -> BRAVO without changing the host source. After scrolling into a longer
+accepted include, an external dependency change was deferred while old paragraphs
+and scroll position remained visible. Returning to the top and selecting Retry
+accepted CHARLIE. Four loopback HTTP tests now exercise the production worker read
+phase: same-host include/query changes, no cached projection, namespace rejection,
+and storage rollover/partial response rejection. Query-only native visuals remain
+separate from these transport checks.
+
+Native Copy title -> search paste -> Enter navigation passed. Japanese text and
+ZWJ emoji paste exposed scalar-wise Backspace deletion. Search now matches the
+editor's grapheme navigation/deletion while preserving scalar-precise UTF-16
+platform ranges. After rebuilding, one Backspace removed the entire woman-
+technologist sequence and left the Japanese text intact. Actual Japanese IME
+preedit/commit was not established by this pass and remains an explicit limit.
+Finder icon view displayed the packaged Track brand correctly. Dock inspection
+was blocked by a computer-use timeout, not reported as a visual pass. Reader
+layout was observed at widths around 830 and 1906 pixels; short-height rail
+scrolling remains unverified.
+
+Capability fixture failures were observed before child spawn (AddrInUse) and at
+readiness under the parallel harness. Dedicated single-test subprocesses now
+isolate those fixtures while preserving real preflight, ownership, request and
+startup deadlines. Creation fixture names also use a counter and a same-timestamp
+regression. A fixed integrated binary passed 1,093 tests with 25 ignored in each
+of three 16-thread runs and one serial run. This is fixture stabilization, not a
+claim to have fixed all historical production readiness failures.
+
+Four manually created dependency-QA files were moved out after testing. All 82
+original canonical fixture file hashes matched the baseline, and both owned
+ports were closed after quit. No personal vault or ordinary launch gate was used.
