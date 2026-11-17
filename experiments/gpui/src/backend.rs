@@ -392,6 +392,8 @@ mod tests {
                 NEXT.fetch_add(1, Ordering::Relaxed)
             ));
             std::fs::create_dir(&directory).unwrap();
+            // macOS temp_dir may use /var, an alias of /private/var.
+            let directory = directory.canonicalize().unwrap();
             let executable = directory.join("track");
             // Fixture strings are quoted as single shell arguments, never evaluated.
             let quote = |value: &str| format!("'{}'", value.replace('\'', "'\\''"));

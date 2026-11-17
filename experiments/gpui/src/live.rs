@@ -3620,7 +3620,7 @@ mod tests {
         let root =
             std::env::temp_dir().join(format!("track-native-save-{}-{unique}", std::process::id()));
         std::fs::create_dir(&root).unwrap();
-        let fixture = TemporaryFixture(root);
+        let fixture = TemporaryFixture(root.canonicalize().unwrap());
         copy_tree(&input, &fixture.0.join("vault")).unwrap();
         std::fs::write(fixture.0.join("config.yml"), "{}\n").unwrap();
         let port = (24000..30000)
@@ -3902,6 +3902,7 @@ mod tests {
                 NEXT_LAUNCH.fetch_add(1, Ordering::Relaxed)
             ));
             std::fs::create_dir_all(root.join("vault")).unwrap();
+            let root = root.canonicalize().unwrap();
             std::fs::create_dir(root.join("cache")).unwrap();
             {
                 use std::os::unix::fs::PermissionsExt;
@@ -5118,6 +5119,7 @@ mod tests {
             NEXT_LAUNCH.fetch_add(1, Ordering::Relaxed)
         ));
         std::fs::create_dir_all(&root).unwrap();
+        let root = root.canonicalize().unwrap();
         let executable = root.join("fixture");
         let pid_file = root.join("pid");
         std::fs::write(
