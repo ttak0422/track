@@ -3,6 +3,11 @@ use super::*;
 use crate::rail_icons::Icon;
 use gpui::{Div, Focusable, Stateful, WindowAppearance, point};
 
+/// Keep the last menu action reachable by scrolling inside the viewport.
+fn floating_menu_max_height(viewport_height: f32, preferred: f32) -> f32 {
+    (viewport_height - 40. - 16.).max(0.).min(preferred)
+}
+
 fn native_find_enabled(
     active_workspace: bool,
     accepted: bool,
@@ -4712,7 +4717,7 @@ impl Render for Workspace {
                     })),
             )
         });
-        let vault_menu=div().id("vault-menu").absolute().right(px(8.)).top(px(40.)).w(px(320.)).max_h(px(460.)).overflow_y_scroll().bg(rgb(p.paper)).border_1().border_color(rgb(p.line)).rounded_lg().py_2()
+        let vault_menu=div().id("vault-menu").absolute().right(px(8.)).top(px(40.)).w(px(320.)).max_h(px(floating_menu_max_height(f32::from(height), 460.))).overflow_y_scroll().bg(rgb(p.paper)).border_1().border_color(rgb(p.line)).rounded_lg().py_2()
             .when_some(self.shell.vault_discovery.clone(),|menu,discovery| {
                 let launch=discovery.launch_name.clone();
                 menu.children(discovery.available.iter().enumerate().map(|(index,entry)|{
@@ -4732,7 +4737,7 @@ impl Render for Workspace {
             .right(px(8.))
             .top(px(40.))
             .w(px(300.))
-            .max_h(px(400.))
+            .max_h(px(floating_menu_max_height(f32::from(height), 400.)))
             .overflow_y_scroll()
             .bg(rgb(p.paper))
             .border_1()
@@ -7786,5 +7791,28 @@ mod reader_selection_owner_tests {
             1,
             3
         ));
+    }
+}
+
+#[cfg(test)]
+mod compact_menu_geometry_tests {
+    use super::*;
+    #[test]
+    fn compact_menus_keep_the_final_control_inside_the_viewport() {
+        for viewport in [452., 480., 720.] {
+            for preferred in [400., 460.] {
+                let height = floating_menu_max_height(viewport, preferred);
+                assert!(height > 0. && height <= preferred);
+                assert!(40. + height <= viewport - 16.);
+                // A long menu's final 36px action remains wholly visible at
+                // the end of its own scroll range, without window resizing.
+                let content_height = 1000.;
+                let offset = content_height - height;
+                let action_top = 40. + content_height - 36. - offset;
+                assert!(action_top >= 40.);
+                assert!(action_top + 36. <= viewport - 16.);
+            }
+        }
+        assert_eq!(floating_menu_max_height(40., 460.), 0.);
     }
 }

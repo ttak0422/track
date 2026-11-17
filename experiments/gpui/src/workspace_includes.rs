@@ -275,6 +275,13 @@ impl IncludesState {
         self.open && &self.identity == identity && self.serial == serial
     }
 }
+/// Leave at least half the space below padding/title for the reader. The
+/// explanatory text and controls scroll independently instead of squeezing
+/// the measured body viewport to zero on short windows.
+fn rendered_header_max_height(viewport_height: f32) -> f32 {
+    ((viewport_height - 56.).max(0.) * 0.45).min(240.)
+}
+
 fn source_position(line: i64) -> String {
     if line < 0 {
         "noncontiguous".into()
@@ -492,6 +499,7 @@ impl Workspace {
         let selection_controls = self.preview_selection_controls(cx);
         let contents_controls = self.preview_contents_controls(cx);
         let refresh_controls = self.live_refresh_controls(cx);
+        let header_height = rendered_header_max_height(f32::from(window.viewport_size().height));
         div().id("rendered-includes-preview").size_full().flex().flex_col().p_4()
             .bg(rgb(paper)).text_color(rgb(ink)).track_focus(&focus)
             .on_mouse_down(gpui::MouseButton::Left, cx.listener(|this, _, _, cx| { this.clear_preview_selection(); this.cancel_preview_contents(); cx.notify(); }))
@@ -504,10 +512,12 @@ impl Workspace {
                 // No host Find, navigation, checkpoint, task, link or copy shortcuts.
                 cx.stop_propagation();
             }))
-            .child(div().flex().justify_between().child("Rendered content (read-only)").child(div().id("close-rendered-includes-preview").cursor_pointer().child("Close preview (Esc)").on_click(cx.listener(move |this, _, window, cx| this.close_rendered_user(&close_identity, serial, window, cx)))))
-            .child("Engine-resolved snapshots; completeness and currentness are not guaranteed. Partial inline preview: only isolated top-level includes are embedded. Inline link clicks, task changes and recursive includes are unavailable. Ordinary host prose offers at most 16 explicit Open host link controls/statuses from the first 256 parsed links and 8192 host blocks; only verified same-host Markdown #heading links can jump locally; other host fragments remain inert. External HTTP(S) prose links have at most 16 explicit Open in browser controls across host and valid includes (256 links/8192 blocks scanned, URL maximum 4096 bytes); labels and normalized destinations are shown, with no hover fetch. These controls cover a bounded prefix only; return to Source to inspect remaining links. Find searches displayed ordinary host/include prose, not rich projections or their source disclosures. Host query rows provide explicit Open note controls; included query rows remain inert. Gallery covers support bounded local PNG/JPEG only. Single-paragraph display-text selection is available below. Tagged code and displayed source have explicit Copy controls (plain text, up to 256 KiB).")
+            .child(div().flex().flex_shrink_0().justify_between().child("Rendered content (read-only)").child(div().id("close-rendered-includes-preview").cursor_pointer().child("Close preview (Esc)").on_click(cx.listener(move |this, _, window, cx| this.close_rendered_user(&close_identity, serial, window, cx)))))
+            .child(div().id("rendered-preview-controls-scroll").flex_shrink_0().max_h(px(header_height)).overflow_y_scroll()
+
             .child(reading_controls).child(refresh_status).child(refresh_controls)
-            .child(find_controls).child(selection_controls).child(contents_controls)
+            .child(find_controls).child(contents_controls).child(selection_controls)
+            .child("Engine-resolved snapshots; completeness and currentness are not guaranteed. Partial inline preview: only isolated top-level includes are embedded. Inline link clicks, task changes and recursive includes are unavailable. Ordinary host prose offers at most 16 explicit Open host link controls/statuses from the first 256 parsed links and 8192 host blocks; only verified same-host Markdown #heading links can jump locally; other host fragments remain inert. External HTTP(S) prose links have at most 16 explicit Open in browser controls across host and valid includes (256 links/8192 blocks scanned, URL maximum 4096 bytes); labels and normalized destinations are shown, with no hover fetch. These controls cover a bounded prefix only; return to Source to inspect remaining links. Find searches displayed ordinary host/include prose, not rich projections or their source disclosures. Host query rows provide explicit Open note controls; included query rows remain inert. Gallery covers support bounded local PNG/JPEG only. Single-paragraph display-text selection is available below. Tagged code and displayed source have explicit Copy controls (plain text, up to 256 KiB)."))
             .child(div().id(gpui::SharedString::from(format!("rendered-includes-scroll-{serial}"))).track_scroll(&scroll).flex_1().min_h_0().overflow_y_scroll().child(body))
     }
     fn includes_identity(&self) -> Option<Identity> {
@@ -1070,6 +1080,22 @@ impl Workspace {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn compact_rendered_header_leaves_a_measurable_reader() {
+        // Include a title-bar-sized reduction as well as the nominal minimum.
+        for viewport in [452., 480., 720.] {
+            let header = rendered_header_max_height(viewport);
+            let reader = viewport - 56. - header;
+            assert!(header > 0. && header <= 240.);
+            assert!(reader >= 200., "reader height {reader} at {viewport}");
+            // Long control stacks are scroll content, not additional root height.
+            let controls = 900.;
+            let max_scroll = controls - header;
+            assert!((controls - max_scroll - header).abs() < 0.001);
+        }
+        assert_eq!(rendered_header_max_height(40.), 0.);
+    }
+
     fn identity() -> Identity {
         Identity {
             source: LinkSource {
