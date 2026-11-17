@@ -360,3 +360,51 @@ times. Final real-GPUI Linux tests check and no-run link passed. Independent
 review found no blocking issue. These are fixture/headless checks, not macOS,
 GUI parity, actual user consent or ordinary-workspace release evidence. No
 user-facing workflow changed, so no help-vault update was needed.
+
+## Read-request presentation preview boundary
+
+The next presentation prototype is compiled only for tests, with supplied fixture
+labels and paths. It must display the active vault and the complete peer set,
+read-only limits, private-cache retention and the closed ordinary-launch gate.
+It does not inspect a real registry, read a vault, start preflight, create runtime
+directories or publish a grant. A positive preview interaction records only a
+local presentation decision, never an admission capability.
+
+A real consent UI still requires a separate reviewed connection between the
+exact displayed request, its independently obtained scope and current context.
+Replacing a request must invalidate any earlier decision and stale input events.
+Dismissal, cancellation, an absent decision or a changed request cannot be
+interpreted as permission. Unknown/nonempty runtime contents must not be deleted
+as a side effect of accepting, cancelling or closing the presentation.
+
+`workspace_read_request.rs` models that local preview decision; the GPUI view is
+also registered only under `cfg(test)`. Active display paths are independent of
+registered peer display paths, so an alias is not silently substituted and an
+unregistered active path can be shown. The model does not resolve aliases or
+certify that the supplied peer list is complete. Bounded text is presented
+without ellipsis, with scrolling for paths and the peer list; directional control
+characters are rejected and Debug output is redacted.
+
+Initial focus targets Cancel. Enter never confirms; a deliberate confirm click
+or an unmodified, non-repeated Space on its focused control records only
+`PreviewConfirmed`. A recorded choice remains dismissible. Denied is terminal;
+replacing even identical request content requires a new decision and rejects old
+input generations. Confirmation is hidden after recording a choice, and denied
+state hides the action controls. Dismissal changes the preview state rather than
+claiming that an enclosing window was closed.
+
+The floating-layer presentation uses supplied theme tokens and text controls.
+No production menu, shell, CLI, consent callback, grant conversion or launch path
+is connected. This is a reviewable UI implementation boundary, not an enabled
+ordinary-workspace feature. Actual focus, keyboard/IME, scrolling, accessibility
+and visual behavior still need GUI acceptance before any production connection.
+
+Six model tests passed in both the source adapter and actual GPUI-linked test
+executable, covering pending/Enter, cancellation and revocation, replacement and
+stale input, explicit scope, aliases/unregistered active paths, and misleading
+text rejection. The complete source adapter passed 362 tests (22 ignored).
+Real-GPUI Linux tests check and linked tests succeeded; the renderer was compiled
+but not displayed. Independent review found no blocking issue. Go and live
+transport were unchanged and not revalidated in this presentation-only slice.
+No real vault, Mac or GUI was used. Because there is no user-accessible workflow,
+this test-only prototype has no help-vault update.

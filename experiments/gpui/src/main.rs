@@ -80,6 +80,10 @@ mod workspace_images;
 mod workspace_includes;
 mod workspace_journal_day;
 mod workspace_live;
+#[cfg(test)]
+mod workspace_read_request;
+#[cfg(test)]
+mod workspace_read_request_view;
 mod workspace_note_tasks;
 mod workspace_open_tasks;
 mod workspace_preview;
