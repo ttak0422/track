@@ -257,13 +257,18 @@ mod tests {
         let f = Fixture::new();
         let s = f.open();
         let mut release = [0; 2];
+        // SAFETY: release is writable storage for exactly two file descriptors.
         assert_eq!(unsafe { libc::pipe(release.as_mut_ptr()) }, 0);
         // Model another test spawning a process between fork and exec. CLOEXEC
         // does not close inherited lock descriptors until exec actually runs.
+        // SAFETY: the child uses only async-signal-safe libc calls and _exit;
+        // it never accesses Rust state or runs inherited destructors.
         let pid = unsafe { libc::fork() };
         assert!(pid >= 0);
         if pid == 0 {
-            // Only async-signal-safe calls after fork in the threaded harness.
+            // SAFETY: both pipe descriptors are inherited and valid; byte is
+            // writable for the one-byte read. All calls are async-signal-safe,
+            // and _exit prevents inherited Rust destructors from running.
             unsafe {
                 libc::close(release[1]);
                 let mut byte = 0u8;
@@ -271,6 +276,7 @@ mod tests {
                 libc::_exit(0);
             }
         }
+        // SAFETY: this is the parent's valid read descriptor, closed only here.
         unsafe { libc::close(release[0]) };
         // A live owner must still exclude a second writer.
         let while_owned = SessionStore::open(
@@ -287,8 +293,10 @@ mod tests {
             vec!["one".into()],
         );
         // Always release/reap the child before assertions, including failures.
+        // SAFETY: this is the parent's valid write descriptor, closed only here.
         unsafe { libc::close(release[1]) };
         let mut status = 0;
+        // SAFETY: pid identifies our unreaped child; status is writable storage.
         assert_eq!(unsafe { libc::waitpid(pid, &mut status, 0) }, pid);
         assert_eq!(status, 0);
         assert!(while_owned.is_err());
