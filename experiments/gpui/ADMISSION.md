@@ -147,3 +147,48 @@ inactive slice needs no user-facing help update.
 Real-GPUI Linux `cargo check --locked --tests` and
 `cargo test --locked --no-run` succeeded with this slice. Native GUI, macOS and
 ordinary-workspace launch remain untested and disabled as applicable.
+
+## Inactive workspace scope and provenance slice
+
+`WorkspaceScopeRequest` separates an explicit selector and an independently
+supplied requested peer-display-path set from `LaunchManifestObservation`.
+Unresolved scope never matches; a populated manifest does not fill in missing
+intent. Literal path selectors, including relative paths and tilde spelling, are
+preserved rather than resolved by Rust; resolved display/canonical paths are
+separate observation fields. The observed context cwd may retain an absolute
+lexical PWD alias from Go; it is preserved, not cleaned by the decoder.
+Matching the requested set is only a comparison, not consent or startup
+authority. No selector, manifest or response can mint a peer-read grant.
+
+The observation retains the complete typed Go manifest, including canonical
+paths, opaque root/cache identities, configuration provenance and absent config
+states. Its bounded decoder checks wire structure without reading the filesystem,
+recomputing hashes or certifying the identities. A later exact observation
+comparison detects changed reported provenance; it does not establish authenticity,
+filesystem freshness or atomicity. The request and context records still have no
+conversion into `StartupAdmission`.
+
+The selected active display path can be an alias distinct from the same peer's
+registered display path, while canonical identity/cache fields must agree.
+Absent configuration is not an error by itself, and nonpositive configuration
+mtime is not rejected merely because generated fixtures usually use recent files.
+Go's existing manifest requires every declared root to be verifiable; a missing
+root fails preflight. This differs from a verified peer whose runtime storage is
+not ready. Existing `ExpectedRegistry` remains the later readiness comparator;
+its available/unavailable logic is not duplicated in the provenance decoder.
+
+This slice is not the production CLI protocol, private-root lifecycle or a
+workspace selection UI. Those must supply and validate actual context and
+independent authority before the ordinary gate can be reconsidered.
+
+Six pure provenance tests cover independent/unresolved scope, literal selector
+comparison, aliases, absent and historical configuration metadata, malformed
+wire rejection and registry bounds. The synthetic bridge additionally decodes
+actual Go manifests and compares against its independently generated scope before
+running the original strict fixture checks. The source adapter passed 339 tests
+(20 ignored); the live-module matrix with the explicit Go binaries passed 157.
+The prior fixture authority and canonical-file sentinels remain intact.
+The final candidate also passed real-GPUI Linux `cargo check --locked --tests`
+and `cargo test --locked --no-run`. These are compile/link checks, not GUI
+acceptance. The gate is unchanged; this internal-only slice adds no user-facing
+workflow and therefore no help-vault change.

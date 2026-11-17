@@ -192,6 +192,28 @@ impl SyntheticBound {
         if lines.next().is_some() {
             return Err(invalid());
         }
+        // Exercise the inactive production-shaped decoder against actual Go
+        // output. Scope comes from the independent generated fixture, never
+        // from the response being compared. This adds no launch authority;
+        // the original fixture proof and stricter checks below still apply.
+        let observation = workspace_provenance::LaunchManifestObservation::parse(raw.as_bytes())
+            .map_err(|_| invalid())?;
+        let requested = workspace_provenance::WorkspaceScopeRequest::new(
+            workspace_provenance::RequestedSelector::Registered("work".into()),
+            workspace_provenance::PeerScopeRequest::ExplicitRequestedSet(
+                ["main", "work"]
+                    .into_iter()
+                    .map(|name| {
+                        (
+                            name.to_owned(),
+                            self.root.join("home").join(name).to_str().unwrap().to_owned(),
+                        )
+                    })
+                    .collect(),
+            ),
+        )
+        .map_err(|_| invalid())?;
+        observation.check_requested_scope(&requested).map_err(|_| invalid())?;
         let manifest: Manifest = serde_json::from_str(raw).map_err(|_| invalid())?;
         self.validate_manifest(&manifest)?;
         self.proof.verify_bindings().map_err(Error::Config)?;

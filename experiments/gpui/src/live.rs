@@ -7593,6 +7593,9 @@ mod read_inputs;
 #[path = "live_launch_context.rs"]
 mod launch_context;
 
+#[path = "live_workspace_provenance.rs"]
+mod workspace_provenance;
+
 #[cfg(test)]
 #[path = "live_admission_process.rs"]
 mod admission_process_tests;
