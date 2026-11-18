@@ -1,0 +1,8 @@
+{
+  "hooks": {
+    "SessionStart": [{
+      "matcher": "startup|resume|clear|compact|fork",
+      "hooks": [{"type": "command", "command": "track timeline-session hook --agent codex", "timeout": 5}]
+    }]
+  }
+}
