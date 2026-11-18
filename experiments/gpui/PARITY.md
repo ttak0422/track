@@ -107,7 +107,11 @@ acceptance. Do not infer completion from a module, unit test, screenshot or olde
 - Include/query/host navigation remains explicit, namespace-qualified and bounded.
   The host and included source retain separate identities; accepted snapshots/caches
   never independently authorize a read or navigation. General inline/modifier behavior
-  and arbitrary host fragments are not provided.
+  and arbitrary host fragments are not provided. Supported host wiki heading/authored-block
+  controls explicitly open Source after guarded resolution, retaining exact key/fragment
+  independently of aliases. Missing headings/blocks use existing Source notices; no
+  rendered-anchor parity, target prefetch or fragment-stripping retry is added. Native
+  focus/scroll and callback interaction remain unverified.
 - Snapshot file links, headings, Find and images use only accepted in-memory entries.
   No filesystem/vault/network/OS fallback, imports or persistence. Missing targets stay
   inert; PNG/JPEG preparation has a single worker and explicit count/byte/pixel bounds,
