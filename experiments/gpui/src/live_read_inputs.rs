@@ -404,6 +404,7 @@ mod tests {
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         listener.set_nonblocking(true).unwrap();
         let client = ReadClient {
+            finite_only: false,
             canonical_read_only: true,
             creation_store: Default::default(),
             creation_fixture: None,

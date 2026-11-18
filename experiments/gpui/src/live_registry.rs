@@ -39,6 +39,22 @@ struct Wire {
     unavailable: Vec<Unavailable>,
     #[serde(default, deserialize_with = "present_string")]
     storage_state: Option<String>,
+    #[serde(default)]
+    read_state: Option<ReadDiagnostics>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReadDiagnostics {
+    #[serde(rename = "partial")]
+    _partial: bool,
+    #[serde(rename = "cache_used")]
+    _cache_used: bool,
+    #[serde(rename = "checked_at")]
+    _checked_at: i64,
+    issues: Vec<serde_json::Value>,
+    #[serde(default)]
+    #[serde(rename = "omitted")]
+    _omitted: u64,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -102,6 +118,13 @@ impl ExpectedRegistry {
         // validation after decoding through a generic Value.
         let wire: Wire =
             serde_json::from_slice(bytes).map_err(|e| format!("Invalid registry shape: {e}"))?;
+        if wire
+            .read_state
+            .as_ref()
+            .is_some_and(|state| state.issues.len() > 256)
+        {
+            return Err("Registry diagnostic issue limit exceeded".into());
+        }
         if wire.vaults.len().saturating_add(wire.unavailable.len()) > MAX_PEERS + 1
             || !bounded(&wire.active.name, MAX_NAME)
             || !bounded(&wire.active.path, MAX_PATH)

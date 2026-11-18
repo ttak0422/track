@@ -1,7 +1,7 @@
 # GPUI rendering experiment
 
 An isolated native rendering experiment using [Zed's GPUI](https://www.gpui.rs/).
-It does not replace Track.app. Ordinary vault launch is temporarily disabled before any engine or CLI child starts. Its purpose is to
+It does not replace Track.app. Ordinary reads require the explicit experimental `--read-only` review described below. Its purpose is to
 reach existing-workspace compatibility while validating native rendering. No claims of improved frame rate are made yet.
 
 ## Validation status
@@ -70,17 +70,21 @@ cargo fmt --manifest-path experiments/gpui/Cargo.toml --check
 cargo test --manifest-path experiments/gpui/Cargo.toml
 ```
 
-## Disposable-fixture launch only
+## Vault launch modes
 
-Ordinary vaults are blocked: existing engine startup, watch and read refresh paths can write canonical activity sidecars. A UI that exposes no editing controls is not a canonical-read-only engine contract. Synthetic data and explicitly supplied JSON snapshots remain available without an engine process. All live-feature descriptions below still apply only to verified disposable fixtures; ordinary launch requires a separate native safety review.
+An experimental ordinary workspace path now requires explicit `--read-only`, an absolute candidate `--track-bin`, `--vault` (absolute path or registered name), an owned `--server-port`, and `--cache` naming an existing canonical, owned 0700 parent outside vault/config/ordinary cache namespaces. Configuration is observed before directory creation; the user reviews the active vault and every registered peer before a one-shot grant can start the manifest-bound v2 process. No note storage reads precede explicit confirmation and capability verification. HOME/TRACK/XDG/PWD/cwd semantics are retained; `--config` is an optional child-only override.
+
+Ordinary sessions offer finite reads and explicit Reload. They do not enable editing, creation, persisted sessions/recovery/checkpoints, SSE, Follow or automatic refresh. Partial peers remain unavailable rather than becoming the active vault. Configuration drift invalidates shared read authority and queued completions, with retained source marked stale. Nonempty/unverified private runtimes are retained; their diagnostic path is shown. There is no writable, unbound, v1 or CLI fallback, automatic restart or old-cache adoption. Full native focus/IME/accessibility/visual acceptance remains separate; this is not a filesystem sandbox. See the English help section **Experimental native read-only workspace** and [ADMISSION.md](ADMISSION.md).
+
+Synthetic/JSON input and the developer fixture mode below remain separate. Fixture edit/session permission is never inferred from an ordinary read confirmation.
 
 A fixture must be a canonical directory beneath the OS temporary directory, with `.track-native-edit-fixture` containing exactly `disposable-fixture-only` plus LF, an existing isolated temporary cache directory, and an explicit temporary config file containing only `{}` (surrounding whitespace allowed). Configured peer registries are rejected. Vault/cache trees reject symlinks, hardlinked regular files and special files; config/marker must be single-link regular files. Verification repeats before child execution. This is a controlled-fixture boundary, not protection against concurrent hostile filesystem changes.
 
 `--developer-read-fixture` authorizes engine reads only and does not enable editing, creation, recovery or persistence. Existing edit/session fixture opt-ins also require the same stricter read proof. Children receive a cleared environment, fixed `/usr/bin:/bin` PATH, explicit fixture paths, private HOME/XDG/TMPDIR and fixture working directory; ambient registry, editor, loader and proxy overrides are not inherited.
 
-Owned HTTP read fixtures, including session-only fixtures, now request the engine's canonical-read-only mode with the explicit fixture cache as its private root. That root must already have permissions `0700`. After the exact owned-process readiness token, native requires `GET /api/capabilities` to return JSON with protocol `track-canonical-read-only`, integer version `1`, and `canonical_read_only:true`, before any vault/storage reads. Missing, unsupported, malformed, false or timed-out capabilities terminate and reap that child; there is no retry without the mode flags or fallback to CLI. The handshake is not storage readiness or an OS sandbox. Explicit editing/creation fixture authority alone retains writable engine mode; session persistence does not grant canonical-write authority. CLI-only disposable-fixture behavior is unchanged. Native launch remains fixture-gated even with a valid capability. Browser/GUI behavior is not established by headless process tests.
+Owned HTTP read fixtures, including session-only fixtures, now request the engine's canonical-read-only mode with the explicit fixture cache as its private root. That root must already have permissions `0700`. After the exact owned-process readiness token, native requires `GET /api/capabilities` to return JSON with protocol `track-canonical-read-only`, integer version `1`, and `canonical_read_only:true`, before any vault/storage reads. Missing, unsupported, malformed, false or timed-out capabilities terminate and reap that child; there is no retry without the mode flags or fallback to CLI. The handshake is not storage readiness or an OS sandbox. Explicit editing/creation fixture authority alone retains writable engine mode; session persistence does not grant canonical-write authority. CLI-only disposable-fixture behavior is unchanged. This fixture capability never grants ordinary-workspace authority; the separate reviewed mode uses the bound v2 protocol. Browser/GUI behavior is not established by headless process tests.
 
-Canonical read-only clients refuse Save locally before any preliminary read or write request. Healthy storage does not grant editing authority. Ordinary-vault native launch remains blocked.
+Canonical read-only clients refuse Save locally before any preliminary read or write request. Healthy storage does not grant editing authority. Unreviewed ordinary-vault native launch remains blocked.
 
 
 For an already prepared disposable fixture:

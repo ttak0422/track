@@ -99,7 +99,7 @@ fn capture(
         entropy(),
     )
     .unwrap();
-    let outcome = bound_fixture::capture_exchange(
+    let outcome = super::capture::capture_exchange(
         &mut command,
         Duration::from_secs(10),
         &AtomicBool::new(false),

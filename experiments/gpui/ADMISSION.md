@@ -1,8 +1,8 @@
 # Ordinary read admission: proposed implementation boundary
 
-Status: ordinary native admission remains closed. The supervised engine CLI
-transport is implemented below; it is not native admission or release approval.
-The ordinary-vault gate stays closed. This document does not supersede the
+Status: explicit experimental read-only review is connected in the final slice below.
+Ordinary engine/CLI access without this deliberate review remains blocked; editing
+and persistent state remain separate closed gates. This is not release approval. This document does not supersede the
 fixture restrictions or establish UI equivalence with the shipping Track app.
 
 ## Initial stopping point (before the slices below)
@@ -543,3 +543,51 @@ with a generic confirmed-files partial notice; full per-file native presentation
 is not established. A corrupt private database instead reports unavailable
 storage. None of these generated-fixture checks accesses personal data or proves
 native focus, IME, accessibility, renderer equivalence or a filesystem sandbox.
+
+
+## Explicit ordinary read-only review and finite reader
+
+The production `--read-only` entry point records the supplied selector, candidate
+executable identity, actual HOME/TRACK/XDG/PWD/cwd context, owner PID/token and
+explicit private-cache parent. It does not rewrite user configuration. A
+configuration-only preflight proves that the existing private parent is disjoint
+before any new directory is created. The exact active display path and complete
+registered peer set are presented. Only the current explicit dialog confirmation
+can create the private, non-Clone, one-shot grant; observing a manifest alone
+never authorizes note reads. Cancel synchronously revokes both UI generation and
+startup cancellation, so queued preflight/serve completions cannot revive access.
+
+The grant rechecks the same parent observation, creates an unpredictable owned
+private child, and preflights it. Native code independently compares the requested
+root, mode and filesystem identity. Workspace, configuration, context, executable
+and ordinary-cache provenance must agree; only private-root/identity/database
+fields change. The executable binding detects in-place rebuilds as well as path
+replacement. The same final owner token/context is used through every phase.
+
+Owned serving and the existing reader require the exact child readiness token
+and v2 revision/nonce capability before storage/registry reads. Registry identity
+is separate from readiness: a verified but runtime-unavailable peer stays visible
+as unavailable, and partial active reads may still show valid notes. Missing
+registered roots still fail Go preflight; they are not ignored for availability.
+The production finite observer starts no SSE worker. Follow and automatic refresh
+are disabled; there is no polling substitute, implicit restart or writable/CLI/v1
+fallback. Explicit navigation, search and Reload retain their bounded finite reads.
+
+A fixed engine invalidation header distinguishes sticky manifest drift from local
+HTTP 503, request cancellation or a failed peer. Every native read transport checks
+it and retires the shared authority. Main and auxiliary queued read completions
+also check authority before publishing. Retained source receives a persistent stale
+notice, with future reads refused. Successful ordinary review does not create edit,
+creation, persisted-session, recovery or reading-checkpoint permissions.
+
+Creator ownership is shared with the exact child owner from first spawn, including
+startup failures and the reaper path. Only empty, identity-verified cleanup is
+attempted after ownership ends. Nonempty/unverified caches are retained, and their
+diagnostic paths are reported on success, cancellation and failure. A failed reap
+retains resources rather than granting a replacement. This remains point-in-time
+application validation, not an OS sandbox or hard kernel-I/O latency guarantee.
+
+The production flow and presentation compile against actual GPUI; acceptance tests
+use only generated disposable inputs without displaying a window. Full native
+focus/IME/accessibility/visual acceptance and populated-cache reclamation remain
+separate. The shipping app and ordinary editing are unchanged.

@@ -164,6 +164,22 @@ impl Workspace {
     }
 
     pub fn start_live(&mut self, config: live::LaunchConfig, cx: &mut Context<Self>) {
+        self.start_live_with(move |owner| owner.start(config), cx);
+    }
+    pub(crate) fn start_ordinary_read(
+        &mut self,
+        grant: live::ordinary::ReadGrant,
+        cx: &mut Context<Self>,
+    ) {
+        self.start_live_with(move |owner| owner.start_read(grant), cx);
+    }
+    fn start_live_with(
+        &mut self,
+        start: impl FnOnce(std::sync::Arc<live::LifecycleHandle>) -> Result<live::Session, live::Error>
+        + Send
+        + 'static,
+        cx: &mut Context<Self>,
+    ) {
         self.previews.model.invalidate_session();
         self.previews.cancel_wake();
         self.status = "Starting owned loopback server…".into();
@@ -173,22 +189,25 @@ impl Workspace {
             return;
         }
         self.watch_live_lifecycle(cx);
+        let admission_generation = self.admission.generation();
         let startup_navigation = self.startup_navigation();
         let startup_recents = self.recent_revision();
         let owner = self.quit_session.clone();
         let mut session_ui = std::mem::take(&mut self.session_ui);
         self.session_ui.safe_home = session_ui.safe_home;
         let job = cx.background_executor().spawn(async move {
-            let mut session = owner.start(config)?;
+            let mut session = start(owner.clone())?;
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
             // Partial is also a startup state: publishing that first list used to
             // leave it incomplete until a manual Reload. Wait before exposing the
             // interactive session, never reload underneath navigation or a draft.
-            while startup_readiness_pending(
-                session.initial_storage.as_ref().map(|s| s.phase.as_str()),
-                std::time::Instant::now() < deadline,
-                owner.is_closing() || owner.failure().is_some(),
-            ) {
+            while !session.finite_only()
+                && startup_readiness_pending(
+                    session.initial_storage.as_ref().map(|s| s.phase.as_str()),
+                    std::time::Instant::now() < deadline,
+                    owner.is_closing() || owner.failure().is_some(),
+                )
+            {
                 std::thread::sleep(std::time::Duration::from_millis(100));
                 match session.client().storage() {
                     Ok(state) => session.initial_storage = Some(state),
@@ -202,23 +221,34 @@ impl Workspace {
             // placeholder. Waiting for /api/storage does not refresh that value.
             // Bind persistence only to a fresh, validated post-readiness registry.
             let client = session.client();
-            let registry = startup_registry(
-                session.initial_storage.as_ref().map(|s| s.phase.as_str()),
-                &mut session.initial_vaults,
-                || owner.is_closing() || owner.failure().is_some(),
-                || client.vaults().map_err(|error| error.to_string()),
-            );
+            let registry = if session.finite_only() {
+                Err("Read-only sessions do not restore persisted state".into())
+            } else {
+                startup_registry(
+                    session.initial_storage.as_ref().map(|s| s.phase.as_str()),
+                    &mut session.initial_vaults,
+                    || owner.is_closing() || owner.failure().is_some(),
+                    || client.vaults().map_err(|error| error.to_string()),
+                )
+            };
             let tabs = session_ui.restore(registry);
             Ok::<_, live::Error>((session, session_ui, tabs))
         });
         cx.spawn(async move |this, cx| {
             let result = job.await;
             let _ = this.update(cx, |this, cx| {
-                if this.quit_session.is_closing() {
-                    return;
+                if this.quit_session.is_closing() || !this.admission.accepts(admission_generation) { return; }
+                if let Ok((session, _, _)) = &result {
+                    if !session.client().is_alive() {
+                        this.admission.finished(false);
+                        this.read_error=Some(format!("Read-only session became unavailable before presentation. Quit and review again. Private runtime may remain at {}.",session.runtime_cache.as_ref().map(|path|path.display().to_string()).unwrap_or_default()));
+                        cx.notify(); return;
+                    }
                 }
+                this.admission.finished(result.is_ok());
                 match result {
                     Ok((session, session_ui, tabs)) => {
+                        if let Some(path)=&session.runtime_cache { this.source=format!("Read-only workspace · retained private cache {}",path.display()); }
                         this.list_status = format!(
                             "Storage: {:?}; {}",
                             session.initial_storage,
@@ -330,7 +360,7 @@ impl Workspace {
                 if finish_reader_read(&mut this.live_reader_pending, request) {
                     cx.notify();
                 }
-                if this.request != request {
+                if this.retire_invalid_read(cx) || this.request != request {
                     return;
                 }
                 if !epoch_compatible(
@@ -442,7 +472,9 @@ impl Workspace {
         cx.spawn(async move |this, cx| {
             let result = job.await;
             let _ = this.update(cx, |this, cx| {
-                if this.query_epoch.load(std::sync::atomic::Ordering::SeqCst) != epoch {
+                if this.retire_invalid_read(cx)
+                    || this.query_epoch.load(std::sync::atomic::Ordering::SeqCst) != epoch
+                {
                     return;
                 }
                 let Some((result, storage)) = result else {
@@ -590,6 +622,10 @@ impl Workspace {
         cx.spawn(async move |this, cx| {
             let (result, storage) = job.await;
             let _ = this.update(cx, |this, cx| {
+                if this.retire_invalid_read(cx) {
+                    cx.notify();
+                    return;
+                }
                 if !owner.accepts(this.local_graph_owner().as_ref())
                     || this.follow_registry().as_ref() != Some(&registry)
                 {
@@ -700,6 +736,10 @@ impl Workspace {
         cx.spawn(async move |this, cx| {
             let (result, storage) = job.await;
             let _ = this.update(cx, |this, cx| {
+                if this.retire_invalid_read(cx) {
+                    cx.notify();
+                    return;
+                }
                 if finish_reader_read(&mut this.live_reader_pending, request) {
                     cx.notify();
                 }
@@ -809,7 +849,7 @@ impl Workspace {
                 if finish_reader_read(&mut this.live_reader_pending, request) {
                     cx.notify();
                 }
-                if this.request != request {
+                if this.retire_invalid_read(cx) || this.request != request {
                     return;
                 }
                 if !epoch_compatible(

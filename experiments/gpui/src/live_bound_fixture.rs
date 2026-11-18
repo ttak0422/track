@@ -1,11 +1,10 @@
 //! Test-only v2 integration. Never an ordinary launch proof or UI route.
 //! The independently generated fixture remains the authority; the manifest is a
 //! bounded observation correlated with a separately owned serving process.
+use super::capture::{capture_bytes, capture_exchange};
 use super::*;
-use std::os::fd::AsRawFd;
 use std::os::unix::process::CommandExt;
 
-const MANIFEST_LIMIT: usize = 128 * 1024;
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Manifest {
@@ -403,118 +402,6 @@ impl SyntheticBound {
     }
 }
 
-// Nonblocking pipe avoids joining a reader held open by a descendant. Capture is
-// an owned process group and is killed/reaped on cancellation, overflow or error.
-fn capture_bytes(
-    command: &mut Command,
-    timeout: Duration,
-    canceled: &AtomicBool,
-) -> Result<Vec<u8>, Error> {
-    capture_exchange(command, timeout, canceled, None)
-}
-pub(super) fn capture_exchange(
-    command: &mut Command,
-    timeout: Duration,
-    canceled: &AtomicBool,
-    payload: Option<Vec<u8>>,
-) -> Result<Vec<u8>, Error> {
-    if canceled.load(Ordering::Acquire) {
-        return Err(Error::Stale);
-    }
-    if payload.is_some() {
-        command.stdin(Stdio::piped());
-    }
-    let mut child = command.spawn()?;
-    let outcome = (|| {
-        let mut request = match payload {
-            Some(payload) => Some(request_pipe::RequestPipe::new(
-                child.stdin.take().ok_or_else(invalid)?,
-                payload,
-            )?),
-            None => None,
-        };
-        let mut sent = request.is_none();
-        let mut out = child.stdout.take().ok_or_else(invalid)?;
-        let fd = out.as_raw_fd();
-        let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
-        if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
-            return Err(Error::Io(std::io::Error::last_os_error()));
-        }
-        let deadline = Instant::now() + timeout;
-        let mut bytes = Vec::new();
-        loop {
-            if canceled.load(Ordering::Acquire) {
-                return Err(Error::Stale);
-            }
-            if Instant::now() >= deadline {
-                return Err(Error::Startup("Manifest capture timed out".into()));
-            }
-            if let Some(request) = &mut request {
-                sent = request.pump()?;
-            }
-            let mut chunk = [0u8; 4096];
-            match out.read(&mut chunk) {
-                Ok(n) => {
-                    bytes.extend_from_slice(&chunk[..n]);
-                    if bytes.len() > MANIFEST_LIMIT {
-                        return Err(Error::Oversized);
-                    }
-                }
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
-                Err(e) => return Err(Error::Io(e)),
-            }
-            if capture_exited(&child)? {
-                if !sent {
-                    return Err(invalid());
-                }
-                // Drain only bytes currently available; never wait on inherited pipes.
-                loop {
-                    match out.read(&mut chunk) {
-                        Ok(0) => break,
-                        Ok(n) => {
-                            bytes.extend_from_slice(&chunk[..n]);
-                            if bytes.len() > MANIFEST_LIMIT {
-                                return Err(Error::Oversized);
-                            }
-                        }
-                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                            return Err(invalid());
-                        }
-                        Err(e) => return Err(Error::Io(e)),
-                    }
-                }
-                return Ok(bytes);
-            }
-            thread::sleep(Duration::from_millis(5));
-        }
-    })();
-    // WNOWAIT retained the leader PID, so this group cannot have been recycled.
-    // Kill remaining descendants even if the leader has already exited.
-    unsafe {
-        libc::kill(-(child.id() as i32), libc::SIGKILL);
-    }
-    let status = child.wait()?;
-    if outcome.is_ok() && !status.success() {
-        return Err(invalid());
-    }
-    outcome
-}
-fn capture_exited(child: &Child) -> Result<bool, Error> {
-    let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
-    let result = unsafe {
-        libc::waitid(
-            libc::P_PID,
-            child.id() as libc::id_t,
-            &mut info,
-            libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
-        )
-    };
-    if result != 0 {
-        return Err(Error::Io(std::io::Error::last_os_error()));
-    }
-    Ok(unsafe { info.si_pid() } == child.id() as i32)
-}
-
 #[test]
 fn bound_capability_requires_exact_version_nonce_and_revision() {
     let (fixture, proof) = admission_process_tests::fixture(&std::env::current_exe().unwrap());
@@ -713,12 +600,13 @@ fn bound_manifest_owns_reads_and_latches_drift(binary: PathBuf, transport: Synth
     std::fs::write(&path, &changed).unwrap();
     assert!(matches!(
         client.get::<Value>("/api/capabilities", &[]),
-        Err(Error::Http { status: 503, .. })
+        Err(Error::Stale)
     ));
+    assert!(!client.is_alive());
     std::fs::write(&path, &original).unwrap();
     assert!(matches!(
         client.get::<Value>("/api/capabilities", &[]),
-        Err(Error::Http { status: 503, .. })
+        Err(Error::Stale)
     ));
     // Ignore only the test's deliberate config metadata change, not other paths.
     let mut after = admission_process_tests::protected_inventory(&fixture.0);

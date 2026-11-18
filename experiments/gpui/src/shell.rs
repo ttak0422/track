@@ -3003,7 +3003,7 @@ impl Workspace {
         self.gallery_scope(scope).is_some()
     }
     pub(crate) fn current_link_source(&self) -> Option<LinkSource> {
-        if self.handoff_active() {
+        if self.handoff_active() || self.live.as_ref().is_some_and(|s| !s.client().is_alive()) {
             return None;
         }
         let note = self.current_note.as_ref()?;
@@ -3106,6 +3106,10 @@ impl Workspace {
         cx.spawn(async move |this, cx| {
             let result = job.await;
             let _ = this.update(cx, |this, cx| {
+                if this.retire_invalid_read(cx) {
+                    cx.notify();
+                    return;
+                }
                 if this.current_link_source().as_ref() != Some(&source) {
                     return;
                 }
@@ -3479,6 +3483,10 @@ impl Workspace {
         cx.spawn(async move |this, cx| {
             let result = job.await;
             let _ = this.update(cx, |this, cx| {
+                if this.retire_invalid_read(cx) {
+                    cx.notify();
+                    return;
+                }
                 if this.shell.vault_generation != Some(generation)
                     || !this
                         .live
@@ -4145,6 +4153,19 @@ impl Workspace {
 
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.retire_invalid_read(cx);
+        if self.admission.active() {
+            let p = Palette::new(self.shell.dark.unwrap_or(matches!(
+                window.appearance(),
+                WindowAppearance::Dark | WindowAppearance::VibrantDark
+            )));
+            return self.render_read_admission(
+                (p.paper, p.ink, p.muted, p.line, p.mark),
+                window,
+                cx,
+            );
+        }
+
         if !self.shell.home {
             self.shell.open_tasks = None;
             self.shell.recent_created = None;
@@ -4821,8 +4842,8 @@ impl Render for Workspace {
                 })),
             )
             .child(
-                rail_button("search", Icon::Search, p, self.shell.search_open).on_click(cx.listener(
-                    |this, _, window, cx| {
+                rail_button("search", Icon::Search, p, self.shell.search_open).on_click(
+                    cx.listener(|this, _, window, cx| {
                         if this.shell.search_open {
                             this.dismiss_search(window, cx);
                         } else {
@@ -4833,8 +4854,8 @@ impl Render for Workspace {
                             window.focus(&this.search.focus_handle(cx));
                         }
                         cx.notify();
-                    },
-                )),
+                    }),
+                ),
             )
             .child(
                 rail_button("calendar-open", Icon::Calendar, p, calendar_active)
@@ -5938,6 +5959,9 @@ impl Render for Workspace {
             .text_color(rgb(p.ink))
             .font_family(".SystemUIFont")
             .child(tab)
+            .when(self.live.as_ref().is_some_and(live::Session::finite_only), |root| root.child(
+                div().id("read-only-session-notice").px_4().py_1().text_xs().text_color(rgb(p.mark))
+                    .child("Read-only session · live updates and persistence disabled · Reload explicitly. Private cache is retained; path in diagnostics.")))
             .when(self.editing_ui.enabled(), |root| {
                 root.child(
                     div()
@@ -6050,7 +6074,7 @@ impl Render for Workspace {
                         .child(
                             self.read_error
                                 .as_ref()
-                                .filter(|e| e.starts_with("Shutdown failed:"))
+                                .filter(|e| e.starts_with("Shutdown failed:") || e.starts_with("Read-only session"))
                                 .cloned()
                                 .unwrap_or_else(|| {
                                     "A read failed. Open diagnostics for details.".into()

@@ -25,6 +25,13 @@ type manifestBinding struct {
 	invalid  error
 }
 
+func writeBoundInvalid(w http.ResponseWriter, err error) {
+	if errors.Is(err, config.ErrLaunchManifestChanged) {
+		w.Header().Set("X-Track-Bound-Invalid", "1")
+	}
+	writeError(w, err, http.StatusServiceUnavailable)
+}
+
 func newManifestBoundBootstrap(ctx context.Context, selector config.LaunchSelector, root, revision, nonce string, lease func(*config.Config) (func(), error)) (*Bootstrap, error) {
 	if len(nonce) < 32 || len(nonce) > 128 {
 		return nil, errors.New("invalid process correlation nonce")
@@ -145,7 +152,7 @@ func (p *readPolicy) capabilities(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := p.validateBinding(r.Context()); err != nil {
-		writeError(w, err, http.StatusServiceUnavailable)
+		writeBoundInvalid(w, err)
 		return
 	}
 	if r.Method != http.MethodGet {
@@ -182,13 +189,13 @@ func (p *readPolicy) boundResponse(next http.Handler) http.Handler {
 			return
 		}
 		if err := p.validateBinding(r.Context()); err != nil {
-			writeError(w, err, http.StatusServiceUnavailable)
+			writeBoundInvalid(w, err)
 			return
 		}
 		response := &limitedResponse{ResponseRecorder: httptest.NewRecorder()}
 		next.ServeHTTP(response, r.WithContext(context.WithValue(r.Context(), manifestResponseKey{}, p.binding)))
 		if err := p.validateBinding(r.Context()); err != nil {
-			writeError(w, err, http.StatusServiceUnavailable)
+			writeBoundInvalid(w, err)
 			return
 		}
 		if response.err != nil {
@@ -198,7 +205,7 @@ func (p *readPolicy) boundResponse(next http.Handler) http.Handler {
 		p.binding.mu.Lock()
 		defer p.binding.mu.Unlock()
 		if p.binding.invalid != nil {
-			writeError(w, p.binding.invalid, http.StatusServiceUnavailable)
+			writeBoundInvalid(w, p.binding.invalid)
 			return
 		}
 		for name, values := range response.Header() {

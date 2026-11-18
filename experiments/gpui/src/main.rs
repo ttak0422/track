@@ -47,6 +47,7 @@ mod numeric_chart;
 mod numeric_chart_view;
 mod preview_permit;
 mod query_view;
+mod rail_icons;
 mod raster;
 mod reader_find;
 mod reader_relations;
@@ -60,7 +61,6 @@ mod search_refinement;
 mod selection_lines;
 mod session_store;
 mod shell;
-mod rail_icons;
 mod snapshot_find;
 mod snapshot_images;
 mod snapshot_links;
@@ -69,6 +69,7 @@ mod task_date_sort;
 mod title_copy;
 mod weekly_tasks;
 mod workspace_activity;
+mod workspace_admission;
 mod workspace_calendar;
 mod workspace_calendar_agenda;
 mod workspace_edit;
@@ -81,15 +82,14 @@ mod workspace_images;
 mod workspace_includes;
 mod workspace_journal_day;
 mod workspace_live;
+mod workspace_note_tasks;
+mod workspace_open_tasks;
 #[cfg(test)]
+mod workspace_preflight_task;
+mod workspace_preview;
 mod workspace_read_request;
 #[cfg(test)]
 mod workspace_read_request_view;
-#[cfg(test)]
-mod workspace_preflight_task;
-mod workspace_note_tasks;
-mod workspace_open_tasks;
-mod workspace_preview;
 mod workspace_recent;
 mod workspace_recent_created;
 mod workspace_refresh;
@@ -171,6 +171,7 @@ fn fixture(count: usize) -> Snapshot {
 }
 
 struct Workspace {
+    admission: workspace_admission::Ui,
     shell: shell::ShellState,
     editing_ui: workspace_edit::EditingUi,
     tabs: tabs::Tabs,
@@ -547,16 +548,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     if args.first().is_some_and(|a| a == "--help") {
         println!(
-            "track-gpui-poc --version\ntrack-gpui-poc [notes.json]\ntrack-gpui-poc --vault /absolute/vault --track-bin /absolute/track [--config /absolute/config] [--cache /absolute/cache] [--server-port 19000] [--developer-read-fixture /canonical/temporary/disposable/vault] [--developer-edit-fixture /temporary/disposable/vault] [--developer-session-fixture /canonical/temporary/disposable/vault] [--developer-draft-recovery]\nFixture-only draft recovery requires both fixture options bound to the same root and isolated config/cache.\nTab persistence is a separate opt-in: cache/track-native-tabs-v1.json, metadata only, safe Home on restart.\nDeveloper editing requires a disposable marker and isolated temporary config/cache; not release-ready.\nNo arguments: synthetic fixture. Ordinary vault launch is disabled: engine reads can write canonical activity metadata. Disposable launches require --developer-read-fixture (or the explicit edit/session fixture option), a temporary marked vault, and isolated config containing only {{}} plus cache. Read-fixture permission does not enable editing."
+            "track-gpui-poc --version\ntrack-gpui-poc [notes.json]\ntrack-gpui-poc --vault /absolute/vault-or-registered-name --track-bin /absolute/track [--read-only] [--config /absolute/config] [--cache /absolute/cache] [--server-port 19000] [--developer-read-fixture /canonical/temporary/disposable/vault] [--developer-edit-fixture /temporary/disposable/vault] [--developer-session-fixture /canonical/temporary/disposable/vault] [--developer-draft-recovery]\nFixture-only draft recovery requires both fixture options bound to the same root and isolated config/cache.\nTab persistence is a separate opt-in: cache/track-native-tabs-v1.json, metadata only, safe Home on restart.\nDeveloper editing requires a disposable marker and isolated temporary config/cache; not release-ready.\nNo arguments: synthetic fixture. Ordinary vaults require --read-only, an owned --server-port and --cache naming an existing private 0700 parent outside vault/config/ordinary caches. Review the active vault and all registered peers before reads. No edits, persistence, Follow or automatic refresh. Nonempty private runtimes are retained. Disposable launches require --developer-read-fixture (or the explicit edit/session fixture option), a temporary marked vault, and isolated config containing only {{}} plus cache. Read-fixture permission does not enable editing."
         );
         return Ok(());
     }
     let mut live_config = None;
+    let mut ordinary_request = None;
     let mut developer_fixture = None;
     let mut session_options = None;
     let mut developer_draft_recovery = false;
     let (snapshot, source, backend) = if args.first().is_some_and(|a| a.starts_with("--")) {
         let mut server_port = None;
+        let mut read_only = false;
         let mut verified_session_fixture = None;
         let mut session_fixture: Option<std::path::PathBuf> = None;
         let mut fixture_option: Option<std::path::PathBuf> = None;
@@ -567,6 +570,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut cache = None;
         let mut iter = args.iter();
         while let Some(flag) = iter.next() {
+            if flag == "--read-only" {
+                read_only = true;
+                continue;
+            }
             if flag == "--developer-draft-recovery" {
                 developer_draft_recovery = true;
                 continue;
@@ -584,89 +591,118 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 _ => return Err(format!("unknown option: {flag}").into()),
             }
         }
-        let read_root=read_fixture_root.as_ref().or(fixture_option.as_ref()).or(session_fixture.as_ref()).ok_or("Ordinary vault launch remains disabled. Use synthetic/JSON input or --developer-read-fixture with an isolated disposable fixture and {} config.")?;
-        let read_proof = live::ReadFixture::capture(
-            read_root,
-            vault.as_deref().ok_or("--vault is required")?,
-            config.as_deref(),
-            cache.as_deref(),
-        )?;
-        if let Some(root) = fixture_option {
-            if server_port.is_none() {
-                return Err("Developer editing requires an owned --server-port.".into());
+        if read_only {
+            if read_fixture_root.is_some()
+                || fixture_option.is_some()
+                || session_fixture.is_some()
+                || developer_draft_recovery
+            {
+                return Err("--read-only cannot be combined with developer fixture/edit/persistence options".into());
             }
-            developer_fixture = Some(workspace_edit::validate_fixture(
-                &root,
-                vault.as_deref().ok_or("--vault is required")?,
-                config.as_deref(),
-                cache.as_deref(),
-            )?);
-        }
-        if let Some(root) = session_fixture {
-            if server_port.is_none() {
-                return Err("Developer tab persistence requires an owned --server-port.".into());
-            }
-            verified_session_fixture = Some(workspace_edit::validate_fixture(
-                &root,
-                vault.as_deref().ok_or("--vault is required")?,
-                config.as_deref(),
-                cache.as_deref(),
-            )?);
-            session_options = Some(workspace_session::SessionOptions {
-                fixture: root,
-                config: config.clone().ok_or("--config is required")?,
-                cache: cache.clone().ok_or("--cache is required")?,
-            });
-        }
-        validate_recovery_binding(
-            developer_draft_recovery,
-            server_port.is_some(),
-            developer_fixture.as_deref(),
-            verified_session_fixture.as_deref(),
-        )?;
-        if let Some(port) = server_port {
-            let mut config_live = live::LaunchConfig::new(
-                executable.clone().ok_or("--track-bin is required")?,
-                live::Vault::Path(vault.clone().ok_or("--vault is required")?),
-                port,
+            let selected: std::path::PathBuf = vault.ok_or("--vault is required")?;
+            let selected = if selected.is_absolute() {
+                live::Vault::Path(selected)
+            } else {
+                live::Vault::Registered(selected.to_str().ok_or("invalid vault name")?.into())
+            };
+            let mut launch = live::LaunchConfig::new(
+                executable.ok_or("--track-bin is required")?,
+                selected,
+                server_port.ok_or("--read-only requires an owned --server-port")?,
             );
-            config_live.read_fixture = Some(read_proof.clone());
-            config_live.config = config.clone();
-            config_live.cache = cache.clone();
-            if let Some(root) = developer_fixture.as_ref() {
-                config_live.creation_fixture = Some(live::CreateFixture::capture(
-                    root,
+            launch.config = config;
+            launch.cache = Some(cache.ok_or("--read-only requires --cache with an existing private 0700 parent outside all vaults/config/ordinary caches")?);
+            ordinary_request = Some(live::ordinary::ReadRequest::capture(launch)?);
+            (
+                fixture(0),
+                "read-only workspace / awaiting review".into(),
+                None,
+            )
+        } else {
+            let read_root=read_fixture_root.as_ref().or(fixture_option.as_ref()).or(session_fixture.as_ref()).ok_or("Ordinary vault launch requires explicit --read-only review. Developer mode requires --developer-read-fixture with an isolated disposable fixture and {} config.")?;
+            let read_proof = live::ReadFixture::capture(
+                read_root,
+                vault.as_deref().ok_or("--vault is required")?,
+                config.as_deref(),
+                cache.as_deref(),
+            )?;
+            if let Some(root) = fixture_option {
+                if server_port.is_none() {
+                    return Err("Developer editing requires an owned --server-port.".into());
+                }
+                developer_fixture = Some(workspace_edit::validate_fixture(
+                    &root,
                     vault.as_deref().ok_or("--vault is required")?,
                     config.as_deref(),
                     cache.as_deref(),
                 )?);
             }
-            live_config = Some(config_live);
+            if let Some(root) = session_fixture {
+                if server_port.is_none() {
+                    return Err("Developer tab persistence requires an owned --server-port.".into());
+                }
+                verified_session_fixture = Some(workspace_edit::validate_fixture(
+                    &root,
+                    vault.as_deref().ok_or("--vault is required")?,
+                    config.as_deref(),
+                    cache.as_deref(),
+                )?);
+                session_options = Some(workspace_session::SessionOptions {
+                    fixture: root,
+                    config: config.clone().ok_or("--config is required")?,
+                    cache: cache.clone().ok_or("--cache is required")?,
+                });
+            }
+            validate_recovery_binding(
+                developer_draft_recovery,
+                server_port.is_some(),
+                developer_fixture.as_deref(),
+                verified_session_fixture.as_deref(),
+            )?;
+            if let Some(port) = server_port {
+                let mut config_live = live::LaunchConfig::new(
+                    executable.clone().ok_or("--track-bin is required")?,
+                    live::Vault::Path(vault.clone().ok_or("--vault is required")?),
+                    port,
+                );
+                config_live.read_fixture = Some(read_proof.clone());
+                config_live.config = config.clone();
+                config_live.cache = cache.clone();
+                if let Some(root) = developer_fixture.as_ref() {
+                    config_live.creation_fixture = Some(live::CreateFixture::capture(
+                        root,
+                        vault.as_deref().ok_or("--vault is required")?,
+                        config.as_deref(),
+                        cache.as_deref(),
+                    )?);
+                }
+                live_config = Some(config_live);
+            }
+            let mut backend = Backend::new(
+                executable.ok_or("--track-bin is required")?,
+                vault.ok_or("--vault is required")?,
+            )?;
+            if let Some(config) = config {
+                backend = backend.with_config(config)?;
+            }
+            if let Some(cache) = cache {
+                backend = backend.with_cache(cache)?;
+            }
+            backend = backend.with_read_fixture(read_proof)?;
+            (
+                fixture(0),
+                if live_config.is_some() {
+                    "explicit vault / owned HTTP".into()
+                } else {
+                    "explicit vault / CLI".into()
+                },
+                if live_config.is_some() {
+                    None
+                } else {
+                    Some(backend)
+                },
+            )
         }
-        let mut backend = Backend::new(
-            executable.ok_or("--track-bin is required")?,
-            vault.ok_or("--vault is required")?,
-        )?;
-        if let Some(config) = config {
-            backend = backend.with_config(config)?;
-        }
-        if let Some(cache) = cache {
-            backend = backend.with_cache(cache)?;
-        }
-        backend = backend.with_read_fixture(read_proof)?;
-        (
-            fixture(0),
-            if live_config.is_some() {
-                "explicit vault / owned HTTP".into()
-            } else {
-                "explicit vault / CLI".into()
-            },
-            if live_config.is_some() {
-                None
-            } else {
-                Some(backend)
-            },
-        )
     } else if args.len() == 1 {
         (
             serde_json::from_reader(std::fs::File::open(&args[0])?)?,
@@ -808,12 +844,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     false // Keep the window available to report shutdown failures.
                 });
                 let workspace = cx.new(|cx| {
-                    let backend_is_fixture = backend.is_none() && live_config.is_none();
+                    let backend_is_fixture =
+                        backend.is_none() && live_config.is_none() && ordinary_request.is_none();
                     let mut session_ui = workspace_session::SessionUi::new(session_options);
                     if developer_draft_recovery {
                         session_ui.enable_recovery();
                     }
                     let mut workspace = Workspace {
+                        admission: Default::default(),
                         shell: shell::ShellState::default(),
                         editing_ui: workspace_edit::EditingUi::new(developer_fixture),
                         tabs: tabs::Tabs::default(),
@@ -857,7 +895,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         previews: workspace_preview::PreviewUi::default(),
                         subscriptions: Vec::new(),
                         live: None,
-                        live_requested: live_config.is_some(),
+                        live_requested: live_config.is_some() || ordinary_request.is_some(),
                         accepted_storage_generation: None,
                         live_notes: Vec::new(),
                         search_results: Vec::new(),
@@ -903,7 +941,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             cx.notify();
                         },
                     ));
-                    if let Some(config) = live_config {
+                    if let Some(request) = ordinary_request {
+                        workspace.review_ordinary_read(request, cx);
+                    } else if let Some(config) = live_config {
                         workspace.start_live(config, cx);
                     } else {
                         workspace.load_notes(cx);

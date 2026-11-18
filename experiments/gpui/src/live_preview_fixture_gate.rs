@@ -184,7 +184,7 @@ impl FixturePreflightReview {
             return Err(rejected());
         }
         self.spawn_attempts += 1;
-        let outcome = bound_fixture::capture_exchange(
+        let outcome = super::capture::capture_exchange(
             &mut self.command,
             Duration::from_secs(10),
             canceled,

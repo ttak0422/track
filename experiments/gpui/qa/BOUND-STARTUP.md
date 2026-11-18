@@ -20,17 +20,18 @@ From the repository root with Go and the experiment's Rust version installed:
 ```sh
 go test -c -o /tmp/track-bound-bridge.test ./internal/track/webui
 go build -o /tmp/track-fixture-cli ./cmd/track
-python3 experiments/gpui/qa/prepare-bound-harness.py /tmp/track-bound-harness-new
 TRACK_NATIVE_TEST_SYNTHETIC_ONLY=1 \
 TRACK_NATIVE_BOUND_TEST_BINARY=/tmp/track-bound-bridge.test \
 TRACK_NATIVE_TEST_BINARY=/tmp/track-fixture-cli \
-cargo test --manifest-path /tmp/track-bound-harness-new/Cargo.toml live:: \
+cargo test --locked --manifest-path experiments/gpui/Cargo.toml live:: \
   -- --include-ignored --test-threads=1 \
   --skip owned_public_fixture_save_read_conflict_and_reap
 ```
 
 The skipped legacy test requires a separate explicit public-help fixture copy and is
-not part of this synthetic-only run. Use a new harness directory. The generator reads dependency versions from the
+not part of this synthetic-only run. The primary command compiles the actual GPUI application; use the native build prerequisites in the README.
+
+The optional `prepare-bound-harness.py` adapter currently passes `cargo check --lib`. Its test build is blocked by pre-existing UI refresh-helper imports (`workspace_refresh` / `workspace_includes`, plus `workspace_preflight_task`), so use the full native command above for the integration matrix. Use a new harness directory. The generator reads dependency versions from the
 experiment lockfile, includes the actual transport/policy modules, and extracts
 three unchanged UI-independent helpers. It replaces only GPUI's image carrier
 with a simple in-memory test type. These tests **do not compile or validate the
@@ -51,8 +52,8 @@ session lifecycle. A bound session has an inert observer: it starts no SSE
 request, retry loop or event worker, and does not manufacture change/gap counters.
 Its explicit unavailable state is distinct from an interrupted connection.
 Follow refuses that state; automatic refresh controls are unavailable, while
-finite reads and explicit Reload remain the supported path. No production
-admission route selects this policy yet.
+finite reads and explicit Reload remain the supported path. The explicit production `--read-only` review flow also selects this finite policy;
+it grants no editing or persisted state.
 
 The adapter harness also includes the actual event-awareness module. Tests cover
 unavailable notices, stale dismissal and Follow tickets, inert observer cleanup,
