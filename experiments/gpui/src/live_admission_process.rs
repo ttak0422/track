@@ -22,8 +22,15 @@ fn inventory_skipping(root: &Path, excluded: Option<&Path>) -> Inventory {
             continue;
         }
         let meta = std::fs::symlink_metadata(&path).unwrap();
-        assert!(meta.is_file() || meta.is_dir());
-        let bytes = if meta.is_dir() {
+        // Inventory aliases as data; this does not authorize fixture admission.
+        assert!(meta.is_file() || meta.is_dir() || meta.is_symlink());
+        let bytes = if meta.is_symlink() {
+            std::fs::read_link(&path)
+                .unwrap()
+                .as_os_str()
+                .as_encoded_bytes()
+                .to_vec()
+        } else if meta.is_dir() {
             pending.extend(std::fs::read_dir(&path).unwrap().map(|e| e.unwrap().path()));
             Vec::new()
         } else {

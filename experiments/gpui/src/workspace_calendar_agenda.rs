@@ -345,6 +345,10 @@ impl Workspace {
         cx.spawn(async move |this, cx| {
             let result = job.await;
             let _ = this.update(cx, |this, cx| {
+                if this.retire_invalid_read(cx) {
+                    cx.notify();
+                    return;
+                }
                 // Local filtering while loading does not revoke the fetch itself.
                 // Row/page authority still uses the separate selection revision.
                 if this.calendar_period_identity().as_ref() == Some(&identity)

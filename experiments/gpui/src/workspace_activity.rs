@@ -683,6 +683,10 @@ impl Workspace {
         cx.spawn(async move |this, cx| {
             let (result, content_result) = job.await;
             let _ = this.update(cx, |this, cx| {
+                if this.retire_invalid_read(cx) {
+                    cx.notify();
+                    return;
+                }
                 if !this.activity_identity_current(&identity)
                     || this.shell.calendar_zone.revision != revision
                     || this.shell.calendar_zone.draft != zone
@@ -871,6 +875,10 @@ impl Workspace {
             cx.spawn(async move |this, cx| {
                 let (result, content_result) = job.await;
                 let _ = this.update(cx, |this, cx| {
+                    if this.retire_invalid_read(cx) {
+                        cx.notify();
+                        return;
+                    }
                     if !response_identity.accepts(
                         this.live.as_ref().map(|s| s.client().launch_generation),
                         this.accepted_storage_generation,
@@ -1782,6 +1790,10 @@ impl Workspace {
         cx.spawn(async move |this, cx| {
             let result = job.await;
             let _ = this.update(cx, |this, cx| {
+                if this.retire_invalid_read(cx) {
+                    cx.notify();
+                    return;
+                }
                 if !this.activity_identity_current(&identity)
                     || this.editing_ui.active()
                     || this.editing_ui.has_pending()
@@ -2428,6 +2440,10 @@ impl Workspace {
         cx.spawn(async move |this, cx| {
             let result = job.await;
             let _ = this.update(cx, |this, cx| {
+                if this.retire_invalid_read(cx) {
+                    cx.notify();
+                    return;
+                }
                 if !this.activity_identity_current(&identity)
                     || !this.shell.calendar_zone.accepts(serial, &zone)
                     || this.editing_ui.active()

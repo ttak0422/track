@@ -289,6 +289,52 @@ impl LaunchManifestObservation {
     pub(super) fn same_provenance(&self, other: &Self) -> bool {
         self == other
     }
+    pub(super) fn revision(&self) -> &str {
+        &self.wire.revision
+    }
+    pub(super) fn private_binding_matches(&self, path: &str, identity: &str) -> bool {
+        self.wire.private_root == path
+            && self.wire.private_identity == identity
+            && self.wire.private_mode == ((1 << 31) | 0o700)
+            && self
+                .wire
+                .peers
+                .iter()
+                .all(|peer| std::path::Path::new(&peer.private_db).starts_with(path))
+    }
+    pub(super) fn active(&self) -> (&str, &str) {
+        (&self.wire.active.name, &self.wire.active.display_path)
+    }
+    pub(super) fn peers(&self) -> Vec<(String, String)> {
+        self.wire
+            .peers
+            .iter()
+            .map(|v| (v.name.clone(), v.display_path.clone()))
+            .collect()
+    }
+    #[cfg(test)]
+    pub(super) fn private_db(&self, name: &str) -> Option<&str> {
+        self.wire
+            .peers
+            .iter()
+            .find(|peer| peer.name == name)
+            .map(|peer| peer.private_db.as_str())
+    }
+    pub(super) fn same_workspace(&self, other: &Self) -> bool {
+        let mut normalized = other.clone();
+        normalized.wire.private_root = self.wire.private_root.clone();
+        normalized.wire.private_mode = self.wire.private_mode;
+        normalized.wire.private_identity = self.wire.private_identity.clone();
+        normalized.wire.revision = self.wire.revision.clone();
+        normalized.wire.active.private_db = self.wire.active.private_db.clone();
+        if normalized.wire.peers.len() != self.wire.peers.len() {
+            return false;
+        }
+        for (next, old) in normalized.wire.peers.iter_mut().zip(&self.wire.peers) {
+            next.private_db = old.private_db.clone();
+        }
+        self == &normalized
+    }
 }
 
 #[cfg(test)]
@@ -511,5 +557,24 @@ mod tests {
         v["peers"][32]["name"] = json!("v32");
         v["active"]["name"] = json!("v32");
         assert!(parse(&v).is_err());
+    }
+    #[test]
+    fn private_root_is_checked_independently_and_workspace_comparison_keeps_ordinary_provenance() {
+        let initial = parse(&sample()).unwrap();
+        assert!(initial.private_binding_matches("/private", "private-opaque"));
+        assert!(!initial.private_binding_matches("/elsewhere", "private-opaque"));
+        assert!(!initial.private_binding_matches("/private", "other-identity"));
+        let mut child = sample();
+        child["private_root"] = json!("/child");
+        child["private_identity"] = json!("child-identity");
+        child["revision"] = json!("d".repeat(64));
+        child["active"]["private_db"] = json!("/child/work/index.db");
+        child["peers"][0]["private_db"] = json!("/child/work/index.db");
+        let observed = parse(&child).unwrap();
+        assert!(initial.same_workspace(&observed));
+        assert!(observed.private_binding_matches("/child", "child-identity"));
+        child["active"]["ordinary_identity"] = json!("changed");
+        child["peers"][0]["ordinary_identity"] = json!("changed");
+        assert!(!initial.same_workspace(&parse(&child).unwrap()));
     }
 }
