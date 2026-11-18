@@ -1,0 +1,33 @@
+name: GPUI keyboard
+
+on:
+  pull_request:
+    paths:
+      - 'experiments/gpui/**'
+      - 'internal/track/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'flake.nix'
+      - 'flake.lock'
+      - '.github/workflows/gpui-keyboard.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  keyboard:
+    name: Virtual GPUI keyboard
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: cachix/install-nix-action@v31.11.3
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+      - uses: dtolnay/rust-toolchain@1.100.0
+      - name: Prepare hash-pinned native dependencies
+        run: ./experiments/gpui/prepare.sh
+      - name: Test actual Workspace events in virtual windows
+        run: nix develop --command ./experiments/gpui/qa/check-keyboard-ui.sh

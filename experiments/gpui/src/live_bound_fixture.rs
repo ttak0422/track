@@ -5,6 +5,56 @@ use super::capture::{capture_bytes, capture_exchange};
 use super::*;
 use std::os::unix::process::CommandExt;
 
+/// Exercise real reader/input callbacks after the normal synthetic v2 admission.
+#[cfg(feature = "ui-tests")]
+pub(crate) fn with_keyboard_fixture(run: impl FnOnce(Session)) {
+    assert_eq!(
+        std::env::var("TRACK_NATIVE_TEST_SYNTHETIC_ONLY").as_deref(),
+        Ok("1")
+    );
+    let binary = PathBuf::from(
+        std::env::var_os("TRACK_NATIVE_BOUND_TEST_BINARY")
+            .expect("explicit test-only Go bridge binary"),
+    );
+    assert!(binary.is_absolute());
+    let (fixture, proof) = admission_process_tests::fixture(&binary);
+    for id in [42, 43] {
+        let root = fixture.0.join("home/work");
+        let body = (0..80)
+            .map(|n| format!("Keyboard fixture {id}, paragraph {n}.\n\n"))
+            .collect::<String>();
+        std::fs::write(root.join(format!("note/{id}.md")), body).unwrap();
+        std::fs::write(
+            root.join(format!(".track/notes/{id}.yaml")),
+            format!(
+                "version: 1\ntitle: {}\n",
+                if id == 43 {
+                    "DestinationOnly".into()
+                } else {
+                    format!("Keyboard fixture {id}")
+                }
+            ),
+        )
+        .unwrap();
+    }
+    let before = admission_process_tests::protected_inventory(&fixture.0);
+    let bound = SyntheticBound::new(proof, fixture.0.clone()).unwrap();
+    let owner = OwnedServer::start_admitted(
+        bound.proof.launch(),
+        &AtomicBool::new(false),
+        StartupAdmission::SyntheticBound(bound),
+    )
+    .unwrap();
+    let session = Session::from_owned(owner);
+    run(session.clone());
+    session.shutdown().unwrap();
+    assert_eq!(
+        before,
+        admission_process_tests::protected_inventory(&fixture.0),
+        "virtual keyboard interactions must not alter canonical files or configuration"
+    );
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Manifest {

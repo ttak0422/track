@@ -2130,3 +2130,16 @@ Final integrated candidate: 1,113 tests passed, 0 failed, 27 ignored; Mac native
 build and all-target/all-feature Clippy succeeded with existing warnings. The
 additional metadata-directory recreation and generation-noise safety tests also
 passed in three race-detector repetitions.
+
+## Virtual Search/reader event regression, 2026-11-18
+
+The actual Workspace and SearchInput now run in GPUI TestPlatform virtual
+windows with disposable manifest-admitted read-only Go fixtures. Search typing,
+Escape/outside-click focus return, no-click j/k resumption, Tab/Shift+Tab routing,
+injected preedit protection and stale-layout refusal have executable coverage;
+see [the exact procedure and boundaries](qa/KEYBOARD-UI.md).
+
+This reproduced and fixed a pre-click focus capture/reader-owner loss. It did
+not reproduce the older popup-closing-while-typing observation. No native window
+or personal vault was opened. Native AppKit delivery, real IME and accessibility
+remain separate pending checks; this entry does not close those release gates.
