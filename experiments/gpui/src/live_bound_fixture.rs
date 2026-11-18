@@ -18,7 +18,7 @@ pub(crate) fn with_keyboard_fixture(run: impl FnOnce(Session)) {
     );
     assert!(binary.is_absolute());
     let (fixture, proof) = admission_process_tests::fixture(&binary);
-    for id in [42, 43] {
+    for id in [42, 43, 44] {
         let root = fixture.0.join("home/work");
         let body = (0..80)
             .map(|n| format!("Keyboard fixture {id}, paragraph {n}.\n\n"))
@@ -46,13 +46,18 @@ pub(crate) fn with_keyboard_fixture(run: impl FnOnce(Session)) {
     )
     .unwrap();
     let session = Session::from_owned(owner);
-    run(session.clone());
+    // An intentionally failing regression must still reap its exact owner and
+    // compare canonical files before the original assertion is rethrown.
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run(session.clone())));
     session.shutdown().unwrap();
     assert_eq!(
         before,
         admission_process_tests::protected_inventory(&fixture.0),
         "virtual keyboard interactions must not alter canonical files or configuration"
     );
+    if let Err(panic) = outcome {
+        std::panic::resume_unwind(panic);
+    }
 }
 
 #[derive(Deserialize)]

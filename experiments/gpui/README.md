@@ -1333,3 +1333,18 @@ click. Composing Search retains its keys; reader Tab/Shift+Tab remains separate.
 [Virtual Workspace keyboard checks](qa/KEYBOARD-UI.md) exercise actual production
 GPUI callbacks with generated read-only Go fixtures. They use no OS window and
 do not establish AppKit, physical input, real IME or accessibility behavior.
+
+## Reader Tab retry ordering
+
+Tab/Shift+Tab derives its position from the actual active tab in a frozen
+sequence, rather than an attempted index. A refused or cancelled departure keeps
+its neighbor available. Accepted Save/Discard replays that exact keyboard intent
+once and continues the sequence; pointer events inside a pending decision do
+not reset its order. Normal navigation and changed tab membership reset it.
+Existing native tab eligibility and all editing/admission guards are retained.
+
+The virtual Workspace refusal regression fails on the previous cursor logic
+(expected note 43, reopened note 42). Seven virtual event cases and the real
+EditSession/PendingTransition controller tests cover routing and dirty decisions
+separately. Physical input and native dirty sheets remain unverified. Fixtures
+are generated solely for testing; no ordinary editing permission is added.
