@@ -56,7 +56,9 @@ pub(crate) fn involves_calendar(
     active
         || matches!(
             intent,
-            Transition::Calendar | Transition::ActivateTab(tabs::TabKey::Calendar)
+            Transition::Calendar
+                | Transition::ActivateTab(tabs::TabKey::Calendar)
+                | Transition::MouseTab(tabs::TabKey::Calendar)
         )
         || matches!(intent, Transition::CloseTab(_) if retained)
         || matches!(intent, Transition::History(ticket) if ticket.route == Some(tabs::TabKey::Calendar))
@@ -180,6 +182,11 @@ mod tests {
             &Transition::ActivateTab(tabs::TabKey::Calendar),
             false,
             true
+        ));
+        assert!(involves_calendar(
+            &Transition::MouseTab(tabs::TabKey::Calendar),
+            false,
+            false
         ));
         assert!(involves_calendar(
             &Transition::CloseTab(tabs::TabKey::Note {
