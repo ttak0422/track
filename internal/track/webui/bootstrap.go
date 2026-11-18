@@ -468,7 +468,14 @@ func (b *Bootstrap) progressResponse(w http.ResponseWriter, r *http.Request, rea
 		return false
 	}
 	valid := func() bool { b.mu.Lock(); defer b.mu.Unlock(); return generation == b.generation && !b.closed }
-	state := store.ReadState{Partial: true, CheckedAt: 0, Issues: []store.ReadIssue{{Path: cfg.VaultDir, Reason: reason}}}
+	state := store.ReadState{}
+	if srv != nil && serverCurrent {
+		// Use the current generation's bounded, in-memory health snapshot. A
+		// progress fallback must not hide per-file failures behind its generic
+		// reason or query a database that may be blocked or unavailable.
+		state = srv.active.asyncState()
+	}
+	state.Add(store.ReadIssue{Path: cfg.VaultDir, Reason: reason})
 	switch r.URL.Path {
 	case "/api/note":
 		id, _ := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
