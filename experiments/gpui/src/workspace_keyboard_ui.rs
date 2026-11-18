@@ -297,3 +297,93 @@ fn search_result_retires_previous_reader_owner(cx: &mut TestAppContext) {
         assert!(reader_offset(&view, cx) < before);
     });
 }
+
+#[gpui::test]
+#[ignore = "requires an explicit synthetic-only Go bridge binary"]
+fn tab_sequence_keeps_initial_order_across_mru_moves(cx: &mut TestAppContext) {
+    live::with_keyboard_fixture(|session| {
+        let (view, cx) = cx.add_window_view(|_, cx| workspace(session, cx));
+        cx.update(|_, app| {
+            view.update(app, |workspace, cx| {
+                for id in [43, 44, 42] {
+                    let index = workspace
+                        .live_notes
+                        .iter()
+                        .position(|n| n.note_id == id)
+                        .unwrap();
+                    workspace.select_from_ui(index, cx);
+                }
+            })
+        });
+        cx.run_until_parked();
+        click(cx, "keyboard-reader-row-0");
+        let order = view.read_with(cx, |w, _| {
+            w.tabs
+                .entries()
+                .iter()
+                .map(|t| t.key.clone())
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(order.len(), 3);
+        for (key, expected) in [
+            ("tab", 1),
+            ("tab", 2),
+            ("tab", 0),
+            ("shift-tab", 2),
+            ("shift-tab", 1),
+        ] {
+            cx.simulate_keystrokes(key);
+            view.read_with(cx, |w, _| {
+                assert_eq!(w.tabs.active().unwrap().key, order[expected])
+            });
+        }
+    });
+}
+
+#[gpui::test]
+#[ignore = "requires an explicit synthetic-only Go bridge binary"]
+fn tab_refusal_retries_same_neighbor_without_another_click(cx: &mut TestAppContext) {
+    live::with_keyboard_fixture(|session| {
+        let (view, cx) = cx.add_window_view(|_, cx| workspace(session, cx));
+        cx.update(|_, app| {
+            view.update(app, |workspace, cx| {
+                for id in [43, 44, 42] {
+                    let index = workspace
+                        .live_notes
+                        .iter()
+                        .position(|n| n.note_id == id)
+                        .unwrap();
+                    workspace.select_from_ui(index, cx);
+                }
+            })
+        });
+        cx.run_until_parked();
+        click(cx, "keyboard-reader-row-0");
+        let order = view.read_with(cx, |w, _| {
+            w.tabs
+                .entries()
+                .iter()
+                .map(|t| t.key.clone())
+                .collect::<Vec<_>>()
+        });
+        cx.simulate_keystrokes("tab");
+        cx.update(|_, app| view.update(app, |w, _| w.editing_ui.test_hold_recovery_cleanup(true)));
+        cx.simulate_keystrokes("tab");
+        view.read_with(cx, |w, _| {
+            assert_eq!(
+                w.tabs.active().unwrap().key,
+                order[1],
+                "existing cleanup gate must refuse departure"
+            )
+        });
+        cx.update(|_, app| view.update(app, |w, _| w.editing_ui.test_hold_recovery_cleanup(false)));
+        cx.simulate_keystrokes("tab");
+        view.read_with(cx, |w, _| {
+            assert_eq!(
+                w.tabs.active().unwrap().key,
+                order[2],
+                "refusal must not consume the requested neighbor"
+            )
+        });
+    });
+}

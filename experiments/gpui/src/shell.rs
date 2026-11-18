@@ -2498,6 +2498,31 @@ fn cycle_index(index: usize, len: usize, backwards: bool) -> usize {
         (index + 1) % len
     }
 }
+
+pub(crate) fn keyboard_tab_destination(
+    order: &mut Vec<tabs::TabKey>,
+    cursor: &mut usize,
+    tabs: &tabs::Tabs,
+    backwards: bool,
+) -> Option<tabs::TabKey> {
+    if tabs.entries().len() < 2 {
+        order.clear();
+        *cursor = 0;
+        return None;
+    }
+    if order.len() != tabs.entries().len() || !order.iter().all(|key| tabs.get(key).is_some()) {
+        *order = tabs.entries().iter().map(|tab| tab.key.clone()).collect();
+        *cursor = 0;
+    }
+    // The retained cursor is only a hint. A refused/cancelled transition and an
+    // asynchronous accepted decision must both follow the actual active identity.
+    let active = &tabs.active()?.key;
+    if order.get(*cursor) != Some(active) {
+        *cursor = order.iter().position(|key| key == active)?;
+    }
+    let next = cycle_index(*cursor, order.len(), backwards);
+    Some(order[next].clone())
+}
 impl Workspace {
     fn accepted_reader_document(&self, cx: &App) -> Option<code_copy::Document> {
         self.accepted_reader_document_for(cx, false)
@@ -3794,6 +3819,21 @@ impl Workspace {
         self.session_ui
             .sync_with_scope(&self.tabs, &self.history, &self.shell.working_scope);
         cx.notify();
+    }
+    pub(crate) fn activate_keyboard_tab(&mut self, key: tabs::TabKey, cx: &mut Context<Self>) {
+        if !self.shell.tab_cycle.contains(&key)
+            || !tab_activation_needed(&self.tabs, &key, self.tag_page.is_some())
+        {
+            return;
+        }
+        if self.guard_transition(workspace_edit::Transition::KeyboardTab(key.clone()), cx) {
+            return;
+        }
+        // Ordinary activation clears the cycle. Keep this keyboard sequence
+        // outside it, including when a saved/discarded exact intent is replayed.
+        let order = std::mem::take(&mut self.shell.tab_cycle);
+        self.activate_tab(key, cx);
+        self.shell.tab_cycle = order;
     }
     pub(crate) fn activate_tab(&mut self, key: tabs::TabKey, cx: &mut Context<Self>) {
         self.activate_tab_inner(key, false, cx);
@@ -5826,7 +5866,9 @@ impl Render for Workspace {
                 gpui::MouseButton::Left,
                 cx.listener(|this, _, _, _| {
                     this.clear_reader_selection();
-                    this.shell.tab_cycle.clear();
+                    if !this.editing_ui.has_pending() {
+                        this.shell.tab_cycle.clear();
+                    }
                     this.shell.reader_keys = None;
                     this.cancel_follow_reveal();
                     this.shell.positions.interaction =
@@ -5963,24 +6005,8 @@ impl Render for Workspace {
                     && !modifiers.control
                     && !modifiers.alt
                 {
-                    if this.tabs.entries().len() > 1 {
-                        let mut order = std::mem::take(&mut this.shell.tab_cycle);
-                        if order.len() != this.tabs.entries().len()
-                            || !order.iter().all(|key| this.tabs.get(key).is_some())
-                        {
-                            order = this
-                                .tabs
-                                .entries()
-                                .iter()
-                                .map(|tab| tab.key.clone())
-                                .collect();
-                            this.shell.tab_cycle_index = 0;
-                        }
-                        let index =
-                            cycle_index(this.shell.tab_cycle_index, order.len(), modifiers.shift);
-                        this.activate_tab(order[index].clone(), cx);
-                        this.shell.tab_cycle = order;
-                        this.shell.tab_cycle_index = index;
+                    if let Some(key) = keyboard_tab_destination(&mut this.shell.tab_cycle, &mut this.shell.tab_cycle_index, &this.tabs, modifiers.shift) {
+                        this.activate_keyboard_tab(key, cx);
                         cx.stop_propagation();
                     }
                 }
@@ -6391,6 +6417,62 @@ mod reader_navigation_tests {
         assert_eq!(cycle_index(2, 3, false), 0);
         assert_eq!(cycle_index(0, 3, true), 2);
         assert_eq!(cycle_index(0, 0, true), 0);
+    }
+
+    #[test]
+    fn tab_cycle_tracks_actual_activation_and_wraps_without_following_mru() {
+        let mut tabs = tabs::Tabs::default();
+        let c = tabs.open_note("work", 3, "C");
+        let b = tabs.open_note("work", 2, "B");
+        let a = tabs.open_note("work", 1, "A");
+        let mut order = Vec::new();
+        let mut cursor = 0;
+        for expected in [&b, &c, &a, &b] {
+            assert_eq!(
+                keyboard_tab_destination(&mut order, &mut cursor, &tabs, false),
+                Some(expected.clone())
+            );
+            assert!(tabs.activate(expected));
+        }
+        for expected in [&a, &c, &b] {
+            assert_eq!(
+                keyboard_tab_destination(&mut order, &mut cursor, &tabs, true),
+                Some(expected.clone())
+            );
+            assert!(tabs.activate(expected));
+        }
+    }
+
+    #[test]
+    fn tab_cycle_refusal_keeps_neighbor_and_changed_membership_rebuilds_order() {
+        let mut tabs = tabs::Tabs::default();
+        let c = tabs.open_note("work", 3, "C");
+        let b = tabs.open_note("work", 2, "B");
+        let a = tabs.open_note("work", 1, "A");
+        let mut order = Vec::new();
+        let mut cursor = 0;
+        assert_eq!(
+            keyboard_tab_destination(&mut order, &mut cursor, &tabs, false),
+            Some(b.clone())
+        );
+        assert_eq!(
+            keyboard_tab_destination(&mut order, &mut cursor, &tabs, false),
+            Some(b.clone())
+        );
+        assert_eq!(
+            keyboard_tab_destination(&mut order, &mut cursor, &tabs, true),
+            Some(c)
+        );
+        assert_eq!(tabs.active().unwrap().key, a);
+        tabs.close(&b);
+        assert_ne!(
+            keyboard_tab_destination(&mut order, &mut cursor, &tabs, false),
+            Some(b)
+        );
+        let active = tabs.active().unwrap().key.clone();
+        tabs.close(&active);
+        assert!(keyboard_tab_destination(&mut order, &mut cursor, &tabs, false).is_none());
+        assert!(order.is_empty());
     }
     #[test]
     fn preview_detaches_queued_anchor_handle_preserving_host_offset() {
