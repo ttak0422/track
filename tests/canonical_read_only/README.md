@@ -128,3 +128,26 @@ private-root entries remain in `canonical-read-only-v1`, canonical capability st
 true, and mutation requests remain denied. Existing private SQLite cleanup/writes
 are allowed; their bytes/mtimes are not treated as canonical. This does not cover
 recovery, hostile concurrent swaps or every accumulated-peer history.
+
+## Manifest-bound internal child transport
+
+```sh
+go build -o /tmp/track-bound-read ./cmd/track
+python3 -B tests/canonical_read_only/bound_launch.py --binary /tmp/track-bound-read
+```
+
+This marker-free disposable process matrix invokes `__native-read` through the
+actual CLI, before ordinary selector/config rewriting. It checks observation-only
+preflight, v2 revision/nonce capability before reads, active/peer reads, sticky drift,
+18 rejection cases, both listener bind failures, SIGTERM and actual parent-death
+cleanup. Every server and supervisor is test-owned. Canonical/config/ordinary-cache
+sentinels cover bytes, modes, sizes and nanosecond mtimes; preflight also protects
+the private root. No real vault, default writable launch or native UI is used.
+
+Sync conflict filenames and invalid metadata are isolated while valid HTTP reads
+continue. A read-only connection to the **synthetic private index only** verifies
+individual issues and retention of a subsequently corrupted indexed note. The HTTP
+bootstrap can still present a generic partial notice instead of detailed per-file
+issues. A corrupt private DB is separately asserted as unavailable storage. These
+checks do not establish a complete native partial/unavailable-peer UX or arbitrary
+hostile filesystem safety. GPUI's ordinary admission gate remains closed.

@@ -113,6 +113,11 @@ pub(super) struct SyntheticBound {
     nonce: String,
     revision: Option<String>,
     serve_request: Option<Vec<u8>>,
+    transport: SyntheticTransport,
+}
+enum SyntheticTransport {
+    TestBridge,
+    InternalCli,
 }
 impl SyntheticBound {
     fn new(proof: read_inputs::SyntheticCanonical, root: PathBuf) -> Result<Self, Error> {
@@ -124,6 +129,7 @@ impl SyntheticBound {
             nonce: entropy.iter().map(|b| format!("{b:02x}")).collect(),
             revision: None,
             serve_request: None,
+            transport: SyntheticTransport::TestBridge,
         };
         result.verify()?;
         Ok(result)
@@ -151,15 +157,20 @@ impl SyntheticBound {
                 command.env(key, value);
             }
         }
-        command
-            .arg("-test.run=^TestNativeBoundFixtureBridge$")
-            .env("GO_TRACK_BOUND_MODE", "serve")
-            .env("GO_TRACK_BOUND_ROOT", &self.root)
-            .env("GO_TRACK_BOUND_SELECTED", "work")
-            .env(
-                "GO_TRACK_BOUND_ADDR",
-                format!("127.0.0.1:{}", self.proof.launch().port),
-            );
+        let addr = format!("127.0.0.1:{}", self.proof.launch().port);
+        match self.transport {
+            SyntheticTransport::TestBridge => {
+                command
+                    .arg("-test.run=^TestNativeBoundFixtureBridge$")
+                    .env("GO_TRACK_BOUND_MODE", "serve")
+                    .env("GO_TRACK_BOUND_ROOT", &self.root)
+                    .env("GO_TRACK_BOUND_SELECTED", "work")
+                    .env("GO_TRACK_BOUND_ADDR", addr);
+            }
+            SyntheticTransport::InternalCli => {
+                command.args(["__native-read", "--addr", &addr]);
+            }
+        }
         Ok(())
     }
     pub(super) fn capture(
@@ -183,14 +194,17 @@ impl SyntheticBound {
         let protocol = launch_protocol::BoundLaunchRequest::new(
             context,
             workspace_provenance::RequestedSelector::Registered("work".into()),
-            self.root.join("private").to_str().ok_or_else(invalid)?.to_owned(),
+            self.root
+                .join("private")
+                .to_str()
+                .ok_or_else(invalid)?
+                .to_owned(),
             self.nonce.clone(),
         )
         .map_err(|_| invalid())?;
         let preflight = protocol.preflight().map_err(|_| invalid())?;
         let mut capture = Command::new(command.get_program());
         capture
-            .args(command.get_args())
             .env_clear()
             .current_dir(command.get_current_dir().ok_or_else(invalid)?);
         for (key, value) in command.get_envs() {
@@ -198,21 +212,41 @@ impl SyntheticBound {
                 capture.env(key, value);
             }
         }
+        match self.transport {
+            SyntheticTransport::TestBridge => {
+                capture
+                    .args(command.get_args())
+                    .env("GO_TRACK_BOUND_MODE", "capture");
+            }
+            SyntheticTransport::InternalCli => {
+                capture.arg("__native-read");
+            }
+        }
         capture
-            .env("GO_TRACK_BOUND_MODE", "capture")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .process_group(0);
-        let bytes = capture_exchange(&mut capture, timeout.min(Duration::from_secs(10)), canceled, Some(preflight))?;
+        let bytes = capture_exchange(
+            &mut capture,
+            timeout.min(Duration::from_secs(10)),
+            canceled,
+            Some(preflight),
+        )?;
         let text = std::str::from_utf8(&bytes).map_err(|_| invalid())?;
-        let mut lines = text
-            .lines()
-            .filter_map(|line| line.strip_prefix("TRACK_BOUND_MANIFEST:"));
-        let raw = lines.next().ok_or_else(invalid)?;
-        if lines.next().is_some() {
-            return Err(invalid());
-        }
+        let raw = match self.transport {
+            SyntheticTransport::TestBridge => {
+                let mut lines = text
+                    .lines()
+                    .filter_map(|line| line.strip_prefix("TRACK_BOUND_MANIFEST:"));
+                let raw = lines.next().ok_or_else(invalid)?;
+                if lines.next().is_some() {
+                    return Err(invalid());
+                }
+                raw
+            }
+            SyntheticTransport::InternalCli => text.trim_end(),
+        };
         // Exercise the inactive production-shaped decoder against actual Go
         // output. Scope comes from the independent generated fixture, never
         // from the response being compared. This adds no launch authority;
@@ -227,14 +261,21 @@ impl SyntheticBound {
                     .map(|name| {
                         (
                             name.to_owned(),
-                            self.root.join("home").join(name).to_str().unwrap().to_owned(),
+                            self.root
+                                .join("home")
+                                .join(name)
+                                .to_str()
+                                .unwrap()
+                                .to_owned(),
                         )
                     })
                     .collect(),
             ),
         )
         .map_err(|_| invalid())?;
-        observation.check_requested_scope(&requested).map_err(|_| invalid())?;
+        observation
+            .check_requested_scope(&requested)
+            .map_err(|_| invalid())?;
         let manifest: Manifest = serde_json::from_str(raw).map_err(|_| invalid())?;
         self.validate_manifest(&manifest)?;
         self.proof.verify_bindings().map_err(Error::Config)?;
@@ -380,11 +421,16 @@ pub(super) fn capture_exchange(
     if canceled.load(Ordering::Acquire) {
         return Err(Error::Stale);
     }
-    if payload.is_some() { command.stdin(Stdio::piped()); }
+    if payload.is_some() {
+        command.stdin(Stdio::piped());
+    }
     let mut child = command.spawn()?;
     let outcome = (|| {
         let mut request = match payload {
-            Some(payload) => Some(request_pipe::RequestPipe::new(child.stdin.take().ok_or_else(invalid)?, payload)?),
+            Some(payload) => Some(request_pipe::RequestPipe::new(
+                child.stdin.take().ok_or_else(invalid)?,
+                payload,
+            )?),
             None => None,
         };
         let mut sent = request.is_none();
@@ -418,7 +464,9 @@ pub(super) fn capture_exchange(
                 Err(e) => return Err(Error::Io(e)),
             }
             if capture_exited(&child)? {
-                if !sent { return Err(invalid()); }
+                if !sent {
+                    return Err(invalid());
+                }
                 // Drain only bytes currently available; never wait on inherited pipes.
                 loop {
                     match out.read(&mut chunk) {
@@ -547,36 +595,79 @@ fn capture_is_bounded_and_cancelable() {
 fn capture_duplex_request_uses_one_bounded_exchange() {
     let run = |script: &str, timeout, canceled: &AtomicBool| {
         let mut command = Command::new("/bin/sh");
-        command.args(["-c", script]).stdout(Stdio::piped())
-            .stderr(Stdio::null()).process_group(0);
-        capture_exchange(&mut command, timeout, canceled, Some(vec![b'x'; 192 * 1024]))
+        command
+            .args(["-c", script])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .process_group(0);
+        capture_exchange(
+            &mut command,
+            timeout,
+            canceled,
+            Some(vec![b'x'; 192 * 1024]),
+        )
     };
     // The child fills stdout before consuming stdin. A blocking write_all
     // before output draining would deadlock once both pipe buffers are full.
-    let bytes = run("head -c 65536 /dev/zero; cat >/dev/null; printf complete",
-        Duration::from_secs(3), &AtomicBool::new(false)).unwrap();
+    let bytes = run(
+        "head -c 65536 /dev/zero; cat >/dev/null; printf complete",
+        Duration::from_secs(3),
+        &AtomicBool::new(false),
+    )
+    .unwrap();
     assert_eq!(bytes.len(), 65536 + 8);
     assert!(bytes[..65536].iter().all(|byte| *byte == 0));
     assert_eq!(&bytes[65536..], b"complete");
-    assert!(matches!(run("exec sleep 3", Duration::from_millis(30), &AtomicBool::new(false)), Err(Error::Startup(_))));
-    assert!(run("printf early-exit", Duration::from_secs(2), &AtomicBool::new(false)).is_err());
-    assert!(matches!(run("exit 0", Duration::from_secs(2), &AtomicBool::new(true)), Err(Error::Stale)));
+    assert!(matches!(
+        run(
+            "exec sleep 3",
+            Duration::from_millis(30),
+            &AtomicBool::new(false)
+        ),
+        Err(Error::Startup(_))
+    ));
+    assert!(
+        run(
+            "printf early-exit",
+            Duration::from_secs(2),
+            &AtomicBool::new(false)
+        )
+        .is_err()
+    );
+    assert!(matches!(
+        run("exit 0", Duration::from_secs(2), &AtomicBool::new(true)),
+        Err(Error::Stale)
+    ));
 }
 
 #[test]
 #[ignore = "explicit test-only Go bridge binary and synthetic-only opt-in"]
 fn synthetic_bound_manifest_owns_reads_and_latches_drift() {
+    let binary = PathBuf::from(
+        std::env::var_os("TRACK_NATIVE_BOUND_TEST_BINARY").expect("explicit test bridge"),
+    );
+    bound_manifest_owns_reads_and_latches_drift(binary, SyntheticTransport::TestBridge);
+}
+
+#[test]
+#[ignore = "explicit actual Go CLI binary and synthetic-only opt-in"]
+fn synthetic_internal_cli_owns_reads_and_latches_drift() {
+    let binary = PathBuf::from(
+        std::env::var_os("TRACK_NATIVE_TEST_BINARY").expect("explicit actual Go CLI"),
+    );
+    bound_manifest_owns_reads_and_latches_drift(binary, SyntheticTransport::InternalCli);
+}
+
+fn bound_manifest_owns_reads_and_latches_drift(binary: PathBuf, transport: SyntheticTransport) {
     assert_eq!(
         std::env::var("TRACK_NATIVE_TEST_SYNTHETIC_ONLY").as_deref(),
         Ok("1")
     );
-    let binary = PathBuf::from(
-        std::env::var_os("TRACK_NATIVE_BOUND_TEST_BINARY").expect("explicit test bridge"),
-    );
     assert!(binary.is_absolute());
     let (fixture, proof) = admission_process_tests::fixture(&binary);
     let before = admission_process_tests::protected_inventory(&fixture.0);
-    let bound = SyntheticBound::new(proof, fixture.0.clone()).unwrap();
+    let mut bound = SyntheticBound::new(proof, fixture.0.clone()).unwrap();
+    bound.transport = transport;
     let mut owner = OwnedServer::start_admitted(
         bound.proof.launch(),
         &AtomicBool::new(false),
@@ -786,7 +877,15 @@ fn synthetic_bound_wrong_revision_exits_without_cache_or_note_writes() {
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .process_group(0);
-    assert!(capture_exchange(&mut cmd, Duration::from_secs(5), &AtomicBool::new(false), Some(payload)).is_err());
+    assert!(
+        capture_exchange(
+            &mut cmd,
+            Duration::from_secs(5),
+            &AtomicBool::new(false),
+            Some(payload)
+        )
+        .is_err()
+    );
     assert_eq!(
         std::fs::read_dir(fixture.0.join("private"))
             .unwrap()

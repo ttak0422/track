@@ -1,10 +1,11 @@
 # Ordinary read admission: proposed implementation boundary
 
-Status: design checkpoint, not an implemented launch mode or release approval.
+Status: ordinary native admission remains closed. The supervised engine CLI
+transport is implemented below; it is not native admission or release approval.
 The ordinary-vault gate stays closed. This document does not supersede the
 fixture restrictions or establish UI equivalence with the shipping Track app.
 
-## Current stopping point
+## Initial stopping point (before the slices below)
 
 The real-Go synthetic bridge exercises a manifest-bound owned process, finite
 responses, sticky drift rejection and canonical-file sentinels. Linux builds
@@ -504,3 +505,41 @@ This finite implementation checkpoint is complete. Actual GUI acceptance and
 real-workspace consent/admission are the next separate decisions, not reasons to
 keep extending this fixture suite. The ordinary gate stays closed. This test-only
 wiring adds no public workflow and requires no help-vault update.
+
+## Supervised production CLI transport, native gate still closed
+
+`track __native-read` now routes before ordinary CLI selector/path rewriting.
+It is an internal owned-child protocol, not a supported user launcher or a GPUI
+admission grant. An actual parent PID and a bounded hex readiness token are
+required before stdin is consumed. The existing parent watcher and signal
+cancellation remain active for both phases. A bounded pipe request is the sole
+input: there is no environment-payload, regular-file, unbound or writable fallback.
+
+Preflight has no address and returns one JSON manifest plus LF, at most 128 KiB
+in total. It creates no bootstrap, listeners, stores or leases. Serve requires
+an explicit IPv4 loopback address with a valid adjacent port and the exact
+preflight revision in the same final HOME/TRACK_/XDG_/cwd/PWD context. The existing
+manifest-bound bootstrap remains responsible for cache separation, sticky drift
+rejection and finite-response publication. Readiness is emitted only after both
+listeners bind; version-2 capabilities correlate the revision and nonce. Errors
+at the CLI boundary are generic rather than printing supplied context values.
+
+The native caller is still test-only: `SyntheticBound::InternalCli` exercises
+this actual CLI through the original generated-fixture authority and owned-process
+adapter. It verifies v2 before storage reads and retains finite-only event policy,
+local Save refusal and shutdown. Production `StartupAdmission` and the ordinary
+GPUI launch gate are unchanged. Production intent binding, ordinary native finite
+lifecycle, unavailable-peer presentation and populated private-cache reclamation
+remain separate work; no test response or manifest may create that authority.
+
+The marker-free CLI process matrix preserves supplied configuration semantics
+and checks healthy active/peer reads, preflight private-root inventories, sticky
+drift, invalid ownership/input/context/revision/cache separation, listener failures,
+SIGTERM and parent-death cleanup. It also exercises sync conflict filenames,
+cold malformed metadata and a subsequently corrupted indexed note. Healthy reads
+continue and the private derived index records per-file issues without deleting
+the cached note. The current HTTP bootstrap can replace those detailed issues
+with a generic confirmed-files partial notice; full per-file native presentation
+is not established. A corrupt private database instead reports unavailable
+storage. None of these generated-fixture checks accesses personal data or proves
+native focus, IME, accessibility, renderer equivalence or a filesystem sandbox.
