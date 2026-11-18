@@ -59,6 +59,12 @@ jobs:
       - name: Go tests
         run: nix develop --command go test -coverpkg=./... -coverprofile=coverage.out ./...
 
+      - name: Bound native read transport process sentinels
+        timeout-minutes: 3
+        run: |
+          nix develop --command go build -o "$RUNNER_TEMP/track-bound-read" ./cmd/track
+          python3 -B tests/canonical_read_only/bound_launch.py --binary "$RUNNER_TEMP/track-bound-read"
+
       # The comment on a PR reports per package; the per-function table has no other home, so it goes
       # to the job summary.
       - name: Go coverage

@@ -17,6 +17,9 @@ const Version = "0.1.0"
 
 // Run dispatches a subcommand and returns a process exit code.
 func Run(args []string) int {
+	if len(args) > 0 && args[0] == "__native-read" {
+		return cmdNativeRead(args[1:])
+	}
 	if len(args) > 0 && args[0] == "__backup" {
 		return cmdBackupWorker(args[1:])
 	}

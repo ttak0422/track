@@ -1,7 +1,7 @@
 package webui
 
-// Internal dispatch only: no CLI, listener, ordinary-vault admission or new
-// filesystem authority. The caller owns process lifetime and bootstrap cleanup.
+// Internal dispatch shared by the supervised CLI transport and fixture bridge.
+// The caller owns process lifetime; this grants no native workspace admission.
 import (
 	"bytes"
 	"context"
@@ -203,7 +203,11 @@ func checkBoundLaunchContext(ctx context.Context, r boundLaunchRequest) error {
 	if !reflect.DeepEqual(values, *r.Context.Environment) {
 		return errBoundLaunchProtocol
 	}
-	// Momentary ownership check only. The bridge retains its parent watcher.
+	return checkBoundLaunchOwner()
+}
+
+// Momentary ownership check only; the CLI/bridge retains its parent watcher.
+func checkBoundLaunchOwner() error {
 	pid, err := strconv.Atoi(os.Getenv("TRACK_WEB_DESKTOP_PARENT_PID"))
 	if err != nil || pid <= 1 || pid != os.Getppid() || !boundHex(os.Getenv("TRACK_WEB_DESKTOP_READY_TOKEN"), 64, 64, false) {
 		return errBoundLaunchProtocol
