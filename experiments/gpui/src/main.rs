@@ -934,13 +934,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             this.graph_preview_intent(event, cx);
                         },
                     ));
-                    workspace.subscriptions.push(cx.subscribe(
-                        &workspace.search,
-                        |this: &mut Workspace, _, event: &search_input::SearchChanged, cx| {
-                            this.search_live(event.0.clone(), cx);
-                            cx.notify();
-                        },
-                    ));
+                    workspace.subscribe_search(cx);
                     if let Some(request) = ordinary_request {
                         workspace.review_ordinary_read(request, cx);
                     } else if let Some(config) = live_config {

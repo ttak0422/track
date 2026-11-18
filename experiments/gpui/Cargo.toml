@@ -5,6 +5,10 @@ edition = "2024"
 rust-version = "1.99"
 publish = false
 
+[features]
+# Virtual GPUI windows only; no native application or personal vault is started.
+ui-tests = ["gpui/test-support"]
+
 [dependencies]
 latex-rust = { version = "=3.0.3", default-features = false, features = ["png"] }
 image = { version = "=0.25.9", default-features = false, features = ["png", "jpeg"] }

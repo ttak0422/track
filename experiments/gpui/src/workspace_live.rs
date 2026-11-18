@@ -67,6 +67,16 @@ impl StartupNavigation {
 }
 
 impl Workspace {
+    pub(crate) fn subscribe_search(&mut self, cx: &mut Context<Self>) {
+        self.subscriptions.push(cx.subscribe(
+            &self.search,
+            |this: &mut Workspace, _, event: &search_input::SearchChanged, cx| {
+                this.search_live(event.0.clone(), cx);
+                cx.notify();
+            },
+        ));
+    }
+
     fn watch_live_lifecycle(&mut self, cx: &mut Context<Self>) {
         cx.spawn(async move |this, cx| {
             let mut previous = None;
