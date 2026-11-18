@@ -126,6 +126,37 @@ normalizes links and other constructs: it must **never** be used as editable sou
 Editing will use the existing raw-body/etag HTTP contract instead. Search, live
 updates, and full Markdown rendering are still tracked as incomplete in `PARITY.md`.
 
+## Mouse side-button tab selection
+
+In the experimental native workspace, mouse **Back** and **Forward** select the
+previous and next open Note, Graph or Calendar tab, including overflow tabs. The
+ends wrap. Repeated presses retain their starting order while the selected tab
+moves to the front; reversing direction walks that same order. A title change
+keeps its identity. Other pointer interaction, navigation or opening/closing a tab
+starts a fresh walk. Home, Tag pages, an empty strip or a single supported tab do
+nothing. Background Home entries are not destinations.
+
+These are adjacent-tab controls (Track #320), distinct from chronological **View >
+Back/Forward** (the native history slice, #391). A refused side-button action never
+replays page history. Only button-down selects; release cannot select again. The
+handlers belong to the active workspace window; there are no global mouse hooks
+or GPUI platform-mapping changes.
+
+Ordinary editor focus does not block clean tab selection. Existing draft
+Save/Discard/Cancel and access checks still own each exact destination; nothing is
+saved or discarded automatically. Cancel retains both the draft and the intended
+neighbor for a same-direction retry, including mid-walk. This stable retry is a
+safer native adaptation: the reference's mid-walk cancellation can restart its
+order. Composition, pending saves/decisions, recovery failures, menus, dialogs and
+embedded-document owners suppress input without delayed replay. Normal tab
+activation may record its usual visit and already-authorized fixture metadata;
+this feature adds no write, launch or persistence permission.
+
+Synthetic native state/event and protected-transition tests do not establish
+physical button delivery, driver remapping, real IME, native sheets, focus,
+accessibility or actual overflow layout. Those require native GUI/hardware QA;
+trackpad gestures are outside this slice.
+
 ## Native graph
 
 The context aside shows the selected note’s local graph. The synthetic mode
