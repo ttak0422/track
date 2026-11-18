@@ -129,6 +129,10 @@ func (s *Server) appVault(name string) (selector, vaultDir string, ok bool) {
 // fallback, directory index, or SPA fallback; all filesystem opens stay under apps/<name>.
 func (s *Server) staticAppsHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.readPolicy != nil {
+			writeError(w, fmt.Errorf("internal read policy does not authorize static apps"), http.StatusForbidden)
+			return
+		}
 		if !s.allowedAppsHost(r) {
 			writeError(w, fmt.Errorf("host %q not served", r.Host), http.StatusForbidden)
 			return

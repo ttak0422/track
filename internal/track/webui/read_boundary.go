@@ -215,7 +215,9 @@ func (b *readBoundary) serve(w http.ResponseWriter, r *http.Request, next http.H
 		return
 	}
 	key := fmt.Sprintf("%d:%s", generation, r.URL.RequestURI())
-	cacheable := r.Method == http.MethodGet
+	// Calendar projections are strict snapshots: a failed calendar load must not
+	// become a successful cached projection. Other read contracts are unchanged.
+	cacheable := r.Method == http.MethodGet && !calendarProjectionPath(r.URL.Path)
 	owner := r.URL.Query().Get("vault")
 	if strings.HasPrefix(r.URL.Path, "/api/asset") || r.URL.Path == "/api/ogp" {
 		owner += "/media"

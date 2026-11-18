@@ -29,6 +29,8 @@ type StorageStatus struct {
 	Generation uint64 `json:"generation"`
 }
 type Bootstrap struct {
+	readPolicy       *readPolicy
+	protectedPolicy  *readPolicy
 	mu               sync.Mutex
 	status           StorageStatus
 	server           *Server
@@ -58,7 +60,10 @@ func NewBootstrap(ctx context.Context, lease func(*config.Config) (func(), error
 	return newBootstrap(ctx, config.LoadBounded, store.Open, lease)
 }
 func newBootstrap(ctx context.Context, load func(context.Context, string, bool) (*config.Config, error), open func(string) (*store.Store, error), lease func(*config.Config) (func(), error)) *Bootstrap {
-	return &Bootstrap{status: StorageStatus{Phase: "initializing", ReadOnly: true, Reason: "Workspace listeners are initializing"}, root: ctx, placeholder: New(&config.Config{Provisional: true}, nil), boundary: newReadBoundary(), inboxBoundary: newReadBoundary(), progress: map[int64]*note.Note{}, load: load, open: open, lease: lease}
+	return newBootstrapWithReadPolicy(ctx, load, open, lease, nil)
+}
+func newBootstrapWithReadPolicy(ctx context.Context, load func(context.Context, string, bool) (*config.Config, error), open func(string) (*store.Store, error), lease func(*config.Config) (func(), error), policy *readPolicy) *Bootstrap {
+	return &Bootstrap{readPolicy: policy, protectedPolicy: policy, status: StorageStatus{Phase: "initializing", ReadOnly: true, Reason: "Workspace listeners are initializing"}, root: ctx, placeholder: newServerWithReadPolicy(&config.Config{Provisional: true}, nil, false, policy), boundary: newReadBoundary(), inboxBoundary: newReadBoundary(), progress: map[int64]*note.Note{}, load: load, open: open, lease: lease}
 }
 
 func (b *Bootstrap) start() {
@@ -94,18 +99,20 @@ func (b *Bootstrap) start() {
 	b.running = true
 	b.generation++
 	generation := b.generation
+	policy := b.protectedPolicy
 	b.boundary.advance(generation)
 	ctx, cancel := context.WithCancel(b.root)
 	b.cancel = cancel
 	b.status = StorageStatus{Phase: "initializing", ReadOnly: true, Reason: "Configuration and storage are being verified", Generation: generation}
 	b.mu.Unlock()
 	go func() {
+		teardown := make(chan struct{})
 		defer func() {
 			for _, view := range held {
 				view.mutationGate().Unlock()
 			}
 		}()
-		defer cancel()
+		defer func() { close(teardown); cancel() }()
 		defer func() {
 			b.mu.Lock()
 			if b.generation == generation {
@@ -130,6 +137,8 @@ func (b *Bootstrap) start() {
 			b.fail(generation, errors.New("active vault changed; restart after preserving drafts"))
 			return
 		}
+		policy = policy.withConfig(cfg)
+		b.protectedPolicy = policy
 		b.cfgGeneration = generation
 		b.cfg = cfg
 		b.openPending = true
@@ -153,7 +162,7 @@ func (b *Bootstrap) start() {
 			peers = nil
 		}
 		if peers == nil {
-			peers = newServer(cfg, nil, true)
+			peers = newServerWithReadPolicy(cfg, nil, true, policy)
 			peers.enableAsync()
 			b.mu.Lock()
 			if b.generation == generation && !b.closed {
@@ -177,7 +186,11 @@ func (b *Bootstrap) start() {
 			var err error
 			if release == nil && b.lease != nil {
 				var rawRelease func()
-				rawRelease, err = b.lease(cfg)
+				leaseCfg, validationErr := policy.withConfig(cfg).cacheConfig(cfg)
+				err = validationErr
+				if err == nil {
+					rawRelease, err = b.lease(leaseCfg)
+				}
 				freshLease = err == nil
 				if rawRelease != nil {
 					var once sync.Once
@@ -212,7 +225,7 @@ func (b *Bootstrap) start() {
 			// Stop/retry can identify this server even while database opening stalls.
 			var st *store.Store
 			if err == nil {
-				st, err = b.open(cfg.DBPath)
+				st, err = policy.withConfig(cfg).open(cfg, b.open)
 			}
 			if ctx.Err() != nil {
 				if freshLease && release != nil {
@@ -234,18 +247,7 @@ func (b *Bootstrap) start() {
 				}
 			}
 		}()
-		strictResult := make(chan *config.Config, 1)
-		go func() {
-			strictCtx, stop := context.WithTimeout(ctx, index.StageBudget)
-			defer stop()
-			verified, err := b.load(strictCtx, "", true)
-			if err != nil {
-				b.fail(generation, err)
-				strictResult <- nil
-				return
-			}
-			strictResult <- verified
-		}()
+		strictResult := b.strictConfiguration(ctx, generation, teardown)
 		stageCtx, stopStage := context.WithTimeout(ctx, index.StageBudget)
 		_, stageErr := index.New(cfg, nil).Stage(stageCtx, func(n *note.Note) {
 			b.mu.Lock()
@@ -308,7 +310,12 @@ func (b *Bootstrap) start() {
 			}
 			return
 		}
-		srv := newServer(currentCfg, opened.store, true)
+		if err := policy.withConfig(currentCfg).verifyStore(currentCfg, opened.store); err != nil {
+			opened.store.Close()
+			b.fail(generation, err)
+			return
+		}
+		srv := newServerWithReadPolicy(currentCfg, opened.store, true, policy)
 		srv.enableAsync()
 		_ = opened.store.SetReadState(store.ReadState{Partial: true, CheckedAt: time.Now().UnixMilli(), Issues: []store.ReadIssue{{Path: currentCfg.VaultDir, Reason: "index verification pending"}}})
 		b.mu.Lock()
@@ -354,6 +361,37 @@ func (b *Bootstrap) start() {
 		}
 	}()
 }
+
+// strictConfiguration owns only strict-load reporting, not the attempt's
+// terminal outcome. Cancellation caused by the main owner's deferred teardown
+// must not replace the failure that made that owner return. Independent errors,
+// strict deadlines, and cancellation while the owner is active remain visible.
+func (b *Bootstrap) strictConfiguration(ctx context.Context, generation uint64, teardown <-chan struct{}) <-chan *config.Config {
+	result := make(chan *config.Config, 1)
+	go func() {
+		strictCtx, stop := context.WithTimeout(ctx, index.StageBudget)
+		defer stop()
+		verified, err := b.load(strictCtx, "", true)
+		if err != nil {
+			teardownCancellation := false
+			if errors.Is(err, context.Canceled) {
+				select {
+				case <-teardown:
+					teardownCancellation = true
+				default:
+				}
+			}
+			if !teardownCancellation {
+				b.fail(generation, err)
+			}
+			result <- nil
+			return
+		}
+		result <- verified
+	}()
+	return result
+}
+
 func (b *Bootstrap) fail(generation uint64, err error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -497,6 +535,28 @@ func (b *Bootstrap) progressResponse(w http.ResponseWriter, r *http.Request, rea
 	return false
 }
 func (b *Bootstrap) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if b.readPolicy != nil {
+		// Storage retry precedes server dispatch, so it must retain the same
+		// Host/Origin protections as the APIs even before a backend is ready.
+		b.placeholder.guard(b.readPolicy.boundResponse(http.HandlerFunc(b.serveHTTP))).ServeHTTP(w, r)
+		return
+	}
+	b.serveHTTP(w, r)
+}
+
+func (b *Bootstrap) serveHTTP(w http.ResponseWriter, r *http.Request) {
+	if b.readPolicy != nil && !internalReadRequestAllowed(r, true) {
+		writeError(w, errors.New("internal read policy does not authorize this operation"), http.StatusForbidden)
+		return
+	}
+	if err := b.readPolicy.validateBinding(r.Context()); err != nil {
+		writeError(w, err, http.StatusServiceUnavailable)
+		return
+	}
+	if r.URL.Path == "/api/capabilities" {
+		b.readPolicy.capabilities(w, r)
+		return
+	}
 	// External Markdown is a loopback capability inbox, independent of vault
 	// configuration/index readiness. Keep one inbox across backend generations.
 	if r.URL.Path == "/api/markdown" || r.URL.Path == "/api/markdown/consume" {
@@ -510,7 +570,7 @@ func (b *Bootstrap) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, b.Status())
 		return
 	}
-	if r.URL.Path != "/api/events" && (r.Method == http.MethodGet || r.Method == http.MethodHead || readOnlyPost(r.URL.Path)) {
+	if r.URL.Path != "/api/events" && (r.Method == http.MethodGet || r.Method == http.MethodHead || readOnlyPost(r.URL.Path) || b.readPolicy != nil && internalReadRequestAllowed(r, true)) {
 		ctx, cancel := context.WithTimeout(r.Context(), readResponseBudget)
 		defer cancel()
 		r = r.WithContext(ctx)
@@ -558,10 +618,14 @@ func (b *Bootstrap) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errors.New(b.Status().Reason), http.StatusServiceUnavailable)
 		return
 	}
+	if calendarProjectionPath(r.URL.Path) && b.statusFor(r).ReadOnly {
+		writeError(w, errors.New("storage is not ready for calendar projection"), http.StatusServiceUnavailable)
+		return
+	}
 	if r.Method == http.MethodGet && b.statusFor(r).ReadOnly && b.progressResponse(w, r, "storage is not fully verified; showing confirmed information read-only") {
 		return
 	}
-	if r.Method != http.MethodGet && r.Method != http.MethodHead && !readOnlyPost(r.URL.Path) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead && !readOnlyPost(r.URL.Path) && !(b.readPolicy != nil && internalReadRequestAllowed(r, true)) {
 		if b.statusFor(r).ReadOnly {
 			writeError(w, errors.New("storage is not verified; writes are disabled"), http.StatusConflict)
 			return
@@ -573,6 +637,10 @@ func (b *Bootstrap) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		response := &limitedResponse{ResponseRecorder: httptest.NewRecorder()}
 		srv.Handler().ServeHTTP(response, r)
 		status := b.statusFor(r)
+		if calendarProjectionPath(r.URL.Path) && status.ReadOnly {
+			writeError(w, errors.New("storage is not ready for calendar projection"), http.StatusServiceUnavailable)
+			return
+		}
 		if status.ReadOnly && response.Code == 200 && response.err == nil {
 			var document map[string]any
 			if decodeDocument(response.Body.Bytes(), &document) == nil {
@@ -723,6 +791,11 @@ func readOnlyPost(path string) bool {
 
 func (b *Bootstrap) statusFor(r *http.Request) StorageStatus {
 	status := b.Status()
+	// Range verifies canonical events and (when needed) config independently of peer indexes.
+	// Keep global startup/retirement readiness, but do not race a peer's derived-cache refresh.
+	if r.URL.Path == "/api/calendar-events/range" {
+		return status
+	}
 	name := r.URL.Query().Get("vault")
 	b.mu.Lock()
 	srv := b.server

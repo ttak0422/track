@@ -19,6 +19,16 @@ func (ix *Indexer) EnsureInitialized() (bool, error) {
 }
 
 func (ix *Indexer) EnsureInitializedContext(ctx context.Context) (bool, error) {
+	return ix.ensureInitializedContext(ctx, false)
+}
+
+// EnsureInitializedReadContext retains the initialization lock and revision
+// checks while finalizing input versions before publishing a read-only cache.
+// The caller must provide an approved derived-cache DBPath.
+func (ix *Indexer) EnsureInitializedReadContext(ctx context.Context) (bool, error) {
+	return ix.ensureInitializedContext(ctx, true)
+}
+func (ix *Indexer) ensureInitializedContext(ctx context.Context, verify bool) (bool, error) {
 	initialized, err := ix.store.Initialized()
 	if err != nil || initialized {
 		return false, err
@@ -52,6 +62,9 @@ func (ix *Indexer) EnsureInitializedContext(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	snap, err := ix.Stage(ctx, nil)
+	if err == nil && verify {
+		err = ix.FinalizeRead(ctx, snap)
+	}
 	if err == nil {
 		err = ix.Publish(snap)
 	}

@@ -23,8 +23,10 @@ import (
 )
 
 type Server struct {
-	asyncReads bool
-	queryReads *readBoundary
+	readPolicy      *readPolicy
+	readPolicyError error
+	asyncReads      bool
+	queryReads      *readBoundary
 
 	// active is the vault track web was launched in: the default target of every request and the
 	// only vault the file watcher follows. cfg and store are its config and index, kept as fields
@@ -101,9 +103,13 @@ func New(cfg *config.Config, s *store.Store) *Server { return newServer(cfg, s, 
 
 // Early storage startup must not synchronously resolve optional peer roots or palettes.
 func newServer(cfg *config.Config, s *store.Store, early bool) *Server {
+	return newServerWithReadPolicy(cfg, s, early, nil)
+}
+func newServerWithReadPolicy(cfg *config.Config, s *store.Store, early bool, policy *readPolicy) *Server {
 	// The launch vault carries no wire label: unqualified means "the vault you are in".
 	active := &vaultView{name: activeName(cfg), cfg: cfg, store: s}
 	srv := &Server{
+		readPolicy:    policy.withConfig(cfg),
 		active:        active,
 		queryReads:    newReadBoundary(),
 		cfg:           cfg,
@@ -115,6 +121,9 @@ func newServer(cfg *config.Config, s *store.Store, early bool) *Server {
 		mux:           http.NewServeMux(),
 		webRoot:       embeddedWebRoot,
 		events:        newEventHub(),
+	}
+	if policy != nil && s != nil {
+		srv.readPolicyError = srv.readPolicy.verifyStore(cfg, s)
 	}
 	for name, vaultDir := range cfg.Vaults {
 		if name != active.name {
@@ -150,7 +159,19 @@ func newServer(cfg *config.Config, s *store.Store, early bool) *Server {
 }
 
 func (s *Server) Handler() http.Handler {
-	return s.guard(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return s.guard(s.readPolicy.boundResponse(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.readPolicy != nil && !internalReadRequestAllowed(r, false) {
+			writeError(w, fmt.Errorf("internal read policy does not authorize this operation"), http.StatusForbidden)
+			return
+		}
+		if err := s.readPolicy.validateBinding(r.Context()); err != nil {
+			writeError(w, err, http.StatusServiceUnavailable)
+			return
+		}
+		if s.readPolicyError != nil {
+			writeError(w, s.readPolicyError, http.StatusServiceUnavailable)
+			return
+		}
 		// ServeMux canonicalizes dot segments before routing. The app route has its own strict path
 		// parser so traversal attempts are rejected rather than redirected into the workspace SPA/API.
 		if r.URL.Path == "/apps" || strings.HasPrefix(r.URL.Path, "/apps/") {
@@ -158,7 +179,7 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		s.mux.ServeHTTP(w, r)
-	}))
+	})))
 }
 
 // requestLoopbackOnly keeps local handoffs and archived request reads on loopback,
@@ -468,10 +489,12 @@ func StopWeb(cfg *config.Config, addr string) (stopped bool, err error) {
 // defaulting to the vault the server was launched in. Note ids are vault-local and journal ids
 // collide across vaults outright, so that default would silently read (and write) the wrong file.
 func (s *Server) routes() {
+	s.mux.HandleFunc("/api/capabilities", s.handleCapabilities)
 	s.mux.HandleFunc("/api/search", s.handleSearch)
 	s.mux.HandleFunc("/api/notes", s.withVault(s.handleNotes))
 	s.mux.HandleFunc("/api/activity", s.withVault(s.handleActivity))
 	s.mux.HandleFunc("/api/agenda", s.withVault(s.handleAgenda))
+	s.mux.HandleFunc("/api/journal/lookup", s.handleJournalLookup)
 	s.mux.HandleFunc("/api/journal", s.withVault(s.handleJournal))
 	s.mux.HandleFunc("/api/resolve", s.withVault(s.handleResolve))
 	s.mux.HandleFunc("/api/note", s.withVault(s.handleNote))
@@ -482,6 +505,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/timeline", s.withVault(s.handleTimeline))
 	s.mux.HandleFunc("/api/tasks", s.withVault(s.handleTasks))
 	s.mux.HandleFunc("/api/task", s.withVault(s.handleTaskSet))
+	s.mux.HandleFunc("/api/calendar-activity/range", s.handleCalendarActivityRange)
+	s.mux.HandleFunc("/api/calendar-events/range", s.handleCalendarEventsRangeRequest)
+	s.mux.HandleFunc("/api/calendar-events/day", s.withVault(s.handleCalendarEventsDay))
 	s.mux.HandleFunc("/api/calendar-events", s.withVault(s.handleCalendarEvents))
 	s.mux.HandleFunc("/api/calendar-event", s.withVault(s.handleCalendarEvent))
 	s.mux.HandleFunc("/api/render", s.withVault(s.handleRender))

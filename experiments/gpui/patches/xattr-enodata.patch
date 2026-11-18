@@ -1,0 +1,10 @@
+--- a/src/sys/mod.rs
++++ b/src/sys/mod.rs
+@@ -11 +11,2 @@
+-            #[cfg(any($(target_os = $platform),*))]
++            #[cfg(all(any($(target_os = $platform),*),
++                      not(any(target_os = "linux", target_os = "android"))))]
+@@ -12,0 +14,3 @@
++            #[cfg(all(any($(target_os = $platform),*),
++                      any(target_os = "linux", target_os = "android")))]
++            pub const ENOATTR: ::libc::c_int = ::libc::ENODATA;

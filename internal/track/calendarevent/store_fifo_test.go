@@ -20,7 +20,7 @@ func TestFIFORecords(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, action := range []string{"get", "list", "save"} {
+	for _, action := range []string{"get", "list", "save", "range"} {
 		t.Run(action, func(t *testing.T) {
 			vault := t.TempDir()
 			dir := filepath.Join(vault, "calendar", "events")
@@ -53,6 +53,8 @@ func TestFIFORecordProcessHelper(t *testing.T) {
 	cfg := &config.Config{VaultDir: vault}
 	var err error
 	switch os.Getenv("TRACK_EVENT_FIFO_ACTION") {
+	case "range":
+		_, err = RangeContext(context.Background(), cfg, "2024-02-29", "2024-02-29", "UTC")
 	case "get":
 		_, err = Get(cfg, testID)
 	case "list":

@@ -51,7 +51,7 @@ func (s *Server) kickView(name string) {
 		if err != nil {
 			return
 		}
-		st, err := store.Open(cfg.DBPath)
+		st, err := s.readPolicy.withConfig(cfg).open(cfg, store.Open)
 		if err != nil {
 			return
 		}
@@ -76,6 +76,9 @@ func (s *Server) kickView(name string) {
 			candidate.VaultName = verified.VaultName
 		}
 		if err == nil && verified != nil && reflect.DeepEqual(candidate, *verified) {
+			if _, err := s.readPolicy.withConfig(verified).cacheConfig(verified); err != nil {
+				return
+			}
 			v.mutationGate().Lock()
 			defer v.mutationGate().Unlock()
 			replacement := &vaultView{name: name, label: name, cfg: verified, store: st, async: true, sharedGate: v.mutationGate()}

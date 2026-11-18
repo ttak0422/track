@@ -253,6 +253,21 @@ func (ix *Indexer) Publish(snap *Snapshot) error {
 // ApplyActivity is an optional parent-owned mutation after successful read staging.
 // It checks current input versions before touching sidecars and is never killed as a read.
 func (ix *Indexer) ApplyActivity(ctx context.Context, snap *Snapshot) error {
+	return ix.finalize(ctx, snap, true)
+}
+
+// FinalizeRead rechecks staged input versions without applying activity or writing
+// canonical files. Changed/unavailable inputs are removed and recorded as partial
+// reads, preserving the same cached fallback as ApplyActivity. Publish may then
+// write the verified subset to the derived cache; it rechecks the store revision.
+// This is not an atomic filesystem snapshot: inputs can change after verification.
+func (ix *Indexer) FinalizeRead(ctx context.Context, snap *Snapshot) error {
+	return ix.finalize(ctx, snap, false)
+}
+
+// Keep verification interleaved with the optional activity step: verifying all
+// inputs first would change ApplyActivity's existing failure/partial ordering.
+func (ix *Indexer) finalize(ctx context.Context, snap *Snapshot, applyActivity bool) error {
 	revision, err := ix.store.Revision()
 	if err != nil {
 		return err
@@ -275,7 +290,7 @@ func (ix *Indexer) ApplyActivity(ctx context.Context, snap *Snapshot) error {
 			reject(err)
 			continue
 		}
-		if _, changed := snap.Activity[n.ID]; changed && !snap.State.Partial && !ix.cfg.Provisional {
+		if _, changed := snap.Activity[n.ID]; changed && applyActivity && !snap.State.Partial && !ix.cfg.Provisional {
 			if writeUnsafe {
 				reject(errors.New("activity update deferred after a write failure"))
 				verified = append(verified, n)

@@ -87,6 +87,16 @@ func (s *Server) refreshAsync(v *vaultView) {
 	go func() {
 		defer cancel()
 		ix := index.New(v.cfg, v.store).WithPrevious(previous)
+		if err := s.readPolicy.withConfig(v.cfg).verifyStore(v.cfg, v.store); err != nil {
+			p.mu.Lock()
+			if p.generation == generation {
+				p.running = false
+				p.cancel = nil
+				p.state.Add(store.ReadIssue{Path: v.cfg.VaultDir, Reason: err.Error()})
+			}
+			p.mu.Unlock()
+			return
+		}
 		snap, err := ix.Stage(ctx, func(n *note.Note) {
 			p.mu.Lock()
 			defer p.mu.Unlock()
@@ -136,10 +146,13 @@ func (s *Server) refreshAsync(v *vaultView) {
 			s.viewsMu.Unlock()
 			if valid {
 				commitCtx, cancelCommit := context.WithTimeout(context.Background(), index.StageBudget)
-				err = ix.ApplyActivity(commitCtx, snap)
+				err = s.readPolicy.withConfig(v.cfg).verifyStore(v.cfg, v.store)
+				if err == nil {
+					err = s.readPolicy.withConfig(v.cfg).finalize(commitCtx, v.cfg, ix, snap)
+				}
 				cancelCommit()
 				if err == nil {
-					err = ix.Publish(snap)
+					err = s.readPolicy.withConfig(v.cfg).publish(v.cfg, ix, snap)
 				}
 			} else {
 				err = index.ErrSuperseded

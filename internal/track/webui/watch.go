@@ -1,6 +1,7 @@
 package webui
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -125,7 +126,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// startWatch watches the active vault's note, journal, and data directories and, on any change,
+// startWatch watches the active vault's note, journal, metadata, and data directories and, on any change,
 // notifies connected clients (reindexing first for note changes). It runs for the life of the
 // process; failures are logged and degrade to no live updates.
 //
@@ -141,7 +142,7 @@ func (s *Server) startWatch() {
 	}
 
 	watched := 0
-	for _, dir := range []string{s.cfg.VaultDir, s.cfg.NoteDir(), s.cfg.JournalDir(), s.cfg.DataDir()} {
+	for _, dir := range []string{s.cfg.VaultDir, s.cfg.NoteDir(), s.cfg.JournalDir(), s.cfg.DataDir(), s.cfg.TrackDir(), s.cfg.MetadataDir()} {
 		// A read-only startup never creates vault directories. A later mutation
 		// creates its own parents; periodic refresh covers initially absent watches.
 		if info, err := vaultfile.Stat(dir); err != nil || !info.IsDir() {
@@ -183,11 +184,22 @@ func (s *Server) reconcileAfterChange() {
 	v := s.active
 	v.reindexMu.Lock()
 	defer v.reindexMu.Unlock()
-	if _, err := index.New(v.cfg, v.store).RefreshIfStale(); err != nil {
+	var err error
+	changed := true
+	if s.readPolicy != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), index.StageBudget)
+		defer cancel()
+		changed, err = s.refreshRead(ctx, v)
+	} else {
+		_, err = index.New(v.cfg, v.store).RefreshIfStale()
+	}
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "track web: reindex after change failed: %v\n", err)
 		return
 	}
-	s.events.broadcastChange()
+	if changed {
+		s.events.broadcastChange()
+	}
 }
 
 func (s *Server) watchLoop(watcher *fsnotify.Watcher) {
@@ -195,6 +207,7 @@ func (s *Server) watchLoop(watcher *fsnotify.Watcher) {
 
 	const debounce = 300 * time.Millisecond
 	dataDir := s.cfg.DataDir()
+	trackDir, metadataDir := s.cfg.TrackDir(), s.cfg.MetadataDir()
 	var noteTimer, dataTimer *time.Timer
 	// Each timer coalesces a burst of events into a single broadcast (with a
 	// reconcile first for note changes; data files are not indexed).
@@ -222,14 +235,24 @@ func (s *Server) watchLoop(watcher *fsnotify.Watcher) {
 			// Observe creation of initially absent content directories without
 			// scaffolding the vault. Reconcile immediately because the first file
 			// can be written before the new directory watch is attached.
-			if filepath.Dir(ev.Name) == s.cfg.VaultDir {
-				known := ev.Name == s.cfg.NoteDir() || ev.Name == s.cfg.JournalDir() || ev.Name == dataDir
+			if filepath.Dir(ev.Name) == s.cfg.VaultDir || filepath.Dir(ev.Name) == trackDir {
+				known := ev.Name == s.cfg.NoteDir() || ev.Name == s.cfg.JournalDir() || ev.Name == dataDir || ev.Name == trackDir || ev.Name == metadataDir
 				if !known {
 					continue
 				}
 				if info, err := vaultfile.Stat(ev.Name); err == nil && info.IsDir() {
 					if err := watcher.Add(ev.Name); err != nil {
 						fmt.Fprintf(os.Stderr, "track web: content watch unavailable: %v\n", err)
+					}
+				}
+				// .track and notes can be created in one burst before the parent
+				// watch is attached. Add the already-present child too; reconcile
+				// below covers files written before either watch was installed.
+				if ev.Name == trackDir {
+					if info, err := vaultfile.Stat(metadataDir); err == nil && info.IsDir() {
+						if err := watcher.Add(metadataDir); err != nil {
+							fmt.Fprintf(os.Stderr, "track web: metadata watch unavailable: %v\n", err)
+						}
 					}
 				}
 				if ev.Name == dataDir {
