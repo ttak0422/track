@@ -2,7 +2,8 @@
 
 This **test-only** bridge connects the native owned-process adapter to Go's
 internal manifest-bound v2 bootstrap. It does not enable ordinary-vault launch,
-editing, SSE, or a production v2 CLI. The generated fixture, not a manifest
+editing or SSE. The separate internal CLI transport is described below.
+The generated fixture, not a manifest
 returned by the process, remains the admission authority.
 
 The test captures the manifest with the same explicit environment and cwd as the
@@ -193,3 +194,24 @@ With this scenario included, the source adapter passed 329 tests (20 ignored)
 and the isolated real-Go live matrix passed 147 tests. The real GPUI Linux
 `cargo check --locked --tests` and `cargo test --locked --no-run` also succeeded;
 this remains compile/link evidence, not GUI execution.
+
+## Actual internal CLI transport
+
+The production binary now has the internal supervised `__native-read` transport;
+the original test-binary bridge remains available. The native integration caller
+for the production transport is still compiled only under `cfg(test)` and requires
+the original generated fixture authority. Ordinary GPUI admission remains closed.
+With the actual candidate CLI built, the full GPUI-linked test is:
+
+```sh
+TRACK_NATIVE_TEST_SYNTHETIC_ONLY=1 \
+TRACK_NATIVE_TEST_BINARY=/absolute/path/to/candidate-track \
+cargo test --locked --manifest-path experiments/gpui/Cargo.toml \
+  synthetic_internal_cli_owns_reads_and_latches_drift -- --ignored
+```
+
+This opens no window. It proves owned startup, exact v2 revision/nonce validation,
+finite reads, local Save refusal, sticky drift and cleanup through the actual CLI.
+See `tests/canonical_read_only/bound_launch.py` for the marker-free process matrix,
+configuration semantics, invalid-file isolation and failure/parent-death cases.
+Neither suite supplies ordinary native authority or full GUI acceptance.
