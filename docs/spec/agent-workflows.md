@@ -402,15 +402,16 @@ safe acknowledgement mechanism for pause/resume. Do not advertise those controls
 `track timeline-project intervals --id ID [--limit N] [--until RFC3339]` is a
 read-only projection of one selected project's existing journal. It returns
 `schema_version: 1`, `project_id`, the journal `revision`, `interval_minutes: 15`,
-and an `intervals` array newest first. `--limit` defaults to 8 and is capped
+the reserved `report_source`, and an `intervals` array newest first. `--limit` defaults to 8 and is capped
 at 96. Each completed UTC window is half-open `[start, end)`, with empty
 windows included and the current partial window excluded. An explicit upper
 boundary must align to 15 minutes in UTC and not exceed the current completed
 boundary. Equivalent RFC3339 time-zone offsets give the same result.
 
 Each window has `start`, `end`, `counts`, and `transitions`. A transition
-contains the journal `sequence`, recorded UTC `at`, `task_id`, `to_status`,
-and `from_status` when the task was already recorded. Status classification
+contains the journal `sequence`, recorded UTC `at`, `task_id`, the printable
+one-line `task_title`, `to_status`, and `from_status` when the task was already
+recorded. Title normalization is not redaction. Status classification
 replays in journal sequence order, even if the wall clock moved; only bucket
 membership uses the timestamp. `created` counts first records, `activated`
 counts entries into active (including first records and resumes), `completed`
@@ -422,6 +423,19 @@ Raw payloads, reports, discussions, and control records are not returned.
 The projection changes no journal or derived index. It derives only from the
 validated, bounded journal for one project and never runs an agent, schedules
 work, or writes an authored `report.add` event.
+
+An explicitly requested active agent can author natural language with the
+[interval report skill](../../.agents/skills/track-timeline-interval-reports/SKILL.md).
+For a non-empty `missing` bucket, submit the existing `report.add` API with the
+returned `report_source`, matching `event_id` and payload `id` set to the bucket's
+`report_id`, its complete ordered transition sequences, and the exact read
+revision. The author supplies the summary; Track does not infer one. A report is
+`saved` only when source/event/record IDs, period and full pre-save provenance
+match. A reserved ID occupied by another or mismatched record is a `conflict`,
+not a successful summary. `late_transitions` counts subsequently appended
+transitions timestamped inside a saved bucket; don't automatically overwrite it.
+Reread and reconcile on revision conflicts. This is an active-session workflow,
+not a clock scheduler or unattended agent runner.
 
 ## Normal-session timeline transport
 
