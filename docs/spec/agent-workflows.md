@@ -399,4 +399,4 @@ safe acknowledgement mechanism for pause/resume. Do not advertise those controls
 
 ## Normal-session timeline transport
 
-`track timeline-session init|start|show|task|report|hook` provides explicit vault/project-bound, run-scoped task updates on the existing timeline engine. See [session integration](../../examples/session-timeline/README.md) for the shared skill, opt-in hooks, privacy boundary, retry semantics and verified compatibility limits. The low-level revision-checked `timeline-project apply` remains available.
+`track timeline-session init|start|show|task|report|hook` provides explicit vault/project-bound, run-scoped task updates on the existing timeline engine. Use the [repository skill](../../.agents/skills/track-timeline/SKILL.md) for explicit on-demand tracking in an existing vault. See [session integration](../../examples/session-timeline/README.md) for skill setup, optional automatic hooks, privacy boundaries, retry semantics and compatibility limits. The low-level revision-checked `timeline-project apply` remains available.
