@@ -539,3 +539,63 @@ fn old_live_body_failure_cannot_replace_shared_or_new_reader_state(cx: &mut Test
         assert!(cx.debug_bounds("workspace-read-error").is_some());
     });
 }
+
+#[gpui::test]
+#[ignore = "requires an explicit synthetic-only Go bridge binary"]
+fn rail_reload_retries_the_failed_body_without_a_second_visit(cx: &mut TestAppContext) {
+    live::with_keyboard_fixture(|session| {
+        let (view, cx) = cx.add_window_view(|_, cx| workspace(session, cx));
+        cx.run_until_parked();
+        let target = live::NoteKey {
+            vault: "work".into(),
+            note_id: 43,
+        };
+        let tab = tabs::TabKey::Note {
+            vault: target.vault.clone(),
+            note_id: target.note_id,
+        };
+        cx.update(|_, app| {
+            view.update(app, |w, cx| {
+                assert_eq!(w.current_note_request.as_ref().unwrap().note_id, 42);
+                w.live
+                    .as_ref()
+                    .unwrap()
+                    .fail_keyboard_body_once(target.clone());
+                w.open_live_key(target.clone(), cx);
+            });
+        });
+        cx.run_until_parked();
+        let history = view.read_with(cx, |w, _| {
+            assert_eq!(&w.tabs.active().unwrap().key, &tab);
+            assert_eq!(w.history.current(), Some(&tab));
+            assert!(!w.reader_read_pending());
+            assert!(w.current_note_request.is_none());
+            assert!(!w.shell.reader_content.contains_key(&tab));
+            assert!(
+                w.current_body_read_error()
+                    .unwrap()
+                    .contains("synthetic one-shot body failure")
+            );
+            w.history.clone()
+        });
+
+        // Exercise the actual UI event, not just the route-restoration helper.
+        click(cx, "keyboard-rail-reload");
+        cx.run_until_parked();
+        view.read_with(cx, |w, _| {
+            assert_eq!(&w.tabs.active().unwrap().key, &tab);
+            assert_eq!(w.current_note_request.as_ref(), Some(&target));
+            assert!(
+                w.current_note
+                    .as_ref()
+                    .unwrap()
+                    .body
+                    .contains("Keyboard fixture 43")
+            );
+            assert!(w.shell.reader_content.contains_key(&tab));
+            assert!(w.current_read_error().is_none());
+            assert!(!w.reader_read_pending());
+            assert_eq!(w.history, history);
+        });
+    });
+}
