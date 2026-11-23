@@ -32,6 +32,51 @@ fn note_read_is_current(
         })
 }
 
+pub(crate) struct ReaderRead {
+    request: u64,
+    body: Option<ReaderBody>,
+}
+
+struct ReaderBody {
+    key: live::NoteKey,
+    launch: u64,
+    storage: Option<u64>,
+}
+
+impl ReaderRead {
+    pub(crate) fn list(request: u64) -> Self {
+        Self {
+            request,
+            body: None,
+        }
+    }
+
+    pub(crate) fn body(request: u64, key: live::NoteKey, launch: u64, storage: Option<u64>) -> Self {
+        Self {
+            request,
+            body: Some(ReaderBody {
+                key,
+                launch,
+                storage,
+            }),
+        }
+    }
+
+    fn body_is_current(
+        &self,
+        request: u64,
+        tabs: &tabs::Tabs,
+        launch: u64,
+        storage: Option<u64>,
+    ) -> bool {
+        self.body.as_ref().is_some_and(|body| {
+            body.launch == launch
+                && body.storage == storage
+                && note_read_is_current(self.request, request, &body.key, tabs)
+        })
+    }
+}
+
 /// A delayed graph read belongs to an accepted note, not to whichever route is
 /// visible when asynchronous vault discovery finishes.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -334,8 +379,37 @@ impl Workspace {
         .detach();
     }
 
+    pub(crate) fn reader_read_pending(&self) -> bool {
+        self.live_reader_pending
+            .as_ref()
+            .is_some_and(|pending| pending.request == self.request)
+    }
+
+    pub(crate) fn reader_body_waiting(&self) -> bool {
+        let Some(pending) = self
+            .live_reader_pending
+            .as_ref()
+            .filter(|pending| pending.request == self.request && pending.body.is_some())
+        else {
+            return false;
+        };
+        let Some(session) = self
+            .live
+            .as_ref()
+            .filter(|session| session.failure().is_none())
+        else {
+            return false;
+        };
+        pending.body_is_current(
+            self.request,
+            &self.tabs,
+            session.client().launch_generation,
+            self.accepted_storage_generation,
+        )
+    }
+
     pub fn load_live_notes(&mut self, cx: &mut Context<Self>) {
-        if self.live_reader_pending == Some(self.request) {
+        if self.reader_read_pending() {
             return;
         }
         if let Some(page) = &self.tag_page {
@@ -351,7 +425,7 @@ impl Workspace {
         let reload_route = self.history.reload_route(&self.tabs);
         self.request += 1;
         let request = self.request;
-        self.live_reader_pending = Some(request);
+        self.live_reader_pending = Some(ReaderRead::list(request));
         self.status = "Reading server notes…".into();
         let expected_epoch = self.accepted_storage_generation;
         let job = cx.background_executor().spawn(async move {
@@ -726,9 +800,14 @@ impl Workspace {
         self.graph_request += 1;
         cx.notify(); // Publish the accepted destination before its asynchronous read.
         let request = self.request;
-        self.live_reader_pending = Some(request);
         let destination = key.clone();
         let expected_epoch = self.accepted_storage_generation;
+        self.live_reader_pending = Some(ReaderRead::body(
+            request,
+            destination.clone(),
+            session.client().launch_generation,
+            expected_epoch,
+        ));
         let read_expected = expected.clone();
         let job = cx.background_executor().spawn(async move {
             let client = session.client();
@@ -837,9 +916,14 @@ impl Workspace {
         let key = note.key();
         let accepted_request = key.clone();
         let request = self.request;
-        self.live_reader_pending = Some(request);
         self.status = "Reading raw body (read-only)…".into();
         let expected_epoch = self.accepted_storage_generation;
+        self.live_reader_pending = Some(ReaderRead::body(
+            request,
+            accepted_request.clone(),
+            session.client().launch_generation,
+            expected_epoch,
+        ));
         let job = cx.background_executor().spawn(async move {
             let client = session.client();
             let before = client.storage();
@@ -1285,8 +1369,8 @@ mod history_read_tests {
 }
 
 /// Completion only releases its own admission token, never a newer read.
-fn finish_reader_read(pending: &mut Option<u64>, completed: u64) -> bool {
-    if *pending != Some(completed) {
+fn finish_reader_read(pending: &mut Option<ReaderRead>, completed: u64) -> bool {
+    if !pending.as_ref().is_some_and(|read| read.request == completed) {
         return false;
     }
     *pending = None;
@@ -1297,11 +1381,45 @@ mod reload_pending_tests {
     use super::*;
     #[test]
     fn stale_completion_cannot_release_newer_reader_request() {
-        let mut pending = Some(12);
+        let mut pending = Some(ReaderRead::list(12));
         assert!(!finish_reader_read(&mut pending, 11));
-        assert_eq!(pending, Some(12));
+        assert_eq!(pending.as_ref().map(|read| read.request), Some(12));
         assert!(finish_reader_read(&mut pending, 12));
-        assert_eq!(pending, None);
+        assert!(pending.is_none());
         assert!(!finish_reader_read(&mut pending, 12));
+    }
+
+    #[test]
+    fn body_wait_is_only_for_the_current_qualified_note_request_and_generation() {
+        let mut tabs = tabs::Tabs::default();
+        let key = live::NoteKey {
+            vault: "one".into(),
+            note_id: 7,
+        };
+        tabs.open_note("one", 7, "Waiting");
+
+        let mut pending = Some(ReaderRead::body(12, key, 3, Some(5)));
+        let visible = |pending: &Option<ReaderRead>, tabs: &tabs::Tabs| {
+            pending
+                .as_ref()
+                .is_some_and(|read| read.body_is_current(12, tabs, 3, Some(5)))
+        };
+        let read = pending.as_ref().unwrap();
+        assert!(visible(&pending, &tabs));
+        assert!(!read.body_is_current(13, &tabs, 3, Some(5)));
+        assert!(!read.body_is_current(12, &tabs, 4, Some(5)));
+        assert!(!read.body_is_current(12, &tabs, 3, Some(6)));
+        assert!(!ReaderRead::list(12).body_is_current(12, &tabs, 3, Some(5)));
+        assert!(!finish_reader_read(&mut pending, 11));
+        assert!(visible(&pending, &tabs));
+        tabs.open_note("two", 7, "Other vault");
+        assert!(!visible(&pending, &tabs));
+        tabs.open_home();
+        assert!(!visible(&pending, &tabs));
+        tabs.open_graph();
+        assert!(!visible(&pending, &tabs));
+        tabs.open_note("one", 7, "Waiting");
+        assert!(finish_reader_read(&mut pending, 12));
+        assert!(!visible(&pending, &tabs));
     }
 }
