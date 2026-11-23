@@ -394,16 +394,20 @@ fn body_wait_indicator_renders_only_for_the_current_live_reader(cx: &mut TestApp
     live::with_keyboard_fixture(|session| {
         let (view, cx) = cx.add_window_view(|_, cx| workspace(session, cx));
         cx.run_until_parked();
-        assert!(
-            cx.debug_bounds("keyboard-reader-row-0").is_some(),
-            "the loaded fixture must render in the visible note reader"
-        );
-        assert!(cx.debug_bounds("reader-body-wait").is_none());
+        let row_y = |cx: &mut VisualTestContext| {
+            cx.debug_bounds("keyboard-reader-row-0")
+                .expect("the loaded fixture must render in the visible note reader")
+                .origin
+                .y
+        };
+        let settled_y = row_y(cx);
         cx.update(|_, app| {
             view.update(app, |workspace, cx| {
                 assert_eq!(workspace.current_note.as_ref().unwrap().note.note_id, 42);
                 assert!(!workspace.partial_read);
                 assert!(workspace.read_error.is_none());
+                assert!(!workspace.reader_read_pending());
+                assert!(!workspace.reader_body_waiting());
                 // Put the presentation in a deterministic pending state. This
                 // tests actual rendering, not physical storage or I/O latency.
                 let key = workspace.current_note_request.clone().unwrap();
@@ -427,15 +431,28 @@ fn body_wait_indicator_renders_only_for_the_current_live_reader(cx: &mut TestApp
             });
         });
         cx.run_until_parked();
-        assert!(cx.debug_bounds("reader-body-wait").is_some());
+        let wait = cx
+            .debug_bounds("reader-body-wait")
+            .expect("the selected body wait must render in the reader");
+        // GPUI 0.2.2 retains selectors in recycled frames, so existence alone
+        // can succeed from the initial load. Verify the wait really occupies
+        // space in this frame by observing the persistent reader row move.
+        assert!(wait.size.height > px(0.));
+        assert!(row_y(cx) >= settled_y + wait.size.height);
         cx.update(|_, app| {
             view.update(app, |workspace, cx| {
                 workspace.live_reader_pending =
                     Some(workspace_live::ReaderRead::list(workspace.request));
+                assert!(workspace.reader_read_pending());
+                assert!(!workspace.reader_body_waiting());
                 cx.notify();
             });
         });
         cx.run_until_parked();
-        assert!(cx.debug_bounds("reader-body-wait").is_none());
+        assert_eq!(
+            row_y(cx),
+            settled_y,
+            "a list wait must not occupy reader space"
+        );
     });
 }
