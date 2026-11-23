@@ -32,17 +32,27 @@ fn has_fragment(link: &markdown::Link) -> bool {
     }
 }
 fn host_term(link: &markdown::Link) -> Option<String> {
-    if matches!(
-        &link.target,
+    match &link.target {
         markdown::LinkTarget::Wiki {
-            fragment: Some(_),
+            key,
+            fragment: Some(fragment),
             ..
+        } => {
+            if key.len().saturating_add(fragment.len()) > 4096
+                || fragment.chars().any(char::is_control)
+                // Validate syntax with the Source reader, without fetching a target.
+                || !matches!(
+                    markdown::fragment_anchor(&[], &link.target),
+                    Err(markdown::FragmentError::MissingHeading(_)
+                        | markdown::FragmentError::MissingBlock(_))
+                )
+            {
+                return None;
+            }
+            link_term(link)
         }
-    ) || has_fragment(link)
-    {
-        None
-    } else {
-        link_term(link)
+        markdown::LinkTarget::Markdown { .. } if has_fragment(link) => None,
+        _ => link_term(link),
     }
 }
 fn candidates(preview: &markdown::IncludePreview) -> Vec<Candidate> {
@@ -115,6 +125,18 @@ struct Ticket {
     scope_revision: u64,
     registry: (String, Vec<String>),
     candidate: Candidate,
+}
+impl Ticket {
+    fn intent(&self, destination: live::NoteKey) -> shell::InternalLinkIntent {
+        shell::InternalLinkIntent {
+            source: self.identity.source.note.clone(),
+            destination,
+            target: self.candidate.link.target.clone(),
+            launch_generation: self.identity.source.launch_generation,
+            storage_generation: self.identity.source.storage_generation,
+            allow_epoch_advance: false,
+        }
+    }
 }
 fn current_ticket(expected: &Ticket, current: Option<&Ticket>) -> bool {
     current == Some(expected)
@@ -198,11 +220,13 @@ impl Workspace {
                     controls = controls.child(control);
                     continue;
                 }
-                controls = controls.child(format!(
-                    "Host link fragment unavailable: {}",
-                    candidate.label
-                ));
-                continue;
+                if host_term(&candidate.link).is_none() {
+                    controls = controls.child(format!(
+                        "Host link fragment unavailable: {}",
+                        candidate.label
+                    ));
+                    continue;
+                }
             }
             let Some(ticket) = self.host_link_ticket(candidate) else {
                 continue;
@@ -215,7 +239,11 @@ impl Workspace {
                     )))
                     .text_size(px(12.))
                     .cursor_pointer()
-                    .child(format!("Open host link: {}", candidate.label))
+                    .child(if candidate.fragment {
+                        format!("Open Source at fragment: {}", candidate.label)
+                    } else {
+                        format!("Open host link: {}", candidate.label)
+                    })
                     .on_click(
                         cx.listener(move |this, event: &gpui::ClickEvent, window, cx| {
                             cx.stop_propagation();
@@ -299,19 +327,17 @@ impl Workspace {
                         cx.notify();
                         return;
                     }
-                    let intent = shell::InternalLinkIntent {
-                        source: ticket.identity.source.note.clone(),
-                        destination: key,
-                        target: ticket.candidate.link.target.clone(),
-                        launch_generation: ticket.identity.source.launch_generation,
-                        storage_generation: ticket.identity.source.storage_generation,
-                        allow_epoch_advance: false,
-                    };
+                    let intent = ticket.intent(key);
                     if this.guard_transition(
                         workspace_edit::Transition::InternalLink(intent.clone()),
                         cx,
                     ) {
                         return;
+                    }
+                    // Only an authorized activation may retire automatic Rendered mode.
+                    // Keep Source visible while its existing fragment landing completes.
+                    if ticket.candidate.fragment {
+                        this.shell.rendered_reading.disable();
                     }
                     this.close_includes_preview(&ticket.identity, ticket.serial, window, cx);
                     this.open_internal_link(intent, cx);
@@ -340,12 +366,7 @@ mod tests {
             Some("Destination")
         );
         assert_eq!(host_term(&link("[[C#|Language]]")).as_deref(), Some("C#"));
-        for input in [
-            "[[Destination#Heading|Alias]]",
-            "[[Destination#^block]]",
-            "[Alias](Note.md#heading)",
-            "[Alias](Note%23heading.md)",
-        ] {
+        for input in ["[Alias](Note.md#heading)", "[Alias](Note%23heading.md)"] {
             assert!(host_term(&link(input)).is_none(), "{input}");
         }
         let mut oversized = link("[[A#heading]]");
@@ -358,6 +379,175 @@ mod tests {
         }
         assert!(host_term(&oversized).is_none());
         assert!(link_term(&link("[[Destination#Heading|Alias]]")).is_some()); // Existing include route unchanged.
+    }
+    #[test]
+    fn wiki_fragment_admission_reuses_source_syntax_and_preserves_exact_payload() {
+        for (input, term, fragment) in [
+            ("[[Target##Section|Go]]", "Target", "##Section"),
+            (
+                "[[id:200###日本語 Hello!|Old title]]",
+                "id:200",
+                "###日本語 Hello!",
+            ),
+            (
+                "[[remote:id:200#^block-a|Details]]",
+                "remote:id:200",
+                "#^block-a",
+            ),
+        ] {
+            let parsed = link(input);
+            assert_eq!(host_term(&parsed).as_deref(), Some(term), "{input}");
+            let mut ticket = ticket();
+            ticket.candidate.link = parsed.clone();
+            ticket.candidate.fragment = true;
+            let destination = live::NoteKey {
+                vault: "remote".into(),
+                note_id: 200,
+            };
+            let intent = ticket.intent(destination.clone());
+            assert_eq!(intent.target, parsed.target);
+            assert_eq!(intent.source, ticket.identity.source.note);
+            assert_eq!(intent.destination, destination);
+            assert!(!intent.allow_epoch_advance);
+            assert!(
+                matches!(&intent.target, markdown::LinkTarget::Wiki { fragment: Some(f), .. } if f == fragment)
+            );
+        }
+        for fragment in [
+            "",
+            "#",
+            "###",
+            "#%53ection",
+            "#h-section",
+            "#^",
+            "#^bad id",
+            "#line\nbreak",
+            "#nul\0byte",
+        ] {
+            let mut parsed = link("[[Target#Section]]");
+            if let markdown::LinkTarget::Wiki {
+                fragment: value, ..
+            } = &mut parsed.target
+            {
+                *value = Some(fragment.into());
+            }
+            assert!(host_term(&parsed).is_none(), "{fragment:?}");
+        }
+    }
+    #[test]
+    fn alias_does_not_change_key_fragment_or_resolved_namespace() {
+        let mut first = ticket();
+        first.candidate.link = link("[[remote:id:200##Section|Old title]]");
+        let mut renamed = first.clone();
+        renamed.candidate.link = link("[[remote:id:200##Section|New label]]");
+        let destination = live::NoteKey {
+            vault: "remote".into(),
+            note_id: 200,
+        };
+        assert_eq!(
+            host_term(&first.candidate.link).as_deref(),
+            Some("remote:id:200")
+        );
+        assert_eq!(
+            first.intent(destination.clone()),
+            renamed.intent(destination)
+        );
+    }
+    #[test]
+    fn fragment_terms_keep_existing_key_safety_and_combined_size_bound() {
+        for key in [
+            "",
+            "javascript:run",
+            "file:secret",
+            "data:text",
+            "https://example.invalid",
+            "bad\nkey",
+        ] {
+            let parsed = markdown::Link {
+                range: 0..1,
+                target: markdown::LinkTarget::Wiki {
+                    key: key.into(),
+                    fragment: Some("#Section".into()),
+                    authored_label: false,
+                },
+            };
+            assert!(host_term(&parsed).is_none(), "{key:?}");
+        }
+        let mut parsed = link("[[A#Section]]");
+        if let markdown::LinkTarget::Wiki { key, .. } = &mut parsed.target {
+            *key = "a".repeat(4096 - "#Section".len());
+        }
+        assert!(host_term(&parsed).is_some());
+        if let markdown::LinkTarget::Wiki { key, .. } = &mut parsed.target {
+            key.push('a');
+        }
+        assert!(host_term(&parsed).is_none());
+    }
+    #[test]
+    fn fragment_resolution_requires_exact_source_term_and_authoritative_found_response() {
+        let mut ticket = ticket();
+        ticket.candidate.link = link("[[foreign:id:200#^block-a|Alias]]");
+        let term = host_term(&ticket.candidate.link).unwrap();
+        let mut response: live::Resolution = serde_json::from_value(serde_json::json!({
+            "found": true, "note": {"note_id":200,"title":"Current title","file_kind":"note","vault":"foreign"}
+        })).unwrap();
+        response.source_vault = ticket.identity.source.note.vault.clone();
+        response.launch_generation = ticket.identity.source.launch_generation;
+        response.term = term.clone();
+        let key =
+            query_navigation::verified_key(&response, &ticket.identity.source, &term).unwrap();
+        assert_eq!(key.vault, "foreign");
+        assert_eq!(key.note_id, 200);
+        assert_eq!(ticket.intent(key).target, ticket.candidate.link.target);
+        for change in 0..4 {
+            let mut rejected = response.clone();
+            match change {
+                0 => rejected.found = false,
+                1 => rejected.source_vault = "foreign".into(),
+                2 => rejected.term = "Alias".into(),
+                _ => rejected.launch_generation += 1,
+            }
+            assert!(
+                query_navigation::verified_key(&rejected, &ticket.identity.source, &term).is_err()
+            );
+        }
+    }
+    #[test]
+    fn accepted_wiki_fragments_use_existing_source_landings_and_missing_diagnostics() {
+        let blocks = markdown::parse_reader(
+            "# Section\n\n## Section\n\nfirst ^block-a\n\nsecond ^block-a\n\n```text\ncode ^block-a\n```\n\n^detached",
+        );
+        let heading = link("[[Target##Section|Go]]");
+        assert_eq!(
+            markdown::fragment_anchor(&blocks, &heading.target),
+            Ok(Some(markdown::outline(&blocks)[0].anchor.clone()))
+        );
+        let block = link("[[Target#^block-a|Details]]");
+        assert_eq!(
+            markdown::fragment_anchor(&blocks, &block.target),
+            Ok(Some("^block-a".into()))
+        );
+        assert_eq!(
+            markdown::authored_block_targets(&blocks).get("^block-a"),
+            Some(&2)
+        );
+        for (input, error) in [
+            (
+                "[[Target#Missing]]",
+                markdown::FragmentError::MissingHeading("Missing".into()),
+            ),
+            (
+                "[[Target#^detached]]",
+                markdown::FragmentError::MissingBlock("detached".into()),
+            ),
+        ] {
+            let parsed = link(input);
+            assert_eq!(host_term(&parsed).as_deref(), Some("Target"));
+            assert_eq!(
+                markdown::fragment_anchor(&blocks, &parsed.target),
+                Err(error)
+            );
+        }
     }
     #[test]
     fn conservative_markdown_conversion_and_unsafe_targets() {
@@ -417,6 +607,38 @@ mod tests {
         };
         assert_eq!(candidates(&preview).len(), MAX_HOST_LINKS);
     }
+    #[test]
+    fn host_prose_fragments_do_not_authorize_code_includes_or_markdown_fragments() {
+        let preview = markdown::IncludePreview {
+            items: vec![
+                markdown::PreviewItem::Host(markdown::parse(
+                    "[[Target##Section|Go]] `[[Code#Section]]` [local](#section) [other](Other.md#section) [[Target#%53ection]]\n\n```text\n[[Fence#Section]]\n```",
+                )),
+                markdown::PreviewItem::Include {
+                    index: 0,
+                    directive: "![[Included]]".into(),
+                    blocks: markdown::parse("[[Included#Section]]"),
+                },
+            ],
+            unsupported: vec![],
+        };
+        let controls = candidates(&preview);
+        assert_eq!(controls.len(), 4);
+        assert_eq!(controls[0].label, "Go");
+        assert!(
+            controls
+                .iter()
+                .all(|candidate| candidate.item == 0 && candidate.fragment)
+        );
+        assert_eq!(
+            controls
+                .iter()
+                .filter(|candidate| host_term(&candidate.link).is_some())
+                .count(),
+            1
+        );
+        assert!(markdown::is_local_fragment(&controls[1].link.target));
+    }
     fn ticket() -> Ticket {
         let note = live::NoteKey {
             vault: "host".into(),
@@ -453,7 +675,7 @@ mod tests {
         let expected = ticket();
         assert!(current_ticket(&expected, Some(&ticket())));
         assert!(!current_ticket(&expected, None));
-        for i in 0..11 {
+        for i in 0..17 {
             let mut changed = ticket();
             match i {
                 0 => changed.identity.source.request += 1,
@@ -466,7 +688,13 @@ mod tests {
                 7 => changed.identity.source.note.vault = "foreign".into(),
                 8 => changed.candidate.item += 1,
                 9 => changed.candidate.block += 1,
-                _ => changed.candidate.link = link("[[Another|Alias]]"),
+                10 => changed.candidate.link = link("[[Another|Alias]]"),
+                11 => changed.identity.source.etag = "new body".into(),
+                12 => changed.identity.source.launch_generation += 1,
+                13 => changed.scope = "foreign".into(),
+                14 => changed.registry.0 = "foreign".into(),
+                15 => changed.candidate.link = link("[[Target#Section|Alias]]"),
+                _ => changed.identity.route.note_id += 1,
             };
             assert!(!current_ticket(&expected, Some(&changed)));
         }
