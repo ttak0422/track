@@ -221,7 +221,7 @@ impl Workspace {
             && !self.handoff_active()
             && !self.includes_preview_active()
             && !self.partial_read
-            && self.read_error.is_none()
+            && self.current_read_error().is_none()
             && self
                 .live
                 .as_ref()

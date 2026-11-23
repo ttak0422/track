@@ -158,7 +158,7 @@ impl Workspace {
             .map(|n| n.note.tags.as_slice())
             .unwrap_or_default();
         if self.tag_routing_blocked(cx)
-            || self.read_error.is_some()
+            || self.current_read_error().is_some()
             || !source_matches(source, self.current_link_source().as_ref(), tag, tags)
         {
             return;

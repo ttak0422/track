@@ -43,6 +43,7 @@ fn workspace(session: live::Session, cx: &mut Context<Workspace>) -> Workspace {
         current_note: None,
         current_note_request: None,
         read_error: None,
+        body_read_error: None,
         partial_read: false,
         current_related: Default::default(),
         status: String::new(),
@@ -454,5 +455,87 @@ fn body_wait_indicator_renders_only_for_the_current_live_reader(cx: &mut TestApp
             settled_y,
             "a list wait must not occupy reader space"
         );
+    });
+}
+
+#[gpui::test]
+#[ignore = "requires an explicit synthetic-only Go bridge binary"]
+fn live_body_error_leaves_reader_on_close_but_not_on_search(cx: &mut TestAppContext) {
+    live::with_keyboard_fixture(|session| {
+        let (view, cx) = cx.add_window_view(|_, cx| workspace(session, cx));
+        cx.run_until_parked();
+        let wrong = live::NoteKey {
+            vault: "work".into(),
+            note_id: 999,
+        };
+        cx.update(|_, app| {
+            view.update(app, |w, cx| {
+                let current = w.tabs.active().unwrap().key.clone();
+                w.close_tab(&current, cx);
+                w.open_live_key(wrong.clone(), cx);
+            })
+        });
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("workspace-read-error").is_some());
+        view.read_with(cx, |w, _| {
+            assert!(w.current_body_read_error().is_some());
+            assert!(w.read_error.is_none());
+        });
+
+        // Successful search is an independent response, not a successful body read.
+        cx.update(|_, app| {
+            view.update(app, |w, cx| w.search_live("DestinationOnly".into(), cx));
+        });
+        cx.run_until_parked();
+        view.read_with(cx, |w, _| {
+            assert!(w.search_results.iter().any(|result| result.note_id == 43));
+            assert!(w.current_body_read_error().is_some());
+        });
+        assert!(cx.debug_bounds("workspace-read-error").is_some());
+
+        let tab = tabs::TabKey::Note {
+            vault: wrong.vault,
+            note_id: wrong.note_id,
+        };
+        cx.update(|_, app| view.update(app, |w, cx| w.close_tab(&tab, cx)));
+        cx.run_until_parked();
+        view.read_with(cx, |w, _| {
+            assert!(w.shell.home && w.selected.is_none());
+            assert!(w.current_body_read_error().is_none());
+            // This is the render predicate. A negative selector lookup is
+            // unreliable because GPUI can retain selectors in recycled frames.
+            assert!(w.current_read_error().is_none());
+        });
+    });
+}
+
+#[gpui::test]
+#[ignore = "requires an explicit synthetic-only Go bridge binary"]
+fn old_live_body_failure_cannot_replace_shared_or_new_reader_state(cx: &mut TestAppContext) {
+    live::with_keyboard_fixture(|session| {
+        let (view, cx) = cx.add_window_view(|_, cx| workspace(session, cx));
+        cx.run_until_parked();
+        let known = view.read_with(cx, |w, _| w.current_note_request.clone().unwrap());
+        cx.update(|_, app| {
+            view.update(app, |w, cx| {
+                w.read_error = Some("independent list error".into());
+                w.open_live_key(
+                    live::NoteKey {
+                        vault: known.vault.clone(),
+                        note_id: 999,
+                    },
+                    cx,
+                );
+                // No completion can publish in the middle of this single UI update.
+                w.open_live_key(known.clone(), cx);
+            })
+        });
+        cx.run_until_parked();
+        view.read_with(cx, |w, _| {
+            assert_eq!(w.current_note_request.as_ref(), Some(&known));
+            assert!(w.current_body_read_error().is_none());
+            assert_eq!(w.current_read_error(), Some("independent list error"));
+        });
+        assert!(cx.debug_bounds("workspace-read-error").is_some());
     });
 }

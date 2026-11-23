@@ -266,7 +266,7 @@ impl Workspace {
         self.follow.routing = true;
         self.open_live_key(key.clone(), cx);
         self.follow.routing = false;
-        if self.read_error.is_some() {
+        if self.current_read_error().is_some() {
             self.pause_editor_follow("Note could not be opened.");
             return;
         }

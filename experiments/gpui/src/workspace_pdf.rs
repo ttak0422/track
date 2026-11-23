@@ -72,7 +72,7 @@ impl Workspace {
     fn pdf_identity(&self) -> Option<Identity> {
         if !accepted_request(self.shell.accepted_title_request, self.request)
             || self.shell.home
-            || self.read_error.is_some()
+            || self.current_read_error().is_some()
             || self.quit_session.is_closing()
             || self.quit_session.failure().is_some()
             || self.editing_ui.active()
