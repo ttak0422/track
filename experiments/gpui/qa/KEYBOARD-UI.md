@@ -68,3 +68,10 @@ to Home removes its warning. Choosing a healthy note in the same UI update
 that schedules an older failing request exercises stale completion isolation;
 a separate workspace/list diagnostic must not be attributed to the note or
 cleared by that body request. These are virtual-window tests, not AppKit.
+
+A deferred-delivery case holds an already successful, admitted Go note response
+before Workspace applies it. Releasing it for the same note fills the reader
+without recording a new visit. In a second read, Home and a healthy note can
+settle while the fetched response stays pending; releasing it later cannot
+replace the healthy reader or history. This bounds UI delivery ordering, not
+the Go HTTP deadline, blocked storage, or native window responsiveness.

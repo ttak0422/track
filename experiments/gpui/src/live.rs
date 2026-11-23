@@ -3450,6 +3450,13 @@ impl Drop for OwnedServer {
     }
 }
 
+#[cfg(all(test, feature = "ui-tests"))]
+struct KeyboardBodyDelivery {
+    key: NoteKey,
+    fetched: tokio::sync::oneshot::Sender<bool>,
+    release: tokio::sync::oneshot::Receiver<()>,
+}
+
 /// Start on a background task; clone/drop anywhere. The final handle drop only
 /// disconnects a channel. Its dedicated owner thread performs bounded cleanup.
 #[derive(Clone)]
@@ -3458,6 +3465,8 @@ pub struct Session {
     client: ReadClient,
     #[cfg(all(test, feature = "ui-tests"))]
     keyboard_body_failure: Arc<Mutex<Option<NoteKey>>>,
+    #[cfg(all(test, feature = "ui-tests"))]
+    keyboard_body_delivery: Arc<Mutex<Option<KeyboardBodyDelivery>>>,
     events: Arc<crate::live_events::Observer>,
     pub initial_vaults: Value,
     pub initial_storage: Option<Storage>,
@@ -3493,6 +3502,8 @@ impl Session {
             client: server.client(),
             #[cfg(all(test, feature = "ui-tests"))]
             keyboard_body_failure: Default::default(),
+            #[cfg(all(test, feature = "ui-tests"))]
+            keyboard_body_delivery: Default::default(),
             initial_vaults: server.initial_vaults.clone(),
             initial_storage: server.initial_storage.clone(),
             storage_error: server.storage_error.clone(),
@@ -3538,6 +3549,38 @@ impl Session {
         let mut failure = self.keyboard_body_failure.lock().unwrap();
         assert!(failure.is_none());
         *failure = Some(key);
+    }
+    #[cfg(all(test, feature = "ui-tests"))]
+    pub(crate) fn hold_keyboard_body_delivery_once(
+        &self,
+        key: NoteKey,
+    ) -> (
+        tokio::sync::oneshot::Receiver<bool>,
+        tokio::sync::oneshot::Sender<()>,
+    ) {
+        let (fetched, fetched_receiver) = tokio::sync::oneshot::channel();
+        let (release_sender, release) = tokio::sync::oneshot::channel();
+        let mut pending = self.keyboard_body_delivery.lock().unwrap();
+        assert!(pending.is_none());
+        *pending = Some(KeyboardBodyDelivery {
+            key,
+            fetched,
+            release,
+        });
+        (fetched_receiver, release_sender)
+    }
+    #[cfg(all(test, feature = "ui-tests"))]
+    pub(crate) async fn defer_keyboard_body_delivery(&self, key: &NoteKey, fetched: bool) {
+        let delivery = {
+            let mut pending = self.keyboard_body_delivery.lock().unwrap();
+            if !pending.as_ref().is_some_and(|delivery| &delivery.key == key) {
+                return;
+            }
+            pending.take().unwrap()
+        };
+        let _ = delivery.fetched.send(fetched);
+        // Dropping the release sender also unblocks the future after a failed assertion.
+        let _ = delivery.release.await;
     }
     pub fn events(&self) -> crate::live_events::Snapshot {
         self.events.snapshot()
