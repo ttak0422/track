@@ -394,10 +394,16 @@ fn body_wait_indicator_renders_only_for_the_current_live_reader(cx: &mut TestApp
     live::with_keyboard_fixture(|session| {
         let (view, cx) = cx.add_window_view(|_, cx| workspace(session, cx));
         cx.run_until_parked();
+        assert!(
+            cx.debug_bounds("keyboard-reader-row-0").is_some(),
+            "the loaded fixture must render in the visible note reader"
+        );
         assert!(cx.debug_bounds("reader-body-wait").is_none());
         cx.update(|_, app| {
             view.update(app, |workspace, cx| {
-                assert!(workspace.current_note.is_some());
+                assert_eq!(workspace.current_note.as_ref().unwrap().note.note_id, 42);
+                assert!(!workspace.partial_read);
+                assert!(workspace.read_error.is_none());
                 // Put the presentation in a deterministic pending state. This
                 // tests actual rendering, not physical storage or I/O latency.
                 let key = workspace.current_note_request.clone().unwrap();
@@ -413,6 +419,10 @@ fn body_wait_indicator_renders_only_for_the_current_live_reader(cx: &mut TestApp
                     launch,
                     workspace.accepted_storage_generation,
                 ));
+                assert!(
+                    workspace.reader_body_waiting(),
+                    "the pending body belongs to the visible note"
+                );
                 cx.notify();
             });
         });

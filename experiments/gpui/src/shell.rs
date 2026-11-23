@@ -5234,6 +5234,7 @@ impl Render for Workspace {
                         reader.child(
                             div()
                                 .id("reader-body-wait")
+                                .debug_selector(|| "reader-body-wait".into())
                                 .mb_4()
                                 .text_size(px(13.))
                                 .text_color(rgb(p.muted))
