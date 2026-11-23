@@ -95,8 +95,10 @@ acceptance. Do not infer completion from a module, unit test, screenshot or olde
   definition jumps do not imply automatic backlinks or browser layout equivalence.
 - Rendered reading is session-only, one automatic render attempt per accepted owner;
   busy/error needs explicit retry. **Rendered Reload resolves accepted text; Source
-  View > Reload retrieves the note.** Rendered-header history admits adjacent note/Home
-  entries, not Tag/Calendar/Graph. Source keeps the full existing guarded routes.
+  View > Reload retrieves the note.** Rendered-header history reuses existing guarded
+  note/Home/Tag/Calendar/Graph routes. Refusal restores its own preview and leaves
+  history unconsumed; stale owner/serial/destination controls are inert. Header
+  pointer/focus/IME/accessibility and server-backed rename remain unverified.
 - Preview Find searches eligible displayed host/include text, not query/task/diagram
   internals. Preview selection is one wholly visible non-link prose paragraph, supports
   inline styling, and caps copied text at 256 KiB; it does not select across excerpts.

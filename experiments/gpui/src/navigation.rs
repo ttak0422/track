@@ -144,6 +144,50 @@ mod tests {
         })
     }
     #[test]
+    fn chronological_routes_keep_note_identity_and_discard_abandoned_forward() {
+        let tag = TabKey::Tag {
+            tag: "garden".into(),
+            scope: String::new(),
+        };
+        let mut tabs = crate::tabs::Tabs::default();
+        let note = tabs.open_note("fixture", 42001, "Orchard");
+        let routes = [tag, note.clone(), TabKey::Calendar, TabKey::Graph];
+        let mut history = History::default();
+        for route in &routes {
+            history.record(Some(route.clone()));
+        }
+        tabs.update_title(&note, "Renamed orchard");
+        for route in routes[..3].iter().rev() {
+            let ticket = history.peek(false).unwrap();
+            assert_eq!(ticket.route.as_ref(), Some(route));
+            assert!(history.commit(&ticket));
+            // Route adapters record the accepted destination again. This must
+            // preserve the Forward branch rather than append another visit.
+            history.record(Some(route.clone()));
+            if route == &note {
+                assert_eq!(tabs.get(route).unwrap().title, "Renamed orchard");
+            }
+        }
+        for route in &routes[1..] {
+            let ticket = history.peek(true).unwrap();
+            assert_eq!(ticket.route.as_ref(), Some(route));
+            assert!(history.commit(&ticket));
+            history.record(Some(route.clone()));
+        }
+        assert!(history.peek(true).is_none());
+        assert!(history.commit(&history.peek(false).unwrap()));
+        let abandoned = history.peek(true).unwrap();
+        let work = TabKey::Tag {
+            tag: "work".into(),
+            scope: String::new(),
+        };
+        history.record(Some(work.clone()));
+        assert_eq!(history.current(), Some(&work));
+        assert!(history.peek(true).is_none());
+        assert!(!history.commit(&abandoned));
+    }
+
+    #[test]
     fn calendar_back_forward_and_restoration_keep_safe_home() {
         let mut history = History::default();
         history.record(Some(TabKey::Calendar));

@@ -92,11 +92,31 @@ impl Mode {
             && &ticket.owner == current
     }
 }
-fn history_route_supported(route: Option<&tabs::TabKey>) -> bool {
-    matches!(
-        route,
-        None | Some(tabs::TabKey::Home | tabs::TabKey::Note { .. })
-    )
+// Scoped to one synchronous replay: refusal must return the exact preview,
+// while a committed route retires it without losing the existing focus handoff.
+struct HistoryPreview {
+    history: navigation::History,
+    preview: Option<IncludesState>,
+}
+impl HistoryPreview {
+    fn suspend(history: &navigation::History, preview: &mut Option<IncludesState>) -> Self {
+        Self {
+            history: history.clone(),
+            preview: preview.take(),
+        }
+    }
+    fn finish(
+        self,
+        history: &navigation::History,
+        preview: &mut Option<IncludesState>,
+        return_focus: &mut Option<gpui::FocusHandle>,
+    ) {
+        if &self.history == history {
+            *preview = self.preview;
+        } else {
+            *return_focus = self.preview.and_then(|s| s.preview_focus);
+        }
+    }
 }
 impl Workspace {
     fn reading_owner(&self) -> Option<Owner> {
@@ -302,13 +322,13 @@ impl Workspace {
     fn reading_history(
         &mut self,
         control: &Control,
-        serial: u64,
-        forward: bool,
+        ticket: &navigation::Ticket,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let expected = &control.owner.identity;
         if !self.reading_control_current(control)
+            || !self.history.accepts(ticket)
             || !window.is_window_active()
             || !self.shell.rendered_reading.enabled
             || !self.query_control_gate(expected, cx).allowed()
@@ -316,14 +336,8 @@ impl Workspace {
                 .shell
                 .includes
                 .as_ref()
-                .is_none_or(|s| !s.accepts(expected, serial))
+                .is_none_or(|s| !s.accepts(expected, control.serial))
         {
-            return;
-        }
-        let Some(ticket) = self.history.peek(forward) else {
-            return;
-        };
-        if !history_route_supported(ticket.route.as_ref()) {
             return;
         }
         if let Some(tabs::TabKey::Note { vault, .. }) = &ticket.route {
@@ -331,7 +345,16 @@ impl Workspace {
                 return;
             }
         }
-        self.replay_history(ticket, cx);
+        // Only this validated header's preview is suspended, synchronously. The
+        // ordinary replay keeps every other guard and destination access check.
+        // A refusal restores the exact snapshot, including Find/scroll/selection.
+        let suspended = HistoryPreview::suspend(&self.history, &mut self.shell.includes);
+        self.replay_history(ticket.clone(), cx);
+        suspended.finish(
+            &self.history,
+            &mut self.shell.includes,
+            &mut self.shell.rendered_return_focus,
+        );
     }
     pub(super) fn reading_controls(
         &self,
@@ -400,23 +423,20 @@ impl Workspace {
         );
         if preview {
             for (label, forward) in [("Back", false), ("Forward", true)] {
-                let Some(ticket) = self.history.peek(forward) else {
-                    row = row.child(format!("{label}: no history"));
-                    continue;
-                };
-                if !history_route_supported(ticket.route.as_ref()) {
-                    row = row.child(format!("{label}: return to Source for this route"));
-                    continue;
-                }
+                let ticket = self.history.peek(forward);
                 let captured = control.clone();
                 row = row.child(
                     div()
                         .id(gpui::SharedString::from(format!("reading-mode-{label}")))
-                        .cursor_pointer()
+                        .opacity(if ticket.is_some() { 1.0 } else { 0.4 })
                         .child(label)
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.reading_history(&captured, serial, forward, window, cx)
-                        })),
+                        .when_some(ticket, |button, ticket| {
+                            button.cursor_pointer().on_click(cx.listener(
+                                move |this, _, window, cx| {
+                                    this.reading_history(&captured, &ticket, window, cx)
+                                },
+                            ))
+                        }),
                 );
             }
         }
@@ -551,24 +571,101 @@ mod tests {
         assert!(!button.current(&m, &owner(2), 7));
     }
     #[test]
-    fn modal_history_support_is_explicit_and_does_not_bypass_special_routes() {
-        assert!(history_route_supported(None));
-        assert!(history_route_supported(Some(&tabs::TabKey::Home)));
-        assert!(history_route_supported(Some(&tabs::TabKey::Note {
+    fn refused_history_restores_exact_preview_without_consuming_destination() {
+        let mut history = navigation::History::default();
+        history.record(Some(tabs::TabKey::Calendar));
+        history.record(Some(tabs::TabKey::Note {
             vault: "host".into(),
-            note_id: 1
-        })));
-        for key in [
-            tabs::TabKey::Graph,
-            tabs::TabKey::Calendar,
-            tabs::TabKey::Tag {
-                tag: "tag".into(),
-                scope: "host".into(),
-            },
-        ] {
-            assert!(!history_route_supported(Some(&key)));
-        }
+            note_id: 1,
+        }));
+        let ticket = history.peek(false).unwrap();
+        let before = history.clone();
+        let mut state = IncludesState::new(owner(1).identity);
+        state.open = true;
+        state.preview_open = true;
+        state.serial = 7;
+        state.preview_epoch = 8;
+        state.accepted_body = Some("Retained rendered source".into());
+        let body_allocation = state.accepted_body.as_ref().unwrap().as_ptr();
+        state.query_pages.insert((0, 0, None), 3);
+        state
+            .preview_scroll
+            .set_offset(gpui::point(px(0.), px(-120.)));
+        let mut preview = Some(state);
+        let mut return_focus = None;
+        // Refused replay (including cancellation) does not commit its ticket.
+        let suspended = HistoryPreview::suspend(&history, &mut preview);
+        assert!(preview.is_none());
+        assert!(history.accepts(&ticket));
+        suspended.finish(&history, &mut preview, &mut return_focus);
+        assert_eq!(history, before);
+        let retained = preview.as_ref().unwrap();
+        assert!(retained.open && retained.preview_open);
+        assert_eq!(retained.serial, 7);
+        assert_eq!(retained.preview_epoch, 8);
+        assert_eq!(
+            retained.accepted_body.as_ref().unwrap().as_ptr(),
+            body_allocation
+        );
+        assert_eq!(retained.query_pages[&(0, 0, None)], 3);
+        assert_eq!(retained.preview_scroll.offset().y, px(-120.));
+        assert!(return_focus.is_none());
+        // The same intended destination remains usable after resolving a guard.
+        let suspended = HistoryPreview::suspend(&history, &mut preview);
+        assert!(history.commit(&ticket));
+        suspended.finish(&history, &mut preview, &mut return_focus);
+        assert_eq!(history.current(), Some(&tabs::TabKey::Calendar));
+        assert!(preview.is_none());
+        assert_eq!(history.peek(true).unwrap().route, before.current().cloned());
     }
+
+    #[test]
+    fn history_controls_cannot_reuse_old_owner_serial_or_unseen_destination() {
+        let mut mode = Mode::default();
+        mode.enable();
+        mode.claim(owner(1)).unwrap();
+        let control = Control {
+            owner: owner(1),
+            generation: mode.generation,
+            serial: 7,
+        };
+        let mut history = navigation::History::default();
+        assert!(history.peek(false).is_none());
+        assert!(history.peek(true).is_none());
+        history.record(Some(tabs::TabKey::Calendar));
+        history.record(Some(tabs::TabKey::Note {
+            vault: "host".into(),
+            note_id: 1,
+        }));
+        let captured = history.peek(false).unwrap();
+        assert!(control.current(&mode, &owner(1), 7));
+        assert!(history.accepts(&captured));
+        assert!(!control.current(&mode, &owner(1), 8));
+        assert!(!control.current(&mode, &owner(2), 7));
+        for dimension in 0..7 {
+            let mut changed = owner(1);
+            match dimension {
+                0 => changed.body = std::sync::Arc::from("changed body"),
+                1 => changed.scope_revision += 1,
+                2 => changed.registry.1.push("other".into()),
+                3 => changed.identity.source.storage_generation += 1,
+                4 => changed.identity.source.launch_generation += 1,
+                5 => changed.scope = "other".into(),
+                _ => changed.tasks_invalidated = true,
+            }
+            assert!(!control.current(&mode, &changed, 7));
+        }
+        // A later visit may retain the same note owner. It still cannot let an
+        // old header choose a different, never-displayed adjacent destination.
+        history.record(Some(tabs::TabKey::Graph));
+        assert!(control.current(&mode, &owner(1), 7));
+        assert!(!history.accepts(&captured));
+        mode.disable();
+        mode.enable();
+        mode.claim(owner(1)).unwrap();
+        assert!(!control.current(&mode, &owner(1), 7));
+    }
+
     #[test]
     fn exact_body_cache_reuses_allocation_without_granting_owner_authority() {
         let m = Mode::default();
