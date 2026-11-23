@@ -3456,6 +3456,8 @@ impl Drop for OwnedServer {
 pub struct Session {
     pub runtime_cache: Option<PathBuf>,
     client: ReadClient,
+    #[cfg(all(test, feature = "ui-tests"))]
+    keyboard_body_failure: Arc<Mutex<Option<NoteKey>>>,
     events: Arc<crate::live_events::Observer>,
     pub initial_vaults: Value,
     pub initial_storage: Option<Storage>,
@@ -3489,6 +3491,8 @@ impl Session {
                 EventPolicy::FiniteOnly => crate::live_events::Observer::unavailable(),
             }),
             client: server.client(),
+            #[cfg(all(test, feature = "ui-tests"))]
+            keyboard_body_failure: Default::default(),
             initial_vaults: server.initial_vaults.clone(),
             initial_storage: server.initial_storage.clone(),
             storage_error: server.storage_error.clone(),
@@ -3517,6 +3521,23 @@ impl Session {
     }
     pub fn client(&self) -> ReadClient {
         self.client.clone()
+    }
+    pub(crate) fn reader_note(&self, key: &NoteKey) -> Result<NoteResponse, Error> {
+        #[cfg(all(test, feature = "ui-tests"))]
+        {
+            let mut failure = self.keyboard_body_failure.lock().unwrap();
+            if failure.as_ref() == Some(key) {
+                failure.take();
+                return Err(Error::Transport("synthetic one-shot body failure".into()));
+            }
+        }
+        self.client.note(key)
+    }
+    #[cfg(all(test, feature = "ui-tests"))]
+    pub(crate) fn fail_keyboard_body_once(&self, key: NoteKey) {
+        let mut failure = self.keyboard_body_failure.lock().unwrap();
+        assert!(failure.is_none());
+        *failure = Some(key);
     }
     pub fn events(&self) -> crate::live_events::Snapshot {
         self.events.snapshot()

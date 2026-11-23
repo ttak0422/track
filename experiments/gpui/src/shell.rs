@@ -4982,6 +4982,7 @@ impl Render for Workspace {
             })
             .child(
                 rail_button("reload", Icon::Reload, p, false)
+                    .debug_selector(|| "keyboard-rail-reload".into())
                     .on_click(cx.listener(|this, _, _, cx| this.load_notes(cx))),
             )
             .when(

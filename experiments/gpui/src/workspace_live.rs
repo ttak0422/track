@@ -899,7 +899,7 @@ impl Workspace {
         let job = cx.background_executor().spawn(async move {
             let client = session.client();
             let before = client.storage();
-            let result = client.note(&key).and_then(|response| match &read_expected {
+            let result = session.reader_note(&key).and_then(|response| match &read_expected {
                 Some(expected) => expected.verify(response),
                 None => Ok(response),
             });
@@ -1016,7 +1016,7 @@ impl Workspace {
         let job = cx.background_executor().spawn(async move {
             let client = session.client();
             let before = client.storage();
-            let mut result = client.note(&key).and_then(|response| match &expected {
+            let mut result = session.reader_note(&key).and_then(|response| match &expected {
                 Some(expected) => expected.verify(response),
                 None => Ok(response),
             });
