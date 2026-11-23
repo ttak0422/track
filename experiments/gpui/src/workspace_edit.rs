@@ -46,6 +46,7 @@ pub enum Transition {
     FullGraph,
     Calendar,
     WorkingVault(String),
+    KeyboardTab(tabs::TabKey),
     CreateNote,
     Quit,
 }
@@ -206,6 +207,12 @@ pub struct EditingUi {
     recovery_seen: Option<workspace_session::RecoveryStatus>,
 }
 impl EditingUi {
+    #[cfg(all(test, feature = "ui-tests"))]
+    pub(crate) fn test_hold_recovery_cleanup(&mut self, pending: bool) {
+        // Exercise the existing refusal gate without granting edit/recovery rights.
+        self.recovery_clearing = pending;
+    }
+
     pub fn new(fixture_root: Option<PathBuf>) -> Self {
         Self {
             creation: Default::default(),
@@ -493,6 +500,7 @@ impl Workspace {
             Transition::FullGraph => self.open_full_graph(cx),
             Transition::Calendar => self.open_calendar(cx),
             Transition::WorkingVault(scope) => self.change_working_vault(scope, cx),
+            Transition::KeyboardTab(key) => self.activate_keyboard_tab(key, cx),
             Transition::CreateNote => self.open_creation_form(cx),
             Transition::Quit => {
                 self.editing_ui.exit_requested = true;
@@ -1981,6 +1989,134 @@ mod pending_transition_tests {
         assert!(!history.commit(&accepted));
         assert!(history.peek(true).is_some());
     }
+    fn keyboard_mid_walk() -> (tabs::Tabs, Vec<tabs::TabKey>) {
+        let mut tabs = tabs::Tabs::restore(
+            [
+                tabs::TabKey::Note {
+                    vault: "two".into(),
+                    note_id: 1,
+                },
+                tabs::TabKey::Note {
+                    vault: "one".into(),
+                    note_id: 7,
+                },
+                tabs::TabKey::Note {
+                    vault: "two".into(),
+                    note_id: 8,
+                },
+            ]
+            .into_iter()
+            .map(|key| tabs::Tab {
+                key,
+                title: "Synthetic".into(),
+            })
+            .collect(),
+        );
+        let mut order = Vec::new();
+        let mut cursor = 0;
+        let key = shell::keyboard_tab_destination(&mut order, &mut cursor, &tabs, false).unwrap();
+        assert!(tabs.activate(&key));
+        (tabs, order)
+    }
+
+    #[test]
+    fn keyboard_tab_cancel_retries_exact_mid_walk_neighbor_and_preserves_draft() {
+        for backwards in [false, true] {
+            let (tabs, mut order) = keyboard_mid_walk();
+            let mut cursor = 0;
+            let before = tabs.clone();
+            let mut edit = draft();
+            let mut pending = PendingTransition::default();
+            let key =
+                shell::keyboard_tab_destination(&mut order, &mut cursor, &tabs, backwards).unwrap();
+            assert_eq!(
+                transition_decision(false, false, Some(edit.leave_prompt())),
+                GateDecision::Prompt
+            );
+            pending.capture(Transition::KeyboardTab(key.clone()));
+            assert!(matches!(
+                edit.choose_leave(LeaveChoice::Cancel, 1, &storage())
+                    .unwrap(),
+                LeaveAction::Stay
+            ));
+            pending.cancel();
+            assert!(pending.take().is_none());
+            assert_eq!(edit.draft(), "exact draft\n\n");
+            assert!(edit.dirty());
+            assert_eq!(tabs, before);
+            assert_eq!(
+                shell::keyboard_tab_destination(&mut order, &mut cursor, &tabs, backwards),
+                Some(key)
+            );
+        }
+    }
+
+    #[test]
+    fn keyboard_tab_acknowledgment_moves_once_and_continues_frozen_order() {
+        let (mut tabs, mut order) = keyboard_mid_walk();
+        let mut cursor = 0;
+        let mut edit = draft();
+        let mut pending = PendingTransition::default();
+        let key = shell::keyboard_tab_destination(&mut order, &mut cursor, &tabs, false).unwrap();
+        pending.capture(Transition::KeyboardTab(key.clone()));
+        let attempt = start(&mut edit, &mut pending);
+        let outcome = edit.finish_save(attempt, 1, 2, Ok(ack()));
+        let accepted = pending.finish_save(attempt, &outcome, true);
+        assert_eq!(accepted, Some(Transition::KeyboardTab(key.clone())));
+        assert!(tabs.activate(&key));
+        assert!(pending.finish_save(attempt, &outcome, true).is_none());
+        assert_eq!(
+            shell::keyboard_tab_destination(&mut order, &mut cursor, &tabs, false),
+            Some(order[0].clone())
+        );
+    }
+
+    #[test]
+    fn keyboard_tab_failed_save_keeps_neighbor_available_without_replay() {
+        let (tabs, mut order) = keyboard_mid_walk();
+        let mut cursor = 0;
+        let mut edit = draft();
+        let mut pending = PendingTransition::default();
+        let key = shell::keyboard_tab_destination(&mut order, &mut cursor, &tabs, false).unwrap();
+        pending.capture(Transition::KeyboardTab(key.clone()));
+        let attempt = start(&mut edit, &mut pending);
+        let outcome = edit.finish_save(
+            attempt,
+            1,
+            2,
+            Err(live::Error::Transport("lost response".into())),
+        );
+        assert!(pending.finish_save(attempt, &outcome, false).is_none());
+        assert!(edit.dirty());
+        assert_eq!(edit.draft(), "exact draft\n\n");
+        assert_eq!(
+            shell::keyboard_tab_destination(&mut order, &mut cursor, &tabs, false),
+            Some(key)
+        );
+    }
+
+    #[test]
+    fn keyboard_tab_discard_consumes_exact_destination_once() {
+        let (mut tabs, mut order) = keyboard_mid_walk();
+        let mut cursor = 0;
+        let mut edit = draft();
+        let mut pending = PendingTransition::default();
+        let key = shell::keyboard_tab_destination(&mut order, &mut cursor, &tabs, false).unwrap();
+        pending.capture(Transition::KeyboardTab(key.clone()));
+        assert!(matches!(
+            edit.choose_leave(LeaveChoice::Discard, 1, &storage())
+                .unwrap(),
+            LeaveAction::Leave
+        ));
+        assert_eq!(pending.take(), Some(Transition::KeyboardTab(key.clone())));
+        assert!(pending.take().is_none());
+        assert!(tabs.activate(&key));
+        assert_eq!(
+            shell::keyboard_tab_destination(&mut order, &mut cursor, &tabs, false),
+            Some(order[0].clone())
+        );
+    }
+
     #[test]
     fn acknowledged_save_replays_first_exact_destination_once() {
         let (mut tabs, a, b) = tabs();

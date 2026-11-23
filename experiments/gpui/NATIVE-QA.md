@@ -2143,3 +2143,17 @@ This reproduced and fixed a pre-click focus capture/reader-owner loss. It did
 not reproduce the older popup-closing-while-typing observation. No native window
 or personal vault was opened. Native AppKit delivery, real IME and accessibility
 remain separate pending checks; this entry does not close those release gates.
+
+## Virtual Tab refusal regression, 2026-11-18
+
+The previous keyboard cursor advanced even when a transition was refused. In a
+separate baseline worktree at dd25a78a with only harness additions, the actual
+Workspace key-event test requested note 43 but reopened note 42 after a held
+recovery-cleanup gate was released. The fix derives its cursor from the actual
+active tab, keeps the initial order through protected keyboard replay and retains
+that order during pending decision clicks. The regression uses three generated
+read-only notes; no edit/recovery permission or actual cleanup failure is created.
+
+Draft Cancel, Save/Discard replay and failed-save behavior have separate actual
+controller tests. This evidence does not establish native dirty-dialog, physical
+keyboard, accessibility or IME delivery. See [the runner](qa/KEYBOARD-UI.md).
