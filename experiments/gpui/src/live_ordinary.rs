@@ -678,6 +678,19 @@ mod tests {
                 })
                 .is_ok()
         });
+        let invalid_path = work.join("note/99.md").display().to_string();
+        let has_file_issue = |fields: &std::collections::BTreeMap<String, Value>| {
+            fields
+                .get("read_state")
+                .and_then(|state| state.get("issues"))
+                .and_then(Value::as_array)
+                .is_some_and(|issues| issues.iter().any(|issue| issue["path"] == invalid_path))
+        };
+        wait(|| {
+            client
+                .notes("work")
+                .is_ok_and(|result| has_file_issue(&result.diagnostics))
+        });
         let source = client
             .note(&NoteKey {
                 vault: "work".into(),
@@ -685,6 +698,7 @@ mod tests {
             })
             .unwrap();
         assert_eq!(source.note.body, "Foreign sentinel body");
+        assert!(has_file_issue(&source.related_and_diagnostics));
         assert!(matches!(
             client.save(&SaveRequest {
                 key: source.note.note.key(),

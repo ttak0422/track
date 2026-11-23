@@ -1,6 +1,6 @@
 package webui
 
-// Internal-only startup binding. No CLI/native admission caller. Verification
+// Internal supervised startup binding. Verification
 // observes filesystem inputs synchronously; it is not an atomic sandbox or a
 // readiness proof, and does not promise a hard HTTP latency bound. Admitted
 // private-cache/lease work may finish after invalidation; finite responses are

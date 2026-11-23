@@ -207,9 +207,8 @@ def file_isolation(binary, base):
             data = json.loads(body)
             return data if {100, 200, 300} <= {row['note_id'] for row in data['notes']} else None
         wait_for(listing, 'valid notes past conflict and cold-invalid files')
-        # The HTTP bootstrap currently presents a generic confirmed-files
-        # notice while partial. Inspect only this synthetic private DB read-only
-        # to distinguish durable per-file isolation from that presentation gap.
+        # Check both the disposable private index and HTTP presentation. The
+        # confirmed-files fallback must retain bounded per-file diagnostics.
         def indexed():
             try:
                 with sqlite3.connect(Path(m['active']['private_db']).as_uri() + '?mode=ro', uri=True) as db:
@@ -228,6 +227,13 @@ def file_isolation(binary, base):
         issues = {row['path'] for row in state['issues']}
         assert str(vault / 'note/100 (conflicted copy).md') in issues, state
         assert str(vault / 'note/400.md') in issues, state
+        def http_issues(target):
+            status, body = server.get(target)
+            return json.loads(body).get('read_state', {}) if status == 200 else {}
+        for target in ('/api/notes?vault=work', '/api/search?q=Healthy&vault=work',
+                       '/api/note?id=100&vault=work'):
+            wait_for(lambda: issues <= {issue['path'] for issue in http_issues(target).get('issues', [])},
+                     'HTTP retains completed per-file diagnostics')
         status, body = server.get('/api/note?id=100&vault=work')
         assert status == 200 and 'peer sentinel' in body, body
         unchanged(before, f.paths)
@@ -248,12 +254,18 @@ def file_isolation(binary, base):
             return rows.get(200) == 'Cached' and any(issue.get('note_id') == 200 and issue.get('cached')
                                                    for issue in state.get('issues', []))
         wait_for(retained, 'cached invalid note is retained with a per-file issue')
+        for target in ('/api/notes?vault=work', '/api/search?q=Healthy&vault=work',
+                       '/api/note?id=300&vault=work'):
+            wait_for(lambda: http_issues(target).get('cache_used') and
+                     any(issue.get('note_id') == 200 and issue.get('cached')
+                         for issue in http_issues(target).get('issues', [])),
+                     'HTTP retains cached-invalid distinction')
         assert server.get('/api/note?id=300&vault=work')[0] == 200
         unchanged(expected, f.paths)
     finally:
         server.close()
     unchanged(expected, f.paths)
-    print('file isolation: healthy HTTP reads; conflicts skipped and invalid note retained in private index; HTTP diagnostics remain generic')
+    print('file isolation: healthy HTTP reads; conflicts skipped; cached invalid note retained; bounded per-file HTTP diagnostics preserved')
 
 
 def database_failure(binary, base):

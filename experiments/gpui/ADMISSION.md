@@ -538,9 +538,9 @@ drift, invalid ownership/input/context/revision/cache separation, listener failu
 SIGTERM and parent-death cleanup. It also exercises sync conflict filenames,
 cold malformed metadata and a subsequently corrupted indexed note. Healthy reads
 continue and the private derived index records per-file issues without deleting
-the cached note. The current HTTP bootstrap can replace those detailed issues
-with a generic confirmed-files partial notice; full per-file native presentation
-is not established. A corrupt private database instead reports unavailable
+the cached note. The HTTP progress fallback now preserves the current generation's bounded per-file
+health snapshot alongside its general warning; native list/note diagnostics retain
+those fields. Confirmed-file lists may still omit the retained invalid row itself. A corrupt private database instead reports unavailable
 storage. None of these generated-fixture checks accesses personal data or proves
 native focus, IME, accessibility, renderer equivalence or a filesystem sandbox.
 
