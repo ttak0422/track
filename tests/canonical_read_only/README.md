@@ -70,13 +70,12 @@ no stores or leases, including for the otherwise valid active vault.
 
 ### Remaining admission decisions and gaps
 
-GPUI still requires its disposable fixture proof, minimal isolated machine config,
-and canonical fixture paths. Its child environment is allowlisted and fixture
-HOME is not an ordinary-user HOME contract. Passing engine tests is not evidence
-that ordinary native configuration/environment handling is ready to enable.
-Before any separate admission change, define explicit machine config, user-home,
-registry and cache provenance; preserve the canonical capability-before-reads
-handshake and prohibit CLI fallback. Keep explicit editing authority separate.
+These engine-only cases use disposable fixture inputs; they do not exercise
+the GPUI review dialog. Experimental ordinary GPUI reads require a separate
+explicit `--read-only` review, manifest-bound v2 admission and verified
+capability before reads. Unreviewed ordinary launches and ordinary mutations
+remain blocked. See [the isolated native acceptance procedure](../../experiments/gpui/qa/ORDINARY-READ-APPKIT.md)
+for the foreground AppKit checks that this suite does not cover.
 
 This matrix does not validate newly discovered peer/config replacements during an
 in-flight generation, unreadable/network-mounted roots, permissions under a
@@ -146,8 +145,9 @@ the private root. No real vault, default writable launch or native UI is used.
 
 Sync conflict filenames and invalid metadata are isolated while valid HTTP reads
 continue. A read-only connection to the **synthetic private index only** verifies
-individual issues and retention of a subsequently corrupted indexed note. The HTTP
-bootstrap can still present a generic partial notice instead of detailed per-file
-issues. A corrupt private DB is separately asserted as unavailable storage. These
-checks do not establish a complete native partial/unavailable-peer UX or arbitrary
-hostile filesystem safety. GPUI's ordinary admission gate remains closed.
+individual issues and retention of a subsequently corrupted indexed note. The
+HTTP checks also verify that bounded per-file diagnostics survive partial reads.
+A corrupt private database instead reports unavailable storage. These checks
+do not establish a complete native partial/unavailable-peer UX or arbitrary
+hostile filesystem safety. This matrix does not drive GPUI admission;
+unreviewed ordinary launches remain blocked.
