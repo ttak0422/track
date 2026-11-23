@@ -591,3 +591,6 @@ The production flow and presentation compile against actual GPUI; acceptance tes
 use only generated disposable inputs without displaying a window. Full native
 focus/IME/accessibility/visual acceptance and populated-cache reclamation remain
 separate. The shipping app and ordinary editing are unchanged.
+
+Use [the isolated AppKit acceptance procedure](qa/ORDINARY-READ-APPKIT.md) for
+repeatable foreground validation without real vaults or a normal desktop session.
