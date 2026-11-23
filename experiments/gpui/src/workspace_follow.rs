@@ -82,7 +82,8 @@ impl FollowGate {
 impl Workspace {
     fn follow_identity(&self) -> Option<editor_follow::Identity> {
         let session = self.live.as_ref()?;
-        if !session.client().is_alive()
+        if session.finite_only()
+            || !session.client().is_alive()
             || self.quit_session.is_closing()
             || self.quit_session.failure().is_some()
         {
@@ -183,6 +184,10 @@ impl Workspace {
         cx.spawn(async move |this, cx| {
             let result = job.await;
             let _ = this.update(cx, |this, cx| {
+                if this.retire_invalid_read(cx) {
+                    cx.notify();
+                    return;
+                }
                 // Refresh the signal before accepting a result, not just at the 250ms UI tick.
                 let identity = this.follow_identity();
                 if let Some(current) = identity.as_ref() {

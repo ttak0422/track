@@ -243,6 +243,10 @@ impl Workspace {
         cx.spawn(async move |this, cx| {
             let (result, observed_storage) = job.await;
             let _ = this.update(cx, |this, cx| {
+                if this.retire_invalid_read(cx) {
+                    cx.notify();
+                    return;
+                }
                 let current_launch = this.live.as_ref().map(|s| s.client().launch_generation);
                 if !response_current(
                     request,

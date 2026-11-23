@@ -15,7 +15,7 @@ output.mkdir(parents=True, exist_ok=False)
 
 modules = ["live", "editing", "live_events", "event_awareness", "session_store", "backend", "markdown_handoff",
            "editor_follow", "numeric_chart", "inline_viewspec", "included_notes", "raster",
-           "pdf_probe", "graph", "tabs", "navigation", "draft_recovery", "recent_notes"]
+           "pdf_probe", "graph", "tabs", "navigation", "draft_recovery", "recent_notes", "workspace_read_request"]
 lib = "#![allow(dead_code)]\n" + "".join(
     f"#[path = {json.dumps(str(source / (name + '.rs')), ensure_ascii=False)}]\nmod {name};\n" for name in modules)
 

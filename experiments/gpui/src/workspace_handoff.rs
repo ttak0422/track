@@ -285,6 +285,10 @@ impl Workspace {
         cx.spawn(async move |this, cx| {
             let result = job.await;
             let _ = this.update(cx, |this, cx| {
+                if this.retire_invalid_read(cx) {
+                    cx.notify();
+                    return;
+                }
                 let current = this.handoff_gate()
                     && this.live.as_ref().map(|s| s.client().launch_generation) == Some(launch);
                 let state = &mut this.shell.handoff;
@@ -387,6 +391,10 @@ impl Workspace {
         cx.spawn(async move |this, cx| {
             let result = job.await;
             let _ = this.update(cx, |this, cx| {
+                if this.retire_invalid_read(cx) {
+                    cx.notify();
+                    return;
+                }
                 if this.shell.handoff.in_flight == Some(serial) {
                     this.shell.handoff.in_flight = None;
                 }

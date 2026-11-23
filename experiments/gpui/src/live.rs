@@ -1035,6 +1035,7 @@ pub struct Storage {
 
 #[derive(Clone)]
 pub struct ReadClient {
+    finite_only: bool,
     canonical_read_only: bool,
     creation_store: Arc<Mutex<Option<Result<crate::session_store::CreationStore, String>>>>,
     creation_fixture: Option<CreateFixture>,
@@ -1081,6 +1082,19 @@ impl ReadClient {
     pub(crate) fn markdown_origin(&self) -> &str {
         &self.origin
     }
+    fn accept_response(&self, response: &reqwest::blocking::Response) -> Result<(), Error> {
+        if response
+            .headers()
+            .get("X-Track-Bound-Invalid")
+            .is_some_and(|v| v == "1")
+        {
+            self.alive.store(false, Ordering::Release);
+        }
+        if !self.is_alive() {
+            return Err(Error::Stale);
+        }
+        Ok(())
+    }
     pub(crate) fn is_alive(&self) -> bool {
         self.alive.load(Ordering::Acquire)
     }
@@ -1114,6 +1128,8 @@ impl ReadClient {
             return Err(HandoffError::NotSent);
         }
         let mut response = request.send().map_err(|_| HandoffError::Uncertain)?;
+        self.accept_response(&response)
+            .map_err(|_| HandoffError::Stale)?;
         if !self.is_alive() {
             return Err(HandoffError::Stale);
         }
@@ -1143,6 +1159,11 @@ impl ReadClient {
 impl ReadClient {
     /// Read-only owned-origin editor state. Never retain untrusted response/error bodies.
     pub(crate) fn follow(&self) -> Result<crate::editor_follow::FollowResponse, Error> {
+        if self.finite_only {
+            return Err(Error::Config(
+                "Follow is unavailable in a finite read-only session".into(),
+            ));
+        }
         if !self.is_alive() {
             return Err(Error::Stale);
         }
@@ -1153,6 +1174,7 @@ impl ReadClient {
             .timeout(Duration::from_secs(3))
             .send()
             .map_err(|_| Error::Transport("Follow request unavailable".into()))?;
+        self.accept_response(&response)?;
         if !self.is_alive() {
             return Err(Error::Stale);
         }
@@ -1175,7 +1197,7 @@ impl ReadClient {
     }
 }
 impl ReadClient {
-    fn require_canonical_capability(&self, timeout: Duration) -> Result<(), Error> {
+    fn bound_capability_bytes(&self, timeout: Duration) -> Result<Vec<u8>, Error> {
         if !self.is_alive() {
             return Err(Error::Stale);
         }
@@ -1186,6 +1208,7 @@ impl ReadClient {
             .timeout(timeout)
             .send()
             .map_err(|e| Error::Transport(e.to_string()))?;
+        self.accept_response(&response)?;
         if response.status().as_u16() != 200 {
             return Err(Error::Startup(format!(
                 "Canonical capability endpoint returned HTTP {}",
@@ -1214,6 +1237,10 @@ impl ReadClient {
         if !self.is_alive() {
             return Err(Error::Stale);
         }
+        Ok(bytes)
+    }
+    fn require_canonical_capability(&self, timeout: Duration) -> Result<(), Error> {
+        let bytes = self.bound_capability_bytes(timeout)?;
         let capability: CanonicalCapability =
             serde_json::from_slice(&bytes).map_err(|e| Error::Shape(e.to_string()))?;
         capability.validate()
@@ -1250,6 +1277,7 @@ impl ReadClient {
         let mut response = request
             .send()
             .map_err(|e| Error::Transport(e.to_string()))?;
+        self.accept_response(&response)?;
         let status = response.status().as_u16();
         let mut bytes = Vec::new();
         (&mut response)
@@ -1313,6 +1341,8 @@ impl ReadClient {
             .json(&Request { spec })
             .send()
             .map_err(|_| "ViewSpec unavailable: request failed".to_string())?;
+        self.accept_response(&response)
+            .map_err(|_| "Read-only session invalidated".to_owned())?;
         if !self.is_alive() {
             return Err("ViewSpec unavailable: server changed".into());
         }
@@ -1375,6 +1405,7 @@ impl ReadClient {
             .json(&serde_json::json!({"body":body}))
             .send()
             .map_err(|e| Error::Transport(e.to_string()))?;
+        self.accept_response(&response)?;
         let status = response.status().as_u16();
         let mut bytes = Vec::new();
         (&mut response)
@@ -1902,6 +1933,7 @@ impl ReadClient {
             .header("Cache-Control", "no-cache, no-store")
             .send()
             .map_err(|e| Error::Transport(e.to_string()))?;
+        self.accept_response(&response)?;
         let status = response.status().as_u16();
         let mime = response
             .headers()
@@ -1977,6 +2009,7 @@ impl ReadClient {
             .timeout(Duration::from_secs(3))
             .send()
             .map_err(|e| Error::Transport(e.to_string()))?;
+        self.accept_response(&response)?;
         if response.status().as_u16() != 200 {
             return Err(Error::Shape("PDF asset unavailable".into()));
         }
@@ -2563,6 +2596,8 @@ impl ReadClient {
             .json(&serde_json::json!({"title": title}))
             .send()
             .map_err(|_| CreateError::Uncertain("Response unavailable.".into()))?;
+        self.accept_response(&response)
+            .map_err(|_| CreateError::Uncertain("Read-only session invalidated".into()))?;
         let status = response.status().as_u16();
         let mut bytes = Vec::new();
         (&mut response)
@@ -2818,6 +2853,7 @@ impl ReadClient {
             .json(&serde_json::json!({"body": save.body, "etag": save.etag}))
             .send()
             .map_err(|error| Error::Transport(error.to_string()))?;
+        self.accept_response(&response)?;
         let status = response.status().as_u16();
         let mut bytes = Vec::new();
         (&mut response)
@@ -2882,6 +2918,7 @@ pub(crate) fn clear_track_environment(command: &mut Command) {
 // The production variant still requires the existing disposable ReadFixture.
 enum StartupAdmission {
     Fixture,
+    Ordinary(Box<ordinary::AdmittedRead>),
     #[cfg(test)]
     SyntheticCanonical(read_inputs::SyntheticCanonical),
     #[cfg(test)]
@@ -2890,6 +2927,7 @@ enum StartupAdmission {
 impl StartupAdmission {
     fn verify(&self, config: &LaunchConfig) -> Result<(), Error> {
         match self {
+            Self::Ordinary(proof) => proof.verify_launch(config),
             Self::Fixture => config.read_fixture.as_ref().ok_or_else(|| Error::Config("Ordinary vault launch remains disabled pending native verification. Use synthetic/JSON input or an explicitly verified disposable fixture.".into()))?.verify_launch(config).map_err(Error::Config),
             #[cfg(test)]
             Self::SyntheticCanonical(proof) => proof.verify().map_err(Error::Config),
@@ -2897,16 +2935,24 @@ impl StartupAdmission {
             Self::SyntheticBound(proof) => proof.verify(),
         }
     }
+    fn finite_only(&self) -> bool {
+        match self {
+            Self::Ordinary(_) => true,
+            #[cfg(test)]
+            Self::SyntheticBound(_) => true,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
 enum EventPolicy {
     Sse,
-    #[cfg(test)]
     FiniteOnly,
 }
 
 pub struct OwnedServer {
+    read_runtime: Option<Arc<ordinary::ReadRuntime>>,
     event_policy: EventPolicy,
     child: Option<Child>,
     client: ReadClient,
@@ -2955,6 +3001,10 @@ impl OwnedServer {
             .iter()
             .map(|b| format!("{b:02x}"))
             .collect::<String>();
+        let token = match &admission {
+            StartupAdmission::Ordinary(proof) => proof.token().to_owned(),
+            _ => token,
+        };
         let http = reqwest::blocking::Client::builder()
             .no_proxy()
             .retry(reqwest::retry::never())
@@ -2964,6 +3014,7 @@ impl OwnedServer {
             .map_err(|e| Error::Transport(e.to_string()))?;
         let alive = Arc::new(AtomicBool::new(true));
         let client = ReadClient {
+            finite_only: admission.finite_only(),
             canonical_read_only: config.canonical_read_only(),
             creation_store: Default::default(),
             creation_fixture: config.creation_fixture.clone(),
@@ -2974,6 +3025,7 @@ impl OwnedServer {
         };
         let mut cmd = Command::new(&config.executable);
         match &admission {
+            StartupAdmission::Ordinary(proof) => proof.configure(&mut cmd)?,
             StartupAdmission::Fixture => {
                 clear_track_environment(&mut cmd);
                 cmd.env_remove("TRACK_VAULT")
@@ -3020,6 +3072,9 @@ impl OwnedServer {
             fixture.verify_launch(&config).map_err(Error::Config)?;
         }
         admission.verify(&config)?;
+        if matches!(&admission, StartupAdmission::Ordinary(_)) {
+            cmd.stdin(Stdio::piped());
+        }
         #[cfg(test)]
         if let StartupAdmission::SyntheticBound(proof) = &mut admission {
             proof.capture(&mut cmd, config.startup_timeout, canceled)?;
@@ -3044,12 +3099,16 @@ impl OwnedServer {
             Some(format!("TRACK_DESKTOP_READY:{token}")),
             ready.clone(),
         );
-        let event_policy = match &admission {
-            #[cfg(test)]
-            StartupAdmission::SyntheticBound(_) => EventPolicy::FiniteOnly,
-            _ => EventPolicy::Sse,
+        let event_policy = if admission.finite_only() {
+            EventPolicy::FiniteOnly
+        } else {
+            EventPolicy::Sse
         };
         let mut owner = Self {
+            read_runtime: match &admission {
+                StartupAdmission::Ordinary(proof) => proof.runtime(),
+                _ => None,
+            },
             event_policy,
             child: Some(child),
             client,
@@ -3059,12 +3118,44 @@ impl OwnedServer {
             storage_error: None,
         };
         let start = Instant::now();
+        let ordinary_payload = match &admission {
+            StartupAdmission::Ordinary(proof) => Some(proof.payload()?),
+            _ => None,
+        };
+        if let Some(payload) = ordinary_payload {
+            let stdin = owner
+                .child
+                .as_mut()
+                .and_then(|child| child.stdin.take())
+                .ok_or_else(|| Error::Startup("Missing owned request pipe".into()))?;
+            let mut pipe = request_pipe::RequestPipe::new(stdin, payload)?;
+            loop {
+                if canceled.load(Ordering::Acquire) {
+                    owner.shutdown()?;
+                    return Err(Error::Stale);
+                }
+                if start.elapsed() >= config.startup_timeout {
+                    owner.shutdown()?;
+                    return Err(Error::Startup(
+                        "Bound request startup deadline exceeded".into(),
+                    ));
+                }
+                owner.check_running()?;
+                if pipe.pump()? {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(5));
+            }
+        }
         #[cfg(test)]
         if let StartupAdmission::SyntheticBound(proof) = &mut admission {
             // Establish owner cleanup and output drains before transmitting.
             // This shares the readiness deadline and does not own a process group.
             let payload = proof.take_serve_request()?;
-            let stdin = owner.child.as_mut().and_then(|child| child.stdin.take())
+            let stdin = owner
+                .child
+                .as_mut()
+                .and_then(|child| child.stdin.take())
                 .ok_or_else(|| Error::Startup("Missing owned request pipe".into()))?;
             let mut request = request_pipe::RequestPipe::new(stdin, payload)?;
             loop {
@@ -3074,10 +3165,14 @@ impl OwnedServer {
                 }
                 if start.elapsed() >= config.startup_timeout {
                     owner.shutdown()?;
-                    return Err(Error::Startup("Bound request startup deadline exceeded".into()));
+                    return Err(Error::Startup(
+                        "Bound request startup deadline exceeded".into(),
+                    ));
                 }
                 owner.check_running()?;
-                if request.pump()? { break; }
+                if request.pump()? {
+                    break;
+                }
                 thread::sleep(Duration::from_millis(5));
             }
         }
@@ -3097,15 +3192,16 @@ impl OwnedServer {
                         .max(Duration::from_millis(1))
                         .min(config.request_timeout)
                         .min(Duration::from_secs(3));
-                    #[cfg(test)]
                     let result = match &admission {
+                        StartupAdmission::Ordinary(proof) => {
+                            proof.capability(&owner.client, timeout)
+                        }
+                        #[cfg(test)]
                         StartupAdmission::SyntheticBound(proof) => {
                             proof.capability(&owner.client, timeout)
                         }
                         _ => owner.client.require_canonical_capability(timeout),
                     };
-                    #[cfg(not(test))]
-                    let result = owner.client.require_canonical_capability(timeout);
                     if canceled.load(Ordering::Acquire) {
                         owner.shutdown()?;
                         return Err(Error::Stale);
@@ -3163,6 +3259,20 @@ impl OwnedServer {
                 )) {
                     Ok(v) => {
                         owner.check_running()?;
+                        if let StartupAdmission::Ordinary(proof) = &admission {
+                            match proof.registry(&v) {
+                                Ok(true) => {}
+                                Ok(false) => {
+                                    thread::sleep(Duration::from_millis(20));
+                                    continue;
+                                }
+                                Err(error) => {
+                                    owner.shutdown()?;
+                                    return Err(error);
+                                }
+                            }
+                            proof.verify()?;
+                        }
                         #[cfg(test)]
                         if let StartupAdmission::SyntheticCanonical(proof) = &admission {
                             match proof.verify_registry(&v) {
@@ -3263,6 +3373,15 @@ impl OwnedServer {
         .into_owned()
     }
     pub fn check_running(&mut self) -> Result<(), Error> {
+        if !self.client.is_alive() {
+            return Err(Error::Stale);
+        }
+        if let Some(runtime) = &self.read_runtime {
+            if runtime.verify().is_err() {
+                self.client.alive.store(false, Ordering::Release);
+                return Err(Error::Stale);
+            }
+        }
         let Some(child) = &mut self.child else {
             return Err(Error::Stale);
         };
@@ -3318,9 +3437,14 @@ impl Drop for OwnedServer {
         let _ = self.shutdown();
         // On pathological uninterruptible kernel IO, retain ownership in a reaper rather than block UI forever.
         if let Some(mut child) = self.child.take() {
+            let runtime = self.read_runtime.take();
             thread::spawn(move || {
-                let _ = child.kill();
-                let _ = child.wait();
+                if child.wait().is_ok() {
+                    drop(runtime);
+                } else {
+                    std::mem::forget(runtime);
+                    std::mem::forget(child);
+                }
             });
         }
     }
@@ -3330,6 +3454,7 @@ impl Drop for OwnedServer {
 /// disconnects a channel. Its dedicated owner thread performs bounded cleanup.
 #[derive(Clone)]
 pub struct Session {
+    pub runtime_cache: Option<PathBuf>,
     client: ReadClient,
     events: Arc<crate::live_events::Observer>,
     pub initial_vaults: Value,
@@ -3352,12 +3477,15 @@ impl Session {
         let status = Arc::new(Mutex::new(None));
         let shutdown_done = Arc::new(AtomicBool::new(false));
         let session = Self {
+            runtime_cache: server
+                .read_runtime
+                .as_ref()
+                .map(|runtime| runtime.path().to_owned()),
             events: Arc::new(match server.event_policy {
                 EventPolicy::Sse => crate::live_events::Observer::start(
                     &server.client.origin,
                     server.client.alive.clone(),
                 ),
-                #[cfg(test)]
                 EventPolicy::FiniteOnly => crate::live_events::Observer::unavailable(),
             }),
             client: server.client(),
@@ -3392,6 +3520,9 @@ impl Session {
     }
     pub fn events(&self) -> crate::live_events::Snapshot {
         self.events.snapshot()
+    }
+    pub fn finite_only(&self) -> bool {
+        self.events().unavailable
     }
     pub fn failure(&self) -> Option<String> {
         self.status.lock().unwrap().clone()
@@ -3431,7 +3562,11 @@ struct LifecycleState {
 impl LifecycleHandle {
     pub fn begin_start(&self) -> Result<(), Error> {
         let mut state = self.state.lock().unwrap();
-        if state.starting || state.session.is_some() || self.canceled.load(Ordering::Acquire) {
+        if state.starting
+            || state.session.is_some()
+            || state.cleanup_unconfirmed
+            || self.canceled.load(Ordering::Acquire)
+        {
             return Err(Error::Config(
                 "server lifecycle already started or closing".into(),
             ));
@@ -3442,6 +3577,39 @@ impl LifecycleHandle {
     /// Call on a worker after begin_start. Tracks ownership even before readiness.
     pub fn start(&self, config: LaunchConfig) -> Result<Session, Error> {
         let result = Session::start_cancelable(config, &self.canceled);
+        self.complete_start(&result);
+        result
+    }
+    pub(crate) fn review_read(
+        &self,
+        request: ordinary::ReadRequest,
+    ) -> Result<ordinary::ReadReview, Error> {
+        let result = request.review(&self.canceled);
+        let mut state = self.state.lock().unwrap();
+        state.starting = false;
+        if let Err(error) = &result {
+            state.failure = Some(error.to_string());
+            state.cleanup_unconfirmed = matches!(error, Error::Shutdown(_));
+        }
+        result
+    }
+    pub(crate) fn start_read(&self, grant: ordinary::ReadGrant) -> Result<Session, Error> {
+        let result = (|| {
+            let proof = grant.prepare(&self.canceled)?;
+            let config = proof.config();
+            let path = config.cache.clone().unwrap();
+            let server = OwnedServer::start_admitted(
+                config,
+                &self.canceled,
+                StartupAdmission::Ordinary(Box::new(proof)),
+            )
+            .map_err(|error| ordinary::retained_error(error, &path))?;
+            Ok(Session::from_owned(server))
+        })();
+        self.complete_start(&result);
+        result
+    }
+    fn complete_start(&self, result: &Result<Session, Error>) {
         let mut state = self.state.lock().unwrap();
         state.starting = false;
         match &result {
@@ -3451,7 +3619,6 @@ impl LifecycleHandle {
                 state.cleanup_unconfirmed = matches!(error, Error::Shutdown(_));
             }
         }
-        result
     }
     pub fn failure(&self) -> Option<String> {
         let state = self.state.lock().unwrap();
@@ -3460,8 +3627,19 @@ impl LifecycleHandle {
             .clone()
             .or_else(|| state.session.as_ref().and_then(Session::failure))
     }
+    pub(crate) fn runtime_cache(&self) -> Option<PathBuf> {
+        self.state
+            .lock()
+            .unwrap()
+            .session
+            .as_ref()
+            .and_then(|session| session.runtime_cache.clone())
+    }
     pub fn is_closing(&self) -> bool {
         self.canceled.load(Ordering::Acquire)
+    }
+    pub(crate) fn cancel_startup(&self) {
+        self.canceled.store(true, Ordering::Release);
     }
     /// Background-only quit barrier. Cancellation interrupts startup before another probe.
     pub fn shutdown(&self) -> Result<(), Error> {
@@ -3749,9 +3927,10 @@ mod tests {
         let child = Command::new("/bin/sleep").arg(seconds).spawn().unwrap();
         let pid = child.id();
         let server = OwnedServer {
+            read_runtime: None,
             event_policy: EventPolicy::Sse,
             child: Some(child),
-            client: ReadClient { canonical_read_only: false, creation_store: Default::default(), creation_fixture: None, http: reqwest::blocking::Client::new(), origin: "http://127.0.0.1:1".into(), alive: Arc::new(AtomicBool::new(true)), launch_generation: 1 },
+            client: ReadClient { finite_only: false, canonical_read_only: false, creation_store: Default::default(), creation_fixture: None, http: reqwest::blocking::Client::new(), origin: "http://127.0.0.1:1".into(), alive: Arc::new(AtomicBool::new(true)), launch_generation: 1 },
             logs: Arc::new(Mutex::new(VecDeque::new())), initial_vaults: serde_json::json!({"active":{},"vaults":[]}),
             initial_storage: Some(serde_json::from_value(serde_json::json!({"phase":"initializing","read_only":true,"verified":0,"generation":1})).unwrap()), storage_error: None,
         };
@@ -3865,6 +4044,7 @@ mod tests {
         });
         (
             ReadClient {
+                finite_only: false,
                 canonical_read_only: false,
                 creation_store: Default::default(),
                 creation_fixture: None,
@@ -5239,6 +5419,14 @@ mod tests {
     }
 
     #[test]
+    fn unconfirmed_preflight_cleanup_prohibits_replacement() {
+        let owner = LifecycleHandle::default();
+        owner.state.lock().unwrap().cleanup_unconfirmed = true;
+        assert!(owner.begin_start().is_err());
+        assert!(matches!(owner.shutdown(), Err(Error::Shutdown(_))));
+    }
+
+    #[test]
     fn quit_during_startup_cancels_and_reaps_exact_child() {
         use std::os::unix::fs::PermissionsExt;
         let root = std::env::temp_dir().join(format!(
@@ -5557,6 +5745,7 @@ mod tests {
         });
         (
             ReadClient {
+                finite_only: false,
                 canonical_read_only: false,
                 creation_store: Default::default(),
                 creation_fixture: None,
@@ -5615,6 +5804,7 @@ mod tests {
         });
         (
             ReadClient {
+                finite_only: false,
                 canonical_read_only: false,
                 creation_store: Default::default(),
                 creation_fixture: None,
@@ -5684,6 +5874,7 @@ mod tests {
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         listener.set_nonblocking(true).unwrap();
         let client = ReadClient {
+            finite_only: false,
             canonical_read_only: false,
             creation_store: Default::default(),
             creation_fixture: None,
@@ -5831,6 +6022,7 @@ mod tests {
                 String::from_utf8(request).unwrap()
             });
             let client = ReadClient {
+                finite_only: false,
                 canonical_read_only: false,
                 creation_store: Default::default(),
                 creation_fixture: None,
@@ -5887,6 +6079,7 @@ mod tests {
                 String::from_utf8(request).unwrap()
             });
             let client = ReadClient {
+                finite_only: false,
                 canonical_read_only: false,
                 creation_store: Default::default(),
                 creation_fixture: None,
@@ -5957,6 +6150,7 @@ mod tests {
                 }
             });
             let client = ReadClient {
+                finite_only: false,
                 canonical_read_only: false,
                 creation_store: Default::default(),
                 creation_fixture: None,
@@ -7024,6 +7218,7 @@ mod tests {
             String::from_utf8(request).unwrap()
         });
         let client = ReadClient {
+            finite_only: false,
             canonical_read_only: false,
             creation_store: Default::default(),
             creation_fixture: None,
@@ -7511,6 +7706,7 @@ mod tests {
         }
         thread::sleep(Duration::from_millis(50));
         let client = ReadClient {
+            finite_only: false,
             canonical_read_only: false,
             creation_store: Default::default(),
             creation_fixture: None,
@@ -7520,6 +7716,7 @@ mod tests {
             launch_generation: 1,
         };
         let mut server = OwnedServer {
+            read_runtime: None,
             event_policy: EventPolicy::Sse,
             child: Some(child),
             client,
@@ -7618,6 +7815,7 @@ mod markdown_consume_tests {
         });
         (
             ReadClient {
+                finite_only: false,
                 canonical_read_only: false,
                 creation_store: Default::default(),
                 creation_fixture: None,
@@ -7783,3 +7981,8 @@ mod bound_fixture;
 #[cfg(test)]
 #[path = "live_graph_contract.rs"]
 mod graph_contract_tests;
+
+#[path = "live_capture.rs"]
+mod capture;
+#[path = "live_ordinary.rs"]
+pub(crate) mod ordinary;

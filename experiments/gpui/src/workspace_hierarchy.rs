@@ -149,6 +149,10 @@ impl Workspace {
         cx.spawn(async move |this, cx| {
             let result = job.await;
             let _ = this.update(cx, |this, cx| {
+                if this.retire_invalid_read(cx) {
+                    cx.notify();
+                    return;
+                }
                 let current = if identity.reader.is_some() {
                     this.hierarchy_current(&identity, cx)
                 } else {
@@ -599,37 +603,37 @@ impl Workspace {
             color,
             background,
         )
-            .opacity(if enabled { 1. } else { 0.4 })
-            .when(enabled, |entry| {
-                entry
-                    .cursor_pointer()
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        if this.reader_hierarchy_open()
-                            || this.hierarchy_other_owner_blocked(cx)
-                            || !this.native_find_available(false, window, cx)
-                            || this.reader_hierarchy_identity() != identity
-                        {
-                            return;
-                        }
-                        let Some(identity) = identity.clone() else {
-                            return;
-                        };
-                        this.pause_reader_for_overlay();
-                        let return_focus = window.focused(cx);
-                        let focus = cx.focus_handle();
-                        window.focus(&focus);
-                        let mut state = HierarchyState::new(identity.clone());
-                        state.open = true;
-                        this.shell.reader_hierarchy = Some(ReaderHierarchy {
-                            state,
-                            focus,
-                            return_focus,
-                        });
-                        this.hierarchy_fetch(identity, cx);
-                        cx.stop_propagation();
-                        cx.notify();
-                    }))
-            })
+        .opacity(if enabled { 1. } else { 0.4 })
+        .when(enabled, |entry| {
+            entry
+                .cursor_pointer()
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    if this.reader_hierarchy_open()
+                        || this.hierarchy_other_owner_blocked(cx)
+                        || !this.native_find_available(false, window, cx)
+                        || this.reader_hierarchy_identity() != identity
+                    {
+                        return;
+                    }
+                    let Some(identity) = identity.clone() else {
+                        return;
+                    };
+                    this.pause_reader_for_overlay();
+                    let return_focus = window.focused(cx);
+                    let focus = cx.focus_handle();
+                    window.focus(&focus);
+                    let mut state = HierarchyState::new(identity.clone());
+                    state.open = true;
+                    this.shell.reader_hierarchy = Some(ReaderHierarchy {
+                        state,
+                        focus,
+                        return_focus,
+                    });
+                    this.hierarchy_fetch(identity, cx);
+                    cx.stop_propagation();
+                    cx.notify();
+                }))
+        })
     }
     pub(crate) fn close_reader_hierarchy(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(ui) = self.shell.reader_hierarchy.take() else {

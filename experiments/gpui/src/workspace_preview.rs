@@ -543,6 +543,10 @@ impl Workspace {
         cx.spawn(async move |this, cx| {
             let result = job.await;
             let _ = this.update(cx, |this, cx| {
+                if this.retire_invalid_read(cx) {
+                    cx.notify();
+                    return;
+                }
                 if !completion_current(
                     read.scope.session,
                     epoch,
