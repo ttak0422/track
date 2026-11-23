@@ -200,7 +200,7 @@ struct Workspace {
     status: String,
     list_status: String,
     request: u64,
-    live_reader_pending: Option<u64>,
+    live_reader_pending: Option<workspace_live::ReaderRead>,
     graph_request: u64,
     pending_local_graph: Option<workspace_live::LocalGraphOwner>,
     graph_view: gpui::Entity<graph_view::GraphView>,

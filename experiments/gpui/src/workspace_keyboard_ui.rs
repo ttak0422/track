@@ -387,3 +387,45 @@ fn tab_refusal_retries_same_neighbor_without_another_click(cx: &mut TestAppConte
         });
     });
 }
+
+#[gpui::test]
+#[ignore = "requires an explicit synthetic-only Go bridge binary"]
+fn body_wait_indicator_renders_only_for_the_current_live_reader(cx: &mut TestAppContext) {
+    live::with_keyboard_fixture(|session| {
+        let (view, cx) = cx.add_window_view(|_, cx| workspace(session, cx));
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("reader-body-wait").is_none());
+        cx.update(|_, app| {
+            view.update(app, |workspace, cx| {
+                assert!(workspace.current_note.is_some());
+                // Put the presentation in a deterministic pending state. This
+                // tests actual rendering, not physical storage or I/O latency.
+                let key = workspace.current_note_request.clone().unwrap();
+                let launch = workspace
+                    .live
+                    .as_ref()
+                    .unwrap()
+                    .client()
+                    .launch_generation;
+                workspace.live_reader_pending = Some(workspace_live::ReaderRead::body(
+                    workspace.request,
+                    key,
+                    launch,
+                    workspace.accepted_storage_generation,
+                ));
+                cx.notify();
+            });
+        });
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("reader-body-wait").is_some());
+        cx.update(|_, app| {
+            view.update(app, |workspace, cx| {
+                workspace.live_reader_pending =
+                    Some(workspace_live::ReaderRead::list(workspace.request));
+                cx.notify();
+            });
+        });
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("reader-body-wait").is_none());
+    });
+}

@@ -3657,7 +3657,7 @@ impl Workspace {
             window.is_window_active() && cx.active_window().and_then(shortcut_workspace).is_some(),
             ready_route,
             blocked,
-            self.live_reader_pending == Some(self.request),
+            self.reader_read_pending(),
             focus,
         )
     }
@@ -5230,6 +5230,16 @@ impl Render for Workspace {
                     .h_full()
                     .overflow_y_scroll()
                     .pb_12()
+                    .when(self.reader_body_waiting(), |reader| {
+                        reader.child(
+                            div()
+                                .id("reader-body-wait")
+                                .mb_4()
+                                .text_size(px(13.))
+                                .text_color(rgb(p.muted))
+                                .child("Loading note…"),
+                        )
+                    })
                     .when_some(trail_error, |reader, error| reader.child(error))
                     .when(!trail.is_empty(), |reader| {
                         reader.child(
