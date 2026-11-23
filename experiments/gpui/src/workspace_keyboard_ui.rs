@@ -599,3 +599,93 @@ fn rail_reload_retries_the_failed_body_without_a_second_visit(cx: &mut TestAppCo
         });
     });
 }
+
+#[gpui::test]
+#[ignore = "requires an explicit synthetic-only Go bridge binary"]
+fn deferred_body_delivery_finishes_only_for_the_current_reader(cx: &mut TestAppContext) {
+    live::with_keyboard_fixture(|session| {
+        let (view, cx) = cx.add_window_view(|_, cx| workspace(session, cx));
+        cx.run_until_parked();
+
+        let key = |note_id| live::NoteKey {
+            vault: "work".into(),
+            note_id,
+        };
+        let hold = |target: &live::NoteKey, cx: &mut VisualTestContext| {
+            let (mut fetched, release) = cx.update(|_, app| {
+                view.update(app, |w, cx| {
+                    let gate = w
+                        .live
+                        .as_ref()
+                        .unwrap()
+                        .hold_keyboard_body_delivery_once(target.clone());
+                    w.open_live_key(target.clone(), cx);
+                    gate
+                })
+            });
+            cx.run_until_parked();
+            assert!(
+                fetched.try_recv().expect("the Go read reached the delivery gate"),
+                "the admitted Go reader must have fetched the body before delivery is deferred"
+            );
+            view.read_with(cx, |w, _| {
+                assert_eq!(
+                    w.history.current(),
+                    Some(&tabs::TabKey::Note {
+                        vault: target.vault.clone(),
+                        note_id: target.note_id,
+                    })
+                );
+                assert!(w.reader_body_waiting());
+                assert!(w.current_note_request.is_none());
+                assert!(w.current_read_error().is_none());
+            });
+            release
+        };
+
+        let current = key(43);
+        let release = hold(&current, cx);
+        let history = view.read_with(cx, |w, _| w.history.clone());
+        release.send(()).unwrap();
+        cx.run_until_parked();
+        view.read_with(cx, |w, _| {
+            assert_eq!(w.current_note_request.as_ref(), Some(&current));
+            assert!(!w.reader_body_waiting());
+            assert_eq!(w.history, history);
+        });
+
+        let late = key(44);
+        let release = hold(&late, cx);
+        cx.update(|_, app| view.update(app, |w, cx| w.open_home(cx)));
+        cx.run_until_parked();
+        view.read_with(cx, |w, _| {
+            assert!(w.shell.home);
+            assert_eq!(w.history.current(), Some(&tabs::TabKey::Home));
+            assert!(!w.reader_body_waiting());
+            assert!(w.current_note_request.is_none());
+        });
+
+        let healthy = key(42);
+        cx.update(|_, app| view.update(app, |w, cx| w.open_live_key(healthy.clone(), cx)));
+        cx.run_until_parked();
+        let history = view.read_with(cx, |w, _| {
+            assert_eq!(w.current_note_request.as_ref(), Some(&healthy));
+            w.history.clone()
+        });
+        release.send(()).unwrap();
+        cx.run_until_parked();
+        view.read_with(cx, |w, _| {
+            assert_eq!(w.current_note_request.as_ref(), Some(&healthy));
+            assert!(
+                w.current_note
+                    .as_ref()
+                    .unwrap()
+                    .body
+                    .contains("Keyboard fixture 42")
+            );
+            assert!(w.current_read_error().is_none());
+            assert!(!w.reader_body_waiting());
+            assert_eq!(w.history, history);
+        });
+    });
+}

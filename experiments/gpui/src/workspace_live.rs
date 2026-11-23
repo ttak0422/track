@@ -1024,6 +1024,12 @@ impl Workspace {
             if !matches!((&before,&after), (Ok(a),Ok(b)) if a.generation == b.generation) {
                 result = Err(live::Error::Stale);
             }
+            // In virtual tests, defer publishing an actual admitted Go response.
+            // The HTTP request and its storage checks have already completed.
+            #[cfg(all(test, feature = "ui-tests"))]
+            session
+                .defer_keyboard_body_delivery(&key, result.is_ok())
+                .await;
             (result, after, session.failure())
         });
         cx.spawn(async move |this, cx| {
