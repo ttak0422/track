@@ -59,6 +59,7 @@ Detailed controls and exclusions are in the [README](README.md) and
 | Explicit Editor Follow and absolute HTTP(S) links | [x] | [ ] | `workspace_follow.rs`, `editor_follow.rs`, `external_links.rs`; guarded/proportional follow, no automatic external opening |
 | Owned SSE change/gap notices and guarded explicit native Reload | [x] | [ ] | `live_events.rs`, `event_awareness.rs`, `main.rs`, `shell.rs`; notices are not authoritative note identities |
 | Session-only conservative current-note auto refresh | [x] | [ ] | `live_refresh.rs`, `workspace_refresh.rs`; current accepted note only, measured-position/interaction guards below |
+| Physical mouse adjacent-tab controls | [x] | [ ] | `workspace_mouse_tabs.rs`, `shell.rs`; retained Note/Graph/Calendar order, exact protected leave; physical buttons/native focus/IME unverified |
 | Native About, Copy Build Info, --version, View history and Edit Find controls | [x] | [ ] | `about.rs`, `build_info.rs`, `main.rs`, `workspace_find.rs`; not complete menus/shortcut parity |
 | Display of existing read/seen milestones; fixture reading checkpoints | [x] | [ ] | `note_metadata.rs`, `session_store.rs`, `shell.rs`; no ordinary milestone writes/NEW inference |
 | Fixture-only tab/history/scope/recent metadata persistence | [x] | [ ] | `workspace_session.rs`, `session_store.rs`; safe Home startup, no automatic restored-body fetch |
@@ -77,6 +78,24 @@ and IME; notifications/speech; packaging, startup/restart/termination and perfor
 acceptance. Do not infer completion from a module, unit test, screenshot or older smoke.
 
 ## Current bounded behavior and safety limits
+
+### Mouse tab selection
+
+- Mouse Back/Forward select adjacent open Note/Graph/Calendar tabs, including overflow,
+  wrapping a retained sequence-start order independently of chronological history
+  (#320 versus #391). Home and Tag pages are inert; background Home is excluded.
+  Other pointer interaction/navigation or membership changes refresh the order;
+  titles do not. Down selects once, release never selects; unavailable input has
+  no screen-history replay fallback.
+- Normal editor focus alone permits switching. Existing exact draft/access gates
+  remain authoritative; pending save/decision, composition, recovery failure and
+  competing modal/menu/document owners suppress input with no delayed replay.
+  Cancel preserves the intended neighbor even mid-walk, an intentional safer
+  adaptation from the reference's mid-walk retry discrepancy. Tab selection retains
+  its existing authorized visit/session effects, without additional persistence rights.
+- Production state/event and draft-transition tests use synthetic tabs/drafts only.
+  Native callbacks, physical buttons, drivers, sheets, focus, IME, accessibility and
+  actual overflow layout remain unverified. Trackpad/history gestures are out of scope.
 
 ### Reader, rendered content and snapshots
 

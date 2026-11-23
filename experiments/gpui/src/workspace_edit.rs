@@ -36,6 +36,7 @@ pub enum Transition {
     Note(live::NoteKey),
     LegacyNote(i64),
     ActivateTab(tabs::TabKey),
+    MouseTab(tabs::TabKey),
     CloseTab(tabs::TabKey),
     Home,
     Tag { tag: String, scope: String },
@@ -350,6 +351,9 @@ fn fixture_note(root: &Path, path: &Path) -> bool {
 impl Workspace {
     /// true means caller must stop before changing any navigation state.
     pub(crate) fn guard_transition(&mut self, intent: Transition, cx: &mut Context<Self>) -> bool {
+        self.shell
+            .mouse_tabs
+            .navigation(&intent, self.editing_ui.has_pending());
         if self.recent_open() && !matches!(intent, Transition::Quit) {
             return true;
         }
@@ -479,6 +483,7 @@ impl Workspace {
                 }
             }
             Transition::ActivateTab(key) => self.activate_tab(key, cx),
+            Transition::MouseTab(key) => self.activate_mouse_tab(key, cx),
             Transition::CloseTab(key) => self.close_tab(&key, cx),
             Transition::Home => self.open_home(cx),
             Transition::Tag { tag, scope } => self.open_tag_page(tag, scope, cx),
@@ -1567,6 +1572,7 @@ mod tests {
             }),
             Transition::LegacyNote(1),
             Transition::ActivateTab(tabs::TabKey::Home),
+            Transition::MouseTab(tabs::TabKey::Calendar),
             Transition::CloseTab(tabs::TabKey::Home),
             Transition::WorkingVault("another".into()),
         ];
@@ -1738,6 +1744,144 @@ mod pending_transition_tests {
         let b = tabs.open_note("two", 7, "B");
         let a = tabs.open_note("one", 7, "A");
         (tabs, a, b)
+    }
+    fn mouse_mid_walk() -> (tabs::Tabs, shell::mouse_tabs::Walk) {
+        let mut tabs = tabs::Tabs::restore(
+            [
+                tabs::TabKey::Note {
+                    vault: "one".into(),
+                    note_id: 1,
+                },
+                tabs::TabKey::Graph,
+                tabs::TabKey::Note {
+                    vault: "one".into(),
+                    note_id: 7,
+                },
+                tabs::TabKey::Calendar,
+            ]
+            .into_iter()
+            .map(|key| tabs::Tab {
+                key,
+                title: "Synthetic".into(),
+            })
+            .collect(),
+        );
+        let mut walk = shell::mouse_tabs::Walk::default();
+        for _ in 0..2 {
+            let key = walk
+                .destination(&tabs, gpui::NavigationDirection::Forward)
+                .unwrap();
+            assert!(tabs.activate(&key));
+            walk.complete(&tabs);
+        }
+        (tabs, walk)
+    }
+    #[test]
+    fn mouse_cancel_retains_mid_walk_neighbor_and_exact_dirty_draft() {
+        let (tabs, mut walk) = mouse_mid_walk();
+        let before = tabs.clone();
+        let mut edit = draft();
+        let mut pending = PendingTransition::default();
+        let key = walk
+            .destination(&tabs, gpui::NavigationDirection::Forward)
+            .unwrap();
+        assert_eq!(key, tabs::TabKey::Calendar);
+        assert_eq!(
+            transition_decision(false, false, Some(edit.leave_prompt())),
+            GateDecision::Prompt
+        );
+        pending.capture(Transition::MouseTab(key.clone()));
+        pending.capture(Transition::Home);
+        assert_eq!(pending.intent, Some(Transition::MouseTab(key.clone())));
+        assert_eq!(
+            transition_decision(pending.is_some(), false, None),
+            GateDecision::Block
+        );
+        walk.pointer_down(pending.is_some());
+        assert!(matches!(
+            edit.choose_leave(LeaveChoice::Cancel, 1, &storage())
+                .unwrap(),
+            LeaveAction::Stay
+        ));
+        pending.cancel();
+        walk.complete(&tabs);
+        assert_eq!(edit.draft(), "exact draft\n\n");
+        assert!(edit.dirty());
+        assert_eq!(tabs, before);
+        assert_eq!(
+            walk.destination(&tabs, gpui::NavigationDirection::Forward),
+            Some(key)
+        );
+        assert!(pending.take().is_none());
+    }
+    #[test]
+    fn mouse_explicit_save_accepts_exact_destination_once_and_continues_walk() {
+        let (mut tabs, mut walk) = mouse_mid_walk();
+        let before = tabs.clone();
+        let mut edit = draft();
+        let mut pending = PendingTransition::default();
+        let key = walk
+            .destination(&tabs, gpui::NavigationDirection::Forward)
+            .unwrap();
+        pending.capture(Transition::MouseTab(key.clone()));
+        let attempt = start(&mut edit, &mut pending);
+        assert_eq!(edit.leave_prompt(), LeavePrompt::WaitForSave);
+        assert_eq!(
+            transition_decision(pending.is_some(), false, Some(edit.leave_prompt())),
+            GateDecision::Block
+        );
+        assert_eq!(tabs, before);
+        assert!(edit.replace_text("overwrite".into()).is_err());
+        let outcome = edit.finish_save(attempt, 1, 2, Ok(ack()));
+        let accepted = pending.finish_save(attempt, &outcome, true);
+        assert_eq!(accepted, Some(Transition::MouseTab(key.clone())));
+        assert!(walk.accepts(&key, &tabs));
+        assert!(tabs.activate(&key));
+        walk.complete(&tabs);
+        assert!(pending.finish_save(attempt, &outcome, true).is_none());
+        assert_eq!(
+            walk.destination(&tabs, gpui::NavigationDirection::Forward),
+            Some(tabs::TabKey::Note {
+                vault: "one".into(),
+                note_id: 1
+            })
+        );
+    }
+    #[test]
+    fn mouse_failed_save_and_composition_never_authorize_navigation() {
+        let (tabs, mut walk) = mouse_mid_walk();
+        let before = tabs.clone();
+        let mut edit = draft();
+        let mut pending = PendingTransition::default();
+        let key = walk
+            .destination(&tabs, gpui::NavigationDirection::Forward)
+            .unwrap();
+        edit.replace_text_with_composition("exact draft\n\n".into(), true)
+            .unwrap();
+        assert_eq!(edit.leave_prompt(), LeavePrompt::WaitForComposition);
+        assert_eq!(
+            transition_decision(false, false, Some(edit.leave_prompt())),
+            GateDecision::Prompt
+        );
+        edit.replace_text_with_composition("exact draft\n\n".into(), false)
+            .unwrap();
+        pending.capture(Transition::MouseTab(key.clone()));
+        let attempt = start(&mut edit, &mut pending);
+        let outcome = edit.finish_save(
+            attempt,
+            1,
+            2,
+            Err(live::Error::Transport("synthetic failure".into())),
+        );
+        assert!(pending.finish_save(attempt, &outcome, true).is_none());
+        walk.complete(&tabs);
+        assert_eq!(tabs, before);
+        assert_eq!(edit.draft(), "exact draft\n\n");
+        assert!(edit.dirty());
+        assert_eq!(
+            walk.destination(&tabs, gpui::NavigationDirection::Forward),
+            Some(key)
+        );
     }
     #[test]
     fn create_cancel_preserves_dirty_text_and_consumes_no_transition() {
@@ -2298,6 +2442,7 @@ mod image_overlay_transition_tests {
             Transition::FullGraph,
             Transition::Calendar,
             Transition::CreateNote,
+            Transition::MouseTab(tabs::TabKey::Calendar),
         ] {
             assert!(image_overlay_blocks_transition(true, &intent));
             assert!(!image_overlay_blocks_transition(false, &intent));

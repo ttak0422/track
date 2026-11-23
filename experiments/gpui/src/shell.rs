@@ -1,4 +1,6 @@
 //! Native one-sheet shell. Only backed actions are interactive.
+#[path = "workspace_mouse_tabs.rs"]
+pub(crate) mod mouse_tabs;
 use super::*;
 use crate::rail_icons::Icon;
 use gpui::{Div, Focusable, Stateful, WindowAppearance, point};
@@ -566,6 +568,7 @@ pub struct ShellState {
     reader_content: std::collections::HashMap<tabs::TabKey, ReaderContentIdentity>,
     tab_cycle: Vec<tabs::TabKey>,
     tab_cycle_index: usize,
+    pub(crate) mouse_tabs: mouse_tabs::Walk,
     heading_anchors:
         std::collections::HashMap<tabs::TabKey, (String, std::rc::Rc<markdown::HeadingAnchors>)>,
 }
@@ -698,6 +701,7 @@ impl Default for ShellState {
             reader_content: Default::default(),
             tab_cycle: Vec::new(),
             tab_cycle_index: 0,
+            mouse_tabs: mouse_tabs::Walk::default(),
             heading_anchors: Default::default(),
         }
     }
@@ -3792,12 +3796,19 @@ impl Workspace {
         cx.notify();
     }
     pub(crate) fn activate_tab(&mut self, key: tabs::TabKey, cx: &mut Context<Self>) {
-        self.activate_tab_inner(key, false, cx);
+        if !self.editing_ui.has_pending() {
+            self.shell.mouse_tabs.reset();
+        }
+        self.activate_tab_inner(key, false, workspace_edit::Transition::ActivateTab, cx);
+    }
+    pub(crate) fn activate_mouse_tab_inner(&mut self, key: tabs::TabKey, cx: &mut Context<Self>) {
+        self.activate_tab_inner(key, false, workspace_edit::Transition::MouseTab, cx);
     }
     fn activate_tab_inner(
         &mut self,
         key: tabs::TabKey,
         load_current_after_close: bool,
+        transition: fn(tabs::TabKey) -> workspace_edit::Transition,
         cx: &mut Context<Self>,
     ) {
         // An already-active tab is a focus click, not a navigation/reload request.
@@ -3809,7 +3820,7 @@ impl Workspace {
         ) {
             return;
         }
-        if self.guard_transition(workspace_edit::Transition::ActivateTab(key.clone()), cx) {
+        if self.guard_transition(transition(key.clone()), cx) {
             return;
         }
         if let tabs::TabKey::Note { vault, .. } = &key {
@@ -3915,7 +3926,7 @@ impl Workspace {
             if let Some(next) = self.tabs.active().map(|tab| tab.key.clone()) {
                 // Removing the active entry already promotes its neighbor in the
                 // model; its reader still needs loading despite being model-active.
-                self.activate_tab_inner(next, true, cx);
+                self.activate_tab_inner(next, true, workspace_edit::Transition::ActivateTab, cx);
             } else {
                 // Do not reopen a configured home or accept an older async response.
                 self.show_empty_home();
@@ -5697,6 +5708,14 @@ impl Render for Workspace {
         div()
             .id("workspace-shell")
             .track_focus(&workspace_focus)
+            .capture_any_mouse_down(cx.listener(
+                |this, event: &gpui::MouseDownEvent, window, cx| {
+                    this.mouse_tab_event(event.button, mouse_tabs::Phase::Down, window, cx);
+                },
+            ))
+            .capture_any_mouse_up(cx.listener(|this, event: &gpui::MouseUpEvent, window, cx| {
+                this.mouse_tab_event(event.button, mouse_tabs::Phase::Up, window, cx);
+            }))
             .when(self.native_reload_available(window, cx), |root| {
                 root.on_action(cx.listener(|this, _: &NativeReload, window, cx| {
                     this.native_reload(window, cx);
