@@ -397,6 +397,32 @@ allowlisted lifecycle/count metadata. It does not inspect private session direct
 agent/user messages. This adapter is observational: the one-way CLI event stream provides no
 safe acknowledgement mechanism for pause/resume. Do not advertise those controls for Codex.
 
+## Reading agent timeline interval reports
+
+`track timeline-project intervals --id ID [--limit N] [--until RFC3339]` is a
+read-only projection of one selected project's existing journal. It returns
+`schema_version: 1`, `project_id`, the journal `revision`, `interval_minutes: 15`,
+and an `intervals` array newest first. `--limit` defaults to 8 and is capped
+at 96. Each completed UTC window is half-open `[start, end)`, with empty
+windows included and the current partial window excluded. An explicit upper
+boundary must align to 15 minutes in UTC and not exceed the current completed
+boundary. Equivalent RFC3339 time-zone offsets give the same result.
+
+Each window has `start`, `end`, `counts`, and `transitions`. A transition
+contains the journal `sequence`, recorded UTC `at`, `task_id`, `to_status`,
+and `from_status` when the task was already recorded. Status classification
+replays in journal sequence order, even if the wall clock moved; only bucket
+membership uses the timestamp. `created` counts first records, `activated`
+counts entries into active (including first records and resumes), `completed`
+counts transitions from an existing non-done status to done, and `reopened`
+counts done to pending, active, paused or blocked. Recompletion after a genuine
+reopen is another transition. Same-status upserts and retries don't count.
+Raw payloads, reports, discussions, and control records are not returned.
+
+The projection changes no journal or derived index. It derives only from the
+validated, bounded journal for one project and never runs an agent, schedules
+work, or writes an authored `report.add` event.
+
 ## Normal-session timeline transport
 
 `track timeline-session init|start|show|task|report|hook` provides explicit vault/project-bound, run-scoped task updates on the existing timeline engine. See [session integration](../../examples/session-timeline/README.md) for the shared skill, opt-in hooks, privacy boundary, retry semantics and verified compatibility limits. The low-level revision-checked `timeline-project apply` remains available.

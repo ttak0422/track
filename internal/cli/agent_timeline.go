@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/timeline"
 )
 
@@ -18,14 +19,27 @@ import (
 // snapshots continue to use `track timeline`; these IDs are durable project IDs.
 func cmdTimelineProject(args []string) int {
 	if len(args) == 0 {
-		return fail("usage: track timeline-project list|get|apply [--id ID]")
+		return fail("usage: track timeline-project list|get|apply|intervals [--id ID]")
 	}
 	action := args[0]
-	if action != "list" && action != "get" && action != "apply" {
+	if action != "list" && action != "get" && action != "apply" && action != "intervals" {
 		return fail("unknown timeline-project action %q", action)
 	}
 	fs := flag.NewFlagSet("timeline-project "+action, flag.ContinueOnError)
 	id := fs.String("id", "", "stable timeline project id")
+	var limit int
+	var until *time.Time
+	if action == "intervals" {
+		fs.IntVar(&limit, "limit", timeline.DefaultIntervalLimit, "number of completed 15-minute intervals (1–96)")
+		fs.Func("until", "exclusive RFC3339 15-minute boundary (default: current UTC boundary)", func(raw string) error {
+			value, err := time.Parse(time.RFC3339Nano, raw)
+			if err != nil {
+				return errors.New("must be RFC3339 with a time zone")
+			}
+			until = &value
+			return nil
+		})
+	}
 	if code, ok := parseArgs(fs, args[1:]); !ok {
 		return code
 	}
@@ -37,6 +51,9 @@ func cmdTimelineProject(args []string) int {
 	}
 	if action == "list" && *id != "" {
 		return fail("list does not accept --id")
+	}
+	if action == "intervals" {
+		return readTimelineIntervals(*id, limit, until)
 	}
 	var request timeline.Request
 	if action == "apply" {
@@ -82,6 +99,30 @@ func cmdTimelineProject(args []string) int {
 		}
 		return emit(snapshot)
 	}
+}
+
+// readTimelineIntervals only resolves the vault location and reads one timeline.
+// Unlike the existing note engine's open(), it does not open or build an index.
+func readTimelineIntervals(id string, limit int, until *time.Time) int {
+	current := time.Now().UTC().Truncate(timeline.IntervalDuration)
+	end := current
+	if until != nil {
+		end = *until
+		if end.After(current) {
+			return fail("timeline intervals: --until cannot include the current or future interval")
+		}
+	}
+	vault, _, err := config.VaultLocation()
+	if err != nil {
+		return fail("%v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	history, err := timeline.NewStore(vault).ReadIntervals(ctx, id, end, limit)
+	if err != nil {
+		return fail("timeline intervals: %v", err)
+	}
+	return emit(history)
 }
 
 func decodeTimelineRequest(raw []byte, request *timeline.Request) error {
