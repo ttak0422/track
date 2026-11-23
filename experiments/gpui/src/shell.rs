@@ -139,6 +139,7 @@ impl Workspace {
     }
     pub(crate) fn cancel_position_resume(&mut self) {
         self.shell.reader_keys = None;
+        self.shell.search_return_reader = None;
         self.shell.footnote_return = None;
         self.cancel_follow_reveal();
         self.shell.positions.interaction = self.shell.positions.interaction.wrapping_add(1);
@@ -540,6 +541,7 @@ pub struct ShellState {
     pub home: bool,
     pub search_open: bool,
     search_return_focus: Option<gpui::FocusHandle>,
+    search_return_reader: Option<ReaderKeyOwner>,
     search_scroll: gpui::UniformListScrollHandle,
     pub dark: Option<bool>,
     pub diagnostics: bool,
@@ -590,6 +592,7 @@ impl ShellState {
     /// Preserve the offset in a fresh handle and rebind every host anchor namespace.
     fn detach_reader_scroll(&mut self, key: &tabs::TabKey) {
         self.reader_keys = None;
+        self.search_return_reader = None;
         self.reader_scroll_epoch = self.reader_scroll_epoch.wrapping_add(1);
         self.footnote_return = None;
         let replacement = gpui::ScrollHandle::new();
@@ -674,6 +677,7 @@ impl Default for ShellState {
             home: true,
             search_open: false,
             search_return_focus: None,
+            search_return_reader: None,
             search_scroll: Default::default(),
             dark: None,
             diagnostics: false,
@@ -4113,6 +4117,18 @@ impl Workspace {
         } else {
             window.blur();
         }
+        if let Some(owner) = self.shell.search_return_reader.take()
+            && self.reader_key_owner_current(&owner, window, cx)
+            && self
+                .shell
+                .reader_scrolls
+                .get(&owner.tab)
+                .and_then(|handle| FootnoteGeometry::capture(handle, window))
+                .as_ref()
+                == Some(&owner.geometry)
+        {
+            self.shell.reader_keys = Some(owner);
+        }
         cx.notify();
     }
     fn step_search_result(&mut self, forward: bool, cx: &mut Context<Self>) {
@@ -4153,6 +4169,7 @@ impl Workspace {
         }
         if !self.shell.search_open {
             self.shell.search_return_focus = None;
+            self.shell.search_return_reader = None;
             if let Some(focus) = &self.shell.reader_focus {
                 window.focus(focus);
             } else {
@@ -4853,20 +4870,36 @@ impl Render for Workspace {
                 })),
             )
             .child(
-                rail_button("search", Icon::Search, p, self.shell.search_open).on_click(
-                    cx.listener(|this, _, window, cx| {
+                rail_button("search", Icon::Search, p, self.shell.search_open)
+                    .debug_selector(|| "keyboard-search".into())
+                    .on_mouse_down(
+                        gpui::MouseButton::Left,
+                        cx.listener(|this, _, window, cx| {
+                            if !this.shell.search_open {
+                                // Capture before GPUI's outside-reader mouse-down blur and
+                                // the root's ordinary pointer invalidation run.
+                                this.shell.search_return_focus = window
+                                    .focused(cx)
+                                    .filter(|focus| focus != &this.search.focus_handle(cx));
+                                this.shell.search_return_reader = this.shell.reader_keys.take();
+                            }
+                        }),
+                    )
+                    .on_click(cx.listener(|this, event, window, cx| {
                         if this.shell.search_open {
                             this.dismiss_search(window, cx);
                         } else {
-                            this.shell.search_return_focus = window
-                                .focused(cx)
-                                .filter(|focus| focus != &this.search.focus_handle(cx));
+                            if !matches!(event, gpui::ClickEvent::Mouse(_)) {
+                                this.shell.search_return_focus = window
+                                    .focused(cx)
+                                    .filter(|focus| focus != &this.search.focus_handle(cx));
+                                this.shell.search_return_reader = this.shell.reader_keys.take();
+                            }
                             this.shell.search_open = true;
                             window.focus(&this.search.focus_handle(cx));
                         }
                         cx.notify();
-                    }),
-                ),
+                    })),
             )
             .child(
                 rail_button("calendar-open", Icon::Calendar, p, calendar_active)
@@ -5804,7 +5837,8 @@ impl Render for Workspace {
             )
             .on_action(
                 cx.listener(|this, _: &search_input::DismissSearch, window, cx| {
-                    this.dismiss_search(window, cx)
+                    this.dismiss_search(window, cx);
+                    cx.stop_propagation();
                 }),
             )
             .on_mouse_down(
@@ -6218,6 +6252,7 @@ impl Render for Workspace {
                 root.child(
                     div()
                         .id("search-backdrop")
+                        .debug_selector(|| "keyboard-search-backdrop".into())
                         .occlude()
                         .absolute()
                         .size_full()
@@ -6249,6 +6284,10 @@ impl Render for Workspace {
             })
     }
 }
+
+#[cfg(all(test, feature = "ui-tests"))]
+#[path = "workspace_keyboard_ui.rs"]
+mod keyboard_ui;
 
 #[cfg(test)]
 mod reference_tests {

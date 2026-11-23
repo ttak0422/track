@@ -7978,6 +7978,9 @@ mod registry_contract;
 #[path = "live_bound_fixture.rs"]
 mod bound_fixture;
 
+#[cfg(all(test, feature = "ui-tests"))]
+pub(crate) use bound_fixture::with_keyboard_fixture;
+
 #[cfg(test)]
 #[path = "live_graph_contract.rs"]
 mod graph_contract_tests;

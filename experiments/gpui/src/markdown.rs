@@ -3424,6 +3424,7 @@ fn render_elements(
         .enumerate()
         .map(|(index, block)| {
             let mut row = div()
+                .debug_selector(|| format!("keyboard-reader-row-{index}"))
                 .w_full()
                 .min_w_0()
                 .text_size(px(16.))

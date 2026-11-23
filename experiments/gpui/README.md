@@ -1358,3 +1358,15 @@ Rendered host and successfully expanded include paragraphs offer separate **Open
 The combined prefix is bounded to 16 controls / 256 parsed links / 8192 blocks; authored and normalized URLs must each be at most 4096 UTF-8 bytes. Exact preview/source/occurrence, scope/storage/registry, mode, page/source disclosure and Find/selection revisions are checked at activation, alongside current modal/editor/recovery/IME gates. Labels are bounded to 80 characters, while the normalized destination is shown. Source view remains available for links outside the prefix. HTTP(S) local destinations, query strings and fragments follow the existing ordinary-reader parser.
 
 Cloud actual-source model tests use a fake opener and verify no unintended calls. Full native browser delivery and pointer interaction remain unverified; harness parser/model adapters are not a substitute for the full GPUI renderer.
+
+## Search dismissal and reader keyboard regression
+
+Search preserves its pre-click focus. Escape or an outside-panel click restores
+that focus and reuses an already acquired j/k reader owner only if the exact
+accepted source, body, scroll epoch and geometry remain current. Search result
+navigation drops that owner. A resize or changed note requires another prose
+click. Composing Search retains its keys; reader Tab/Shift+Tab remains separate.
+
+[Virtual Workspace keyboard checks](qa/KEYBOARD-UI.md) exercise actual production
+GPUI callbacks with generated read-only Go fixtures. They use no OS window and
+do not establish AppKit, physical input, real IME or accessibility behavior.
