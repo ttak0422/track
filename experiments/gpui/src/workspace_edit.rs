@@ -532,7 +532,10 @@ impl Workspace {
         if !self.editing_ui.enabled() {
             return Err("Editing is disabled. Developer disposable-fixture opt-in is required; this build is not release-ready.".into());
         }
-        if self.partial_read || self.read_error.is_some() || self.quit_session.failure().is_some() {
+        if self.partial_read
+            || self.current_read_error().is_some()
+            || self.quit_session.failure().is_some()
+        {
             return Err("Source/storage is partial or unavailable; editing is disabled.".into());
         }
         let live = self

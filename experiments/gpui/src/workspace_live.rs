@@ -77,6 +77,31 @@ impl ReaderRead {
     }
 }
 
+/// Body failure is distinct from workspace and list failures. In particular
+/// a numerically identical note in another vault cannot inherit this error.
+pub(crate) struct BodyReadError {
+    request: u64,
+    key: live::NoteKey,
+    launch: u64,
+    storage: Option<u64>,
+    message: String,
+}
+
+impl BodyReadError {
+    fn current(
+        &self,
+        request: u64,
+        target: Option<(&str, i64)>,
+        launch: u64,
+        storage: Option<u64>,
+    ) -> bool {
+        self.request == request
+            && target == Some((self.key.vault.as_str(), self.key.note_id))
+            && self.launch == launch
+            && self.storage == storage
+    }
+}
+
 /// A delayed graph read belongs to an accepted note, not to whichever route is
 /// visible when asynchronous vault discovery finishes.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -408,6 +433,67 @@ impl Workspace {
         )
     }
 
+    fn reader_error_target(&self) -> Option<(&str, i64)> {
+        if self.tag_page.is_some() {
+            return None;
+        }
+        match self.tabs.active().map(|tab| &tab.key) {
+            Some(tabs::TabKey::Note { vault, note_id }) => Some((vault.as_str(), *note_id)),
+            // A startup fallback can render a listed note before a tab exists.
+            None => self
+                .selected
+                .and_then(|index| self.live_notes.get(index))
+                .map(|note| (note.vault.as_str(), note.note_id)),
+            Some(_) => None,
+        }
+    }
+
+    pub(crate) fn current_body_read_error(&self) -> Option<&str> {
+        let error = self.body_read_error.as_ref()?;
+        let launch = self.live.as_ref()?.client().launch_generation;
+        error
+            .current(
+                self.request,
+                self.reader_error_target(),
+                launch,
+                self.accepted_storage_generation,
+            )
+            .then_some(error.message.as_str())
+    }
+
+    pub(crate) fn current_read_error(&self) -> Option<&str> {
+        self.read_error
+            .as_deref()
+            .or_else(|| self.current_body_read_error())
+    }
+
+    fn record_body_read_error(
+        &mut self,
+        request: u64,
+        key: live::NoteKey,
+        launch: u64,
+        error: live::Error,
+    ) {
+        let body_error = BodyReadError {
+            request,
+            key,
+            launch,
+            storage: self.accepted_storage_generation,
+            message: error.to_string(),
+        };
+        let Some(session) = &self.live else {
+            return;
+        };
+        if body_error.current(
+            self.request,
+            self.reader_error_target(),
+            session.client().launch_generation,
+            self.accepted_storage_generation,
+        ) {
+            self.body_read_error = Some(body_error);
+        }
+    }
+
     pub fn load_live_notes(&mut self, cx: &mut Context<Self>) {
         if self.reader_read_pending() {
             return;
@@ -653,7 +739,7 @@ impl Workspace {
         };
         if owner.accepts(self.local_graph_owner().as_ref())
             && self.follow_registry().is_some()
-            && self.read_error.is_none()
+            && self.current_read_error().is_none()
             && self.editing_ui.follow_safe()
             && !self.quit_session.is_closing()
         {
@@ -793,7 +879,7 @@ impl Workspace {
         self.current_note_request = None;
         self.current_related.clear();
         self.show_graph = false;
-        self.read_error = None;
+        self.body_read_error = None;
         let previous = self.request;
         self.request += 1;
         self.recent_note_requested(previous, key.clone());
@@ -802,10 +888,11 @@ impl Workspace {
         let request = self.request;
         let destination = key.clone();
         let expected_epoch = self.accepted_storage_generation;
+        let launch = session.client().launch_generation;
         self.live_reader_pending = Some(ReaderRead::body(
             request,
             destination.clone(),
-            session.client().launch_generation,
+            launch,
             expected_epoch,
         ));
         let read_expected = expected.clone();
@@ -888,7 +975,7 @@ impl Workspace {
                         this.transfer_follow_read(request);
                         this.advance_fragment_request(request, this.request, &fragment_destination);
                     }
-                    Err(error) => this.read_error = Some(error.to_string()),
+                    Err(error) => this.record_body_read_error(request, destination, launch, error),
                 }
                 cx.notify();
             });
@@ -916,12 +1003,14 @@ impl Workspace {
         let key = note.key();
         let accepted_request = key.clone();
         let request = self.request;
+        self.body_read_error = None;
         self.status = "Reading raw body (read-only)…".into();
         let expected_epoch = self.accepted_storage_generation;
+        let launch = session.client().launch_generation;
         self.live_reader_pending = Some(ReaderRead::body(
             request,
             accepted_request.clone(),
-            session.client().launch_generation,
+            launch,
             expected_epoch,
         ));
         let job = cx.background_executor().spawn(async move {
@@ -978,7 +1067,6 @@ impl Workspace {
                 }
                 match result {
                     Ok(response) => {
-                        this.read_error = None;
                         let key = tabs::TabKey::Note {
                             vault: accepted_request.vault.clone(),
                             note_id: accepted_request.note_id,
@@ -1025,8 +1113,10 @@ impl Workspace {
                         );
                     }
                     Err(error) => {
-                        this.status = error.to_string();
-                        this.read_error = Some(error.to_string());
+                        if this.status == "Reading raw body (read-only)…" {
+                            this.status.clear();
+                        }
+                        this.record_body_read_error(request, accepted_request, launch, error);
                     }
                 }
                 cx.notify();
@@ -1341,7 +1431,7 @@ mod history_read_tests {
         };
         accept_note_route(&mut tabs, &mut history, &key);
         assert!(note_read_is_current(1, 1, &key, &tabs));
-        // An error only sets read_error, leaving the accepted route/cursor intact.
+        // A body error leaves the accepted route and cursor intact.
         assert_eq!(
             tabs.active().unwrap().key,
             tabs::TabKey::Note {
@@ -1421,5 +1511,33 @@ mod reload_pending_tests {
         tabs.open_note("one", 7, "Waiting");
         assert!(finish_reader_read(&mut pending, 12));
         assert!(!visible(&pending, &tabs));
+    }
+}
+
+#[cfg(test)]
+mod body_read_error_tests {
+    use super::*;
+
+    #[test]
+    fn rejects_other_route_request_launch_and_storage() {
+        let error = BodyReadError {
+            request: 12,
+            key: live::NoteKey {
+                vault: "work".into(),
+                note_id: 42,
+            },
+            launch: 4,
+            storage: Some(7),
+            message: "body read failed".into(),
+        };
+        let same = Some(("work", 42));
+        assert!(error.current(12, same, 4, Some(7)));
+        assert!(!error.current(12, Some(("foreign", 42)), 4, Some(7)));
+        assert!(!error.current(12, Some(("work", 43)), 4, Some(7)));
+        assert!(!error.current(12, None, 4, Some(7)));
+        assert!(!error.current(13, same, 4, Some(7)));
+        assert!(!error.current(12, same, 5, Some(7)));
+        assert!(!error.current(12, same, 4, Some(8)));
+        assert!(!error.current(12, same, 4, None));
     }
 }

@@ -61,3 +61,10 @@ physical keyboard/mouse behavior, IME candidate windows/commit, accessibility,
 clipboard integration, or dirty editor sheets. The older observation of Search
 closing while typing was not reproduced by these cases. Foreground native QA of
 those paths remains required, using disposable data and an isolated desktop.
+
+The body-read error cases use an actual Go 404 after opening a missing note.
+A successful Search does not erase that note's failure. Closing the failed tab
+to Home removes its warning. Choosing a healthy note in the same UI update
+that schedules an older failing request exercises stale completion isolation;
+a separate workspace/list diagnostic must not be attributed to the note or
+cleared by that body request. These are virtual-window tests, not AppKit.

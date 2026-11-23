@@ -151,7 +151,7 @@ impl Workspace {
             || !self.find_available()
             || self.shell.find.highlighted
             || self.partial_read
-            || self.read_error.is_some()
+            || self.current_read_error().is_some()
             || self.shell.pending_fragment.is_some()
             || self.previews.model.transient.is_some()
             || self.displayed_content().as_ref() != &self.content
@@ -179,7 +179,7 @@ impl Workspace {
             || !self.find_available()
             || self.editing_ui.active()
             || self.partial_read
-            || self.read_error.is_some()
+            || self.current_read_error().is_some()
             || self.content.is_empty()
             || self.content.len() > 4096
         {
@@ -223,7 +223,7 @@ impl Workspace {
             || self.shell.find.open
             || self.shell.find.highlighted
             || self.partial_read
-            || self.read_error.is_some()
+            || self.current_read_error().is_some()
             || self.quit_session.is_closing()
             || self.quit_session.failure().is_some()
             || self.shell.pending_fragment.is_some()
@@ -2033,7 +2033,7 @@ impl Workspace {
             && !self.shell.find.open
             && !self.shell.find.highlighted
             && !self.partial_read
-            && self.read_error.is_none()
+            && self.current_read_error().is_none()
             && !self.quit_session.is_closing()
             && self.quit_session.failure().is_none()
             && self.shell.pending_fragment.is_none()
@@ -2721,7 +2721,7 @@ impl Workspace {
         code_copy_available(
             self.find_available(),
             self.shell.find.open,
-            self.read_error.is_some(),
+            self.current_read_error().is_some(),
             self.show_graph,
         )
         .then(|| code_copy::Document {
@@ -2916,7 +2916,7 @@ impl Workspace {
             && !self.reader_preview_routing_blocked(cx)
             && !self.reader_selection_dragging()
             && !self.shell.find.is_composing(cx)
-            && self.read_error.is_none()
+            && self.current_read_error().is_none()
             && !self.quit_session.is_closing()
             && self.quit_session.failure().is_none()
     }
@@ -3696,7 +3696,7 @@ impl Workspace {
             || self.editor_shortcut_blocked(cx)
             || self.tag_page.is_some()
             || self.partial_read
-            || self.read_error.is_some()
+            || self.current_read_error().is_some()
             || self.quit_session.is_closing()
             || self.quit_session.failure().is_some()
             || self.shell.pending_fragment.is_some()
@@ -4012,6 +4012,7 @@ impl Workspace {
     }
     fn show_empty_home(&mut self) {
         self.tag_page = None;
+        self.body_read_error = None;
         self.history.record(Some(tabs::TabKey::Home));
         self.request += 1;
         self.graph_request += 1;
@@ -4300,7 +4301,7 @@ impl Render for Workspace {
         let external_displayed = self.displayed_content();
         let local_fragments_ready = link_source.is_some();
         let external_ready =
-            local_fragments_ready && self.find_available() && self.read_error.is_none();
+            local_fragments_ready && self.find_available() && self.current_read_error().is_none();
         let footnote_labels = markdown::footnote_targets(&external_displayed);
         let weak = cx.entity().downgrade();
         let plain_source = link_source.clone();
@@ -4480,7 +4481,7 @@ impl Render for Workspace {
                         } else if external_links::destination(&link.target).is_some() {
                             // Browser dispatch is not a note transition: never save, discard,
                             // or mutate the editor, tab, selection, or draft here.
-                            if !this.find_available() || this.read_error.is_some() {
+                            if !this.find_available() || this.current_read_error().is_some() {
                                 return;
                             }
                             let current_source = this.current_link_source();
@@ -6154,18 +6155,19 @@ impl Render for Workspace {
                         .child(self.session_ui.warning.clone().unwrap_or_default()),
                 )
             })
-            .when(self.read_error.is_some(), |root| {
+            .when(self.current_read_error().is_some(), |root| {
                 root.child(
                     div()
+                        .id("workspace-read-error")
+                        .debug_selector(|| "workspace-read-error".into())
                         .pl(px(64.))
                         .py_1()
                         .text_size(px(11.))
                         .text_color(rgb(p.mark))
                         .child(
-                            self.read_error
-                                .as_ref()
+                            self.current_read_error()
                                 .filter(|e| e.starts_with("Shutdown failed:") || e.starts_with("Read-only session"))
-                                .cloned()
+                                .map(str::to_owned)
                                 .unwrap_or_else(|| {
                                     "A read failed. Open diagnostics for details.".into()
                                 }),
@@ -6255,11 +6257,12 @@ impl Render for Workspace {
                         .text_size(px(11.))
                         .text_color(rgb(p.muted))
                         .child(format!(
-                            "{}\n{}\n{}\n{}\n{}",
+                            "{}\n{}\n{}\n{}\n{}\n{}",
                             self.source,
                             self.list_status,
                             self.status,
                             self.read_error.as_deref().unwrap_or(""),
+                            self.current_body_read_error().unwrap_or(""),
                             self.shell
                                 .links
                                 .as_ref()

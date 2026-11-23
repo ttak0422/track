@@ -488,7 +488,7 @@ impl Workspace {
             || self.tag_page.is_some()
             || self.editing_ui.active()
             || self.partial_read
-            || self.read_error.is_some()
+            || self.current_read_error().is_some()
             || self.shell.accepted_title_request != Some(self.request)
             || self.quit_session.is_closing()
             || self.quit_session.failure().is_some()

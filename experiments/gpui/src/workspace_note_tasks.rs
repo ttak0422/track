@@ -60,7 +60,7 @@ impl Workspace {
             || self.shell.home
             || self.quit_session.is_closing()
             || self.quit_session.failure().is_some()
-            || self.read_error.is_some()
+            || self.current_read_error().is_some()
         {
             return None;
         }

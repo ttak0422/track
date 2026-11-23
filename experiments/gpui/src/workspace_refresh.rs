@@ -206,7 +206,10 @@ impl Workspace {
                 "session shutdown failure",
             ),
             (self.live_reader_pending.is_none(), "note read pending"),
-            (self.read_error.is_none(), "note read error retained"),
+            (
+                self.current_read_error().is_none(),
+                "note read error retained",
+            ),
             (
                 graph_refresh_allowed(
                     self.full_graph_active(),

@@ -527,14 +527,14 @@ impl Workspace {
             || self.editing_ui.has_pending()
             || self.quit_session.is_closing()
             || self.quit_session.failure().is_some()
-            || self.read_error.is_some()
+            || self.current_read_error().is_some()
         {
             return None;
         }
         self.includes_source_identity()
     }
     fn includes_source_identity(&self) -> Option<Identity> {
-        if self.read_error.is_some() {
+        if self.current_read_error().is_some() {
             return None;
         }
         let source = self.current_link_source()?;
