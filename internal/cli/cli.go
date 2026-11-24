@@ -236,6 +236,8 @@ Usage:
   track timeline-session init|start|show|task|report|hook [flags]
   track timeline-project list|get|apply [--id ID]
                                         manage explicit agent work records; apply reads JSON stdin
+  track timeline-project intervals --id ID [--limit N] [--until RFC3339]
+                                        summarize recorded task transitions in completed UTC windows (JSON)
   track timeline (--id N | --title S | --path P)
                                         read task tree, progress and recorded history (JSON)
   track tasks [--id N | --title S | --path P] [--state A,B] [--due YYYY-MM-DD] [--overdue]
