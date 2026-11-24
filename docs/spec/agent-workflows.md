@@ -425,7 +425,13 @@ validated, bounded journal for one project and never runs an agent, schedules
 work, or writes an authored `report.add` event.
 
 An explicitly requested active agent can author natural language with the
-[interval report skill](https://github.com/ttak0422/track-lab/blob/7a010f333bd19ece6b9cd588fb71446f8f8eda49/plugins/task/skills/track-timeline-interval-reports/SKILL.md).
+[interval report skill](https://github.com/ttak0422/track-lab/blob/main/plugins/task/skills/track-timeline-interval-reports/SKILL.md).
+Claude Code (`/task:track-timeline-interval-reports`) and Codex
+(`$track-timeline-interval-reports`) share this protocol. Clients differ in
+how they load the skill and grant shell and vault access, not in evidence or
+report semantics. Label the run with the corresponding client when attaching
+(`--agent claude` or `--agent codex`); the ledger uses the returned opaque
+run ID. The separate Codex JSONL adapter is not required by either skill.
 For a non-empty `missing` bucket, submit the existing `report.add` API with the
 returned `report_source`, matching `event_id` and payload `id` set to the bucket's
 `report_id`, its complete ordered transition sequences, and the exact read
