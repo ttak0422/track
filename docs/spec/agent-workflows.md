@@ -418,7 +418,7 @@ counts entries into active (including first records and resumes), `completed`
 counts transitions from an existing non-done status to done, and `reopened`
 counts done to pending, active, paused or blocked. Recompletion after a genuine
 reopen is another transition. Same-status upserts and retries don't count.
-Raw payloads, reports, discussions, and control records are not returned.
+The default v1 response does not return raw payloads, reports, discussions, or control records.
 
 The projection changes no journal or derived index. It derives only from the
 validated, bounded journal for one project and never runs an agent, schedules
@@ -440,3 +440,40 @@ not a clock scheduler or unattended agent runner.
 ## Normal-session timeline transport
 
 `track timeline-session init|start|show|task|report|hook` provides explicit vault/project-bound, run-scoped task updates on the existing timeline engine. Use the [track-lab Timeline skill](https://github.com/ttak0422/track-lab/blob/7a010f333bd19ece6b9cd588fb71446f8f8eda49/plugins/task/skills/track-timeline/SKILL.md) for explicit on-demand tracking in an existing vault. See [session integration](../../examples/session-timeline/README.md) for skill setup, optional automatic hooks, privacy boundaries, retry semantics and compatibility limits. The low-level revision-checked `timeline-project apply` remains available.
+
+### Opt-in interval evidence v2
+
+`track timeline-project intervals --id ID --evidence-version 2` extends the
+same read-only projection. It returns `schema_version: 2` and
+`report_source: "interval-report-v2"`. The default remains v1. The journal
+schema does not change: an explicit progress note uses the existing
+`discussion.add` kind, with reserved `source: "interval-progress-v1"`.
+Set both `event_id` and the discussion `id` to
+`progress-{result,blocker,next}-UNIQUE`; the suffix is a normal identifier.
+The payload targets an existing task (`target_type: "task"`, `target_id`),
+with a normal discussion author and required printable one-line `text` up to
+512 UTF-8 bytes, with single spaces and no surrounding whitespace. The source
+identifies the protocol, not an authenticated author. Callers must verify
+their bound vault, project, and task before writing; never submit raw
+conversation or tool output. Existing revision, idempotency, and identity
+collision rules apply.
+
+A v2 bucket includes optional `progress` records (`sequence`, recorded UTC
+`at`, `task_id`, `category`, and `text`) and `evidence_sequences` for the
+complete ordered union of transitions and progress records. Both are omitted
+when empty. Ordinary discussions and malformed reserved-source records are
+not counted. Consecutive identical text per task and category across the
+journal contributes only once until that category changes for the task.
+This does not change status counts or task completion. Replay and deduplication
+use journal order, while placement uses the event's recorded timestamp.
+
+For a missing bucket with evidence, use the same existing `report.add` kind
+with the returned v2 source and report ID. Cite exactly the returned
+`evidence_sequences` in `event_sequences`; v2 validates complete ordered
+pre-receipt evidence in the bucket. Both versions share the same report ID,
+so there cannot be two saved reports for one bucket. V2 recognizes a valid v1
+receipt by its original transition provenance; it stays saved. A default v1
+reader cannot attest to a v2 receipt and sees a conflict rather than
+creating a duplicate. In v2, optional `uncovered_progress` counts later
+progress in a saved v2 bucket or all progress in a saved v1 bucket; do not
+overwrite either receipt. The observation is not a trigger for new work.
