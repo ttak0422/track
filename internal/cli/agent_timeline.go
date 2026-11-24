@@ -27,9 +27,10 @@ func cmdTimelineProject(args []string) int {
 	}
 	fs := flag.NewFlagSet("timeline-project "+action, flag.ContinueOnError)
 	id := fs.String("id", "", "stable timeline project id")
-	var limit int
+	var limit, version int
 	var until *time.Time
 	if action == "intervals" {
+		fs.IntVar(&version, "evidence-version", timeline.IntervalSchemaVersion, "interval output: 1 for transitions only, 2 for transitions and authored progress")
 		fs.IntVar(&limit, "limit", timeline.DefaultIntervalLimit, "number of completed 15-minute intervals (1–96)")
 		fs.Func("until", "exclusive RFC3339 15-minute boundary (default: current UTC boundary)", func(raw string) error {
 			value, err := time.Parse(time.RFC3339Nano, raw)
@@ -53,7 +54,7 @@ func cmdTimelineProject(args []string) int {
 		return fail("list does not accept --id")
 	}
 	if action == "intervals" {
-		return readTimelineIntervals(*id, limit, until)
+		return readTimelineIntervals(*id, limit, version, until)
 	}
 	var request timeline.Request
 	if action == "apply" {
@@ -103,7 +104,7 @@ func cmdTimelineProject(args []string) int {
 
 // readTimelineIntervals only resolves the vault location and reads one timeline.
 // Unlike the existing note engine's open(), it does not open or build an index.
-func readTimelineIntervals(id string, limit int, until *time.Time) int {
+func readTimelineIntervals(id string, limit, version int, until *time.Time) int {
 	current := time.Now().UTC().Truncate(timeline.IntervalDuration)
 	end := current
 	if until != nil {
@@ -118,7 +119,7 @@ func readTimelineIntervals(id string, limit int, until *time.Time) int {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	history, err := timeline.NewStore(vault).ReadIntervals(ctx, id, end, limit)
+	history, err := timeline.NewStore(vault).ReadIntervalsVersion(ctx, id, end, limit, version)
 	if err != nil {
 		return fail("timeline intervals: %v", err)
 	}

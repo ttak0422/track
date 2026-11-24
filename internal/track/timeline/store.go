@@ -240,6 +240,12 @@ func (s *Store) Apply(ctx context.Context, id string, request Request) (Snapshot
 		return Snapshot{}, ErrLimit
 	}
 	event := Event{Sequence: snapshot.Revision + 1, At: time.Now().UTC().Format(time.RFC3339Nano), Source: request.Source, EventID: request.EventID, Kind: request.Kind, Payload: payload}
+	if event.Source == IntervalProgressSource {
+		if _, ok := intervalProgress(event); !ok {
+			return Snapshot{}, invalid("interval progress requires a task discussion with matching progress-{result,blocker,next}-ID and printable one-line text (1–512 bytes)")
+		}
+	}
+
 	if err := reduce(&snapshot, event); err != nil {
 		return Snapshot{}, err
 	}
