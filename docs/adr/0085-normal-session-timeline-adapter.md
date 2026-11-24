@@ -13,7 +13,7 @@ session hook just to record one piece of work.
 ## Decision
 
 Keep `timeline-session` as a thin CLI over the existing journal. Make the
-repository's canonical Track Timeline skill the primary entry point: one
+Track Timeline skill in the track-lab task plugin the primary entry point: one
 explicit request per conversation, per-command vault/project selection, and
 an opaque run from the existing start command. Reuse an existing project or
 initialize one with user intent, never create a vault. Return the project ID for

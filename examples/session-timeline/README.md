@@ -1,6 +1,6 @@
 # Track Timeline in Codex
 
-Use the [Track Timeline skill](../../.agents/skills/track-timeline/SKILL.md) when
+Use the [Track Timeline skill](https://github.com/ttak0422/track-lab/blob/7a010f333bd19ece6b9cd588fb71446f8f8eda49/plugins/task/skills/track-timeline/SKILL.md) when
 you want Codex to track a piece of work. It records intentional updates through
 the local Track CLI; Komado and Web read the same existing timeline project.
 
@@ -9,11 +9,9 @@ the local Track CLI; Komado and Web read the same existing timeline project.
 1. Make sure `track` is on the PATH used by Codex (`command -v track`).
    If needed, build it from this checkout with Go 1.26 or newer:
    `go build -o bin/track ./cmd/track`, then put that binary on PATH.
-2. In a Track checkout, Codex discovers the repository skill. For other
-   repositories, install the [one skill directory](../../.agents/skills/track-timeline)
-   once in `$HOME/.agents/skills/track-timeline/`, or in the target repository's
-   `.agents/skills/track-timeline/`. See [Codex skill discovery](https://learn.chatgpt.com/docs/build-skills).
-   No AGENTS.md change or hook is needed for this workflow.
+2. Install the [track-lab task plugin](https://github.com/ttak0422/track-lab/blob/7a010f333bd19ece6b9cd588fb71446f8f8eda49/plugins/task/README.md#install) to use
+   the skill in Codex or Claude. See [track-lab#57](https://github.com/ttak0422/track-lab/pull/57)
+   for the migration and availability. No AGENTS.md change or hook is needed.
 3. Ask once in the session, for example: **`$track-timeline` Track the progress
    of this work in the existing `work` vault and `demo` project.** A clear
    natural-language request to track with Track works too if your client selects
