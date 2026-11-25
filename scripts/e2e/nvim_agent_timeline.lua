@@ -79,8 +79,11 @@ local function run()
       return table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n"):find("Revision 3", 1, true) ~= nil
    end, 10), "timeline command did not render CLI snapshot")
    local rendered = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
-   for _, expected in ipairs({ "Externally updated project", "[active] Real process task", "## Reports", "## Discussion", "## Recorded events" }) do
+   for _, expected in ipairs({ "Externally updated project", "[active] Real process task", "## Reports", "## Discussion" }) do
       assert(rendered:find(expected, 1, true), "missing timeline content: " .. expected)
+   end
+   for _, hidden in ipairs({ "## Recorded events", "Payload:", " events: " }) do
+      assert(not rendered:find(hidden, 1, true), "unexpected raw journal detail: " .. hidden)
    end
    assert(not vim.bo[buf].modifiable and not vim.bo[buf].modified, "timeline should be read-only")
    -- The open native view observes an independent writer without manual refresh.

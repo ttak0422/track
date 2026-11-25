@@ -70,7 +70,10 @@ assert(rendered:find("a > task.upsert to edit the full task",1,true))
 assert(rendered:find("[active] Parent",1,true)<rendered:find("[blocked] Child",1,true))
 assert(rendered:find("\n  [blocked] Child (child) | 25%",1,true))
 assert(rendered:find("priority=P0",1,true) and rendered:find("task:child",1,true))
-assert(rendered:find("Payload: event payload visible",1,true))
+assert(rendered:find("start - end",1,true), "report period must remain visible")
+for _, hidden in ipairs({ "Recorded events", "Payload:", "event payload visible", " events: 1" }) do
+  assert(not rendered:find(hidden,1,true), "raw journal detail must stay hidden: " .. hidden)
+end
 local original=copy(task)
 picker=function(items,opt,cb)
   if opt.prompt=='Append an explicit record' then cb('task.upsert'); return end
