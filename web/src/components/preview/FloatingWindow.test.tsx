@@ -52,7 +52,7 @@ describe("FloatingWindow swap button", () => {
     fireEvent.click(swap);
     expect(onSwap).toHaveBeenCalledTimes(1);
 
-    // Without a page note to trade with (search, graph, voice) the layer omits onSwap and the chrome
+    // Without a page note to trade with (search, graph) the layer omits onSwap and the chrome
     // shows no swap button at all.
     rerender(
       <FloatingWindow {...base}>

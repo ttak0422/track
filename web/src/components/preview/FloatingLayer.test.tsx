@@ -65,7 +65,7 @@ describe("FloatingLayer note swap", () => {
   });
 
   it("offers no swap button while the page shows no note", () => {
-    routerMock.pathname = "/voice";
+    routerMock.pathname = "/graph";
     const { container } = renderLayer();
 
     fireEvent.click(container.querySelector("button")!);

@@ -146,9 +146,8 @@ results within its timeout. GUI failures are not skipped or treated as successfu
 - A server retry does not reload an already-rendered WebView. It retains the current document and
   dispatches online/focus events so the live query and event-stream clients can reconnect without
   discarding editor-local input. Explicit Reload checks the live note editor before deciding whether to warn.
-- WKWebView uses its persistent website data store in normal operation. Its narrow speech handler
-  validates the exact workspace origin and main frame. The activity-notification handler additionally
-  requires a committed app-route document; executable vault attachments have an opaque sandbox
+- WKWebView uses its persistent website data store in normal operation. The activity-notification
+  handler requires the exact workspace origin, main frame, and a committed app-route document; executable vault attachments have an opaque sandbox
   origin. No arbitrary shell capability or custom URL-scheme handler is exposed. The existing web UI can render sandboxed HTML embeds, remote HTTP(S) iframe embeds, and vault-local
   static apps. Static apps remain on their static-only origin, separate from the live API.
 - A top-level external HTTP(S) URL is sent to the default browser only after a direct link gesture.

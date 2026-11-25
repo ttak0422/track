@@ -53,8 +53,8 @@ The frame sandbox admits scripts and same-origin for Grafana's own API/storage, 
 navigation, popups, forms, downloads nor a native bridge. Same-origin and loopback starting URLs are
 rejected. This is an explicit trust boundary to an existing server, not a claim to constrain every
 subresource or redirect controlled by an admitted server. No Track proxy, service account, credential
-injection, anonymous mode or sharing setting is added. Native URL policy and main-frame-only speech
-bridge checks remain unchanged. Grafana X-Frame-Options/frame-ancestors, server permissions and
+injection, anonymous mode or sharing setting is added. The native URL policy still applies.
+Grafana X-Frame-Options/frame-ancestors, server permissions and
 cookie restrictions can still prevent use. Cross-origin load events cannot prove readiness; a visible
 external fallback is always offered. Authenticated Grafana and manual WKWebView QA require a known
 server and are not inferred from mocked iframe tests.

@@ -14,7 +14,7 @@ export function FloatingLayer() {
   usePreviewStackVersion();
   const navigate = useNavigate();
   // The note the page currently shows, when it shows one. The swap button trades a note window with
-  // it, so on a route with no note to trade with (search, graph, voice) the button stays absent.
+  // it, so on a route with no note to trade with (search, graph) the button stays absent.
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const currentNoteID = /^\/notes\/([^/]+)$/.exec(pathname.replace(/\/$/, ""))?.[1] ?? null;
 

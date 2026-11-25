@@ -91,7 +91,7 @@ final class AppleActivityNotificationDriver: NSObject, ActivityNotificationDrive
 
 @MainActor
 final class NativeNotificationBridge: NSObject, WKScriptMessageHandlerWithReply, NSMenuDelegate {
-    private static let workspacePath = #"^(/|/(markdown|graph|voice|calendar|tasks|empty)/?|/notes/([a-z0-9-]+~)?[A-Za-z0-9]+/?|/day/[0-9]{4}-[0-9]{2}-[0-9]{2}/?|/tags/.+)$"#
+    private static let workspacePath = #"^(/|/(markdown|graph|calendar|tasks|empty)/?|/notes/([a-z0-9-]+~)?[A-Za-z0-9]+/?|/day/[0-9]{4}-[0-9]{2}-[0-9]{2}/?|/tags/.+)$"#
     private let origin: URL
     private var trustedDocument = false
     private let driver: any ActivityNotificationDriver

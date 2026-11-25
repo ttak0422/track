@@ -52,7 +52,7 @@ native `clean-close` case failed with `prompts=1`, `replies=[]` and
 `unexpected unsaved-edits warning in clean-close`. Navigation's existing editor probe did not
 participate in either path. The regression requires `prompts=0`, `replies=[true]` after the fix.
 
-Unknown pages, voice input, open dialogs and focused embedded frames remain conservative.
+Unknown pages, open dialogs and focused embedded frames remain conservative.
 An unavailable probe cannot establish a clean editor, so it still warns after a bounded timeout.
 The read-only state probe does not add a native command or message bridge. The native Cancel
 button leaves the existing web Save action available; this change adds no new save workflow.
