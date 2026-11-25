@@ -83,6 +83,77 @@ describe("TimelineForm", () => {
 });
 
 describe("AgentTimelineView", () => {
+  it("projects recent reports and real changes instead of raw journal rows", async () => {
+    const e = (sequence: number, kind: string, payload: unknown) => ({
+      sequence, kind, payload, event_id: "fixture-" + sequence, source: "worker",
+      at: `2026-11-15T14:0${sequence}:00Z`,
+    });
+    vi.mocked(listAgentProjects).mockResolvedValue({ projects: [project] });
+    vi.mocked(getAgentProject).mockResolvedValue({ ...project, events: [
+      e(1, "task.upsert", { id: "task-a", title: "Work", status: "pending" }),
+      e(2, "task.upsert", { id: "task-a", title: "Work", status: "active" }),
+      e(3, "task.upsert", { id: "task-a", title: "same status", status: "active" }),
+      e(4, "report.add", { summary: "Checks started", period_end: "2026-11-15T14:00:00Z", event_sequences: [2] }),
+      e(5, "discussion.add", { text: "Review complete" }),
+    ] });
+    const cache = provider();
+    render(<QueryClientProvider client={cache}><AgentTimelineView /></QueryClientProvider>);
+    await screen.findByRole("option", { name: "Alpha" });
+    fireEvent.change(screen.getByLabelText("Project"), { target: { value: "alpha" } });
+    const recent = within(await screen.findByRole("region", { name: "Recent updates" }));
+    const rows = recent.getAllByRole("listitem");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent("Review complete");
+    expect(rows[1]).toHaveTextContent("Checks started");
+    expect(rows[1].querySelector("time")).toHaveAttribute("datetime", "2026-11-15T14:04:00Z");
+    expect(recent.queryByText(/same status|fixture-3|In progress: Work/)).toBeNull();
+    expect(screen.getByText(/History & advanced tools/).closest("details")).not.toHaveAttribute("open");
+    cache.clear();
+  });
+
+  it("submits a task by title alone with safe defaults", async () => {
+    vi.mocked(listAgentProjects).mockResolvedValue({ projects: [project] });
+    vi.mocked(getAgentProject).mockResolvedValue(project);
+    vi.mocked(applyAgentRequest).mockResolvedValue({ ...project, revision: 3 });
+    const cache = provider();
+    render(<QueryClientProvider client={cache}><AgentTimelineView /></QueryClientProvider>);
+    await screen.findByRole("option", { name: "Alpha" });
+    fireEvent.change(screen.getByLabelText("Project"), { target: { value: "alpha" } });
+    fireEvent.click(await screen.findByText("Add task"));
+    const title = screen.getByLabelText("Task title");
+    expect(screen.getByText("Task options").closest("details")).not.toHaveAttribute("open");
+    fireEvent.change(title, { target: { value: "Review the changes" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create task" }));
+    await waitFor(() => expect(applyAgentRequest).toHaveBeenCalledOnce());
+    expect(vi.mocked(applyAgentRequest).mock.calls[0][2]).toMatchObject({ kind: "task.upsert", payload: {
+      id: expect.stringMatching(/^[a-f0-9-]+$/), title: "Review the changes", status: "pending", mode: "serial",
+      weight: 1, done_minutes: 0, remaining_minutes: 0,
+    } });
+    await waitFor(() => expect(title).toHaveValue(""));
+    cache.clear();
+  });
+
+  it("posts a project discussion by message alone", async () => {
+    vi.mocked(listAgentProjects).mockResolvedValue({ projects: [project] });
+    vi.mocked(getAgentProject).mockResolvedValue(project);
+    vi.mocked(applyAgentRequest).mockResolvedValue({ ...project, revision: 3 });
+    const cache = provider();
+    render(<QueryClientProvider client={cache}><AgentTimelineView /></QueryClientProvider>);
+    await screen.findByRole("option", { name: "Alpha" });
+    fireEvent.change(screen.getByLabelText("Project"), { target: { value: "alpha" } });
+    fireEvent.click(await screen.findByText("Discussion"));
+    const message = screen.getByLabelText("Message");
+    expect(screen.getByText("Message options").closest("details")).not.toHaveAttribute("open");
+    fireEvent.change(message, { target: { value: "レビュー完了" } });
+    fireEvent.click(screen.getByRole("button", { name: "Post message" }));
+    await waitFor(() => expect(applyAgentRequest).toHaveBeenCalledOnce());
+    expect(vi.mocked(applyAgentRequest).mock.calls[0][2]).toMatchObject({ kind: "discussion.add", payload: {
+      target_type: "project", target_id: "alpha", author: "Web", text: "レビュー完了",
+    } });
+    await waitFor(() => expect(message).toHaveValue(""));
+    cache.clear();
+  });
+
   it("loads a selected project and distinguishes a control request from a receipt", async () => {
     vi.mocked(listAgentProjects).mockResolvedValue({ projects: [project] });
     vi.mocked(getAgentProject).mockResolvedValue(project);
@@ -94,7 +165,7 @@ describe("AgentTimelineView", () => {
     expect(screen.getByText(/task-a: pause → worker · requested/)).toBeTruthy();
     expect(screen.getByText(/A request is not an acknowledgement/)).toBeTruthy();
     expect(screen.getByText(/Task states are last reported records, not live process status/)).toBeTruthy();
-    expect(screen.getByText(/An active task may have stopped without reporting/)).toBeTruthy();
+    expect(screen.getByTitle(/An active task may have stopped without reporting/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /acknowledge/i })).toBeNull();
     cache.clear();
   });
@@ -109,7 +180,8 @@ describe("AgentTimelineView", () => {
     fireEvent.change(screen.getByLabelText("Project"), { target: { value: "alpha" } });
     await screen.findByRole("heading", { name: "Alpha" });
     fireEvent.click(screen.getByText("Add authored report"));
-    expect(screen.getByText(/20% subtree/)).toHaveTextContent("8 min remaining");
+    expect(screen.getByRole("progressbar", { name: "Weighted project progress" })).toHaveValue(20);
+    expect(screen.getByTitle("8 min remaining")).toHaveTextContent("20%");
     fireEvent.change(screen.getByLabelText("Report author"), { target: { value: "Reviewer" } });
     fireEvent.change(screen.getByLabelText("Period start (RFC3339)"), { target: { value: "2026-11-15T00:00:00Z" } });
     fireEvent.change(screen.getByLabelText("Period end (RFC3339)"), { target: { value: "2026-11-15T01:00:00Z" } });
