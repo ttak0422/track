@@ -4,11 +4,17 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { APIError } from "../api";
 import { agentKeys, projectNoteID, applyAgentRequest, getAgentProject, listAgentProjects, type AgentProject, type AgentProgress, type AgentRequest, type AgentTask } from "../agentTimeline";
 import { useVaultScope } from "../vaultScope";
+import "./AgentTimelineView.css";
 
 const DraftContext = createContext<{ report: (id: string, dirty: boolean) => void; mayLeave: () => boolean }>({ report: (_id: string, _dirty: boolean) => {}, mayLeave: () => true });
 const leaveMessage = "Discard unsaved timeline edits? A request already sent may still complete.";
 const identity = () => crypto.randomUUID();
 const text = (data: FormData, key: string) => String(data.get(key) ?? "").trim();
+const requiredText = (data: FormData, key: string, label: string) => {
+  const value = text(data, key);
+  if (!value) throw new Error(label + " is required");
+  return value;
+};
 const number = (data: FormData, key: string) => {
   const result = Number(text(data, key));
   if (!Number.isFinite(result) || result < 0) throw new Error(`${key} must be a nonnegative number`);
@@ -47,7 +53,7 @@ function TimelineWorkspace({ vault, reportDraft }: { vault: string; reportDraft:
   const projects = useQuery({ queryKey: agentKeys.projects(vault), queryFn: ({ signal }) => listAgentProjects(vault, signal), refetchInterval: 30_000 });
   return <DraftContext.Provider value={{ report, mayLeave }}><div className="agent-timeline">
     <header className="day-head"><h1 className="day-title">Agent timeline</h1></header>
-    <p>Explicit work records, separate from note checkboxes. No conversations are collected and no agents are run automatically.</p>
+    <p>Follow the plan and catch up on progress.</p>
     {projects.isError ? <p role="alert" className="error">{projects.error.message}</p> : null}
     {projects.isPending ? <p role="status">Loading projects...</p> : null}
     <label>Project <select value={selected} onChange={(e) => { if (mayLeave()) setSelected(e.target.value); }}>
@@ -99,9 +105,7 @@ function ProjectWorkspace({ vault, id }: { vault: string; id: string }) {
     {query.isPending ? <p role="status">Loading project...</p> : null}
     {query.isError ? <p role="alert" className="error">{query.error.message}{p ? " Showing an earlier snapshot; it may be stale." : ""}</p> : null}
     {p ? <>
-      <h2>{p.title}</h2><p>{p.description}</p>
-      <p className="muted">Revision {p.revision} · {Math.round(p.progress.fraction * 100)}% weighted progress · {p.progress.done}/{p.progress.total} done · {p.progress.retired} retired</p>
-      <p className="muted">{p.progress.done_minutes} minutes recorded · {p.progress.remaining_minutes} minutes estimated remaining ({p.mode})</p>
+      <TimelineOverview project={p} onEdit={task => { if (mayLeave()) { setEditing(task); setEditingRevision(p.revision); } }} />
       <details><summary>Edit project</summary>
         <TimelineForm revision={p.revision} stickyRevision kind="project.update" send={send} label="Save project" build={d => ({
           title: text(d, "title"), description: text(d, "description"), mode: text(d, "mode"),
@@ -111,18 +115,16 @@ function ProjectWorkspace({ vault, id }: { vault: string; id: string }) {
           <Area name="description" label="Project description" value={p.description} /><Mode value={p.mode} />
         </TimelineForm>
       </details>
-      <h3>Tasks</h3>
-      <p className="muted">Task states are last reported records, not live process status. An active task may have stopped without reporting; refreshing does not confirm its worker is running.</p>
-      <TaskTree tasks={p.tasks} progress={p.task_progress} onEdit={task => { if (mayLeave()) { setEditing(task); setEditingRevision(p.revision); } }} />
       <details open={editing !== null}><summary>{editing ? `Edit ${editing.title}` : "Add task"}</summary>
-        <TimelineForm key={editing ? `${editing.id}:${editingRevision}` : "new"} revision={p.revision} stickyRevision={editing !== null} kind="task.upsert" send={send} label="Save task" build={(d) => ({
-          id: text(d, "id"), title: text(d, "title"), detail: text(d, "detail"), parent_id: text(d, "parent_id"),
+        <TimelineForm key={editing ? `${editing.id}:${editingRevision}` : "new"} revision={p.revision} stickyRevision={editing !== null} kind="task.upsert" send={send} label={editing ? "Save task" : "Create task"} resetAfterSave={!editing} build={(d) => ({
+          id: editing?.id ?? (text(d, "id") || identity()), title: requiredText(d, "title", "Task title"), detail: text(d, "detail"), parent_id: text(d, "parent_id"),
           status: text(d, "status"), owner: text(d, "owner"), mode: text(d, "mode"),
           ...(text(d, "priority") !== "" ? { priority: number(d, "priority") } : {}),
           weight: number(d, "weight"), done_minutes: number(d, "done_minutes"), remaining_minutes: number(d, "remaining_minutes"),
         })}>
-          <Field name="id" label="Task ID" value={editing?.id} required pattern="[A-Za-z0-9][A-Za-z0-9_-]{0,95}" readOnly={editing !== null} />
           <Field name="title" label="Task title" value={editing?.title} required maxLength={512} />
+          <details><summary>Task options</summary><div className="timeline-options">
+          <Field name="id" label="Task ID" value={editing?.id} pattern="[A-Za-z0-9][A-Za-z0-9_-]{0,95}" readOnly={editing !== null} />
           <Area name="detail" label="Task detail" value={editing?.detail} />
           <label>Parent <select name="parent_id" defaultValue={editing?.parent_id ?? ""}><option value="">Project root</option>{p.tasks.filter(t => t.id !== editing?.id).map(t => <option key={t.id} value={t.id}>{t.title}</option>)}</select></label>
           <label>Status <select name="status" defaultValue={editing?.status ?? "pending"}>{["pending", "active", "paused", "blocked", "done", "retired"].map(s => <option key={s}>{s}</option>)}</select></label>
@@ -132,11 +134,13 @@ function ProjectWorkspace({ vault, id }: { vault: string; id: string }) {
           <Field name="done_minutes" label="Recorded minutes" type="number" min="0" step="any" value={editing?.done_minutes ?? 0} required />
           <Field name="remaining_minutes" label="Remaining minutes" type="number" min="0" step="any" value={editing?.remaining_minutes ?? 0} required />
           <Mode value={editing?.mode} />
+          </div></details>
         </TimelineForm>
         {editing ? <button className="timeline-text-button" type="button" onClick={() => { if (mayLeave()) setEditing(null); }}>Finish editing</button> : null}
       </details>
-      <ReportSection project={p} send={send} />
       <DiscussionSection project={p} send={send} />
+      <details className="timeline-history"><summary>History &amp; advanced tools</summary>
+      <ReportSection project={p} send={send} />
       <ControlSection project={p} send={send} />
       <details><summary>Recorded events ({p.events.length})</summary>
         <p className="muted">Showing the latest {Math.min(eventLimit, p.events.length)} records in sequence order.</p>
@@ -146,17 +150,105 @@ function ProjectWorkspace({ vault, id }: { vault: string; id: string }) {
           <details><summary>Payload</summary><pre>{JSON.stringify(e.payload, null, 2)}</pre></details>
         </li>)}</ol>
       </details>
+      </details>
     </> : null}
   </section>;
 }
 
+const taskStatus: Record<AgentTask["status"], { glyph: string; label: string }> = {
+  done: { glyph: "✓", label: "Done" },
+  active: { glyph: "●", label: "In progress" },
+  pending: { glyph: "○", label: "To do" },
+  paused: { glyph: "Ⅱ", label: "Paused" },
+  blocked: { glyph: "!", label: "Blocked" },
+  retired: { glyph: "–", label: "Retired" },
+};
+
+function recentRows(project: AgentProject) {
+  const lastStatus = new Map<string, AgentTask["status"]>();
+  const lastNote = new Map<string, string>();
+  const rows: { sequence: number; at: string; text: string; type: "Report" | "Task" | "Note"; covered: number[] }[] = [];
+  for (const event of project.events) {
+    if (!event.payload || typeof event.payload !== "object") continue;
+    const p = event.payload as Record<string, unknown>;
+    if (event.kind === "task.upsert" && typeof p.id === "string" && typeof p.title === "string"
+        && typeof p.status === "string" && Object.hasOwn(taskStatus, p.status)) {
+      const status = p.status as AgentTask["status"];
+      const previous = lastStatus.get(p.id);
+      lastStatus.set(p.id, status);
+      if (previous && previous !== status) {
+        rows.push({ ...event, type: "Task", text: taskStatus[status].label + ": " + p.title, covered: [] });
+      }
+    } else if (event.kind === "report.add" && typeof p.summary === "string") {
+      const covered = Array.isArray(p.event_sequences) ? p.event_sequences.filter((n): n is number => typeof n === "number") : [];
+      rows.push({ ...event, type: "Report", text: p.summary, covered });
+    } else if (event.kind === "discussion.add" && typeof p.text === "string") {
+      if (event.source === "interval-progress-v1") {
+        const id = event.event_id.match(/^progress-(result|blocker|next)-.+$/);
+        if (!id || p.id !== event.event_id || p.target_type !== "task" || typeof p.target_id !== "string") continue;
+        const key = p.target_id + ":" + id[1];
+        if (lastNote.get(key) === p.text) continue;
+        lastNote.set(key, p.text);
+      }
+      rows.push({ ...event, type: "Note", text: p.text, covered: [] });
+    }
+  }
+  const visible: typeof rows = [];
+  const covered = new Set<number>();
+  // Traverse newest first. Only a visible report suppresses its older evidence.
+  for (let i = rows.length - 1; i >= 0 && visible.length < 5; i--) {
+    const row = rows[i];
+    if (covered.has(row.sequence)) continue;
+    visible.push(row);
+    for (const sequence of row.covered) covered.add(sequence);
+  }
+  return visible;
+}
+
+function TimelineOverview({ project, onEdit }: { project: AgentProject; onEdit: (t: AgentTask) => void }) {
+  const progress = Math.round(Math.max(0, Math.min(1, project.progress.fraction)) * 100);
+  const recent = recentRows(project);
+  return <div className="timeline-overview">
+    <section aria-label="Plan" className="timeline-plan">
+      <div className="timeline-plan-title"><h2>{project.title}</h2><strong>{progress}%</strong></div>
+      <progress className="timeline-progress" aria-label="Weighted project progress" max={100} value={progress} />
+      {project.description ? <p className="muted">{project.description}</p> : null}
+      <TaskTree tasks={project.tasks} progress={project.task_progress} onEdit={onEdit} />
+      <small className="muted" title="An active task may have stopped without reporting.">Task states are last reported records, not live process status.</small>
+    </section>
+    <section aria-label="Recent updates" className="timeline-recent">
+      <h3>Recent updates</h3>
+      {recent.length ? <ol>{recent.map(row => {
+        const when = new Date(row.at);
+        const time = Number.isNaN(when.getTime()) ? row.at : when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        return <li key={row.sequence}>
+          <time dateTime={row.at} title={row.at}>{time}</time>
+          <div><span className="timeline-update-kind">{row.type}</span><p>{row.text}</p></div>
+        </li>;
+      })}</ol> : <p className="muted">No updates yet.</p>}
+    </section>
+  </div>;
+}
+
 function TaskTree({ tasks, progress, onEdit }: { tasks: AgentTask[]; progress?: Record<string, AgentProgress>; onEdit: (t: AgentTask) => void }) {
-  const children = (parent = ""): ReactNode => <ul>{tasks.filter(t => (t.parent_id ?? "") === parent).map(t => <li key={t.id}>
-    <button className="timeline-text-button" type="button" onClick={() => onEdit(t)}>{t.title}</button> · {t.status}{t.owner ? ` · ${t.owner}` : ""}
-    {progress?.[t.id] ? <span className="muted"> · {Math.round(progress[t.id].fraction * 100)}% subtree · {progress[t.id].remaining_minutes} min remaining</span> : null}
-    {tasks.some(child => child.parent_id === t.id) ? children(t.id) : null}
+  const byParent = new Map<string, AgentTask[]>();
+  for (const task of tasks) {
+    const parent = task.parent_id ?? "";
+    const siblings = byParent.get(parent) ?? [];
+    siblings.push(task);
+    byParent.set(parent, siblings);
+  }
+  const children = (parent = ""): ReactNode => <ul>{byParent.get(parent)?.map(t => <li key={t.id}>
+    <div className="timeline-task-row">
+      <span className={"timeline-task-mark is-" + t.status} title={taskStatus[t.status].label}>
+        <span aria-hidden="true">{taskStatus[t.status].glyph}</span><span className="timeline-sr-only">{taskStatus[t.status].label}</span>
+      </span>
+      <button className="timeline-text-button" type="button" onClick={() => onEdit(t)}>{t.title}</button>
+      {progress?.[t.id] ? <small className="muted timeline-task-progress" title={progress[t.id].remaining_minutes + " min remaining"}>{Math.round(progress[t.id].fraction * 100)}%<span className="timeline-sr-only"> subtree · {progress[t.id].remaining_minutes} min remaining</span></small> : null}
+    </div>
+    {byParent.has(t.id) ? children(t.id) : null}
   </li>)}</ul>;
-  return tasks.length ? <div aria-label="Task tree">{children()}</div> : <p>No tasks yet.</p>;
+  return tasks.length ? <div className="timeline-task-tree" aria-label="Task tree">{children()}</div> : <p className="muted">No tasks yet.</p>;
 }
 
 type Send = (request: AgentRequest, data: FormData) => Promise<number | void>;
@@ -183,16 +275,23 @@ function ReportSection({ project: p, send }: { project: AgentProject; send: Send
 }
 
 function DiscussionSection({ project: p, send }: { project: AgentProject; send: Send }) {
-  return <section><h3>Discussion</h3>
-    {p.discussions.map(d => <p key={d.id}><strong>{d.author}</strong> ({d.target_type}: {d.target_id}): {d.text}</p>)}
-    <details><summary>Add discussion</summary><TimelineForm revision={p.revision} kind="discussion.add" send={send} label="Post discussion" build={d => {
+  const taskTitles = new Map(p.tasks.map(t => [t.id, t.title]));
+  return <details className="timeline-discussion"><summary>Discussion</summary>
+    <TimelineForm revision={p.revision} kind="discussion.add" send={send} label="Post message" resetAfterSave build={d => {
       const [target_type, target_id] = text(d, "target").split(":");
-      return { id: identity(), target_type, target_id, author: text(d, "author"), text: text(d, "text") };
+      return { id: identity(), target_type, target_id, author: text(d, "author") || "Web", text: requiredText(d, "text", "Message") };
     }}>
-      <label>Target <select name="target"><option value={`project:${p.project_id}`}>Project</option>{p.tasks.map(t => <option key={`task:${t.id}`} value={`task:${t.id}`}>Task: {t.title}</option>)}{p.reports.map(r => <option key={`report:${r.id}`} value={`report:${r.id}`}>Report: {r.id}</option>)}</select></label>
-      <Field name="author" label="Discussion author" required maxLength={256} /><Area name="text" label="Message" required />
-    </TimelineForm></details>
-  </section>;
+      <Area name="text" label="Message" required />
+      <details><summary>Message options</summary><div className="timeline-options">
+        <label>Target <select name="target"><option value={`project:${p.project_id}`}>Project</option>{p.tasks.map(t => <option key={`task:${t.id}`} value={`task:${t.id}`}>Task: {t.title}</option>)}{p.reports.map(r => <option key={`report:${r.id}`} value={`report:${r.id}`}>Report: {r.summary}</option>)}</select></label>
+        <Field name="author" label="Display name (optional)" placeholder="Web" maxLength={256} />
+      </div></details>
+    </TimelineForm>
+    <ul className="timeline-thread">{p.discussions.slice().reverse().map(d => <li key={d.id}>
+      <strong>{d.author}</strong>{d.target_type === "task" ? <small className="muted"> · {taskTitles.get(d.target_id) ?? "Task"}</small> : null}
+      <p>{d.text}</p>
+    </li>)}</ul>
+  </details>;
 }
 
 function ControlSection({ project: p, send }: { project: AgentProject; send: Send }) {
@@ -211,8 +310,8 @@ function ControlSection({ project: p, send }: { project: AgentProject; send: Sen
 
 // A form owns its source event identity through uncertain retries. It never silently
 // rebases a dirty edit onto a newer project revision or retries a conflict automatically.
-export function TimelineForm({ revision, kind, build, send, label, children, stickyRevision = false }: {
-  revision: number; stickyRevision?: boolean; kind: string; build: (data: FormData) => unknown; send: Send; label: string; children: ReactNode;
+export function TimelineForm({ revision, kind, build, send, label, children, stickyRevision = false, resetAfterSave = false }: {
+  revision: number; stickyRevision?: boolean; resetAfterSave?: boolean; kind: string; build: (data: FormData) => unknown; send: Send; label: string; children: ReactNode;
 }) {
   const [base, setBase] = useState(revision), [dirty, setDirty] = useState(false);
   const [pending, setPending] = useState(false), [error, setError] = useState(""), [success, setSuccess] = useState(false);
@@ -228,13 +327,15 @@ export function TimelineForm({ revision, kind, build, send, label, children, sti
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); if (busy.current || conflict) return;
     busy.current = true;
-    const data = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const data = new FormData(form);
     setError(""); setSuccess(false);
     try {
       request.current ??= { source: "web", event_id: identity(), expected_revision: base, kind, payload: build(data) };
       setPending(true);
       const savedRevision = await send(request.current, data);
       if (!alive.current) return;
+      if (resetAfterSave) form.reset();
       request.current = null; if (typeof savedRevision === "number") setBase(savedRevision); setDirty(false); setSuccess(true);
     } catch (e) {
       if (!alive.current) return;
