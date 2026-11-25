@@ -97,10 +97,8 @@ describe("native workspace termination state", () => {
     view.rerender(<Workspace editor />);
     expect(workspaceState()).toBe(false);
   });
-  it("does not claim unknown or voice views are clean", () => {
-    const view = render(<Workspace path="/voice" />);
-    expect(workspaceState()).toBeNull();
-    view.rerender(<Workspace path="/other" />);
+  it("does not claim unknown views are clean", () => {
+    const view = render(<Workspace path="/other" />);
     expect(workspaceState()).toBeNull();
     view.rerender(<Workspace path="/graph" />);
     expect(workspaceState()).toBe(false);

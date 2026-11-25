@@ -52,7 +52,7 @@ export function useNativeEditorState(state: EditorState): void {
 }
 
 // The shell is also present with zero tabs. An absent editor on these routes has no note draft;
-// voice and other unrecognised tools retain the native shell's conservative confirmation.
+// unrecognised tools retain the native shell's conservative confirmation.
 export function useNativeWorkspaceState(path: string): void {
   const currentPath = useRef(path);
   useLayoutEffect(() => { currentPath.current = path; });

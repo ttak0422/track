@@ -29,7 +29,7 @@ import { SearchProvider } from "../searchState";
 import { CalendarPreferencesProvider } from "../calendarPreferences";
 import { VaultScopeProvider, useVaultScope } from "../vaultScope";
 import { IconAffiliate, IconFileText, IconCalendar, IconChecklist, IconNotebook, RailIcon } from "./icons";
-import { IconTimeline, IconMicrophone } from "@tabler/icons-react";
+import { IconTimeline } from "@tabler/icons-react";
 
 export function Shell() {
   return (
@@ -158,13 +158,6 @@ function ShellView() {
                     <RailIcon Icon={IconAffiliate} />
                   </Link>
                 </RailTip>
-                {!STATIC_MODE && (
-                  <RailTip label="Voice input">
-                    <Link className="rail-button" to="/voice" aria-label="Voice input">
-                      <RailIcon Icon={IconMicrophone} />
-                    </Link>
-                  </RailTip>
-                )}
                 {/* The open note's own controls, below the workspace's views. Absent while no note is
                     open, so the dock keeps carrying nothing but navigation the rest of the time. */}
                 {!STATIC_MODE && <NoteRailControls />}
