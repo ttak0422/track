@@ -35,7 +35,7 @@ local function lines(snapshot)
    result[#result + 1] = "## Reports"
    for _, report in ipairs(snapshot.reports) do
       result[#result + 1] = report.id .. " | " .. clean(report.author) .. " | " .. (report.task_id and "task:" .. report.task_id or "project") .. " | " .. clean(report.summary)
-      result[#result + 1] = "  " .. report.period_start .. " - " .. report.period_end .. " events: " .. table.concat(report.event_sequences, ", ")
+      result[#result + 1] = "  " .. report.period_start .. " - " .. report.period_end
       if report.uncertainty then result[#result + 1] = "Uncertainty: " .. clean(report.uncertainty) end
       if report.user_action then result[#result + 1] = "User action: " .. clean(report.user_action) end
    end
@@ -49,12 +49,6 @@ local function lines(snapshot)
    result[#result + 1] = "## Cooperative controls (receipts, not process state)"
    for _, control in ipairs(snapshot.controls) do
       result[#result + 1] = control.id .. " " .. control.action .. " -> " .. control.owner .. " [" .. control.status .. "] " .. clean(control.result)
-   end
-   result[#result + 1] = ""
-   result[#result + 1] = "## Recorded events"
-   for _, event in ipairs(snapshot.events) do
-      result[#result + 1] = string.format("%d %s %s %s:%s", event.sequence, event.at, event.kind, event.source, event.event_id)
-      result[#result + 1] = "  Payload: " .. clean(vim.json.encode(event.payload))
    end
    return result
 end
