@@ -16,6 +16,8 @@ relative Markdown links and local images; save and repeat the command to refresh
 
 **Documentation: <https://ttak0422.github.io/track/>** — syntax, CLI reference, web workspace, tasks, queries, and visualization.
 
+In the Telescope `:Track search_title` and `:Track search_body` pickers, Enter opens the selected note or creates one after an empty search. Press `<C-o>` to create a note from the current prompt even when a matching note is shown.
+
 ## Layout
 
 ```

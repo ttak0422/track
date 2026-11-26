@@ -146,13 +146,20 @@ local function open_selection(telescope, prompt_bufnr)
    open_note(selection)
 end
 
--- Handle <CR> for the search pickers: open the highlighted note, or—when the
--- search matched nothing—create a note titled with the current prompt. Note
--- creation is gated behind <CR> alone so that moving through the results
--- (e.g. <C-n>) never mints a note by accident.
+local function create_from_prompt(telescope, prompt_bufnr, prompt, close_empty)
+   local title = vim.trim(prompt)
+   if title == "" then
+      if close_empty then telescope.actions.close(prompt_bufnr) end
+      vim.notify("track: type a title to create a note", vim.log.levels.WARN)
+      return
+   end
+   telescope.actions.close(prompt_bufnr)
+   require("track.create").create(title)
+end
+
+-- Enter opens the highlighted note, or creates one after a completed empty search.
 local function select_or_create(telescope, prompt_bufnr, finder, prompt)
    local selection = telescope.action_state.get_selected_entry()
-   local title = vim.trim(prompt)
    if selection and finder:owns(selection) and selection.value and selection.value.path then
       telescope.actions.close(prompt_bufnr)
       open_note(selection)
@@ -162,12 +169,7 @@ local function select_or_create(telescope, prompt_bufnr, finder, prompt)
       vim.notify("track: search results are still being selected", vim.log.levels.WARN)
       return
    end
-   telescope.actions.close(prompt_bufnr)
-   if title == "" then
-      vim.notify("track: type a title to create a note", vim.log.levels.WARN)
-      return
-   end
-   require("track.create").create(title)
+   create_from_prompt(telescope, prompt_bufnr, prompt, true)
 end
 
 local function backlink_title(backlink)
@@ -286,9 +288,12 @@ local function pick(scope, opts)
             copy_mapping(telescope, map, source_path, function(selection)
                return finder:can_select(current_prompt(prompt_bufnr)) and finder:owns(selection)
             end)
-            -- <CR> opens the highlighted note, or creates one titled with the prompt when the
-            -- search finds nothing. Creation lives on <CR> alone so list navigation never
-            -- creates a note by accident.
+            -- Explicit creation uses the text itself, never results from a pending search.
+            for _, mode in ipairs({ "i", "n" }) do
+               map(mode, "<C-o>", function()
+                  create_from_prompt(telescope, prompt_bufnr, current_prompt(prompt_bufnr))
+               end)
+            end
             telescope.actions.select_default:replace(function()
                -- Telescope updates get_current_line only when its debounced finder runs.
                -- Read the buffer itself so a just-typed prompt cannot open an old hit.
