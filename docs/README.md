@@ -18,6 +18,7 @@ The user-facing documentation is not here: it is the track vault under `help/`, 
 - `spec/web.md`: local web workspace HTTP API, save conflict detection, graph scopes, and theme/palette config.
 - `spec/design.md`: the reference for styling web UI; pick a control variant from here rather than inventing one.
 - `spec/visualization.md`: Canonical Data Model, View Spec, and chart rendering.
+- `spec/slack-integration.md`: proposed Slack client and opt-in capture boundary.
 - `spec/fetch.md`: the contract `track-fetch-*` tools target to bring outside data into the Canonical Data Model.
 
 ## Agent guides
